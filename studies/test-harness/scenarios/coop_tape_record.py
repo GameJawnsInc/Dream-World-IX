@@ -136,6 +136,21 @@ The tape is named `-world-walk-`, lands in its OWN dir (COOP_TAPE_DIR; default <
 moves only that dir's latest-world-walk.json -- never latest.json, latest-world.json or latest-world-battle.json. Its pose per frame
 beside the recorder's facts: `py tools/harness/coop_peer.py where <tape> --want world --pose --near 1197.37,-796.7`.
 
+THE GUEST-MENU VARIANT ([ff9mapkit netsync s168] COOP_TAPE_GUEST_MENU=1, OWNER-GATED): COOP_TAPE_GUEST_MENU for coop_guest_menu_duo.py's T
+`tape` leg (studies/field-coop/S168-DESIGN.md "The bench", Tapes; the Order's step 4), RECORDED ON AN s168 HOST (`netsync.guestmenu`
+published: an older host builds no section 12). REC-OWNER runs FIRST and nothing is edited without it: COOP_TAPE_GUEST_MENU_OWNER=1 (the
+owner's go -- never set by a bench script unasked), the owner's bridge DOWN (127.0.0.1:49201 accepts nothing; a bench never stops it),
+the install's [Netsync] Enabled 0 or absent AT LAUNCH (the ini written before launch: a launch on a live co-op ini dials the owner's
+bridge -- THE RECORDER DIALS THE OWNER) and no COOP_CALIBRATE. Then the host values on a PRIVATE port (pb.WORLD_PORT; 49201 refused),
+serve-guest FOLLOWING with `--caps auto` (it adopts the host's 0x000B, so GmSectionSendRule holds: section 12 on every state frame --
+REC-G12 reads the host's own `guestmenu.frame.sec12_len` and `host_fp`), and _coop_peer_bench.GM_TAPE_PLAN walked in order: 250 for the
+pairing and the key path (45 s), a `warp` to 30602 and back (REC-GL), `battle 67 -1 rand` won (REC-B / REC-W), 250 again, the scribe's
+line on 30801 (REC-GMT), ChestA on 200 (the chest relay's recipe: REC-GMC), 6603 and its walk out to 9011 and the world_warp back in
+(REC-WX / REC-GMW). REC-T, the eight facts REC-GMF1..8 (_coop_peer_bench.gm_tape_facts: the pairing, the story, SECTION 12 on >= 90% of
+the state frames in the order law, the leave, the battle, the talk, the chest, the world), REC-INI. The tape is named `-guest-menu-`,
+lands in its OWN dir (COOP_TAPE_DIR; default <main repo>/.harness-runs/coop-tapes/guest-menu) and moves only that dir's
+latest-guest-menu.json. Its section 12 per frame beside the facts: `py tools/harness/coop_peer.py dump <tape>`.
+
 THE HAND RECORDING (a world-map victory for coop_cut_hold's s120-world leg, which a field-250 tape cannot carry): with the
 desktop's [Netsync] set to the host values above by hand, run
     py tools/harness/coop_peer.py serve-guest --report live --tap <tape>.f9tape
@@ -180,7 +195,12 @@ WORLD_BATTLE_TAPE = pb.env_flag("COOP_TAPE_WORLD_BATTLE")
 #: teleport to the Ice Cavern tile and its stand, the entry into 300 -- on the same private port as the world variants
 WORLD_WALK_TAPE = pb.env_flag("COOP_TAPE_WORLD_WALK")
 ANY_WORLD = WORLD_TAPE or WORLD_BATTLE_TAPE or WORLD_WALK_TAPE
-PORT = pb.env_int("COOP_PEER_PORT", pb.WORLD_PORT if ANY_WORLD else pb.DEFAULT_PORT)
+#: [ff9mapkit netsync s168] THE GUEST-MENU VARIANT (see its paragraph): an s168 host's b3 tape, OWNER-GATED (REC-OWNER before any edit), on
+#: the same private port as the world variants
+GUEST_MENU_TAPE = pb.env_flag("COOP_TAPE_GUEST_MENU")
+GM_PROBE = "netsync.guestmenu"
+GM_SEC12_S = 20.0                        # the host's first section-12 build after serve-guest's first trailer (REC-G12)
+PORT = pb.env_int("COOP_PEER_PORT", pb.WORLD_PORT if (ANY_WORLD or GUEST_MENU_TAPE) else pb.DEFAULT_PORT)
 CODE = pb.BENCH_CODE
 WORLD_FIELD = pb.WORLD_TAPE_FIELD
 WORLD_S = pb.env_float("COOP_TAPE_WORLD_S", 90.0)
@@ -317,9 +337,33 @@ WORLD_WALK_CATALOG = {
 }
 
 
+#: [ff9mapkit netsync s168] the GUEST-MENU variant's checks (COOP_TAPE_GUEST_MENU=1); REC-OWNER first, before anything is edited
+GUEST_MENU_CATALOG = {
+    "REC-OWNER": "THE OWNER GATE: COOP_TAPE_GUEST_MENU_OWNER=1, the owner's bridge (127.0.0.1:49201) down, the install's [Netsync] "
+                 "Enabled 0 at launch (the ini written before launch), an s168 host (`netsync.guestmenu`), no COOP_CALIBRATE -- else "
+                 "nothing is edited and no tape is made",
+    **{k: CATALOG[k] for k in ("REC-P0", "REC-P1", "REC-P2", "REC-M")},
+    "REC-G12": "the HOST builds section 12 for its follower: `guestmenu.frame.sec12_len` > 0 and `host_fp` stamped (serve-guest's `--caps "
+               "auto` adopts 0x000B and follows: GmSectionSendRule)",
+    "REC-GL": "THE LEAVE: `warp 30602` landed with control and stood, then `warp 250` back",
+    "REC-B": CATALOG["REC-B"],
+    "REC-W": CATALOG["REC-W"],
+    "REC-GMT": "THE TALK: on 30801 beside the scribe, a plain window opened and paged out, control back",
+    "REC-GMC": "THE CHEST: the field-200 ChestA recipe, the press in its push range: the host's `netsync.chest.host.stamped` +1",
+    "REC-WX": "the host walked out of 6603 onto world 9011 at the landing (coop_world_wait.walk_out: the proven route)",
+    "REC-GMW": "the host stood on the world map, then `world_warp 6603` landed it back on 6603",
+    "REC-T": CATALOG["REC-T"],
+    **{f"REC-GMF{i}": f"GM{i} " + text for i, text in enumerate(pb.GM_TAPE_FACT_NAMES.values(), 1)},
+    "REC-INI": CATALOG["REC-INI"],
+}
+
+
 def _catalog(seat: int, world: bool | None = None, world_battle: bool | None = None, world_walk: bool | None = None) -> dict:
     """The run's checks: CATALOG, plus REC-SEAT on a seat run; [s144] WORLD_CATALOG on a world run; [s145]
-    WORLD_BATTLE_CATALOG on a world-battle run; [s165] WORLD_WALK_CATALOG on a world-walk run."""
+    WORLD_BATTLE_CATALOG on a world-battle run; [s165] WORLD_WALK_CATALOG on a world-walk run; [s168] GUEST_MENU_CATALOG on a guest-menu
+    run."""
+    if GUEST_MENU_TAPE:                                                 # [ff9mapkit netsync s168]
+        return dict(GUEST_MENU_CATALOG)
     if WORLD_WALK_TAPE if world_walk is None else world_walk:            # [ff9mapkit netsync s165]
         return dict(WORLD_WALK_CATALOG)
     if WORLD_BATTLE_TAPE if world_battle is None else world_battle:
@@ -341,6 +385,7 @@ class _Ctx:
         self.eng = None
         self.stage = 0
         self.host_s118 = False
+        self.gm_warps: list = []                # [ff9mapkit netsync s168] the guest-menu route's warps (REC-GL)
 
 
 def _run_dir(g) -> Path:
@@ -457,7 +502,10 @@ def _run(g, led: cb.Ledger, ctx: _Ctx) -> None:
         led.close("COOP_TAPE_WORLD_WALK is its own variant (not with COOP_TAPE_WORLD / COOP_TAPE_WORLD_BATTLE) -- nothing was "
                   "edited")
         return
-    if ANY_WORLD and PORT == pb.OWNER_PORT:
+    if GUEST_MENU_TAPE and (SEAT or ANY_WORLD):              # [ff9mapkit netsync s168]
+        led.close("COOP_TAPE_GUEST_MENU is its own variant (not with COOP_TAPE_SEAT or a world variant) -- nothing was edited")
+        return
+    if (ANY_WORLD or GUEST_MENU_TAPE) and PORT == pb.OWNER_PORT:
         led.check("REC-P0", False, f"COOP_PEER_PORT={PORT} is the owner's bridge port: the world variant never binds it")
         led.close("the bench port is the owner's -- nothing was edited")
         return
@@ -468,6 +516,8 @@ def _run(g, led: cb.Ledger, ctx: _Ctx) -> None:
         return
     # 1. the host's game
     if not _host_setup(g, led, ctx):
+        return
+    if GUEST_MENU_TAPE and not _guest_menu_gate(g, led):     # [ff9mapkit netsync s168] THE OWNER GATE: on the field, before any edit
         return
     try:
         g.no_encounters(True)
@@ -510,12 +560,14 @@ def _run(g, led: cb.Ledger, ctx: _Ctx) -> None:
         return
     # 3. the peer
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    tdir = (pb.world_walk_tape_dir() if WORLD_WALK_TAPE else          # [ff9mapkit netsync s165] a world-walk tape's own home
+    tdir = (pb.guest_menu_tape_dir() if GUEST_MENU_TAPE else          # [ff9mapkit netsync s168] a guest-menu tape's own home
+            pb.world_walk_tape_dir() if WORLD_WALK_TAPE else          # [ff9mapkit netsync s165] a world-walk tape's own home
             pb.world_battle_tape_dir() if WORLD_BATTLE_TAPE else      # [ff9mapkit netsync s145] a world-battle tape's own home
             pb.world_tape_dir() if WORLD_TAPE else pb.tape_dir())        # [ff9mapkit netsync s144] a world tape's own home
     tdir.mkdir(parents=True, exist_ok=True)
     ctx.tape = tdir / (f"{stamp}-host{ctx.field}{f'-seat{SEAT}' if SEAT else ''}{'-world' if WORLD_TAPE else ''}"
                        f"{'-world-battle' if WORLD_BATTLE_TAPE else ''}{'-world-walk' if WORLD_WALK_TAPE else ''}"
+                       f"{'-guest-menu' if GUEST_MENU_TAPE else ''}"
                        f"-s{ctx.stage or 0}.f9tape")
     rd = _run_dir(g)
     ctx.peer = pb.PeerProc("serve-guest", ["--port", PORT, "--report", "live", "--tap", ctx.tape, "--status", "5"],
@@ -544,6 +596,9 @@ def _run(g, led: cb.Ledger, ctx: _Ctx) -> None:
         return
     if WORLD_WALK_TAPE:                     # [ff9mapkit netsync s165] the world-walk variant: out, the landing, the tile, 300
         _world_walk(g, led, ctx, conn)
+        return
+    if GUEST_MENU_TAPE:                     # [ff9mapkit netsync s168] the guest-menu variant: pb.GM_TAPE_PLAN, section 12 throughout
+        _guest_menu(g, led, ctx, conn)
         return
     # 4. the free roam, the battle, the post-battle roam
     _hold_until(ctx, conn[0], PRE_S)
@@ -1093,3 +1148,170 @@ def _world_walk_facts(g, led: cb.Ledger, ctx: _Ctx) -> None:
         g.note(f"tape: {ctx.tape} ({size / 1e6:.1f} MB) -- {pb.WORLD_WALK_POINTER} points at it (every other pointer untouched)")
     else:
         g.note(f"tape: {ctx.tape} -- a world-walk fact is MISSING, so {pb.WORLD_WALK_POINTER} was NOT moved to it")
+
+
+
+# ---------------------------------------------------------------------------------------- [ff9mapkit netsync s168] the guest-menu tape
+def guest_menu_gate(owner: bool, bridge_down: bool, launch_enabled, has_guestmenu: bool, calibrate: bool) -> tuple:
+    """[ff9mapkit netsync s168] REC-OWNER (PURE): the GUEST-MENU recording runs only on the owner's go (COOP_TAPE_GUEST_MENU_OWNER=1), with
+    the owner's bridge DOWN (127.0.0.1:49201 accepts nothing -- never stopped by a bench), the install's [Netsync] Enabled 0 or absent AT
+    LAUNCH (the ini written before launch: a launch on a live co-op ini dials the owner's bridge -- THE RECORDER DIALS THE OWNER), on an
+    s168 HOST (`netsync.guestmenu` published: an older host builds no section 12) and never under COOP_CALIBRATE. (ok, why)."""
+    en = None if launch_enabled is None else str(launch_enabled).strip()
+    ini_ok = en in (None, "", "0")
+    ok = owner and bridge_down and ini_ok and has_guestmenu and not calibrate
+    return ok, (f"COOP_TAPE_GUEST_MENU_OWNER {'set' if owner else 'UNSET (the owner has not said go)'}; the owner's bridge "
+                f"{'down' if bridge_down else 'UP (never stopped by a bench)'}; the launch ini's [Netsync] Enabled {launch_enabled!r}"
+                f"{'' if ini_ok else ' (write Enabled 0 BEFORE launch: THE RECORDER DIALS THE OWNER)'}; the host "
+                f"{'publishes' if has_guestmenu else 'LACKS'} `netsync.guestmenu` (want an s168 host: b3, section 12)"
+                + ("; COOP_CALIBRATE set: refused" if calibrate else ""))
+
+
+def _guest_menu_gate(g, led: cb.Ledger) -> bool:
+    """REC-OWNER before ANY edit or tape (the game booted on the install's ini: read-only reads)."""
+    st = g.state
+    ok, why = guest_menu_gate(pb.env_flag("COOP_TAPE_GUEST_MENU_OWNER"), pb.port_free(pb.OWNER_PORT)[0],
+                              cb.ini_value(g, "Netsync", "Enabled"), cb.has(st, GM_PROBE), cb.CALIBRATE)
+    led.check("REC-OWNER", ok, why)
+    if not ok:
+        led.close("THE OWNER GATE: nothing was edited, no tape was made (COOP_TAPE_GUEST_MENU is owner-gated)")
+    return ok
+
+
+def _gm_section12_live(g, led: cb.Ledger) -> None:
+    """REC-G12: the HOST builds section 12 for its follower -- `netsync.guestmenu.frame.sec12_len` > 0 and `host_fp.value` stamped (the
+    host stamps it only at a BuildStateFrame that carries section 12, under the armed harness), read within GM_SEC12_S."""
+    def live(s):
+        gm = cb.path(s, GM_PROBE) or {}
+        return int((gm.get("frame") or {}).get("sec12_len", -1) or -1) > 0 and (gm.get("host_fp") or {}).get("value") is not None
+    st = cb.poll(g, live, GM_SEC12_S, "section 12 built for the follower") or g.state
+    gm = cb.path(st, GM_PROBE) or {}
+    led.check("REC-G12", live(st), f"frame {gm.get('frame')}; host_fp {(gm.get('host_fp') or {}).get('value')!r}; caps {gm.get('caps')}"
+              " (serve-guest's `--caps auto` adopts the host's 0x000B and FOLLOWS: GmSectionSendRule)")
+
+
+def _gm_warp_stand(g, ctx: _Ctx, field: int, seconds: float) -> tuple:
+    """Warp to ``field`` (a no-op when on it), wait for it with control, then stand ``seconds`` reading the peer: (on it, why)."""
+    try:
+        if g.state.field_id != field:
+            g.warp(field)
+    except HarnessError as err:
+        return False, f"the warp to {field} raised: {str(err)[:200]}"
+    st = cb.poll(g, lambda s: s.ui_state == "FieldHUD" and s.field_id == field and s.control, 30.0, f"FieldHUD {field} with control")
+    end = time.time() + seconds
+    while time.time() < end and ctx.peer.alive():
+        ctx.peer.lines()
+        time.sleep(0.5)
+    return st is not None, (f"on {field}, stood {seconds:g} s" if st else f"never on {field} with control (ui {g.state.ui_state!r})")
+
+
+def _guest_menu(g, led: cb.Ledger, ctx: _Ctx, conn) -> None:
+    """THE GUEST-MENU VARIANT's middle: pb.GM_TAPE_PLAN walked in order (each step its check), the peer stopped, then the eight facts."""
+    import coop_chest_relay as cr                     # beside this file: the field-200 ChestA recipe
+    import coop_world_wait as cw                      # ...and the proven walk out
+    _hold_until(ctx, conn[0], 10.0)
+    _gm_section12_live(g, led)
+    for step in pb.GM_TAPE_PLAN:
+        op, arg, secs = step
+        if not ctx.peer.alive():
+            led.close("serve-guest exited mid-route")
+            break
+        g.note(f"GM_TAPE_PLAN: {op} {arg} {secs:g} s")
+        if op == "stand":
+            end = time.time() + secs
+            while time.time() < end and ctx.peer.alive():
+                ctx.peer.lines()
+                time.sleep(0.5)
+        elif op == "warp":
+            ok, why = _gm_warp_stand(g, ctx, arg, secs)
+            ctx.gm_warps.append((arg, ok, why))
+            if arg == pb.GM_TAPE_FIELD and "REC-GL" not in led.done:      # the leave: out to 30602, back on 250
+                led.check("REC-GL", all(o for _f, o, _w in ctx.gm_warps), "; ".join(w for _f, _o, w in ctx.gm_warps))
+        elif op == "battle":
+            _battle(g, led, ctx)
+        elif op == "talk":
+            ok, why = _gm_warp_stand(g, ctx, arg, 2.0)
+            opened = None
+            if ok:
+                try:
+                    g.walk_to(*pb.GM_TAPE_TALK_AT, tolerance=45, strict=False)
+                    opened = g.interact(timeout=6.0)
+                    pages = g.advance(max_pages=24) if opened is not None else []
+                    g.wait_for(lambda s: s.control, timeout=8.0, what="control back after the scribe's line")
+                    why += f"; the scribe's line opened ({len(pages) + 1} page(s))" if opened is not None else "; no window opened"
+                except HarnessError as err:
+                    why += f"; the talk raised: {str(err)[:160]}"
+            led.check("REC-GMT", opened is not None, why)
+            _gm_warp_stand(g, ctx, arg, secs)
+        elif op == "chest":
+            why = "the chest recipe"
+            stamped = False
+            try:
+                g.poke(13, 0)
+                g.poke(14, 0)
+                g.flag(cr.FLAG_NO_NERO, True)
+                g.flag(cr.FLAG_OPENED, False)
+                g.warp(cr.FIELD, entrance=cr.ENTRANCE, scenario=cr.SCENARIO)
+                cb.poll(g, lambda s: s.ui_state == "FieldHUD" and s.field_id == cr.FIELD and s.control, 30.0, f"FieldHUD {cr.FIELD}")
+                h0 = int(((cr.chest(g.state) or {}).get("host") or {}).get("stamped", 0) or 0)
+                g.walk_to(cr.NEAR[0], cr.NEAR[1], tolerance=cr.NEAR_TOL, strict=False)
+                g.press("confirm", 4)
+                st = cb.poll(g, lambda s: int(((cr.chest(s) or {}).get("host") or {}).get("stamped", 0) or 0) > h0, 8.0, "the chest stamp")
+                stamped = st is not None
+                g.advance(max_pages=8)
+                g.wait_for(lambda s: s.control, timeout=8.0, what="control back after the chest")
+                why += f"; host.stamped {'+1' if stamped else '+0'}"
+            except HarnessError as err:
+                why += f"; raised: {str(err)[:160]}"
+            led.check("REC-GMC", stamped, why)
+            end = time.time() + secs
+            while time.time() < end and ctx.peer.alive():
+                ctx.peer.lines()
+                time.sleep(0.5)
+        elif op == "world":
+            ok, why = _gm_warp_stand(g, ctx, arg, 10.0)
+            okw, whyw, _st = cw.walk_out(g) if ok else (False, why, None)
+            led.check("REC-WX", okw, whyw)
+            if okw:
+                end = time.time() + secs
+                while time.time() < end and ctx.peer.alive():
+                    ctx.peer.lines()
+                    time.sleep(0.5)
+                try:
+                    g.world_warp(arg)
+                    back = cb.poll(g, lambda s: s.ui_state == "FieldHUD" and s.field_id == arg, 30.0, f"back on {arg}")
+                except HarnessError as err:
+                    back = None
+                    g.note(f"the world_warp back raised: {str(err)[:160]}")
+                led.check("REC-GMW", back is not None, f"back in on {arg}" if back else f"never back on {arg} (ui {g.state.ui_state!r})")
+            else:
+                led.unreached(("REC-GMW",), "the walk out failed")
+    g.note(f"coop_peer serve-guest: {ctx.peer.stop()}")
+    _guest_menu_facts(g, led, ctx)
+
+
+def _guest_menu_facts(g, led: cb.Ledger, ctx: _Ctx) -> None:
+    """REC-T and the eight facts (REC-GMF1..8, pb.gm_tape_facts) off the closed tape; latest-guest-menu.json in its own dir when all hold."""
+    summary = ctx.peer.first(pb.PEER["tape_summary"])
+    names = tuple(f"REC-GMF{i}" for i in range(1, 9))
+    try:
+        cp = pb.coop_peer_module()
+        header, records, torn = cp.read_tape(ctx.tape)
+    except Exception as err:                 # noqa: BLE001 -- the reason goes into the checks
+        led.check("REC-T", False, f"the tape does not read back: {err}")
+        led.unreached(names, "the tape does not read back")
+        return
+    led.check("REC-T", summary is not None and not torn and "stopped cleanly" in (ctx.peer.how_ended or ""),
+              f"{summary[1] if summary else 'no tape line'}; {ctx.peer.how_ended}; {len(records)} record(s), torn tail {torn} B")
+    facts = pb.gm_tape_facts(records, cp)
+    for i, k in enumerate(pb.GM_TAPE_FACT_NAMES, 1):
+        led.check(f"REC-GMF{i}", facts[k]["ok"], facts[k]["why"])
+    g.note(f"the T leg's anchors: { {k: facts[k] for k in ('start', 'away', 'back', 'battle', 'talk', 'chest', 'exit', 'rein', 'end')} }; "
+           f"section 12 {facts['sec12']}; host caps {facts['caps']}")
+    ok, _bad = pb.gm_tape_ok(facts)
+    if ok:
+        (ctx.tape.parent / pb.GUEST_MENU_POINTER).write_text(json.dumps({"tape": str(ctx.tape), "stage": ctx.stage,
+                                                                          "recorded": header.get("started")}), encoding="utf-8")
+        g.note(f"{pb.GUEST_MENU_POINTER} -> {ctx.tape}")
+    else:
+        g.note(f"tape: {ctx.tape} -- a fact is MISSING, so {pb.GUEST_MENU_POINTER} was NOT moved to it")

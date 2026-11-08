@@ -2942,7 +2942,8 @@ B_T2_MEASURE = {
 DUO_B_CHECKS = {
     "S167-D0": "the instrument: both on FieldHUD 6603, the guest mirroring, both s167 (wire 15, `netsync.world.walk` / `fp` / `walk.map`)",
     "S167-D-WFREE": "the guest followed the host out (round A's route: the hold until the host is live) and walks -- walk.free within "
-                    "B_READY_S, fp 'match', both trailers' caps 0x0003 (the peer's caps 3 on both lanes)",
+                    "B_READY_S, fp 'match', both trailers' caps 0x0003 (the peer's caps 3 on both lanes; [s168] by stage: each "
+                    "lane's peer word the other game's own published word, 0x000B on an s168 duo)",
     "S167-D-W1": "D-W1, the GUEST walks (closed loop) -- the HOST's ghost of it on the guest's own trailer BY SEQ (target within "
                  "D_TARGET_TOL, eased within D_G1_TOL), the guest moved >= D_MOVE_U and free throughout, the host's own pose unmoved",
     "S167-D-W2": "D-W2, the HOST walks, the guest stands free -- the guest's ghost of it by seq, the host moved >= D_MOVE_U, the guest's "
@@ -3378,9 +3379,13 @@ def judge_dw_free(st, hs_last) -> tuple:
         return False, f"absent: no `{WALK_PROBE}` -- an engine before s167 ({ww._freeze_word(st) if st is not None else 'no sample'})"
     pg = (_lane(st).get("caps") or {}).get("peer")
     ph = (_lane(hs_last).get("caps") or {}).get("peer") if hs_last is not None else None
-    ok = walk_free(st) and _walk(st).get("why") is None and _fp(st).get("state") == "match" and pg == CAPS_S167 and ph == CAPS_S167
+    # [ff9mapkit netsync s168] re-keyed BY STAGE (S168-DESIGN.md decision 32), never weakened: each lane's peer word is the OTHER game's own
+    # word as its probe publishes it -- s167's 0x0003 each; 0x000B on an s168 duo (0x0003 from a side under `guestmenu caps off`)
+    want_g = BW.ww_own_caps_want(cb.path(hs_last, "netsync")) if hs_last is not None else CAPS_S167
+    want_h = BW.ww_own_caps_want(cb.path(st, "netsync"))
+    ok = walk_free(st) and _walk(st).get("why") is None and _fp(st).get("state") == "match" and pg == want_g and ph == want_h
     return ok, (f"walk.free {_walk(st).get('free')!r} (why {_walk(st).get('why')!r}); fp.state {_fp(st).get('state')!r}; the peer's caps "
-                f"on the guest {pg!r}, on the host {ph!r} (want {CAPS_S167} each)")
+                f"on the guest {pg!r}, on the host {ph!r} (want {want_g} / {want_h})")
 
 
 def judge_host_fp(host_samples, host_lines) -> tuple:

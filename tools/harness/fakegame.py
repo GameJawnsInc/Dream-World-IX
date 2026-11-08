@@ -1424,7 +1424,8 @@ def netsync_subverbs(caps) -> tuple:
     battle = {v: cap for cap, (_p, verbs) in NETSYNC_BATTLE_CAPS.items() for v in verbs}
     return NETSYNC_SUBVERBS_F32 + tuple(v for cap, (_p, verbs) in NETSYNC_F33_CAPS.items() if cap in caps
                                         for v in verbs) \
-        + tuple(v for v in NETSYNC_BATTLE_VERB_ORDER if battle[v] in caps)
+        + tuple(v for v in NETSYNC_BATTLE_VERB_ORDER if battle[v] in caps) \
+        + (("guestmenu",) if "guestmenu" in caps else ())    # [ff9mapkit netsync s168] the opt-in rung: appended LAST
 
 
 NETSYNC_SUBVERBS = netsync_subverbs(frozenset(NETSYNC_F33_CAPS) | frozenset(NETSYNC_BATTLE_CAPS))
@@ -2073,6 +2074,129 @@ def world_walk_proof_tallies(pieces, source: str | None = None) -> tuple:
     text = source if source is not None else world_walk_engine_source()
     got = BW.world_walk_proof_counts(text) if text else None
     return got if got else (FAKE_WORLD_WALK_SELFTEST_ROWS, FAKE_WORLD_WALK_MUTANTS)
+#: [ff9mapkit netsync s168] THE GUEST'S MAIN MENU rung (studies/field-coop/S168-DESIGN.md, rung 0: view only), OPT-IN: the s168 engine has no
+#: patch on this branch's stack yet (the W1 clone builds it uncommitted; it deploys only after the owner's s167 two-PC look), so the
+#: default stand-in stays the deployed s167 engine and every patch-pinned ladder test reads as before. A test (and the s168 bench's
+#: stand-in legs) opts in with :func:`guest_menu_stand_in` (the "guestmenu" cap beside the s167 world-walk pieces: the s168 engine carries
+#: s167). It is NOT in NETSYNC_BATTLE_CAPS, so caps_through() and NETSYNC_SUBVERBS never take it in; when the s168 patch lands, a later
+#: round moves it onto the ladder.
+NETSYNC_S168_CAPS = frozenset(("guestmenu",))
+#: [ff9mapkit netsync s168] the rung's stand-in faults (decision 36's list, plus the as-built contract's), each the stand-in wrong in ONE
+#: place so ITS row goes red:
+#:   "capture_leak"       the census misses: a seated changing confirm runs its stock body (impactful +1, the seated copy written) with no
+#:                        refusal, no capture, no pass counted (GM0-REFUSE-x)
+#:   "restore_skip"       every restore leaves the party family as seated with no lever (fp_after names party: GM0-RESTORE)
+#:   "cut_ignored"        the host's battle never closes the seated menu (GM0-CUT)
+#:   "leave_ignored"      the host's intent away never closes it (GM0-LEAVE)
+#:   "scene_ignored"      the host's scene on my field never closes it (GM0-SCENE)
+#:   "title_ignored"      the host at the title never closes it (GM0-TITLE)
+#:   "pause_closed"       the close keyed on the UI state, not the seat: a close request on Pause (no seat) counts and leaves Pause
+#:   "caps_ignored"       term 3 ignored: an older partner (or `caps off`) still opens (GM0-CAPS-a)
+#:   "unmirrored_open"    the who term ignores mirroring: an unmirrored session guest is seated (GM0-HOLE)
+#:   "stall_open"         guestSession on IsLiveFollowedSession: inside a stall the unmirrored guest's OWN menu opens (GM0-STALL-WHO)
+#:   "seat_at_press"      the seat taken at the press, the door never re-runs: an intent inside the HUD fade still seats (GM0-DOOR)
+#:   "quit_under_close"   the close ignores the quit prompt: it hides under QuitUI and leaves events off on the HUD (GM0-QUIT)
+#:   "dialog_drop_lifted" the dialogue path's silent drop lifted: a mirroring guest's press under a window closes the window
+#:                        (GM0-DIALOG-PATH (b))
+#:   "slot_keyed"         section 12's members applied by SLOT index, not CharacterId (a party with a gap seats the wrong data: GM0-SEAT)
+#:   "own_values"         the seat installs no member: the guest's own party is drawn (GM0-BROWSE, GM0-SEAT)
+#:   "release_skip"       the harness release forgets `seat skip` (GM0-RELEASE)
+#:   "settle_same_frame"  the settle restamps on the frame that FIRST reads events on: a queued tag-4 write is missed (GM0-WORLDTAG4)
+#:   "guest_menu_proof_fail" the proof block's guest menu line reads FAIL (an E line: GM0-PROOF)
+GUEST_MENU_FAULTS = ("capture_leak", "restore_skip", "cut_ignored", "leave_ignored", "scene_ignored", "title_ignored", "pause_closed",
+                     "caps_ignored", "unmirrored_open", "stall_open", "seat_at_press", "quit_under_close", "dialog_drop_lifted", "slot_keyed",
+                     "own_values", "release_skip", "settle_same_frame", "guest_menu_proof_fail")
+#: [ff9mapkit netsync s168] the stand-in's own menu facts (MODELLED shapes, not the game's tables): one UIScene fade (FadeDuration 40 ms),
+#: the main menu's rows (Order, Party, Card and Config greyed while seated), what this install knows (characters 0-11, presets 0-15,
+#: items 0-254 with NoItem 255, support abilities 0-63, key items below 30), the guest's own bag / key items / "new!" marks / gil, the
+#: confirm each sub-screen's census site reads, and the type-5 length the selftest role's own BuildStateFrame stamps
+FAKE_GM_FADE_MS = 40
+FAKE_GM_MENU_ROWS = ("Item", "Ability", "Equip", "Status", "Order", "Party", "Card", "Config", "Folklore")
+FAKE_GM_SCREENS = {"Item": "Item", "Ability": "Ability", "Equip": "Equip", "Status": "Status", "Folklore": "Folklore", "Order": "Order",
+                   "Party": "PartySetting", "Card": "Card", "Config": "Config"}
+FAKE_GM_KNOWN = {"chars": range(0, 12), "presets": range(0, 16), "items": range(0, 255), "sa": range(0, 64), "keys": range(0, 30)}
+FAKE_GM_NO_ITEM = 255
+FAKE_GM_BAG = ((1, 3), (2, 1), (236, 2))
+FAKE_GM_KEYS = (9, 14)
+FAKE_GM_USED = (9,)
+FAKE_GM_GIL = 1234
+FAKE_GM_CENSUS = {("Item", "confirm"): BW.GM_CENSUS_I1, ("Equip", "confirm"): BW.GM_CENSUS_E1, ("Ability", "confirm"): BW.GM_CENSUS_A1,
+                  ("Ability", "special"): BW.GM_CENSUS_A2}
+FAKE_GM_TYPE5_LEN = 2900
+#: the host's party the client route's host frame carries when ``FakeGame.gm_host_party`` names none (CharacterIds 0 / 2 / 3 at markers
+#: the guest never holds)
+FAKE_GM_HOST_PARTY = ({"char": 0, "name": "Zidane", "level": 12, "exp": 4242, "pa": [25, 0]}, {"char": 2, "name": "Garnet", "level": 11,
+                      "exp": 3333, "pa": [10, 0]}, {"char": 3, "name": "Steiner", "level": 13, "exp": 5150, "pa": [0, 5]}, None)
+FAKE_GM_HOST_GIL = 99999
+#: the clone the s168 pins read (decision 34's derived tallies): FF9_S168_CLONE = its Assembly-CSharp
+S168_CLONE_ENV = "FF9_S168_CLONE"
+S168_TAG = "[ff9mapkit netsync s168]"
+
+
+def guest_menu_stand_in(fake, *, faults=()) -> None:
+    """[ff9mapkit netsync s168] Opt a stand-in into the s168 engine: the s167 world-walk pieces (the s168 engine carries s167) and the
+    `guestmenu` cap; ``faults`` from GUEST_MENU_FAULTS."""
+    unknown = set(faults) - set(GUEST_MENU_FAULTS)
+    if unknown:
+        raise ValueError(f"guest_menu_stand_in: no fault {sorted(unknown)}")
+    fake.world_walk_pieces = FAKE_WORLD_WALK_S167_PIECES
+    fake.netsync_caps = frozenset(fake.netsync_caps) | NETSYNC_S168_CAPS
+    fake.guest_menu_faults = set(faults)
+
+
+def s168_engine_source(file_name: str, env=None) -> str | None:
+    """[ff9mapkit netsync s168] An s168 engine file BY STAGE: a clone named by $FF9_S168_CLONE (its Assembly-CSharp) carrying the s168 tag,
+    else an s168 patch on THIS branch's memoria-patches/ creating the file (its added lines), else None (the deployed s167 stage)."""
+    env = os.environ if env is None else env
+    raw = str(env.get(S168_CLONE_ENV, "") or "").strip()
+    if raw:
+        hits = sorted(Path(raw).rglob(file_name))
+        if hits:
+            text = hits[0].read_text(encoding="utf-8-sig", errors="replace")
+            if S168_TAG in text:
+                return text.replace("\r\n", "\n")
+    patches = Path(__file__).resolve().parents[2] / "memoria-patches"
+    for p in sorted(patches.glob("s168-*.patch")) if patches.is_dir() else ():
+        text = p.read_bytes().decode("utf-8", "replace").replace("\r\n", "\n")
+        for sec in re.split(r"(?m)^diff --git ", text):
+            head = sec.split("\n", 1)[0]
+            if sec.startswith("a/") and head.rstrip().endswith(file_name) and "--- /dev/null" in sec[:600]:
+                return "\n".join(ln[1:] for ln in sec.split("\n") if ln.startswith("+") and not ln.startswith("+++"))
+    return None
+
+
+def guest_menu_proof_tallies(source: str | None = None, env=None) -> tuple:
+    """[ff9mapkit netsync s168] The guest menu proof's (rows, mutants): DERIVED from the s168 source (BW.selftest_proof_counts over
+    NetSyncGuestMenu.cs), else the W1 clone's fallback BW.GUEST_MENU_PROOF_S168 (420 / 249)."""
+    text = source if source is not None else s168_engine_source("NetSyncGuestMenu.cs", env)
+    got = BW.selftest_proof_counts(text) if text else None
+    return got if got else BW.GUEST_MENU_PROOF_S168
+
+
+def seat_bracket_proof_tallies(source: str | None = None, env=None) -> tuple:
+    """[ff9mapkit netsync s168] The seat bracket proof's (rows, mutants): derived from NetSyncSeatBracket.cs, else 19 / 7."""
+    text = source if source is not None else s168_engine_source("NetSyncSeatBracket.cs", env)
+    got = BW.selftest_proof_counts(text) if text else None
+    return got if got else BW.SEAT_BRACKET_PROOF_S168
+
+
+def world_walk_proof_tallies_s168(source: str | None = None, env=None) -> tuple:
+    """[ff9mapkit netsync s168] The world walk proof's (rows, mutants) on the s168 engine: derived from its NetSyncWorldWalk.cs (the two caps
+    rows and two mutants W1d added), else BW.WORLD_WALK_PROOF_S168 (534 / 198)."""
+    text = source if source is not None else s168_engine_source("NetSyncWorldWalk.cs", env)
+    got = BW.world_walk_proof_counts(text) if text else None
+    return got if got else BW.WORLD_WALK_PROOF_S168
+
+
+def _gm_int(text, lo: int, hi: int):
+    """[ff9mapkit netsync s168] NetSyncGuestMenu.ParseLeverInt: an invariant Int32 (sign allowed) inside lo..hi, else None."""
+    try:
+        v = int(str(text).strip())
+    except (TypeError, ValueError):
+        return None
+    return v if lo <= v <= hi else None
+
+
 #: [ff9mapkit netsync s166] THE PAIRING WINDOW's knobs (``FakeGame.pairing_window``, opt-in: None = unmodelled -- every earlier test reads as
 #: before, and the pull's term reads the window as RESOLVED, the common case: a free-standing guest writes at the rise): the install's
 #: [SaveFile] DisableAutoSave, the stock ladder's refusal at the entry and live (a no-save beat; AutoSaveOnlyAtMoogle off a moogle
@@ -3425,6 +3549,7 @@ class FakeGame:
         #: the beat's tick and the fake's frame it began on. With ``stairs`` rows of the height test's loss
         #: (``kind`` "lost": where the contour took control) and of a side scene or the back door firing.
         self.visit_log: list[dict] = []
+        self._gm_init()                  # [ff9mapkit netsync s168] the guest menu rung's knobs and statics (opt-in: guest_menu_stand_in)
 
     # -- lifecycle -----------------------------------------------------------------------------
     def start(self) -> "FakeGame":
@@ -3670,6 +3795,7 @@ class FakeGame:
                 self._step_world_follow()   # [ff9mapkit netsync s165] the world follow-out, the dot, the host's own world visit
                 self._step_world_walk()     # [ff9mapkit netsync s166] the kit's world-script readers (content), the close, the ferryman's scene
                 self._step_world_walk_a3()  # [ff9mapkit netsync s166] A3 / A4: the sender, the cache, the lane, the lines, the ghost
+                self._step_guest_menu()     # [ff9mapkit netsync s168] the guest menu: the door, the menu's fades, the close, the settle
                 self._step_script_poll()    # [ff9mapkit netsync F3.3] R5: the open polled line's script button-poll
                 self._step_diorama()        # [ff9mapkit netsync F3.3] DIO-1: a booted diorama's leave and return
                 self._step_dress()          # [ff9mapkit netsync s138] the selftest mirror's ghost: one frame behind
@@ -5226,6 +5352,8 @@ class FakeGame:
                 self._close_battle_cursor()
 
     def _menu_step(self, button: str) -> None:
+        if self._gm_button(button):
+            return      # [ff9mapkit netsync s168] the guest menu's press (the gate seam) and the keys inside a menu its door opened
         if AGENT_CONTROL.get(str(button).lower()) == "menu" and self._menu_key_press():
             return      # [ff9mapkit netsync R3 s121] a mirroring guest's Menu key: s38's refusal (s121: audible on the HUDs)
         if self.ui_state == "WorldHUD" and (self._ww() or self.world_locations) and self._world_key(button):
@@ -6437,6 +6565,8 @@ class FakeGame:
             self._worldfollow(args)                     # [ff9mapkit netsync s165] the world follow-out's levers and bench host
         elif sub == "worldwalk":
             self._worldwalk(args)                       # [ff9mapkit netsync s166] world walk's levers (A0: kitcell)
+        elif sub == "guestmenu":
+            self._guestmenu(args)                       # [ff9mapkit netsync s168] the guest menu's levers and bench
 
     def _release_netsync(self) -> None:
         """ReleaseNetsyncOverride, on `reset`, disarm and fault. [ff9mapkit netsync F3.3] DIO-1: a diorama THIS harness
@@ -6525,6 +6655,8 @@ class FakeGame:
                 doc["host"] = self._wfo_host_world_doc()       # ...and `host`
             if "worldwalk" in caps and self._wwk_a2():
                 doc["wire_peer"] = self._wire_peer_doc()       # [ff9mapkit netsync s166] A2: ...and `wire_peer`, the LAST key
+            if self._gm_on():
+                doc["guestmenu"] = self._gm_doc()              # [ff9mapkit netsync s168] ...and `guestmenu`, netsync's LAST key now
             return doc
         if ns["wait_armed"]:
             ns["wait_ms"] = int((self.frame - self._wait_since_frame) * 1000 / self.fps)
@@ -6643,6 +6775,10 @@ class FakeGame:
                            overlay_detail=wl["detail"] if composed else -1,
                            peer_alive=bool(self.coop_follow["valid"] and self.coop_follow["connected"]))
                 text = wl["text"]
+                if self._gm_overlay(not self._gm_live_followed()):
+                    # [ff9mapkit netsync s168] decision 10: state 29 while the refusal line lives (never over the peer-lost line: CR-2)
+                    doc.update(overlay=BW.OVERLAY_NAME_GUEST_MENU, overlay_detail=0)
+                    text = self._gm["line"]["text"]
             elif self._no_code and self.netsync["role"] == "client":
                 text = BW.overlay_words(BW.OVL_NO_CODE)           # [s144 bench] OvlNoCode's words (the overlay set above)
             doc.update(overlay_text=text, follow=self._session_follow_doc())
@@ -8545,7 +8681,8 @@ class FakeGame:
 
     def _wwk_proof(self) -> None:
         """The proof block's s166 line, after the world dot line (the engine's words: "FAILED (row <name> failed (k of N))")."""
-        rows, mutants = world_walk_proof_tallies(self.world_walk_pieces, self.world_walk_source)   # [ff9mapkit netsync s166] DERIVED (s167: by stage)
+        rows, mutants = (world_walk_proof_tallies_s168(self.world_walk_source) if self._gm_on()   # [ff9mapkit netsync s168] by stage
+                         else world_walk_proof_tallies(self.world_walk_pieces, self.world_walk_source))   # [ff9mapkit netsync s166] DERIVED (s167: by stage)
         if "walk_proof_fail" in self.world_walk_faults:
             self._mlog(f"[NetSync] {BW.PROOF_WORLD_WALK}FAILED (row {FAKE_WORLD_WALK_FIRST_ROW} failed (1 of {rows}))")
         else:
@@ -9868,8 +10005,12 @@ class FakeGame:
         return self._wwb_on() and self._wwb["fp_lever"] == "off"
 
     def _wwb_own_caps(self) -> int:
-        """NetSyncWorldFpArmed.OwnCapsNow: 0x0003, 0x0001 under `fp off` (round A's pieces: the s166 constant 0x0001)."""
-        return BW.ww_own_caps_rule(self._wwb_fp_off()) if self._wwb_on() else BW.WW_OWN_CAPS
+        """NetSyncWorldFpArmed.OwnCapsNow: 0x0003, 0x0001 under `fp off` (round A's pieces: the s166 constant 0x0001). [ff9mapkit netsync
+        s168] Re-keyed BY STAGE over the two-argument rule: the s168 engine (the `guestmenu` rung) speaks 0x000B, 0x0003 under `guestmenu
+        caps off`; an s167 engine never speaks b3 (menu_off True)."""
+        if not self._wwb_on():
+            return BW.WW_OWN_CAPS
+        return BW.ww_own_caps_rule(self._wwb_fp_off(), not self._gm_on() or self._gm["caps_off"])
 
     def _wwb_fp_comps_of(self, world: int) -> list:
         """My six components for ``world``: ``world_fp_components`` (a dict by world, or one list for every world), else the stand-in's
@@ -13195,6 +13336,10 @@ class FakeGame:
     def _menu_key_now(self) -> str | None:
         """NetSyncField.HarnessMenuKeyNow: MenuKeyStep through MenuKeyRoute on the stand-in's UI -- "dialog" under an open
         dialogue window (not paused) or a state with no scene (UIManager.GetSceneFromState)."""
+        if self._gm_press_in_play():                      # [ff9mapkit netsync s168] a guest press reads GuestMenuKeyStep's ONE verdict
+            verdict, _why = self._gm_verdict()
+            return BW.menu_key_name_s168(BW.menu_key_route(self.ui_state in BW.UI_SCENE_STATES, self._dialog_open(),
+                                                           self.ui_state == "Pause", verdict))
         return BW.menu_key_now(self.menu_control_enable, self.story_mirroring, self.ui_state, self._dialog_open(),
                                self.ui_state == "Pause")
 
@@ -13315,8 +13460,1092 @@ class FakeGame:
             self._wfo_proof()
         if "worldwalk" in caps:                             # [ff9mapkit netsync s166] the block's last modelled line (after the world dot's)
             self._wwk_proof()
+        if self._gm_on():                                   # [ff9mapkit netsync s168] ...then the seat bracket line and the guest menu line
+            self._gm_proof()
 
     # -- [ff9mapkit netsync B4] [ff9mapkit netsync B5] the battle co-op lane (s100-s105) -------------------------------
+    # -- [ff9mapkit netsync s168] THE GUEST'S MAIN MENU, RUNG 0 (the opt-in `guestmenu` rung: guest_menu_stand_in) -------------------------
+    # The ENGINE's facts, never the design's intent (BW's s168 twins spend every rule):
+    #   THE PRESS    UIKeyTrigger's Menu arm keyed on GuestMenuPressInPlay (WorldSessionHeld || IsMirroringStory || the selftest role with
+    #                the field-gate bench): ONE verdict (BW.gm_key_step: s121's step off the HUD, GuestQuiet inside the HUD's hide fade for a
+    #                feature-ON pair), its act (BW.gm_press_act_rule): stock OnKeyMenu, the press deadline, the refusal AS GIVEN (the buzz,
+    #                `menu_refusal.count` +1, `guestmenu.why`, the DeclineOnce line, the 4 s line), s121's own refusal. `menu_refusal.now`
+    #                reads `guest` for a guest open. The dialogue path (a window up, not paused) is s121's: a mirroring guest's silent drop;
+    #                the bench's OnKeyMenu hides its own window and reaches the door with no press verdict.
+    #   THE DOOR     ChangeUIState(HUD -> MainMenu) after one UIScene fade (``gm_fade_ms``): the predicate re-run whole (BW.gm_why_not
+    #                over this stand-in's facts), the seat or the refusal (the HUD's own Show: events and control back on).
+    #   THE SEAT     all or nothing from ONE frame (the selftest role: the `frame` bench frame; a client: the host's latest, ``gm_host_party``
+    #                under ``gm_host_caps``): the record first (every original reference), then the scratches installed (members keyed by
+    #                CharacterId), fp_before before anything, seat_fp after; `seat fault <c>` rolls every family back.
+    #   THE MENU     the seated main menu (Order, Party, Card, Config greyed: the buzz), its sub-screens, the census at their confirms
+    #                (FAKE_GM_CENSUS; ``gm_confirm`` fires any site), Cancel back up; the restore at the door (menu family -> the HUD),
+    #                fp_after, the outside fold, the HUD's Show one fade later (event_enable back), the settle one frame after that.
+    #   THE CLOSES   `fireclose <id>` (the bench) and a client's real triggers (the host's intent away, its world-out b6, its battle, its
+    #                title b7, its scene on my field, the session's ramp): BW.gm_request_close_over, then one BW.gm_close_drive_rule tick a
+    #                frame (the quit prompt waits, ONE Hide, the HUD's Show, the watchdog), the forced-close line, `last_close`.
+    #   THE BOOKS    `netsync.guestmenu` in the agent's order (BW.GUEST_MENU_SENTINELS' keys), the twelve levers and their release, the
+    #                caps word 0x000B (0x0003 under `caps off`, 0x0001 under `worldwalk fp off`), the proof block's three lines (derived
+    #                tallies), `session.overlay` "guest_menu" on a client while the refusal line lives (never over the peer-lost line).
+    # WHAT IT CANNOT: real screens (a row list and a state name each), real stat math (a member is a dict), `master_skipped`, `ach_held`
+    # and `held` (no SetMasterSkill, no platform, no ETb: they stay at rest), the host side (`host_fp`, a host's section 12 build and its
+    # `frame` book beyond the selftest role's own build at the proof), the world copy's tag-4 script
+    # (``gm_tag4_event``: one gEventGlobal bit a modelled MenuOpenEvent flips one frame after the HUD's Show), the rejoin / world triggers
+    # (the world route's facts are the bench's), the backstops but through ``gm_backstop``, a real fade curve (one step at its end).
+    def _gm_on(self) -> bool:
+        """The s168 engine: the `guestmenu` cap on an s167 world-walk stand-in (guest_menu_stand_in)."""
+        return self.netsync_dialogue == "authority" and "guestmenu" in self.netsync_caps and self._wwb_on()
+
+    def _gm_init(self) -> None:
+        """The rung's knobs and statics (per PROCESS: the counters monotonic, as the engine's)."""
+        #: [ff9mapkit netsync s168] the knobs a test turns: the faults (GUEST_MENU_FAULTS), one UIScene fade in ms, the client route's host
+        #: (its caps word; its party: FAKE_GM_HOST_PARTY when None), the guest's own bag / key items / marks / gil, a modelled tag-4 write
+        #: (``(byte, bit)`` or None), the world copy's UID-0 variable bytes and sysvar 192, and two bench facts (a busy why; the host's scene)
+        self.guest_menu_faults: set = set()
+        self.gm_fade_ms = FAKE_GM_FADE_MS
+        self.gm_host_caps = BW.CAPS_S168
+        self.gm_host_party = None
+        self.gm_tag4_event = None
+        self.gm_uid0_vars = bytes(range(16))
+        self.gm_sysvar192 = 0
+        self.gm_busy = None
+        self.gm_host_scene = None
+        self._gm_events = bytearray(2048)
+        self._gm_state = {"players": {}, "bag": [list(r) for r in FAKE_GM_BAG], "keys": list(FAKE_GM_KEYS), "used": list(FAKE_GM_USED),
+                          "gil": FAKE_GM_GIL}
+        self._gm = self._gm_fresh()
+
+    @staticmethod
+    def _gm_fresh() -> dict:
+        return {"old": False, "caps_off": False, "chip_off": False, "seat_skip": False, "restore_skip": -1, "seat_fault": -1,
+                "door_fault": BW.GM_DOOR_HALF_NONE, "capture_off": False, "close_old": False, "close_fault": -1, "events_on": False,
+                "poke": False,
+                "frame": None, "base": None, "marker": -1, "variant": None, "intent": -1, "intent_nonce": -1, "frame_rt": None,
+                "host_field": -1, "host_armed": False,
+                "why": None, "opens": 0, "closes": [0] * (BW.GM_CAUSE_SCENE + 1), "close_faults": 0, "refused": 0, "refused_site": None,
+                "refused_screen": None, "captures": 0, "passes": 0, "census_said": 0,
+                "fp_before": None, "fp_after": None, "fp_seat": None, "out_before": None, "out_after": None, "out_settled": None,
+                "settle_armed": False, "settle_saw": False, "tag4_at": None,
+                "type5_len": -1, "type5_max": -1, "sec12_len": -1, "dropped": 0, "frame_faults": 0,
+                "line": None, "close_line": None, "seat_src": None, "seat_age": -1, "seat_marker": -1,
+                "door_refused": dict.fromkeys(BW.GM_ALL_WHYS, 0), "doors": 0, "drops": 0,
+                "bs": {"replace": 0, "ramp": 0, "ramp_quit": 0, "load": 0, "scene": 0}, "master_skipped": 0, "ach_held": 0,
+                "impactful": -1, "close": BW.gm_close_record(), "last_close": {"cause": 0, "from": None, "ms": -1, "end": 0},
+                "held_bits": 0, "held_keyon": 0, "cut_closed": -1, "epoch_seen": None,
+                "rec": None, "epoch": 0, "press": None, "deadline": None, "event_enable": True, "hud": "FieldHUD",
+                "hide_at": None, "show_at": None, "quit_seen": False, "decline": {}, "buzzes": 0, "menu": None,
+                "proof": False}
+
+    # ---- the levers (NetSyncGuestMenu.HarnessLever, in its refusal order)
+    def _gm_bench_gate(self) -> bool:
+        """BenchLeverGate: the selftest role with the field-gate bench."""
+        return bool(self._nb_role() and self.netsync["bench"])
+
+    def _guestmenu(self, args: list) -> None:
+        g = self._gm
+        rest = [str(x).strip() for x in args[1:]]
+        op = rest[0].lower() if rest else ""
+        n = len(rest) + 1                                  # the engine's args.Length (args[0] = "guestmenu")
+        w2 = rest[1].lower() if len(rest) > 1 else None
+        v3 = rest[2].lower() if len(rest) > 2 else None
+        if op not in BW.GUESTMENU_OPS:
+            raise RuntimeError(BW.GUESTMENU_USAGE)
+        if op != "clear" and not self.netsync["enabled"]:
+            raise RuntimeError(BW.GUESTMENU_OFF_REFUSAL)
+
+        def bench():
+            if not self._gm_bench_gate():
+                raise RuntimeError(BW.GUESTMENU_BENCH_REFUSAL)
+
+        if op in ("old", "act") and n == 2:
+            g["old"] = op == "old"
+            self._mlog(BW.guestmenu_ack(op))
+            return
+        if op == "caps" and n == 3 and w2 in ("off", "on"):
+            g["caps_off"] = w2 == "off"
+            self._mlog(BW.guestmenu_ack("caps", w2))
+            return
+        if op == "capture" and n == 3 and w2 in ("off", "on"):
+            g["capture_off"] = w2 == "off"
+            self._mlog(BW.guestmenu_ack("capture", w2))
+            return
+        if op == "chip" and n == 3 and w2 in ("off", "on"):
+            bench()
+            g["chip_off"] = w2 == "off"
+            self._mlog(BW.guestmenu_ack("chip", w2))
+            return
+        if op == "frame":
+            kind = None
+            if w2 == "witness" and n == 4 and v3 in BW.GM_BENCH_WITNESS_NAMES:
+                kind, num = BW.GM_BENCH_FRAME_WITNESS, 0
+            elif w2 == "intent" and n == 4 and _gm_int(v3, 1, 65535) is not None:
+                kind, num = BW.GM_BENCH_FRAME_INTENT, _gm_int(v3, 1, 65535)
+            elif n == 3 and _gm_int(w2, 1, 9999) is not None:
+                kind, num = BW.GM_BENCH_FRAME_MARKER, _gm_int(w2, 1, 9999)
+            if kind is not None:
+                bench()
+                if g["rec"] is not None:
+                    raise RuntimeError(BW.GUESTMENU_FRAME_SEATED)
+                self._gm_frame_op(kind, num, v3 if kind == BW.GM_BENCH_FRAME_WITNESS else None)
+                return
+        if op == "host" and n == 3 and w2 in ("elsewhere", "here"):
+            bench()
+            mine = int(self.field_id)
+            g["host_field"] = BW.guestmenu_host_elsewhere_field(mine) if w2 == "elsewhere" else mine
+            self._mlog(BW.log_guestmenu_host(w2 == "elsewhere", g["host_field"], mine))
+            return
+        if op == "seat" and n == 4:
+            comp = BW.gm_fp_comp_index(v3)
+            if w2 == "skip" and v3 in ("party", "off"):
+                bench()
+                g["seat_skip"] = v3 == "party"
+                self._mlog(BW.guestmenu_ack("seat skip", v3))
+                return
+            if w2 == "fault" and (comp >= 0 or v3 == "off"):
+                bench()
+                g["seat_fault"] = comp
+                self._mlog(BW.log_guestmenu_seat_fault(v3) if comp >= 0 else BW.guestmenu_ack("seat fault", "off"))
+                return
+        if op == "restore" and n == 4 and w2 == "skip" and (BW.gm_fp_comp_index(v3) >= 0 or v3 == "off"):
+            bench()
+            g["restore_skip"] = BW.gm_fp_comp_index(v3)
+            self._mlog(BW.log_guestmenu_restore_skip(v3) if g["restore_skip"] >= 0 else BW.guestmenu_ack("restore skip", "off"))
+            return
+        if op == "door" and n == 4 and w2 == "fault" and v3 in ("open", "restore", "off"):
+            bench()
+            g["door_fault"] = {"open": BW.GM_DOOR_HALF_OPEN, "restore": BW.GM_DOOR_HALF_RESTORE}.get(v3, BW.GM_DOOR_HALF_NONE)
+            self._mlog(BW.guestmenu_ack("door fault", v3))
+            return
+        if op == "close":
+            if n == 3 and w2 in ("old", "act"):
+                g["close_old"] = w2 == "old"
+                self._mlog(BW.guestmenu_ack("close", w2))
+                return
+            step = BW.gm_close_fault_step_rule(v3) if n == 4 else -1
+            if w2 == "fault" and n == 4 and (step >= 0 or v3 == "off"):
+                bench()
+                g["close_fault"] = step
+                self._mlog(BW.log_guestmenu_close_fault(v3) if step >= 0 else BW.guestmenu_ack("close fault", "off"))
+                return
+        if op == "fireclose" and n == 3 and BW.gm_cause_index_rule(w2) != BW.GM_CAUSE_NONE:
+            bench()
+            cause = BW.gm_cause_index_rule(w2)
+            seated = g["rec"] is not None
+            v = self._gm_request_close(cause, -1) if seated or ("pause_closed" in self.guest_menu_faults and self.ui_state == "Pause") \
+                else BW.GM_RQ_NONE
+            self._mlog(BW.log_guestmenu_fireclose(cause, v if v != BW.GM_RQ_NONE else ("no_seat" if not seated else "old")))
+            return
+        if op == "events" and n == 3 and w2 in ("on", "off"):
+            bench()
+            g["events_on"] = w2 == "on"
+            self._mlog(BW.guestmenu_ack("events", w2))
+            return
+        if op == "poke" and (n == 2 or (n == 3 and w2 == "off")):
+            bench()
+            g["poke"] = n == 2
+            self._mlog(BW.guestmenu_ack("poke", None if n == 2 else "off"))
+            return
+        if op == "clear" and n == 2:
+            self._gm_release_levers()
+            self._mlog(BW.LOG_GUESTMENU_CLEAR)
+            return
+        raise RuntimeError(BW.GUESTMENU_USAGE)
+
+    def _gm_any_lever(self) -> bool:
+        g = self._gm
+        return bool(g["old"] or g["caps_off"] or g["chip_off"] or g["frame"] is not None or g["host_field"] >= 0 or g["seat_skip"]
+                    or g["restore_skip"] >= 0 or g["seat_fault"] >= 0 or g["door_fault"] != BW.GM_DOOR_HALF_NONE or g["host_armed"]
+                    or g["capture_off"] or g["close_old"] or g["close_fault"] >= 0 or g["events_on"] or g["poke"])
+
+    def _gm_release_levers(self) -> None:
+        """ReleaseGuestMenuLevers: all twelve back, the bench frame and its book dropped, the bench host field and trailer gone."""
+        g = self._gm
+        keep_skip = g["seat_skip"] and "release_skip" in self.guest_menu_faults
+        g.update(old=False, caps_off=False, chip_off=False, seat_skip=keep_skip, restore_skip=-1, seat_fault=-1,
+                 door_fault=BW.GM_DOOR_HALF_NONE, capture_off=False, close_old=False, close_fault=-1, events_on=False, poke=False,
+                 frame=None, base=None, marker=-1, variant=None, intent=-1, intent_nonce=-1, frame_rt=None, host_field=-1, host_armed=False)
+
+    def _gm_release(self) -> None:
+        """HarnessReleaseGuestMenu (NetSyncBattle.HarnessReleaseBench's chain, after the worldwalk release; every role): its line only when
+        something was set."""
+        if not self._gm_on():
+            return
+        was = self._gm_any_lever()
+        self._gm_release_levers()
+        if was:
+            self._mlog(BW.LOG_GUESTMENU_RELEASED)
+
+    # ---- the bench frame (NetSyncClient.HarnessGuestMenuFrame: built BEFORE any seat, over the guest's own state, two markers)
+    def _gm_member_of(self, m: dict, slot: int) -> dict:
+        """A section-1 slot of the stand-in's party member ``m`` (the fields the stand-in models)."""
+        c = int(m["char"])
+        return {"char": c, "name": m.get("name") or f"char{c}", "level": int(m.get("level", 1)), "exp": int(m.get("exp", 0)),
+                "preset": int(m.get("preset", c)), "category": int(m.get("category", 1 + c % 3)), "basis_capa": int(m.get("basis_capa", 20)),
+                "pa": [int(v) for v in (m.get("pa") or ())], "equip": [int(v) for v in (m.get("equip") or (1, FAKE_GM_NO_ITEM,
+                                                                                                         FAKE_GM_NO_ITEM, FAKE_GM_NO_ITEM,
+                                                                                                         FAKE_GM_NO_ITEM))],
+                "sa": [int(v) for v in (m.get("sa") or ())], "slot": int(slot)}
+
+    def _gm_pa_len(self, preset: int) -> int:
+        """ff9abil._FF9Abil_PaData[preset].Length on this install: a party member's own pa length for its preset, else 2."""
+        for m in self.save_party:
+            if m is not None and int(m.get("preset", m["char"])) == int(preset):
+                return len(m.get("pa") or ())
+        return 2
+
+    def _gm_frame_op(self, kind: int, num: int, variant) -> None:
+        g = self._gm
+        if self.field_id <= 0 and self.ui_state != "WorldHUD":
+            raise RuntimeError("netsync guestmenu frame: no game state yet (load a save first)")
+        if kind == BW.GM_BENCH_FRAME_INTENT:
+            if g["base"] is None:
+                raise RuntimeError(BW.GUESTMENU_FRAME_INTENT_NO_BASE)
+            if int(num) == int(self.field_id):
+                raise RuntimeError(BW.guestmenu_frame_intent_mine(num))
+            g["intent_nonce"] = (g["intent_nonce"] + 1) & 0xFF
+            g["intent"] = int(num)
+            self._mlog(BW.log_guestmenu_frame_intent(num, g["intent_nonce"]))
+            return
+        marker = int(num) if kind == BW.GM_BENCH_FRAME_MARKER else max(1, g["marker"])
+        party = [self._gm_member_of(m, i) if m is not None else None for i, m in enumerate((list(self.save_party) + [None] * 4)[:4])]
+        if not any(party):
+            raise RuntimeError("netsync guestmenu frame: my party is empty")
+        mine = {m["char"] for m in party if m is not None}
+        imp = next((c for c in FAKE_GM_KNOWN["chars"] if c not in mine), None)
+        first = next(i for i, m in enumerate(party) if m is not None)
+        for i, m in enumerate(party):
+            if m is None:
+                continue
+            if i == first:
+                if imp is not None:
+                    m.update(char=imp, preset=imp, category=1 + imp % 3, pa=[0] * self._gm_pa_len(imp))
+                m.update(name=BW.gm_bench_name(marker), level=BW.GM_BENCH_LEVEL)
+            m["exp"] = BW.gm_bench_exp(marker, i, m["exp"])
+        st = self._gm_state
+        held = {int(r[0]) for r in st["bag"] if int(r[1]) > 0}
+        bag = [(int(r[0]), int(r[1])) for r in st["bag"] if int(r[1]) > 0]
+        marker_item = next((v for v in FAKE_GM_KNOWN["items"] if v not in held), None)
+        if marker_item is not None:
+            bag.append((marker_item, 1 + marker % 98))
+        keys, used = list(st["keys"]), list(st["used"])
+        gil = BW.gm_bench_gil(marker, st["gil"])
+        p0 = party[first]
+        if variant == BW.GM_COMP_PRESET:
+            p0["preset"] = 255
+        elif variant == BW.GM_COMP_PA:
+            p0["pa"] = p0["pa"] + [0]
+        elif variant == BW.GM_COMP_EQUIP:
+            p0["equip"] = [0xFFFE] + p0["equip"][1:]
+        elif variant == BW.GM_COMP_SA:
+            p0["sa"] = p0["sa"] + [0x7FFF]
+        elif variant == BW.GM_COMP_CHAR:
+            p0["char"] = 255
+        elif variant == BW.GM_COMP_BAG:
+            bag.append((0xFFFE, 1))
+        elif variant == BW.GM_COMP_KEY_ITEM:
+            keys.append(0xFFFE)
+        block = BW.gm_write_menu_block(BW.GM_POLICY_S168, BW.GM_APPLY_MASK_S168, gil, used,
+                                       [BW.gm_member(m["char"], m["preset"], m["category"], m["exp"], m["basis_capa"], m["pa"])
+                                        for m in party if m is not None and 0 <= m["preset"] <= BW.GM_PRESET_WIRE_MAX])
+        read = BW.gm_try_read_menu_block(block)
+        if read is None or not BW.gm_block_matches_party_rule([m["char"] if m else None for m in party], read):
+            raise RuntimeError("netsync guestmenu frame: the bench frame did not read back through the door's readers (sections 1, 2, 3 "
+                               "and 12)")
+        frame = {"party": party, "keys": keys, "bag": bag, "block": read, "sec12": block}
+        g.update(frame=frame, base=frame, marker=marker, variant=variant, intent=-1, frame_rt=self.rt, host_field=int(self.field_id),
+                 host_armed=True)
+        world = self.ui_state == "WorldHUD"
+        self._mlog(f"{BW.LOG_GUESTMENU_FRAME}" + (f"witness {variant} (marker {marker})" if variant else str(marker))
+                   + f" -- a two-marker bench host frame ({len(block) + 64 * len(mine)} B: sections 1, 2, 3 and 12 through the real encoders; "
+                   + (f"slot 0 the impostor {imp}" if imp is not None else "slot 0 my own first member") + f" as {BW.gm_bench_name(marker)} lv99, "
+                   + f"every exp a marker, gil {gil}, bag +" + (f"item {marker_item}" if marker_item is not None else "none")
+                   + f"), the bench host trailer (place {'4, the world' if world else '1, a field'}, my caps and world) and the bench host field "
+                   + f"({self.field_id}); the Menu key opens through the verdict (released with the harness)")
+
+    # ---- the facts and the predicate (NetSyncClient.GuestMenuWhyNow's gatherer, over the stand-in)
+    def _gm_world_held(self) -> bool:
+        """WorldSessionHeld on the stand-in: a following client's session (the grace included: a stall keeps it), no ramp pending."""
+        cf = self.coop_follow
+        return cf is not None and self.netsync["role"] == "client" and not cf.get("ramp")
+
+    def _gm_session_now(self) -> bool:
+        """GuestSessionNow (the gate seam's read and the key's `session`): WorldSessionHeld || IsMirroringStory || (IsSelfTestRole &&
+        BenchGates)."""
+        return BW.gm_guest_session_rule(self._gm_world_held(), bool(self.story_mirroring), self._gm_bench_gate(), self._gm_live_followed())
+
+    def _gm_session(self) -> bool:
+        """The key step's and the door's lazy guestSession read (the `stall_open` mutant reads IsLiveFollowedSession, which flips at the
+        stall cliff)."""
+        if "stall_open" in self.guest_menu_faults:
+            return BW.gm_guest_session_rule(self._gm_live_followed(), bool(self.story_mirroring), self._gm_bench_gate(), False)
+        return self._gm_session_now()
+
+    def _gm_live_followed(self) -> bool:
+        cf = self.coop_follow
+        return bool(cf is not None and cf["valid"] and cf["connected"])
+
+    def _gm_press_in_play(self) -> bool:
+        """NetSyncField.GuestMenuPressInPlay (the gate seam's first read; a fault reads false)."""
+        return self._gm_on() and self._gm_session_now()
+
+    def _gm_own_caps(self) -> int:
+        return self._wwb_own_caps()
+
+    def _gm_latest(self) -> dict:
+        """The peer's latest trailer as the predicate reads it: the bench host's (`frame` armed it: my caps, place 1 on a field / 4 on the world,
+        my world) on the selftest role, a client's host (``gm_host_caps``) on its lane; a capless trailer otherwise."""
+        g = self._gm
+        world = self.ui_state == "WorldHUD"
+        wid = int(self.world.get("id", -1)) if world else 0
+        if self._gm_bench_gate():
+            if not g["host_armed"] and not self._wwa_bench_any():
+                return BW.ww_trailer()             # no bench host trailer in the receiver cache: capless (term 3 reads `older`)
+            return BW.ww_trailer(has=True, fmt=1, caps=self._gm_own_caps(), place=BW.WW_PLACE_WORLD if world else BW.WW_PLACE_FIELD,
+                                 world=wid if world else 0, flags=0)
+        cf = self.coop_follow
+        if cf is None:
+            return BW.ww_trailer()
+        hw = cf.get("world_pose") is not None or (int(cf.get("flags", -1)) >= 0 and int(cf["flags"]) & BW.HF_WORLD)
+        place = BW.WW_PLACE_WORLD if hw else BW.WW_PLACE_FIELD if int(cf["field"]) > 0 else BW.WW_PLACE_NONE
+        return BW.ww_trailer(has=True, fmt=1, caps=int(self.gm_host_caps), place=place, world=wid if hw else 0, flags=0)
+
+    def _gm_seat_frame(self):
+        """The ONE frame the door reads (sections 1, 2, 3 and 12): the bench frame on the selftest role; on a client the host's latest
+        state frame -- carrying section 12 only while GmSectionSendRule holds on the HOST (b3 on both words, I follow, the link live)."""
+        if self._gm_bench_gate():
+            return self._gm["frame"]
+        cf = self.coop_follow
+        if cf is None or not BW.gm_section_send_rule(True, int(self.gm_host_caps), self._gm_own_caps(), True, self._gm_live_followed()):
+            return None
+        party = [dict(m, slot=i) if m is not None else None for i, m in enumerate(list(self.gm_host_party or FAKE_GM_HOST_PARTY)[:4])]
+        party = [self._gm_member_of(m, m["slot"]) if m is not None else None for m in party]
+        block = BW.gm_write_menu_block(BW.GM_POLICY_S168, BW.GM_APPLY_MASK_S168, FAKE_GM_HOST_GIL, [9],
+                                       [BW.gm_member(m["char"], m["preset"], m["category"], m["exp"], m["basis_capa"], m["pa"])
+                                        for m in party if m is not None])
+        return {"party": party, "keys": [9, 14, 21], "bag": [(1, 9), (3, 2)], "block": BW.gm_try_read_menu_block(block), "sec12": block}
+
+    def _gm_witness(self, frame) -> tuple:
+        """WitnessRule over the frame (BW.gm_witness_rule over this install: FAKE_GM_KNOWN, the presets' pa lengths) -> (ok, member,
+        component)."""
+        k = FAKE_GM_KNOWN
+        inst = {"char_known": lambda c: c in k["chars"], "preset_known": lambda p: p in k["presets"], "pa_len_of": self._gm_pa_len,
+                "item_known": lambda i: i in k["items"], "sa_known": lambda s: s in k["sa"]}
+        return BW.gm_witness_rule(frame["party"], frame["block"], frame["bag"], inst)
+
+    def _gm_close_facts(self) -> dict:
+        """decision 18's signals off a client's lane (THE OPEN MIRROR reads the same facts as an open term)."""
+        c = BW.gm_close_facts(client_role=self.netsync["role"] == "client", closed_nonce=self._gm["cut_closed"])
+        cf = self.coop_follow
+        if cf is not None and self.netsync["role"] == "client":
+            flags = int(cf.get("flags", -1))
+            intent = cf.get("intent")
+            if intent is not None and cf.get("intent_seen") != intent[0]:
+                world = self.ui_state == "WorldHUD"
+                BW.gm_fill_intent_facts({"intent_unseen": False, "intent_dest": 0, "close": c}, True, intent[1], world, self.field_id, 0)
+            c["host_world_out"] = flags >= 0 and bool(flags & BW.HF_WORLD) and self.ui_state != "WorldHUD"
+            c["battle_nonce"] = int(cf.get("battle_nonce", -1)) if cf.get("battle") else -1
+            c["ramp_pending"] = bool(cf.get("ramp"))
+            c["host_dlg_flags"] = flags
+            c["scene_here"] = flags >= 0 and bool(flags & BW.HF_SCENE) and int(cf["field"]) == int(self.field_id)
+        elif self._gm_bench_gate() and self._gm["intent"] > 0:
+            BW.gm_fill_intent_facts({"intent_unseen": False, "intent_dest": 0, "close": c}, True, self._gm["intent"],
+                                    self.ui_state == "WorldHUD", self.field_id, 0)
+        return c
+
+    def _gm_facts(self, *, loading: bool = False) -> dict:
+        g = self._gm
+        bench = self._gm_bench_gate()
+        world = self.ui_state == "WorldHUD"
+        cf = self.coop_follow
+        frame = self._gm_seat_frame()
+        menu_data = frame is not None and frame.get("block") is not None and BW.gm_block_matches_party_rule(
+            [m["char"] if m else None for m in frame["party"]], frame["block"])
+        ok, _member, _comp = self._gm_witness(frame) if menu_data else (False, None, None)
+        flags = -1
+        if bench:
+            flags = BW.HF_CONTROL | BW.HF_ON_FIELD | (BW.HF_BATTLE if self._bench.battle and self.netsync["lock"] else 0)
+        elif cf is not None:
+            flags = int(cf.get("flags", -1))
+        f = BW.gm_facts(old=g["old"], mirroring=bool(self.story_mirroring), session_held=self._gm_world_held(),
+                        bench=bench, own_caps=self._gm_own_caps(), latest=self._gm_latest(),
+                        live=(not self.netsync["stale"]) if bench else self._gm_live_followed(), host_dlg_flags=flags,
+                        peer_battle_live=bool(cf is not None and cf.get("battle")), menu_data=menu_data, witness_ok=ok,
+                        control=bool(self.control), busy_why=self.gm_busy, diorama_armed=bool(self._dio["booted"]),
+                        close=self._gm_close_facts(), etb_line=self._dialog_open(), suppress_input=self._guest_suppress(), loading=loading,
+                        world=world, my_field=int(self.field_id), my_world=int(self.world.get("id", -1)),
+                        last_host_field=g["host_field"] if bench else (int(cf["field"]) if cf is not None and cf["valid"] else -1),
+                        host_scene_why=self.gm_host_scene, on_world_now=world, block_ready=world, ui_world_hud=world, hud_plain=world,
+                        char_state_index=int(self.world.get("vehicle", 0) or 0) if world else 0, host_field=0)
+        if bench and g["intent"] > 0:
+            BW.gm_fill_intent_facts(f, True, g["intent"], world, self.field_id, 0)
+        if "unmirrored_open" in self.guest_menu_faults:
+            f["mirroring"] = True
+        return f
+
+    def _gm_terms(self):
+        if "caps_ignored" in self.guest_menu_faults:
+            return tuple(t for t in BW.GM_TERMS if t[0] != "caps")
+        return None
+
+    def _gm_why_not(self, *, loading: bool = False):
+        f = self._gm_facts(loading=loading)
+        return BW.gm_why_not(f, self._gm_terms())
+
+    def _gm_pair_on(self) -> bool:
+        return BW.gm_pair_on_rule(self._gm["old"], self._gm_own_caps(), self._gm_latest())
+
+    def _gm_loading(self) -> bool:
+        g = self._gm
+        return g["press"] is not None or g["hide_at"] is not None or g["show_at"] is not None
+
+    def _gm_verdict(self) -> tuple:
+        """GuestMenuVerdict over the stand-in's reads (the press and `menu_refusal.now`)."""
+        return BW.gm_key_step(self.menu_control_enable, self._gm["old"], self._gm_session, bool(self.story_mirroring), self._gm_loading,
+                              self._gm_pair_on, self.ui_state, lambda: self._gm_why_not(loading=self._gm_loading()))
+
+    def _gm_mode(self) -> int:
+        """EventEngine.gMode as the line's arm reads it: 2 in a battle, 3 on the world map, else 1."""
+        return 2 if self.battle_active else 3 if self.ui_state == "WorldHUD" else 1
+
+    # ---- the press (NetSyncField.GuestMenuPress)
+    def _gm_button(self, button: str) -> bool:
+        """The s168 engine's input: a Menu press in play, and the keys inside a menu the guest door opened. True = spent."""
+        if not self._gm_on():
+            return False
+        ctl = AGENT_CONTROL.get(str(button).lower())
+        if self._gm["menu"] is not None and self.ui_state in BW.GM_MENU_STATES and ctl in ("confirm", "cancel", "special") \
+                and not self.quit_prompt:
+            return self._gm_menu_key(ctl)
+        if ctl != "menu" or not self._gm_press_in_play():
+            return False
+        state = self.ui_state
+        has_scene = state in BW.UI_SCENE_STATES
+        if BW.menu_key_route(has_scene, self._dialog_open(), state == "Pause", BW.MENU_KEY_REFUSE_SILENT) == BW.MENU_KEY_DIALOG_PATH:
+            # the dialogue path (:889): !IsMenuControlEnable || IsMirroringStory returns (s38's silent drop); else OnKeyMenu, whose
+            # HideAllHUD closes the player's own window before the door (no press verdict)
+            if (not self.menu_control_enable or self.story_mirroring) and "dialog_drop_lifted" not in self.guest_menu_faults:
+                return True
+            self.texts, self.choice = [], None
+            if state in BW.GM_HUD_STATES:
+                self._gm_begin_hide(state, BW.GM_KEY_NONE)
+            return True
+        verdict, why = self._gm_verdict()
+        act = BW.gm_press_act_rule(verdict, why)
+        if act & BW.GM_PA_DEADLINE:
+            self._gm["deadline"] = BW.gm_press_deadline_rule(int(self.rt * 1000), self.gm_fade_ms)
+        if act & BW.GM_PA_REFUSE_GIVEN:
+            self._gm_refuse(verdict, why, *self._gm_member_now(why))
+        elif act & BW.GM_PA_REFUSE_S121:
+            self._gm_refuse_s121()
+        if act & BW.GM_PA_STOCK:
+            if verdict == BW.MENU_KEY_GUEST_OPEN:
+                if "seat_at_press" in self.guest_menu_faults:
+                    self._gm_open_menu(state, seat=True)
+                else:
+                    self._gm_begin_hide(state, verdict)
+            elif verdict == BW.MENU_KEY_OPEN and state in BW.GM_HUD_STATES:
+                self._gm_open_menu(state, seat=False)          # stock: the player's OWN menu (vanilla, `old`, an unmirrored s121 open)
+        return True
+
+    def _gm_member_now(self, why) -> tuple:
+        """GuestMenuMemberNow / ComponentNow: the witness's member and component for a data_differs refusal."""
+        if why != BW.GM_WHY_DATA_DIFFERS:
+            return None, None
+        frame = self._gm_seat_frame()
+        _ok, member, comp = self._gm_witness(frame) if frame is not None else (True, None, None)
+        return member, comp
+
+    def _gm_begin_hide(self, hud: str, verdict: int) -> None:
+        """Stock OnKeyMenu on the HUD: its Hide (events and control off) for one fade, then ChangeUIState(MainMenu): the door."""
+        g = self._gm
+        g.update(press={"at": self.rt + self.gm_fade_ms / 1000.0, "verdict": verdict}, hud=hud, event_enable=False)
+
+    def _gm_refuse(self, verdict: int, why, member=None, component=None) -> None:
+        """NetSyncField.RefuseMainMenu(verdict, why, member, component): the verdict AS GIVEN."""
+        eff = BW.gm_refuse_effect_rule(verdict, self.menu_control_enable, bool(self.story_mirroring), self.ui_state)
+        if not eff:
+            return
+        m, g = self._menu_refusal, self._gm
+        world = self.ui_state == "WorldHUD"
+        place = int(self.world.get("id", -1)) if world else int(self.field_id)
+        m.last_state, m.last_field, m.last_rt, m.armed = self.ui_state, place, self.rt, True
+        if eff & BW.GM_EFF_SILENT:
+            m.silent += 1
+        if eff & BW.GM_EFF_COUNT:
+            m.count += 1
+        if eff & BW.GM_EFF_BUZZ:
+            m.muted = bool(self.mute_sfx)
+            m.buzzes += 1
+            g["buzzes"] += 1
+        if not eff & BW.GM_EFF_LINE:
+            return
+        g["why"] = why
+        cls = BW.gm_decline_class_rule(why)
+        book, key = (g["decline"], (cls, world)) if cls is not None else (m.latch, BW.menu_refusal_latch(self.ui_state))
+        if book.get(key) != place:
+            book[key] = place
+            m.lines += 1
+            words = f"world map {place}" if world else f"field {place}"
+            line = BW.log_gm_refusal(why, words)
+            if why == BW.GM_WHY_DATA_DIFFERS:
+                line = line.replace(f"{cls} suppressed", f"{cls} -- {member or '?'}, component {component or '?'} suppressed")
+            self._mlog(line)
+        text = BW.gm_line_words_rule(eff, why, member)
+        if text is not None:
+            g["line"] = {"text": text, "at": self.rt, "mode": self._gm_mode()}
+
+    def _gm_refuse_s121(self) -> None:
+        """NetSyncField.RefuseMainMenu(): s121 exactly (its own MenuKeyStep re-run; Open does nothing)."""
+        state = self.ui_state
+        verdict = BW.menu_key_step(self.menu_control_enable, bool(self.story_mirroring), state)
+        if verdict == BW.MENU_KEY_OPEN or verdict == BW.MENU_KEY_STOCK_OFF:
+            return
+        m = self._menu_refusal
+        place = BW.menu_refusal_place(state, self.field_id, self.world.get("id", -1))
+        m.last_state, m.last_field, m.last_rt, m.armed = state, place, self.rt, True
+        if verdict == BW.MENU_KEY_REFUSE_SILENT:
+            m.silent += 1
+            return
+        m.count += 1
+        m.muted = bool(self.mute_sfx)
+        m.buzzes += 1
+        latch = BW.menu_refusal_latch(state)
+        if m.latch.get(latch) != place:
+            m.latch[latch] = place
+            m.lines += 1
+            self._mlog(BW.menu_refusal_line(state, place))
+
+    # ---- the door (UIManager.ChangeUIState's open half) and the seat
+    def _gm_door(self, hud: str) -> None:
+        """The OPEN half at the end of the HUD's hide fade: DoorOpenStep (a held record retried first; then guestSession and the lever; then
+        the WHOLE predicate), the seat or the refusal; a `door fault open` throws once guestSession is known (DoorFaultRule: the refusal)."""
+        g = self._gm
+        session, old = self._gm_session(), g["old"]
+        if g["door_fault"] == BW.GM_DOOR_HALF_OPEN and session:
+            g["door_fault"] = BW.GM_DOOR_HALF_NONE
+            if BW.gm_door_fault_rule(BW.GM_DOOR_HALF_OPEN, True) == BW.GM_DF_REFUSE:
+                self._gm_door_refuse(hud, BW.GM_WHY_FAULT)
+                self._mlog("[NetSync] guest menu: the door faulted (its open half; the door's fault path refused `fault`): bench door "
+                           "fault (logged once per process)")
+                return
+        held = g["rec"] is not None
+        retry = True
+        if held:
+            retry = self._gm_restore(BW.GM_SITE_DOOR, None)
+        verdict, why = BW.gm_door_open_step(held, retry, session, old, lambda: self._gm_why_not())
+        if verdict == BW.GM_DO_STOCK:
+            self._gm_open_menu(hud, seat=False)
+            return
+        if verdict == BW.GM_DO_REFUSE:
+            self._gm_door_refuse(hud, why, *self._gm_member_now(why))
+            return
+        self._gm_open_menu(hud, seat=True)
+
+    def _gm_door_refuse(self, hud: str, why, member=None, component=None) -> None:
+        """GuestMenuDoorRefuse: the HUD state's OWN Show (events and control back on), the book, the refusal as given."""
+        g = self._gm
+        self.ui_state = BW.gm_door_reshow_rule(hud, "MainMenu")
+        g["event_enable"] = True
+        if why in g["door_refused"]:
+            g["door_refused"][why] += 1
+        self._gm_refuse(BW.MENU_KEY_REFUSE_AUDIBLE, why, member, component)
+
+    def _gm_open_menu(self, hud: str, *, seat: bool) -> None:
+        """MainMenu over the copy (``seat``) or the player's own menu (stock: no seat, no chip, no line)."""
+        g = self._gm
+        if seat:
+            sv, member, comp = self._gm_seat()
+            if sv != BW.GM_SV_OK:
+                self._gm_door_refuse(hud, BW.GM_WHY_FAULT if sv == BW.GM_SV_FAULT else BW.GM_WHY_DATA_DIFFERS, member, comp)
+                return
+        g.update(menu={"seated": bool(seat), "hud": hud}, hud=hud, press=None, event_enable=bool(seat and g["events_on"] and
+                                                                                                   self._gm_bench_gate()))
+        g["impactful"] = 0
+        rows = list(FAKE_GM_MENU_ROWS)
+        self.open_menu(rows, "MainMenu")
+
+    def _gm_scratch(self, slot: dict, block: dict, index: int) -> dict:
+        """One seated PLAYER: section 1's slot with section 12's overrides KEYED BY CharacterId (`slot_keyed`: by slot index)."""
+        if "slot_keyed" in self.guest_menu_faults:
+            ms = block["members"]
+            ov = ms[index] if index < len(ms) else None
+        else:
+            k = BW.gm_member_index_rule(block, [slot["char"]], 0)
+            ov = block["members"][k] if k >= 0 else None
+        # section 1 carries no exp, pa, preset, category or capa: without its section-12 entry a member is the builder's default
+        out = {"char": slot["char"], "name": slot["name"], "level": slot["level"], "exp": 0, "status": 0,
+               "pa": [0] * self._gm_pa_len(slot["char"]), "abils": [], "preset": slot["char"], "category": 1 + slot["char"] % 3,
+               "basis_capa": 0, "equip": list(slot["equip"]), "sa": list(slot["sa"]), "scratch": True}
+        if ov is not None:
+            out.update(preset=ov["preset"], category=ov["category"], exp=ov["exp"], basis_capa=ov["basis_capa"], pa=list(ov["pa"]))
+        return out
+
+    def _gm_seat(self) -> tuple:
+        """SeatOver, ALL OR NOTHING: fp_before over the guest's own state, the record of every original reference, the scratches installed
+        last; a fault (`seat fault <c>`) rolls every family back. -> (sv, member, component)."""
+        g, st = self._gm, self._gm_state
+        frame = self._gm_seat_frame()
+        if frame is None:
+            return BW.GM_SV_FAULT, None, "frame"
+        self._gm_stamp("fp_before")
+        g["out_before"] = self._gm_outside()
+        g.update(fp_after=None, fp_seat=None, out_after=None, out_settled=None, settle_armed=False, settle_saw=False)
+        party = self.save_party
+        rec = {"party": list(party), "players": dict(self._gm_players()), "bag": st["bag"], "keys": st["keys"], "used": st["used"],
+               "gil": st["gil"], "epoch": g["epoch"]}
+        fault = g["seat_fault"] if self._gm_bench_gate() else -1
+        g["seat_fault"] = -1                                    # one shot: spent by this seat
+        try:
+            skip = (g["seat_skip"] and self._gm_bench_gate()) or "own_values" in self.guest_menu_faults
+            if fault == BW.GM_FP_PLAYERS or fault == BW.GM_FP_PARTY:
+                raise RuntimeError(f"bench seat fault at {BW.gm_fp_comp_name(fault)}")
+            if not skip:
+                block = frame["block"]
+                for i, slot in enumerate(frame["party"]):
+                    if i >= len(party):
+                        break
+                    if slot is None:
+                        party[i] = None
+                        continue
+                    s = self._gm_scratch(slot, block, i)
+                    party[i] = s
+                    st["players"][s["char"]] = s
+            if fault == BW.GM_FP_BAG:
+                raise RuntimeError("bench seat fault at bag")
+            st["bag"] = [list(r) for r in frame["bag"]]
+            if fault == BW.GM_FP_GIL:
+                raise RuntimeError("bench seat fault at gil")
+            st["gil"] = int(frame["block"]["gil"])
+            if fault == BW.GM_FP_KEY_ITEMS:
+                raise RuntimeError("bench seat fault at keyitems")
+            st["keys"] = list(frame["keys"])
+            st["used"] = list(frame["block"]["used"])
+        except RuntimeError:
+            self._gm_put_back(rec, -1)
+            comp = BW.gm_fp_comp_name(fault)
+            self._mlog(BW.log_gm_seat_refused(True, None, comp))
+            return BW.GM_SV_FAULT, None, comp
+        g["rec"] = rec
+        bench = self._gm_bench_gate()
+        g.update(seat_src=BW.GM_SEAT_SRC_BENCH if bench else BW.GM_SEAT_SRC_WIRE,
+                 seat_age=max(0, int((self.rt - (g["frame_rt"] or self.rt)) * 1000)) if bench else -1,
+                 seat_marker=g["marker"] if bench else -1, census_said=0)
+        g["opens"] += 1
+        self._gm_stamp("fp_seat")
+        if g["events_on"] and bench:
+            self._mlog(BW.LOG_GM_EVENTS_ON)
+        if g["poke"] and bench:
+            g["poke"] = False
+            self._mlog(BW.LOG_GM_POKE if BW.gm_poke_rule(self._gm_events, BW.GM_POKE_BYTE) else BW.LOG_GM_POKE_NOTHING)
+        members = sum(1 for m in frame["party"] if m is not None)
+        self._mlog(BW.log_gm_seated(g["marker"] if bench else None, members, len(frame["bag"]), len(frame["keys"]), frame["block"]["gil"],
+                                    skip_party=bool(g["seat_skip"] and bench)))
+        unknown = []
+        if BW.gm_unknown_key_items_rule(frame["keys"], lambda v: v in FAKE_GM_KNOWN["keys"], unknown):
+            self._mlog(f"{BW.LOG_GM_UNKNOWN_KEYS}{len(unknown)} key item(s) this install does not know ({', '.join(map(str, unknown))}) "
+                       "-- seated anyway (stock draws a blank name)")
+        return BW.GM_SV_OK, None, None
+
+    def _gm_put_back(self, rec: dict, skip: int) -> None:
+        """RestoreFamilies: every family back BY REFERENCE (the party element-wise: the same list), but ``skip``."""
+        st = self._gm_state
+        if skip != BW.GM_FP_PARTY:
+            self.save_party[:] = rec["party"]
+        if skip != BW.GM_FP_PLAYERS:
+            st["players"] = dict(rec["players"])
+        if skip != BW.GM_FP_BAG:
+            st["bag"] = rec["bag"]
+        if skip != BW.GM_FP_GIL:
+            st["gil"] = rec["gil"]
+        if skip != BW.GM_FP_KEY_ITEMS:
+            st["keys"], st["used"] = rec["keys"], rec["used"]
+
+    def _gm_restore(self, site: int, detail) -> bool:
+        """GuestMenuEndAt: the identity rule (a load since the seat drops the record without writing), the element-wise restore, fp_after
+        on a clean restore, the settle armed, the book, one line. True = no record left."""
+        g = self._gm
+        rec = g["rec"]
+        if rec is None or not BW.gm_session_ends_rule(site):
+            return rec is None
+        verdict = BW.gm_restore_identity_rule(True, True, rec["epoch"], g["epoch"])
+        if verdict == BW.GM_RV_DROP:
+            g["rec"] = None
+            g["drops"] += 1
+            self._mlog(f"{BW.LOG_GM_DROPPED}{BW.gm_site_name(site)}" + (f" ({detail})" if detail else "")
+                       + " -- the state was replaced or a load ran since the seat (what was loaded stands); the session ends")
+            return True
+        skip = g["restore_skip"] if self._gm_bench_gate() else -1
+        if "restore_skip" in self.guest_menu_faults:
+            skip = BW.GM_FP_PARTY
+        self._gm_put_back(rec, skip)
+        g["rec"] = None
+        if site == BW.GM_SITE_DOOR:
+            g["doors"] += 1
+        else:
+            key = {BW.GM_SITE_REPLACE: "replace", BW.GM_SITE_REPLACE_TITLE: "replace", BW.GM_SITE_RAMP_FIRE: "ramp",
+                   BW.GM_SITE_RAMP_QUIT: "ramp_quit", BW.GM_SITE_LOAD_ENTRY: "load", BW.GM_SITE_LEVEL_LOADED: "scene",
+                   BW.GM_SITE_TITLE: "scene", BW.GM_SITE_SCENE: "scene"}.get(site)
+            if key:
+                g["bs"][key] += 1
+        self._gm_stamp("fp_after")
+        g["out_after"] = self._gm_outside()
+        g.update(settle_armed=True, settle_saw=False, out_settled=None)
+        self._mlog(BW.log_gm_restored(site, detail, skip if self._gm_bench_gate() and g["restore_skip"] >= 0 else -1))
+        return True
+
+    def gm_backstop(self, site: int, detail=None) -> None:
+        """[ff9mapkit netsync s168] Test seam: a backstop or clear point (BW.GM_SITE_*) finds the record: the restore (and a forced close's
+        record ends there too, CloseEndsAtRule)."""
+        if self._gm["close"]["held"] and BW.gm_close_ends_at_rule(site):
+            self._gm_end_close(BW.GM_CE_CLEAR_POINT, BW.gm_site_name(site))
+        self._gm_restore(site, detail)
+
+    def gm_load(self) -> None:
+        """[ff9mapkit netsync s168] Test seam: an in-game load (JsonParser.ParseToFF9StateSystem): the load epoch moves (the identity drop)."""
+        self._gm["epoch"] += 1
+
+    # ---- the fingerprints (the stand-in's components: the SHAPE, never the engine's numbers)
+    def _gm_fold(self, value) -> int:
+        h = BW.GM_FP_SEED
+        for b in repr(value).encode("utf-8"):
+            h = BW.gm_mix(h, b)
+        return h
+
+    def _gm_players(self) -> dict:
+        """ff9.player (the dictionary family): the guest's own PLAYER per CharacterId, taken once from its party (the stand-in models no
+        benched characters)."""
+        st = self._gm_state
+        if not st.get("players_init"):
+            st["players_init"] = True
+            for m in self.save_party:
+                if m is not None:
+                    st["players"].setdefault(int(m["char"]), m)
+        return st["players"]
+
+    def _gm_components(self) -> list:
+        st = self._gm_state
+        players = self._gm_players()
+        party = list(self.save_party)
+        rows = lambda m: None if m is None else tuple(sorted((k, repr(v)) for k, v in m.items()))      # noqa: E731
+        return [self._gm_fold(sorted((k, rows(v)) for k, v in players.items())),
+                self._gm_fold([(rows(m), m is not None and players.get(m["char"]) is m) for m in party]),
+                self._gm_fold([tuple(r) for r in st["bag"] if int(r[1]) > 0]), self._gm_fold(int(st["gil"])),
+                self._gm_fold((list(st["keys"]), list(st["used"])))]
+
+    def _gm_stamp(self, which: str) -> None:
+        comps = self._gm_components()
+        self._gm[which] = {"comp": comps, "value": BW.gm_fp_value_rule(comps)}
+
+    def _gm_outside(self) -> dict:
+        ev = bytes(b if not BW.GM_OUT_MASK_LO <= i <= BW.GM_OUT_MASK_HI else 0 for i, b in enumerate(self._gm_events))
+        comps = [self._gm_fold(ev), self._gm_fold("eventstate"), self._gm_fold("achievement"), self._gm_fold("cards"), self._gm_fold(0)]
+        return {"comp": comps, "value": BW.gm_out_value_rule(comps)}
+
+    def _gm_fp_verdict(self, before, after) -> int:
+        return BW.gm_fp_verdict_rule(before is not None, after is not None, self._gm["rec"] is not None, (before or {}).get("value", 0),
+                                     (after or {}).get("value", 0))
+
+    # ---- the menu (seated or the player's own)
+    def _gm_menu_key(self, ctl: str) -> bool:
+        g = self._gm
+        state, seated = self.ui_state, g["rec"] is not None
+        if ctl == "cancel":
+            if state == "MainMenu":
+                self._gm_begin_menu_hide()
+            elif state in FAKE_GM_SCREENS.values():
+                self.ui_state = "MainMenu"
+            return True
+        if state == "MainMenu" and ctl == "confirm":
+            row = self.menu_entries[self.menu_index] if self.menu_entries else None
+            if row is None:
+                return True
+            if seated and row not in BW.GM_SEAT_SUB_MENUS:
+                g["buzzes"] += 1                                # EnabledSubMenus lacks it: the root confirm buzzes 102, no screen
+                return True
+            self.ui_state = FAKE_GM_SCREENS.get(row, "MainMenu")
+            return True
+        site = FAKE_GM_CENSUS.get((state, ctl))
+        if site is not None:
+            self.gm_confirm(site, BW.GM_ABILITY_TYPE_ENABLE)
+        return True
+
+    def gm_confirm(self, site: int, detail: int = BW.GM_ABILITY_TYPE_ENABLE) -> int:
+        """[ff9mapkit netsync s168] Test seam (and the sub-screens' confirms): census site ``site`` (BW.GM_CENSUS_*) confirmed now ->
+        BW.GM_CV_*. Seated: the screen's own 102 (refused, captured, the line once per site per seat) -- `capture off` runs the stock body
+        into the SEATED copy; unseated, the stock body into the guest's own state."""
+        g = self._gm
+        seated = g["rec"] is not None
+        changes = BW.gm_census_changes_rule(site, detail)
+        v = BW.gm_census_rule(site, seated, g["capture_off"], changes, bool(self.story_mirroring))
+        if v == BW.GM_CV_REFUSE and "capture_leak" in self.guest_menu_faults:
+            v = -1                                              # the census missed: the stock body, nothing counted
+        if v == BW.GM_CV_REFUSE:
+            g["captures"] += 1
+            g["refused"] += 1
+            g["refused_site"], g["refused_screen"] = BW.gm_census_name(site), self.ui_state
+            g["buzzes"] += 1
+            bit = 1 << int(site) if 0 <= int(site) < BW.GM_CENSUS_SITES else 0
+            if bit and not g["census_said"] & bit:
+                g["census_said"] |= bit
+                self._mlog(BW.log_gm_census(site, self.ui_state))
+            return v
+        if v == BW.GM_CV_PASS:
+            g["passes"] += 1
+        if changes and (v in (BW.GM_CV_PASS, -1) or not seated):
+            g["impactful"] = max(0, g["impactful"]) + 1
+            m = next((x for x in self.save_party if x is not None), None)
+            if m is not None:
+                m["exp"] = int(m["exp"]) + 1                   # the stock body's write: the copy (seated) or the guest's own
+        return v
+
+    def _gm_begin_menu_hide(self) -> None:
+        """Stock's root Cancel: MainMenu's Hide for one fade, then ChangeUIState(HUD) -- the restore door."""
+        g = self._gm
+        if g["hide_at"] is None:
+            g["hide_at"] = self.rt + self.gm_fade_ms / 1000.0
+
+    def _gm_leave_menu(self) -> None:
+        """ChangeUIState(menu family -> the HUD): the RESTORE door (a `door fault restore` keeps the record: the alarm), then the HUD's Show
+        one fade later (events and control back on)."""
+        g = self._gm
+        hud = (g["menu"] or {}).get("hud") or g["hud"]
+        if g["rec"] is not None:
+            if g["door_fault"] == BW.GM_DOOR_HALF_RESTORE and self._gm_bench_gate():
+                g["door_fault"] = BW.GM_DOOR_HALF_NONE
+                self._mlog("[NetSync] guest menu: the door faulted (its restore half; the record and the seat stay held): bench door fault "
+                           "(logged once per process)")
+            else:
+                self._gm_restore(BW.GM_SITE_DOOR, None)
+        self.ui_state = hud
+        self.menu_entries = []
+        self.menu = {"selected": None, "hovered": None, "label": None, "group": None}
+        g["menu"] = None
+        g["show_at"] = self.rt + self.gm_fade_ms / 1000.0
+
+    # ---- the forced closes
+    def _gm_request_close(self, cause: int, nonce: int) -> int:
+        g = self._gm
+        seated = g["rec"] is not None or ("pause_closed" in self.guest_menu_faults and self.ui_state == "Pause")
+        v = BW.gm_request_close_over(g["close"], seated, g["close_old"], cause, nonce, self.ui_state, 0, self.ui_state == "WorldHUD",
+                                     self.gm_fade_ms, int(self.rt * 1000))
+        if v == BW.GM_RQ_NEW:
+            g["closes"][cause] += 1
+            g["last_close"] = {"cause": cause, "from": self.ui_state, "ms": -1, "end": 0}
+            if cause == BW.GM_CAUSE_CUT and nonce >= 0:
+                g["cut_closed"] = nonce
+            if not self.quit_prompt or "quit_under_close" in self.guest_menu_faults:
+                g["close"]["line_armed"] = True
+                g["close_line"] = {"text": BW.gm_close_line_rule(cause), "at": self.rt}
+            if self.ui_state == "Pause" and g["rec"] is None:
+                self.ui_state = g["hud"]                        # the `pause_closed` mutant: Pause closed with no seat
+        return v
+
+    def _gm_end_close(self, how: int, detail=None) -> None:
+        g = self._gm
+        rec = g["close"]
+        if not rec["held"]:
+            return
+        ms = max(0, int(self.rt * 1000) - int(rec["req_tick"]))
+        g["last_close"] = {"cause": rec["cause"], "from": rec["from"], "ms": ms, "end": how}
+        self._mlog(BW.log_gm_forced_close(rec["cause"], rec["from"], how, ms, detail))
+        g["close"] = BW.gm_close_record()
+
+    def _gm_close_tick(self) -> None:
+        g = self._gm
+        rec = g["close"]
+        if not rec["held"]:
+            return
+        quit_shown = bool(self.quit_prompt) and "quit_under_close" not in self.guest_menu_faults
+        if self.quit_prompt:
+            g["quit_seen"] = True
+        events = bool(g["event_enable"]) and g["show_at"] is None
+        act = BW.gm_close_drive_rule(rec, quit_shown, False, False, self.ui_state, events, True, int(self.rt * 1000))
+        if g["close_fault"] >= 0 and rec["step"] == g["close_fault"] and self._gm_bench_gate():
+            g["close_fault"] = -1                               # one shot: the tick throws at this step -- its guarded fault end
+            g["close_faults"] += 1
+            if self.ui_state in BW.GM_MENU_STATES:
+                self._gm_leave_menu()
+            g.update(show_at=None, hide_at=None, event_enable=True)
+            self._gm_end_close(BW.GM_CE_FAULT, f"the service tick faulted at its {BW.gm_close_step_name(rec['step'])} step")
+            return
+        if act != BW.GM_CA_WAIT and not rec["line_armed"]:
+            rec["line_armed"] = True
+            g["close_line"] = {"text": BW.gm_close_line_rule(rec["cause"]), "at": self.rt}
+        if act in (BW.GM_CA_HIDE_ROOT, BW.GM_CA_HIDE_SUB):
+            rec["hide_issued"] = True
+            self._gm_begin_menu_hide()
+        elif act == BW.GM_CA_DONE:
+            if g["quit_seen"] and "quit_under_close" in self.guest_menu_faults:
+                g["event_enable"] = False                       # the mutant: closed under QuitUI -- events stay off on the HUD
+            self._gm_end_close(BW.GM_CE_DONE)
+        elif act == BW.GM_CA_END:
+            self._gm_end_close(BW.GM_CE_NOTHING)
+        elif act == BW.GM_CA_WD_SWEEP:
+            self._gm_leave_menu()
+            g.update(show_at=None, event_enable=True)
+            self._gm_end_close(BW.GM_CE_WATCHDOG, "the sweep")
+        elif act == BW.GM_CA_WD_HUD_SHOW:
+            g.update(show_at=None, event_enable=True)
+            self._gm_end_close(BW.GM_CE_WATCHDOG, "the HUD's Show")
+        elif act in (BW.GM_CA_WD_END, BW.GM_CA_SCENE_END):
+            self._gm_end_close(BW.GM_CE_WATCHDOG if act == BW.GM_CA_WD_END else BW.GM_CE_SCENE)
+
+    def _gm_triggers(self) -> None:
+        """A client's real triggers while seated (decision 18, in the table's order), each asked first at its waiting site: the cut's nonce
+        memory steps first (LC1: a host epoch change forgets it, a different live battle spends it)."""
+        g, cf, faults = self._gm, self.coop_follow, self.guest_menu_faults
+        if cf is None or self.netsync["role"] != "client":
+            return
+        ep = cf.get("epoch", 0)
+        if g["epoch_seen"] is not None and ep != g["epoch_seen"]:
+            g["cut_closed"] = BW.gm_cut_memory_rule(g["cut_closed"], -1, True)
+        g["epoch_seen"] = ep
+        if cf.get("battle"):
+            g["cut_closed"] = BW.gm_cut_memory_rule(g["cut_closed"], int(cf.get("battle_nonce", -1)), False)
+        if g["rec"] is None:
+            return
+        c = self._gm_close_facts()
+        latest = self._gm_latest()
+        skip = {"leave_ignored": BW.GM_CAUSE_LEAVE, "cut_ignored": BW.GM_CAUSE_CUT, "scene_ignored": BW.GM_CAUSE_SCENE,
+                "title_ignored": BW.GM_CAUSE_TITLE}
+        for cause in range(BW.GM_CAUSE_LEAVE, BW.GM_CAUSE_SCENE + 1):
+            if any(f in faults and skip[f] == cause for f in skip):
+                continue
+            if BW.gm_trigger_fires(cause, c, latest, int(self.world.get("id", -1))):
+                self._gm_request_close(cause, c["battle_nonce"] if cause == BW.GM_CAUSE_CUT else -1)
+                return
+
+    # ---- the tick (the pre-gate region: the door, the menu's fades, the close, the settle)
+    def _step_guest_menu(self) -> None:
+        if not self._gm_on():
+            return
+        g = self._gm
+        if g["press"] is not None and self.rt >= g["press"]["at"]:
+            hud = g["hud"]
+            g["press"] = None
+            self._gm_door(hud)
+        if g["hide_at"] is not None and self.rt >= g["hide_at"]:
+            g["hide_at"] = None
+            self._gm_leave_menu()
+        if g["show_at"] is not None and self.rt >= g["show_at"]:
+            g["show_at"] = None
+            if not (g["quit_seen"] and "quit_under_close" in self.guest_menu_faults):
+                g["event_enable"] = True
+            g["quit_seen"] = False
+            if self.gm_tag4_event is not None and self.ui_state == "WorldHUD":
+                g["tag4_at"] = self.frame + 1                   # MenuOpenEvent's tag-4 request, queued behind the frozen events
+        if g["tag4_at"] is not None and self.frame >= g["tag4_at"]:
+            g["tag4_at"] = None
+            byte, bit = self.gm_tag4_event
+            self._gm_events[int(byte)] ^= int(bit)
+        self._gm_triggers()
+        self._gm_close_tick()
+        self._gm_settle_tick()
+
+    def _gm_settle_tick(self) -> None:
+        """GuestMenuSettleTick (the W1 review's CR-3): the outside fold restamped at the first frame AFTER the one that first read the HUD with
+        events on."""
+        g = self._gm
+        hud_on = self.ui_state in BW.GM_HUD_STATES and g["event_enable"] and g["show_at"] is None
+        step = BW.gm_settle_step_rule(g["settle_armed"], g["settle_saw"], hud_on)
+        if step == BW.GM_SE_SAW and "settle_same_frame" in self.guest_menu_faults:
+            step = BW.GM_SE_STAMP
+        if step == BW.GM_SE_WAIT:
+            g["settle_saw"] = False
+        elif step == BW.GM_SE_SAW:
+            g["settle_saw"] = True
+        elif step == BW.GM_SE_STAMP:
+            g["out_settled"] = self._gm_outside()
+            g.update(settle_armed=False, settle_saw=False)
+
+    # ---- the proof block (decision 34: after the world walk line, the seat bracket line, then the guest menu line)
+    def _gm_proof(self) -> None:
+        g = self._gm
+        g["proof"] = True
+        g["type5_len"] = g["type5_max"] = FAKE_GM_TYPE5_LEN     # the selftest role's own BuildStateFrame(true, true): no section 12
+        g["sec12_len"] = 0
+        self._mlog(BW.seat_bracket_proof_line(*seat_bracket_proof_tallies()))
+        rows, mutants = guest_menu_proof_tallies()
+        if "guest_menu_proof_fail" in self.guest_menu_faults:
+            self._mlog(f"[NetSync] {BW.PROOF_GUEST_MENU}FAIL (row key.loading_quiet failed (1 of {rows}))")
+        else:
+            self._mlog(BW.guest_menu_proof_line(rows, mutants))
+
+    # ---- the key (HarnessAgent.AppendGuestMenu, in its order)
+    def _gm_line_live(self) -> bool:
+        ln = self._gm["line"]
+        return ln is not None and BW.gm_refusal_line_live_rule(True, int((self.rt - ln["at"]) * 1000), ln["mode"], self._gm_mode())
+
+    def _gm_overlay(self, peer_lost: bool) -> bool:
+        """NotPairedLineRule: state 29 while the refusal line lives on a client, never over the peer-lost connecting line."""
+        return self._gm_on() and self.netsync["role"] == "client" and BW.gm_not_paired_line_rule(self._gm_line_live(), peer_lost)
+
+    def _gm_doc(self) -> dict:
+        g = self._gm
+        rec = g["rec"]
+        own = self._gm_own_caps()
+        lt = self._gm_latest()
+        peer = BW.ww_peer_caps_of(lt) if lt["has"] else -1
+        fp_v = self._gm_fp_verdict(g["fp_before"], g["fp_after"])
+        out_v = self._gm_fp_verdict(g["out_before"], g["out_after"])
+        set_v = self._gm_fp_verdict(g["out_before"], g["out_settled"])
+        hexes = lambda s: None if s is None else BW.gm_fp_hex(s["value"])                               # noqa: E731
+        comps = None
+        if g["fp_before"] is not None or g["fp_after"] is not None:
+            comps = {BW.gm_fp_comp_name(k): {"before": BW.gm_fp_hex(g["fp_before"]["comp"][k]) if g["fp_before"] else None,
+                                            "after": BW.gm_fp_hex(g["fp_after"]["comp"][k]) if g["fp_after"] else None}
+                     for k in range(BW.GM_FP_COMPS)}
+        seat_c = None if g["fp_seat"] is None else {BW.gm_fp_comp_name(k): BW.gm_fp_hex(g["fp_seat"]["comp"][k]) for k in range(BW.GM_FP_COMPS)}
+        cl = g["close_line"]
+        cl_live = cl is not None and BW.gm_close_line_live_rule(True, int((self.rt - cl["at"]) * 1000))
+        ln = g["line"]
+        world = self.ui_state == "WorldHUD"
+        last = g["last_close"]
+        bench = self._gm_bench_gate()
+        lever_menu = "old" if g["old"] else "act"
+        return {
+            "lever": {"menu": lever_menu, "caps": "off" if g["caps_off"] else "on", "chip": "off" if g["chip_off"] else "on",
+                      "seat_skip": "party" if g["seat_skip"] else "off",
+                      "restore_skip": BW.gm_fp_comp_name(g["restore_skip"]) if g["restore_skip"] >= 0 else "off",
+                      "seat_fault": BW.gm_fp_comp_name(g["seat_fault"]) if g["seat_fault"] >= 0 else "off",
+                      "door_fault": {BW.GM_DOOR_HALF_OPEN: "open", BW.GM_DOOR_HALF_RESTORE: "restore"}.get(g["door_fault"], "off"),
+                      "capture": "off" if g["capture_off"] else "on", "close": "old" if g["close_old"] else "act",
+                      "close_fault": BW.gm_close_step_name(g["close_fault"]) if g["close_fault"] >= 0 else "off",
+                      "events": "on" if g["events_on"] else "off", "poke": "armed" if g["poke"] else "off"},
+            "caps": {"own": own, "peer": peer, "on": own >= 0 and peer >= 0 and BW.ww_feature_on(own, peer, BW.WW_CAP_GUEST_MENU)},
+            "why": g["why"], "open": self.ui_state in BW.GM_MENU_STATES, "session": self._gm_session_now(), "seated": rec is not None,
+            "opens": g["opens"], "closes": dict({BW.gm_cause_name(k): g["closes"][k] for k in range(1, BW.GM_CAUSE_SCENE + 1)},
+                                                faults=g["close_faults"]),
+            "refused": {"count": g["refused"], "last_site": g["refused_site"], "last_screen": g["refused_screen"]},
+            "captures": g["captures"], "passes": g["passes"],
+            "fp": {"before": hexes(g["fp_before"]), "after": hexes(g["fp_after"]), "equal": fp_v == BW.GM_FV_EQUAL,
+                   "named": BW.gm_fp_comp_name(BW.gm_fp_named_rule(g["fp_before"]["comp"], g["fp_after"]["comp"])) if fp_v == BW.GM_FV_DIFFERS
+                   else None, "components": comps, "outside_equal": out_v == BW.GM_FV_EQUAL,
+                   "outside_named": BW.gm_out_comp_name(BW.gm_out_named_rule(g["out_before"]["comp"], g["out_after"]["comp"]))
+                   if out_v == BW.GM_FV_DIFFERS else None},
+            "seat_fp": {"value": hexes(g["fp_seat"]), "components": seat_c},
+            "frame": {"type5_len": g["type5_len"], "type5_max": g["type5_max"], "tx_bps": -1, "sec12_len": g["sec12_len"],
+                      "dropped": g["dropped"], "faults": g["frame_faults"]},
+            "host_fp": {"value": None, "components": None},
+            "line": {"text": ln["text"] if self._gm_line_live() else None,
+                     "age": int((self.rt - ln["at"]) * 1000) if self._gm_line_live() else -1},
+            "close_line": {"text": cl["text"] if cl_live else None, "age": int((self.rt - cl["at"]) * 1000) if cl_live else -1},
+            "chip": BW.GM_CHIP_VIEW_ONLY if BW.gm_chip_shown_rule(rec is not None, g["chip_off"]) else None,
+            "seat": {"src": g["seat_src"], "frame_age_ms": g["seat_age"], "marker": g["seat_marker"]},
+            "door_refused": dict(g["door_refused"]),
+            "restore": {"doors": g["doors"], "drops": g["drops"], "backstops": dict(g["bs"])},
+            "master_skipped": g["master_skipped"], "ach_held": g["ach_held"], "event_enable": bool(g["event_enable"]),
+            "bench": {"marker": g["marker"], "witness": g["variant"], "intent": g["intent"], "host_field": g["host_field"]},
+            "impactful": g["impactful"], "close_pending": bool(g["close"]["held"]),
+            "close_step": BW.gm_close_step_name(g["close"]["step"]) if g["close"]["held"] else None,
+            "last_close": {"cause": BW.gm_cause_name(last["cause"]), "from": last["from"], "ms": last["ms"],
+                           "end": BW.GM_CLOSE_END_NAMES[last["end"]] if 0 < last["end"] < len(BW.GM_CLOSE_END_NAMES) else None},
+            "held": {"bits": g["held_bits"], "keyon": g["held_keyon"]},
+            "outside_settled": {"set": g["out_settled"] is not None, "equal": set_v == BW.GM_FV_EQUAL,
+                                "named": BW.gm_out_comp_name(BW.gm_out_named_rule(g["out_before"]["comp"], g["out_settled"]["comp"]))
+                                if set_v == BW.GM_FV_DIFFERS else None},
+            "uid0_vars": BW.gm_vars_digest_rule(self.gm_uid0_vars, 0, len(self.gm_uid0_vars)) if world else None,
+            "sysvar192": int(self.gm_sysvar192) if world else -1}
+
     def _nb_caps(self) -> frozenset:
         """The battle co-op capabilities this stand-in's engine has (:data:`NETSYNC_BATTLE_CAPS`) -- none on an F3 engine."""
         if self.netsync_dialogue != "authority":
@@ -13831,6 +15060,9 @@ class FakeGame:
         self._wfo_release()
         # [ff9mapkit netsync s166] world walk's HarnessRelease, right after it (every role): `kitcell` act -- its line only when one was set
         self._wwk_release()
+        # [ff9mapkit netsync s168] NetSyncGuestMenu.HarnessReleaseGuestMenu, right after it (every role): all twelve levers back, the bench
+        # frame and host dropped -- its line only when something was set
+        self._gm_release()
 
     def _battle_bench_verb(self, sub: str, args: list, arg, out_of_range) -> None:
         """The agent's B4/B5 `netsync` sub-verbs (HarnessAgent, s100-s105): each one's argument parse FIRST (an

@@ -172,6 +172,9 @@ P_FLAG = 8720                            # >= FIRST_SAFE_FLAG (8712)
 MENU_SHORT_S, MENU_AGED_S = 1.2, 3.5
 PAUSE_UI = "Pause"                       # the MENU leg's held state (UIManager.UIState): a mirroring guest has no main menu
 MENU_PRE_OK = ("open", "audible")        # `netsync.menu_refusal.now` with the scene branch live on a field HUD (menu_pre_void)
+#: [ff9mapkit netsync s168] ...and `guest` on an s168 guest (the probe shows `netsync.guestmenu`): a press its guest menu would open --
+#: the scene branch is live, Pause can open (S168-DESIGN.md decision 32's re-key: accepted ONLY on that stage)
+MENU_PRE_OK_S168 = MENU_PRE_OK + ("guest",)
 PAUSE_OPEN_S = 5.0
 LEFT_BATTLE_S = 0.8
 LEFT_BATTLE_MS = round(LEFT_BATTLE_S * 1000)      # the same hold on the swap clock: the host's emit_t + landed_ms + this
@@ -870,13 +873,14 @@ def menu_close_t(gs) -> int | None:
     return None
 
 
-def menu_pre_void(now) -> str | None:
+def menu_pre_void(now, guest_menu: bool = False) -> str | None:
     """[ff9mapkit netsync s164] MENU's pre-guard (PURE): ``now`` the guest's `netsync.menu_refusal.now` (what a Menu press would do right
     now, s121) -> the VOID reason, or None to go on. "audible" is a MIRRORING guest's normal FieldHUD read -- its MAIN menu refused, the
     reason the leg holds Pause -- and "open" a guest with no mirror: both leave UIKeyTrigger's scene branch live, so Pause can open.
     Any other read ("dialog": a window up, the press takes the dialogue path; "off": the scene's own MENUOFF; "silent": off FieldHUD;
-    "": no UIManager) is a setup miss before any press. Unread (None) goes on: the Pause poll is the gate then."""
-    if now is None or now in MENU_PRE_OK:
+    "": no UIManager) is a setup miss before any press. Unread (None) goes on: the Pause poll is the gate then. [ff9mapkit netsync s168]
+    ``guest_menu`` (the probe shows `netsync.guestmenu`): "guest" goes on too -- on an s167 engine it stays a VOID."""
+    if now is None or now in (MENU_PRE_OK_S168 if guest_menu else MENU_PRE_OK):
         return None
     return (f"VOID (a setup miss): the guest's menu_refusal.now reads {now!r} before the leg -- its key never reaches the scene branch "
             f"where Pause opens (a mirroring guest's MAIN menu is refused by design: s38 spectator-field, s121)")
@@ -2819,7 +2823,7 @@ def _menu_run(d, ctx: Ctx, hold_s: float, *, short: bool) -> dict:
     -131 / -132 ms; s157's law)."""
     host, guest = d.host, d.guest
     _seat(d, HOME)
-    why = menu_pre_void(cb.path(guest.state, "netsync.menu_refusal.now", None))
+    why = menu_pre_void(cb.path(guest.state, "netsync.menu_refusal.now", None), cb.has(guest.state, "netsync.guestmenu"))
     if why:
         raise HarnessError(why)
     act_fade = FADE_WORDS.get(ctx.cal, "act")

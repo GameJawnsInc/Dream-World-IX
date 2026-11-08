@@ -31562,3 +31562,67 @@ def test_s164_arrive_the_proof_totals_are_the_engines():
                                                                   FG.FAKE_SWAP_MUTANTS_UNGUARDED + FG.FAKE_SWAP_ARRIVE_MUTANTS) == (501, 183)
     assert re.fullmatch(FG.SWAP_PROOF_RE, BW.swap_proof_text(FG.FAKE_SWAP_SELFTEST_ROWS, FG.FAKE_SWAP_MUTANTS, "qpc", 10000000, True))
     assert _so_proof_text() == "step-out selftest: OK (56 rows, 20 mutants caught, dwell 1500 ms, step-in 500 ms)"
+
+
+# =========================================================================== [ff9mapkit netsync s168] THE GUEST'S MAIN MENU, RUNG 0
+# S168-DESIGN.md decision 32: `netsync.guestmenu` is netsync's LAST key (after s166's `wire_peer`) and `guestmenu` the agent's LAST sub-verb;
+# the catch literal carries its sentinels in the same change (THE CATCH LITERAL IS PART OF EVERY KEY ADDITION). BY STAGE: the live stack
+# carries no s168 patch until the W1 clone is frozen (the s167 stage: neither the agent nor a default stand-in has it); the opt-in s168
+# stand-in (FG.guest_menu_stand_in) publishes the block LAST at BW.GUEST_MENU_SENTINELS' keys. tests/test_coop_guest_menu.py pins the
+# block to a clone named by FF9_S168_CLONE; these pins move onto the stack the moment an s168 patch lands.
+def _s168_live() -> bool:
+    """[ff9mapkit netsync s168] Whether the LIVE patch stack carries an s168 patch yet (none until the W1 clone is frozen)."""
+    return any(n.startswith("s168-") and n not in msr.DEAD for n in msr.stack())
+
+
+def test_s168_guestmenu_closes_netsync_at_the_catch_lines_sentinels_by_stage(game):
+    """By stage: once the s168 patch is live the agent's catch line closes `netsync` with `guestmenu` (after `wire_peer`) at
+    BW.GUEST_MENU_SENTINELS and the sub-verb list ends `|worldwalk|guestmenu`; before it (the deployed s167) neither the agent nor a
+    default stand-in has the block or the sub-verb. The s168 stand-in publishes the block LAST, its keys (and every nested block's) the
+    sentinels' in order, its `lever` the twelve defaults."""
+    nothing, _pinned = _agent_netsync_nothing()
+    subverbs = _agent_subverbs()
+    if _s168_live():
+        assert list(nothing)[-2:] == ["wire_peer", "guestmenu"], list(nothing)[-3:]
+        assert json.dumps(nothing["guestmenu"]) == json.dumps(BW.GUEST_MENU_SENTINELS)
+        assert subverbs[-2:] == ("worldwalk", "guestmenu")
+    else:
+        assert "guestmenu" not in nothing and "guestmenu" not in subverbs
+    plain = FakeGame(game)
+    assert "guestmenu" not in plain._netsync_doc() and "guestmenu" not in plain._netsync_subverbs()
+    s168 = FakeGame(game)
+    FG.guest_menu_stand_in(s168)
+    doc = s168._netsync_doc()
+    assert list(doc)[-2:] == ["wire_peer", "guestmenu"] and s168._netsync_subverbs()[-2:] == ("worldwalk", "guestmenu")
+    gm = doc["guestmenu"]
+    assert list(gm) == list(BW.GUEST_MENU_SENTINELS) == list(BW.GUEST_MENU_KEYS)
+    for k, v in BW.GUEST_MENU_SENTINELS.items():
+        if isinstance(v, dict):
+            assert list(gm[k]) == list(v), k
+    assert gm["lever"] == BW.GUEST_MENU_LEVER_DEFAULTS and set(BW.GUEST_MENU_LEVER_SENTINELS) == set(BW.GUEST_MENU_LEVER_DEFAULTS)
+    assert all(v is None for v in BW.GUEST_MENU_SENTINELS["lever"].values())       # every lever sentinel null (the agent's catch)
+    assert FG.NETSYNC_S168_CAPS == frozenset(BW.NETSYNC_TOP_KEYS_S168) == frozenset(("guestmenu",))
+
+
+def test_s168_menu_refusal_now_reads_guest_and_a_refused_guest_press_audible(game):
+    """decision 32's `menu_refusal.now` on the s168 engine: `guest` for a guest open (GuestOpen / GuestQuiet), `audible` for a refused guest
+    press -- the bench on a HUD (s167 read `open` there) -- and s121's reads everywhere else; the s167 stand-in keeps s121's."""
+    f = FakeGame(game)
+    FG.guest_menu_stand_in(f)
+    f.field_id, f.ui_state, f.control = 100, "FieldHUD", True
+    f._netsync(["selftest", "1"])
+    f._netsync(["bench", "1"])
+    assert f._menu_key_now() == "audible"                                # the bench without a frame: refused (decision 6)
+    f._netsync(["guestmenu", "frame", "7"])
+    assert f._menu_key_now() == "guest"
+    f.ui_state = "BattleHUD"
+    assert f._menu_key_now() == "open"                                   # s121's step off the HUD: the bench keeps Open
+    f._netsync(["guestmenu", "old"])
+    f.ui_state = "FieldHUD"
+    assert f._menu_key_now() == "open"                                   # `guestmenu old`: s121 exactly
+    old = FakeGame(game)
+    old.world_walk_pieces = FG.FAKE_WORLD_WALK_S167_PIECES
+    old.field_id, old.ui_state = 100, "FieldHUD"
+    old._netsync(["selftest", "1"])
+    old._netsync(["bench", "1"])
+    assert old._menu_key_now() == "open"                                 # s167: the selftest role is not mirroring

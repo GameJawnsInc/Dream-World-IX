@@ -1,11 +1,16 @@
 # The guest's main menu: view-only, then support abilities (s168-s169)
 
-**Status: design only, 2026-11-06.** Nothing is built. s168 (rung 0, the view-only menu) is built now with
-`tools/build_memoria.py --no-deploy`: the engine pieces, the kit, the offline proofs. It is deployed and benched in game
-only AFTER the owner's s167 two-PC look; if that look needs an s167 engine fix, the fix lands first and s168 rebases onto
-it. s169 (rung 1, support abilities) is designed here and built only after s168 is green. Each round is built, deployed
-and benched alone (one change per in-game test). s168 takes the clone under a TAKING THE CLONE line in the round queue
-when its engine edits start.
+**Status: s168's engine, kit and bench are built, 2026-11-07; nothing is deployed.** W1a-W1i and the W1 review's four
+fixes sit in the shared clone's working tree (uncommitted by design), compiled with `tools/build_memoria.py --no-deploy`
+and proven offline. W2 built the kit twins, the fakegame `guestmenu` rung, `coop_peer`'s b3 side, the three-harness
+bench and its runners, then ran a five-lens critic whose 24 confirmed findings are fixed; the co-op domain tests are
+green. No bench leg has run in game. "As built (s168 W1)" (below the Departures) lists every engine deviation kept,
+the final proof counts, the pinned W1a/b artifact and what is owed; "As built (s168 W2)" is the kit's ledger. The
+decisions are corrected in place to match the build.
+s168 (rung 0, the view-only menu) is deployed and benched in game only AFTER the owner's s167 two-PC look; if that look
+needs an s167 engine fix, the fix lands first and s168 rebases onto it. s169 (rung 1, support abilities) is designed
+here and built only after s168 is green. Each round is built, deployed and benched alone (one change per in-game test).
+s168 takes the clone under a TAKING THE CLONE line in the round queue when its engine edits start.
 
 This is rung 0 and rung 1 of `GUEST-MENU.md`'s Option A: the stock main menu on the guest, over a copy of the host's
 party, every changing confirm caught; from rung 1 the support-ability confirm is forwarded and the host does the write.
@@ -24,6 +29,8 @@ C# lines are the live shared clone's (`C:\gd\FFIX\Memoria`, base `6b8bb2d5` with
 tree), each re-read on 2026-11-06. Paths are relative to `Assembly-CSharp/`. The tree is decompiled: the grounding lanes
 caller-checked the functions cited, and this design re-read every anchor it gives; where a claim could not be checked
 it says "unverified". The build re-finds each site. The harness protocol stays 5. The wire stays v15: no bump.
+These anchors are the pre-s168 clone's: the s168 delta moves them (NetSyncClient.cs alone grew by about 1600 lines), so
+the corrections made after the build and the As built section name s168's own sites by symbol.
 
 ## What happens today (s167)
 
@@ -90,12 +97,15 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
    latched. **Caps are not liveness:** the cache is held past the 2 s StaleMs cliff, so every gate below also needs a
    live peer. "Off" (an older partner build, or the lever) is s121's read exactly for a mirroring guest: on the scene
    branch its refusal -- keys, count, log line -- plus the on-screen refusal line naming an older partner build (decision
-   10); on the dialogue path its silent drop (decision 6). An unmirrored paired
+   10), a press inside a HUD fade included (the W1 review's `pairOn`, decision 6: GuestQuiet is a feature-on pair's
+   only); on the dialogue path its silent drop (decision 6). An unmirrored paired
    guest stays refused (decision 7), and only `guestmenu old` restores its s121 open. The existing caps line already
    names it: `CapsNames[3]` is "guest menu" (:2511), so CapsLineText logs "the partner's co-op build lacks my guest menu (its caps
    0x0003, mine 0x000B) -- off for this pair: the older behaviour" once per process and caps pair. A new proof row
    `caps.own_s168_word` pins `OwnCapsRule(true, *) == 0x01`, `(false, false) == 0x0B` and `(false, true) == 0x03`
-   beside s167's `caps.own_s167_word`, which is re-keyed to `OwnCapsOf(false, true) == 0x03` (decision 32).
+   beside s167's `caps.own_s167_word`, which is re-keyed to `OwnCapsOf(false, true) == 0x03` (decision 32). As built
+   (W1d), a second new row `caps.line_text_s168` pins that caps line's exact words for an s168 build against an s167
+   partner, and the world walk proof compiles with NetSyncGuestMenu.cs (OwnCapsNow reads its `caps` lever).
    **Lever:** `netsync guestmenu caps off` speaks s167's 0x03 exactly. `worldwalk fp off` keeps its s167 meaning, s166
    exactly (0x01), which also turns the guest menu off.
 
@@ -141,10 +151,13 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
 5. **The menu block, section 12, rides every state frame to a b3 follower.** The host appends it in `BuildStateFrame`
    between section 11 and section 7 (`NetSyncClient.cs:10626-10634`), only while a send rule in the `FpSectionSendRule`
    pattern holds (NetSyncWorldWalk.cs:2816): the host role, FeatureOn(b3) over both words, the peer's trailer flags b0
-   (it follows), the peer live. It is not request/reply, for three reasons the code decides: the seat happens at the
-   door and `MainMenuUI.Show` reads the party synchronously (`Global/MainMenuUI.cs:38-77`), so the data must already be
-   in hand; a replayed tape never answers a request, so request-gated data could not be benched on T2; the open is
-   instant.
+   (it follows), the peer live. As built that rule is the pure `GmSectionSendRule`; its host term reads the real role
+   (`_role == "host"`), never HostFpSectionNow's `hostSections` argument, because the selftest role's DressSelfTest and
+   speed proof call `BuildStateFrame(true, true)` and must keep their pinned bytes; its live term is the existing
+   peer-alive read (`IsConnected && GetRemote().Valid`). It is not request/reply, for three reasons the code decides:
+   the seat happens at the door and `MainMenuUI.Show` reads the party synchronously (`Global/MainMenuUI.cs:38-77`), so
+   the data must already be in hand; a replayed tape never answers a request, so request-gated data could not be
+   benched on T2; the open is instant.
    **Fault isolation:** section 12 (and section 13 from s169) is built through a `HostGuestMenuSectionNow` helper in
    HostFpSectionNow's idiom (NetSyncClient.cs:9691-9708): its own try returns null on any fault, so the section drops and
    the frame never does. BuildStateFrame runs on the host at the 7 Hz publish (inside NetSyncClient.Update's single try),
@@ -164,6 +177,14 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
    | then | memberN u8 (<= 4) | the present party members |
    | per member | charId u8, presetId u8, category u8, exp u32, basisCapa u32, paN u8, pa u16 x paN | keyed by CharacterId (the value section 1 sends as charId). pa is clamped at 65535 (every installed cost is far below) |
 
+   As built (W1c, W1d): the encoder (`HostMenuBlockOf`, over section 1's own `NetSyncParty.SlotSource` seam) writes at
+   most 4 members and at most 255 pa each, skips null members and ids outside 0..65535, and leaves OUT a member whose
+   preset (`info.menu_type`) is outside 0..255 rather than truncate it to a u8 that could name another preset: section 1
+   still names that member, so the guest refuses `no_data` (it fails closed; the proof's `block_preset_wraps` mutant).
+   The reader skips bytes after the last member, so an additive fmt-1 append is read past the way the section walkers
+   skip an unknown id. All four of the seat's sections (1, 2, 3, 12) are read from one frame, all or nothing
+   (`TryReadSeatFrame`).
+
    **Cost, computed on paper from the codec (not measured):** 3 (section header) + 10 + 2 x usedN + the sum over members of (12 + 2 x paN). With four members
    on the main presets (48 abilities each) that is 445 + 2 x usedN bytes: about 450-570 B typical, about 960 B with 256 key
    items marked. The host rebuilds the state frame every 150 ms, but both transports re-send the latest slot on every
@@ -176,43 +197,59 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
    (HeaderLen 12 + OpenLen 6 x OpenCap 4 + the count byte + EventLen 12 x RingCap 32; NetSyncDialog.cs:84-89,
    BuildSection :653-686), plus section 8's 6 B (a 3-byte body, NetSyncClient.cs:10632-10636): 424 + 6 = 430 B in s168;
    s169 adds section 13's maximum + 3. Section 11 comes before 12, so it is already in the frame so far. One proof row
-   recomputes TrailReserve from HeaderLen, OpenLen, OpenCap, the count byte, RingCap and EventLen, so the constant cannot
-   rot. From s169, section 13 is appended only when 12 was: s169's answer-echo law wants 13 with 1 and 12 in one frame,
-   and its reader assumes 13 implies 12. BuildStateFrame's order and F3.3's rule that sections 5 and 7 leave in one
+   recomputes TrailReserve from HeaderLen, OpenLen, OpenCap, the count byte, RingCap and EventLen, and (as built) section
+   8's part from `NetSyncVisitor.DressBodyLen` (3) plus its 3-byte header, so the constant cannot rot. From s169,
+   section 13 is appended only when 12 was: s169's answer-echo law wants 13 with 1 and 12 in one frame, and its reader
+   assumes 13 implies 12. BuildStateFrame's order and F3.3's rule that sections 5 and 7 leave in one
    snapshot (:10612-10614) stay exactly as they are. A drop removes the **section**, never the frame, with one line per
    process and a counter, the precedent of BuildPosPayload's trailer drop (NetSyncSocket.cs:281-292). There is no
    sender-side guard on the state frame today, and an over-cap frame breaks a TCP link into a redial loop
    (NetSyncSocket.cs:410) and silently stales the relay lane. The guest then refuses the open with "the menu data did not
    arrive". The cost: section 12 can drop up to about 0.45 KB earlier than strictly necessary, and only in frames already
    above about 7.3 KB. `frame.type5_len`, `frame.sec12_len` and `frame.dropped` are stamped at the build (the last BUILT
-   type-5 payload), so a selftest reads them with no socket. **Lever:** `guestmenu caps off` on either role stops the
-   section. The guard's call site is proven by the pure rule and the TrailReserve row (GM0-FRAME), not by an in-game
-   oversize build.
+   type-5 payload), so a selftest reads them with no socket. As built they stamp at EVERY BuildStateFrame on any role
+   (the selftest role's own builds too); `sec12_len` is section 12's body length (0 when the last frame carried none, -1
+   before any build), `type5_max` the largest payload built in the process. **Lever:** `guestmenu caps off` on either
+   role stops the section. The guard's call site is proven by the pure rule and the TrailReserve row (GM0-FRAME), not
+   by an in-game oversize build.
 
 6. **The gate seam: a pre-check at the press.** Lift exactly the scene branch's Menu arm (`UIKeyTrigger.cs:719-722`): its
-   two `IsMirroringStory` conjuncts become ONE verdict read at the press. `MenuKeyStep` gains `MenuKeyGuestOpen` (harness
-   name `guest`). The press arms nothing: it refuses audibly or calls stock `OnKeyMenu`, and the door (decision 9) is the
-   one open verdict. The pure rule, in `NetSyncGuestMenu.cs`:
+   two `IsMirroringStory` conjuncts become ONE verdict read at the press. `MenuKeyStep`'s verdicts gain
+   `MenuKeyGuestOpen` (5) and `MenuKeyGuestQuiet` (6), both harness name `guest` (NetSyncField's constants equal
+   `NetSyncGuestMenu.KeyGuestOpen` 5 / `KeyGuestQuiet` 6, one source). The press arms nothing: it refuses audibly or
+   calls stock `OnKeyMenu`, and the door (decision 9) is the one open verdict. As built (W1e) a new arm sits after the
+   Android TV arm and ahead of s38's line, keyed first on `NetSyncField.GuestMenuPressInPlay` (`WorldSessionHeld ||
+   IsMirroringStory || (IsSelfTestRole && BenchGates)`: three static reads, never the guest-menu class, and a fault
+   reads false); when it is false, s38's and s121's two lines run byte for byte as in s167. When it is true the press
+   takes ONE verdict and spends it through the pure `PressActRule`: stock OnKeyMenu for every open, the press deadline
+   for GuestOpen only, a guest refusal through the given-verdict `RefuseMainMenu` below, s121's own refusals through the
+   parameterless s121 entry, nothing for MENUOFF. The pure rule, in `NetSyncGuestMenu.cs` (its live reads lazy):
 
    ```
-   GuestMenuKeyStep(enable, old, guestSession, loading, state, why):
+   GuestMenuKeyStep(enable, old, guestSession, mirroring, loading, pairOn, state, whyNot):
      !enable                            -> StockOff       (stock's own MENUOFF: silent, as ever)
      old                                -> MenuKeyStep(enable, IsMirroringStory, state)   (s121 exactly)
      !guestSession                      -> Open           (vanilla, a host, an unfollowed client)
      state not FieldHUD and not WorldHUD -> MenuKeyStep(enable, IsMirroringStory, state)
                                            (s121's step: s38's silent drop for a mirroring guest; the bench and an
                                             unmirrored guest keep Open, so BattleHUD's diorama refusal still buzzes and counts)
-     loading                            -> GuestQuiet     (the HUD's Hide in flight, e.g. a second press inside its fade:
+     loading && pairOn                  -> GuestQuiet     (the HUD's Hide in flight, e.g. a second press inside its fade:
                                                            stock OnKeyMenu, which reads false while Loading -- silent,
                                                            never counted, no line, `now` stays `guest`; never `ui`)
      why == null                        -> GuestOpen      (sceneFromState.OnKeyMenu and the press deadline, decision 9; nothing armed)
      else                               -> RefuseAudible(why)
    guestSession = WorldSessionHeld || IsMirroringStory || (IsSelfTestRole && BenchGates)
    loading = UIManager.IsLoading (UIManager.cs:97: the current state's scene is Loading, or there is no Unity scene)
-   why = GuestMenuWhyNot(...), evaluated only for the last two lines
+   pairOn = PairOnRule(old, WorldOwnCapsNow, _wwCache.Latest)
+          = !old && FeatureOn(own, PeerCapsOf(Latest), CapGuestMenu)    (the W1 review: term 3's own reads)
+   why = whyNot() = GuestMenuWhyNot(...), evaluated only for the last two lines
    ```
 
-   `guestSession` includes `IsMirroringStory` so a mirroring guest whose session latch fell (the ramp pending) is
+   **GuestQuiet is a feature-on pair's only** (the W1 review): with the guest menu off for the pair (an older partner,
+   `guestmenu caps off`, `worldwalk fp off`) a press inside a HUD fade falls through to the predicate, whose who-before-caps
+   order gives `not_mirroring` or `session`, else `older`: s121's audible refusal exactly (decision 2), never a silent,
+   uncounted press. `pairOn` is the fourth lazy read, asked only inside the fade, inside the same try (a fault there is
+   `fault`). `guestSession` includes `IsMirroringStory` so a mirroring guest whose session latch fell (the ramp pending) is
    refused, never opened. **Fail closed, but only inside a guest press:** GuestMenuWhyNot is evaluated lazily, only after
    `enable`, `old` and `guestSession` say a guest press is in play, and an exception once guestSession is known true is
    `RefuseAudible("fault")`, never an open. A fault before that, or with guestSession false, takes s121's read exactly
@@ -220,10 +257,16 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
    unfollowed client never loses the menu; a proof row pins that fallback.
    **`RefuseMainMenu(why)` takes the verdict as given:** a RefuseAudible from GuestMenuKeyStep buzzes, counts and logs on
    FieldHUD/WorldHUD without re-running s121's MenuKeyStep, which reads Open for an unmirrored guest and for the bench
-   (neither is mirroring) and would drop the refusal silently. The parameterless s121 entry stays byte-identical for the
+   (neither is mirroring) and would drop the refusal silently. As built its signature is
+   `RefuseMainMenu(verdict, why, member, component)`: the verdict to take as given, plus the content witness's member
+   (named in the line, decision 13) and component (logged); it buzzes, counts, calls `NoteRefusal(why)` and asks the
+   decline book, then arms the 4 s refusal line. The parameterless s121 entry stays byte-identical for the
    `old` path. Proof rows: the bench with why `link` refuses audibly (count +1, buzz asked); an unmirrored session with
    `not_mirroring` refuses audibly; a guest press on FieldHUD with that HUD Loading reads GuestQuiet, count +0, no line
-   (a double tap inside the hide fade is ordinary at FadeDuration 300).
+   (a double tap inside the hide fade is ordinary at FadeDuration 300); the same press with the feature off for the pair
+   refuses audibly (`key.loading_caps_off_older`; mutant `key_quiet_caps_blind`). Because the bench and an unmirrored
+   guest are in a guest press, `menu_refusal.now` reads `audible` for them on FieldHUD/WorldHUD where s167 read `open`,
+   and `count`, `lines` and `silent` also count guest-press refusals (intended; decision 32's re-keys).
    **Never write `UIManager.IsMenuControlEnable`:** it is a public field (`UIManager.cs:715`) that
    `FieldMapActorController.cs:167` reads to idle inactive actors. **Left unchanged:** Alt+F2
    (:510), Alt+F5/F9 and the harness `savemenu` (:572), BattleHUD's diorama refusal
@@ -270,14 +313,14 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
    | 4 | live | `IsLiveFollowedSession` and `GetRemoteState() != null`; the bench: `!DebugLinkDead` (NetSyncClient.cs:506) | `link` |
    | 5 | host place | trailer `Latest.Has`, place field (1) or world (4): no transition, battle, diorama or loading (NetSyncWorldWalk.cs:232-233) | `host_busy` |
    | 6 | host not fighting | section 7 b5 HfBattle clear (NetSyncDialog.cs:97) and `!NetSyncBattle.PeerBattleLive` (NetSyncBattle.cs:73) | `host_battle` |
-   | 7 | menu data | section 12 present, fmt 1, in the latest fresh frame (`GetRemoteState`, `TryReadSection`, NetSyncState.cs:275) | `no_data` |
+   | 7 | menu data | section 12 present, fmt 1, in the latest fresh frame (`GetRemoteState`, `TryReadSection`, NetSyncState.cs:275); as built also a consistent block: section 12 names each present section-1 member exactly once and nobody else (`BlockMatchesPartyRule`; nothing about the install differs, so `no_data`, not `data_differs`) | `no_data` |
    | 8 | content witness | decision 13 | `data_differs` |
    | 9 | my control | `ee.GetUserControl()` (`Global/Event/Engine/EventEngine.cs:1431`) | `control` |
-   | 10 | not busy | `BusyRule(Booted, GuestFollowFadeNow, FieldTransitionNow(), GuestSessionEndingNow) == null` (`NetSyncGuestLocal.cs:428-439`; NetSyncClient.cs:1467, :5297, :1488), `!BattleReturnInFlight` (NetSyncDiorama.cs:1345), no diorama armed, `!(NetSyncGuestLocalArmed.On && InFlightNow)` (NetSyncGuestLocal.cs:61, :596), `!NetSyncStepOutArmed.On`, `_worldOutCommittedTo < 0` (NetSyncClient.cs:289; here, not in WT5, so a field reads it too: a follow-out committed inside the opening window) | `busy` |
-   | 11 | THE OPEN MIRROR | never open what a close trigger (decision 18) would close at once: the same rule, read as an open term | `leaving`, `scene` |
+   | 10 | not busy | `BusyRule(Booted, GuestFollowFadeNow, FieldTransitionNow(), GuestSessionEndingNow) == null` (`NetSyncGuestLocal.cs:428-439`; NetSyncClient.cs:1467, :5297, :1488), with `FieldTransitionNow()` passed on a field only (as built: it reads "handed over" whenever FF9StateSystem.mode is 3, so passed on the world it would refuse every world press; the world's transitions are WT5's), `!BattleReturnInFlight` (NetSyncDiorama.cs:1345), no diorama armed, `!(NetSyncGuestLocalArmed.On && InFlightNow)` (NetSyncGuestLocal.cs:61, :596), `!NetSyncStepOutArmed.On`, `_worldOutCommittedTo < 0` (NetSyncClient.cs:289; here, not in WT5, so a field reads it too: a follow-out committed inside the opening window) | `busy` |
+   | 11 | THE OPEN MIRROR | never open what a close trigger (decision 18) would close at once: the same rule, read as an open term. As built all eight causes map: `leave`, `out`, `rejoin`, `world` give `leaving`, `scene` gives `scene`, and `cut`, `ending`, `title` keep the why of the term that refuses them first in game (`host_battle`, `session`, `host_busy`), so the pure rule never returns null for a firing trigger; `cut` reads the close book's cut-nonce memory (decision 18) | `leaving`, `scene` |
    | 12 | UI quiet | `!NetSyncDialog.AnyEtbLine(false)` (NetSyncDialog.cs:322), `!SuppressLocalDialogInput` (NetSyncClient.cs:1395), `!UIManager.IsLoading` (UIManager.cs:97) | `ui` |
    | F1 | host here | `LastHostField == fld` (NetSyncClient.cs:415) | `host_elsewhere` |
-   | F2 | no intent away | no section-4 intent with an unseen nonce and `0 < dest != fld` (ServiceIntentFollow's own test, :10987-10999) | `leaving` |
+   | F2 | no intent away | no section-4 intent with an unseen nonce and `0 < dest != fld`, `dest != FF9Define.FLDSCRPT_EVTNO_ENDING` (ServiceIntentFollow's own test, :10987-10999, which also excludes the ending pseudo-field). F2 and term 11's `leave`, and F3/F4 and term 11's `scene`, are separate named inputs filled from ONE read each (`FillIntentFacts`, `FillSceneFacts`), so each deletion mutant stays visible | `leaving` |
    | F3 | no host scene here | `GuestHostSceneWhy(fld) == null` (:1504): the host's scene here, a relayed talk deferred, held or on the lane, a pending relayed key | `scene` |
    | F4 | no windowless beat | `!(_glSceneField == fld && _glHostHoldsInput)` (:11723-11726): a door walk, a ladder | `scene` |
    | WT1 | my live world | `IsOnWorldNow` (:5803), `w_blockReady`, `ui.State == WorldHUD` | `world_busy` |
@@ -285,7 +328,7 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
    | WT3 | on foot | `CurrentCharacterStateIndex == 0` (WorldHUD.cs:14-16, 177): stock's silent rule, now audible | `riding` |
    | WT4 | not an event world, no full map | `!ff9.IsEventWorldMap`, `w_naviMode != 2` | `world_busy` |
    | WT5 | no world transition | `WorldTransitionWhy() == null` (:6049; it reads `_worldFollowArmed`, :6067), `_worldOutPending < 0` (:286) | `move` |
-   | WT6 | host on the world, my world | `rs.Field <= 0` (a host on a field means a rejoin is due); `Latest` block valid and `Latest.World == wldMapNo` | `leaving` |
+   | WT6 | host on the world, my world | `rs.Field <= 0` (a host on a field means a rejoin is due); `Latest` block valid and `Latest.World == wldMapNo`. As built the relay's 65535 host-field sentinel reads as 0 (no field) here and in term 11's serial `rejoin`, as FollowHostTick and the s144 overlay rows read it; otherwise every relay session on the world would refuse `leaving` | `leaving` |
    | WT7 | host not in a world scene | `(Latest.State & StScene) == 0` (NetSyncWorldWalk.cs:243-244) | `scene` |
 
    **The bench inputs (the selftest role).** The selftest is meant to press the real Menu key through the verdict and the
@@ -302,7 +345,12 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
    <field>`, which writes a section 4 with a fresh nonce and dest != my field into `_gmBenchFrame`, where F2 reads it;
    F3-F4, the existing bench ops (`swap hostctl off`, `hostscene`), the frame's sections 6/9 absent; terms 9-12 and
    WT1-WT5, the bench's own live state. `swap intent` marks its nonce seen and starts the real follow, so it fires the
-   move-in-flight why (term 10's `busy`), never F2's `leaving`.
+   move-in-flight why (term 10's `busy`), never F2's `leaving`. As built the two slots are `_gmBenchFrame` and the bench
+   host field (`_gmBenchHostField`), created empty in W1e and written by W1f's `frame`, `frame witness`, `frame intent`
+   and `host elsewhere|here`; `frame` arms the s166 bench host directly (a one-point, 0 u/s path at my world walker, or
+   at (1, -1) on a field), skipping `worldwalk host path`'s FollowHost and encounter-pause refusals (an already-running
+   bench host keeps its path; only place and world are set, and the release puts them back). Until a `frame`, a bench
+   press on FieldHUD/WorldHUD reads audible `no_data` (s167: the bench's own menu opened).
 
    **The terms the design refuses to add.** Never refuse on section 7 b4 HfMenu: that is the host's own menu, shop or
    pause, and *Both players in menus* allows it. Never `Dialogs.Visible` for "UI quiet" (the critic): it also counts a
@@ -338,7 +386,12 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
      only an unmirrored guest in GRACE reaches the door that way, and it is refused `not_mirroring`). The UI-quiet term's
      `AnyEtbLine(false)` and `!SuppressLocalDialogInput` are included: a line that arrives inside the opening window is
      caught here. Only `!UIManager.IsLoading` may be exempted, and only if the build measures it true there (AfterHide
-     clears Loading before the Hide callback runs, UIScene.cs:95-96). **If it passes,** the seat is taken there
+     clears Loading before the Hide callback runs, UIScene.cs:95-96); as built the exemption is NOT taken, and the bench
+     reads IsLoading at the door. As built (W1f) the door is the first statement of ChangeUIState's try, before
+     `this.prevState = this.state`: `NetSyncGuestMenu.DoorKeyed(this.state, uiState) && NetSyncClient.GuestMenuDoor(this,
+     uiState)`. DoorKeyed is true only while a seat record is held, or for a FieldHUD/WorldHUD -> MainMenu entry inside a
+     guest session, so vanilla, a host and an unfollowed client run the stock body byte for byte; a held record is
+     retried first at any HUD -> MainMenu door, guest session or not (decision 16). **If it passes,** the seat is taken there
      (decisions 11-14), before `MainMenuUI.Show` (UIManager.cs:615 calls it), which reads the party at once, and the
      guest-menu session begins at the seat (decision 16).
    - **What the window catches.** `FieldHUD.Hide` turns player control and events off (FieldHUD.cs:241-242), but the
@@ -357,7 +410,8 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
      earlier menu close, MainMenu -- and would run MainMenuUI.Show unseated; `ChangeUIState(FieldHUD)` would be a no-op,
      the state never left the HUD), so `FieldHUD.OnShownAction` or `WorldHUD.Show` turns events and control back on
      (FieldHUD.cs:394-398, WorldHUD.cs:66-69); it buzzes and shows the why's refusal line (none once co-op is off,
-     decision 10). Nothing was seated, so the
+     decision 10). As built: the HUD's own Show, then `NetSyncField.RefuseMainMenu(Audible, why, member, component)` (the
+     buzz, the line, NoteRefusal) and `door_refused.<why>` +1. Nothing was seated, so the
      session never began. The door, the seat and the seat's fault path (decision 12) all run ahead of :607 and never read
      the `prevState` field. GM0-DOOR judges events and control back on, and that after one normal open and close a door
      refusal leaves MainMenuUI inactive and the state FieldHUD. The press already ran stock's HideAllHUD, so a window it
@@ -367,10 +421,11 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
      run after the HUD's Hide has turned events and control off). A fault before guestSession is known true, with no held
      record, falls through to the stock body unchanged, so vanilla, a host and an unfollowed client never lose a state
      change. Once guestSession is known true, a fault takes the door's refusal path:
-     `GetSceneFromState(this.state).Show(null)`, the buzz, why `fault`, one line, nothing seated. A fault in the restore half against the same state keeps the record
-     and the seat flag with the alarm line (only an identity or epoch mismatch drops it, decision 16), puts
-     EnabledSubMenus back, then lets the stock body run; the next backstop or door retries the restore element-wise. The
-     selftest-only `guestmenu door fault open|restore` injects each (GM0-DOOR's fault legs).
+     `GetSceneFromState(this.state).Show(null)`, the buzz, why `fault`, one line (as built, the door's fault line is logged
+     once per process), nothing seated. The verdict is the pure `DoorFaultRule`. A fault in the restore half against
+     the same state keeps the record and the seat flag with the alarm line (only an identity or epoch mismatch drops
+     it, decision 16), puts EnabledSubMenus back, then lets the stock body run; the next backstop or door retries the
+     restore element-wise. The selftest-only `guestmenu door fault open|restore` injects each (GM0-DOOR's fault legs).
    - **The ramp never fires inside the window.** The exit ramp could arm and fire inside the fade: the world branch
      settles a free-roam world at once, and the field branch's settle reads the `.eb` usercontrol (EventEngine.cs:1431,
      which FieldHUD.Hide does not touch) and FieldHUD, both still true mid-hide. The Hide's callback would then reach the
@@ -386,22 +441,41 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
     - **A refused press:** the buzz on every press; one log line per place per why class (the DeclineOnce book, the world
       classes in s167 decision 20's per-visit re-arm; the `older` and `lever` whys write s121's own line, so "off" is
       s121 exactly); and a 4 s on-screen line naming the reason (s167's EntryLineMs idiom, NetSyncWorldWalk.cs:2613),
-      ended at every scene change. Today the paired branch forces the overlay off every Update -- "the ghost IS the
-      status" (NetSyncClient.cs:2662-2665) -- so a new timed overlay state 29 is chosen there in place of OvlOff while its
-      timer runs, and ahead of OvlOff in the off-field and world chains. It never outranks the wire-mismatch,
-      reconnecting or lost-contact lines. So a refusal raised after co-op is turned off draws no line (state 29 is
+      ended at every scene change (as built: explicit clears at every field load, every world load, the title and the
+      exit ramp's fire, plus a game-mode term -- a battle has no load hook, so `RefusalLineLiveRule` also ends the line
+      when `EventEngine.gMode` differs from its arm's). Today the paired branch forces the overlay off every Update --
+      "the ghost IS the status" (NetSyncClient.cs:2662-2665) -- so a new timed overlay state 29 (`OvlGuestMenuLine`,
+      overlay name `guest_menu`) is chosen there in place of OvlOff while its timer runs (in the paired branch and in its
+      blip-grace hold), and in the not-paired chain.
+      **Where state 29 sits, ratified by the coordinator (the W1 review's CR-2).** In the not-paired chain it comes right
+      after the wire-mismatch line, the reconnecting line (the session grace) and the world's lost-contact line
+      (OvlWorldLost), and it is armed only while the peer is not lost (`NotPairedLineRule(lineLive, peerLost)` = lineLive
+      && !peerLost), so the post-grace connecting line (OvlConnecting: the field chain's, and SetWorldGuestOverlay's own on
+      the world) outranks it too. It never outranks those four. For its 4 s it does outrank everything below it in that
+      chain: on the world the whole world-guest chain (OvlRejoining, the hold, host_world, and s167's entry-refused,
+      walk-refused and close-map lines); on a field OvlFollowing, OvlWorldOut, OvlPeerNoField and OvlPeerElsewhere. Each
+      comes back when the line ends. Moving 29 down to the OvlOff fallbacks was refused: a following world guest with the
+      host on the world resolves to OvlHostWorld, not OvlOff, so almost every world refusal line would be hidden.
+      So a refusal raised after co-op is turned off draws no line (state 29 is
       chosen only in the overlay chains past the enabled gate, NetSyncClient.cs:2057, and ApplyConfigChange nulls
-      `_ovlText`, :1814): the buzz, the count and the log line only. One raised on a grace-expiry ramp is outranked by the
-      lost-contact line.
+      `_ovlText`, :1814): the buzz, the count and the log line only. One raised while the peer is lost (a `link` refusal,
+      or one on a grace-expiry ramp, on a field or the world) shows only the connecting or lost-contact line; the buzz,
+      the count and the log line still happen.
     - **A forced close:** one line naming the cause (decision 18's table), drawn by OnGUI for its own timer only (seed
       4 s, as EntryLineMs): nothing else ends it, and a newer close line replaces it. OnGUI already draws it independently
       of `_ovlText` (which ApplyConfigChange nulls) and of the overlay chain past the enabled gate, so a plain timer is its
       whole lifetime, and "the co-op session is ending" still shows when co-op is turned off while seated; it never uses
       overlay state 29. The cost: after a fast landing the line can stay about 2-3 s over the new field or the battle's
       opening (OnGUI draws above everything); the owner can shorten the seed. A refusal line and a close line can show
-      together for a moment (a refusal, then an open and a forced close inside its 4 s); each ends on its own terms.
+      together for a moment (a refusal, then an open and a forced close inside its 4 s); each ends on its own terms, so
+      the harness reads them as two keys, `line` and `close_line` (decision 32). As built (W1h) the close line is armed at
+      the close's request, unless the guest's quit prompt holds the close: then at the close's first act (its one Hide,
+      or the watchdog's or the fault end's sweep or HUD Show), once per close, since a line armed at the request would
+      say "menu closed" over a menu still open under the prompt.
     - **A "View only" chip while seated:** IMGUI at top centre beside the F3.2 dialogue chip (`OnGUI`, :15481;
-      `DrawDialogChip`, :15512), which already draws above NGUI menus.
+      `DrawDialogChip`, :15512), which already draws above NGUI menus. As built it stacks below the dialogue chip when
+      that one is up, keys on the seat flag (OnGUI reads `NetSyncGuestMenu.Seated` each frame), and `guestmenu chip off`
+      (the selftest bench) is its in-game mutant (GM0-CHIP).
     - **Silent cases stay silent:** MENUOFF, the non-HUD states, the dialogue path's silent drop (:889, decision 6), a
       press while the HUD's Hide is in flight (GuestQuiet, decision 6).
 
@@ -415,7 +489,23 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
     `SeatSelfTest` (:2942) and the bracket selftest and in game by the round's regression set (the diorama legs). The
     per-slot scratch builder inside `MirrorHostParty` (:3106-3268) is extracted the same way in W1b (the
     decisions were silent on the builder and the lanes split; the seat lane's extract is taken because the s154 code
-    itself warns that copies in this family rot). Never share the diorama's statics. **Lever:** none (behaviour-neutral); the rollback is the patch.
+    itself warns that copies in this family rot). Never share the diorama's statics.
+    **As built (W1a, W1b, extended in W1f).** The type is `NetSyncSeatBracket` (new `Memoria/Netsync/NetSyncSeatBracket.cs`)
+    with Snapshot, RememberOriginalPlayer, Restore and Clear, each the s167 body verbatim with the owner's name (`Who`)
+    spliced into its log words; the diorama holds `new NetSyncSeatBracket("diorama")`, so every log line is unchanged.
+    s167 had no bracket selftest (the closest were the containment selftest's party rows, unchanged), so W1a adds a NEW
+    proof line, `seat bracket selftest: OK (19 rows, 7 mutants caught)`, carrying the bracket's laws, GM0-BRACKET-CLEAR's
+    two-instance rows and the no-cross-restore rows; it is logged in NetSyncClient's selftest proof block right after
+    the world walk line (one NetSyncClient.cs hunk). The builder is `NetSyncDiorama.BuildSeatMembers(ff9, seat, bracket,
+    overrides, rethrow)`, returning the count seated; `overrides` is a `Dictionary<CharacterId, SeatOverride>` (Preset,
+    Category, Pa, Exp, BasisCapa; a present override applies all five, a null Pa keeps FF9Play_New's array, pa is always a
+    fresh copy), keyed by CharacterId because section 12 is. With `rethrow` the faulting slot's scratch stays in the
+    dictionary and its member slot untouched, for the caller's record to restore. The diorama passes `(null, false)` and
+    is the only caller; offline its Arm -> seat -> Disarm transcripts equal s167's over seven scenarios. W1f added five
+    methods over an explicit state (SnapshotOf, RememberOriginalPlayerOf, RestorePlayersInto, RestoreMembersInto,
+    RecordedMember), so the menu's own instance is the record for the dictionary and the members; the diorama's four are
+    byte-identical. SeatSelfTest cannot run offline (it reads live Unity state); GM0-BRACKET covers it in game.
+    **Lever:** none (behaviour-neutral); the rollback is the patch.
 
 12. **Seat by reference, from one frame.**
     - **By reference, never by content:** scratch PLAYERs go into `ff9.player[id]` and `party.member[i]` with the original
@@ -452,10 +542,19 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
       the component. The menu's call asks W1b's builder to rethrow (a `rethrow` flag; the diorama keeps its per-slot
       containment, whose catch would otherwise absorb a fault inside a slot). The door's seat call carries its own try,
       so the outer catch never sees it.
+    - **As built (W1f).** The seat is the pure `NetSyncGuestMenu.SeatOver` over a given state and the frame the predicate
+      just judged; it never records over a held record. There is ONE seat flag: `Seated` reads the seat record's `Held`.
+      SeatOver also refuses an unknown bag id itself (component `bag`, rolled back), though the witness refuses it first.
+      **One exception to "nothing seated":** if the rollback after a seat fault itself faults, the record AND the seat flag
+      stay held, the door refuses `fault` and logs the alarm, so every consumer (the autosave term, the achievement hold,
+      the chip, Boot's refusal) keeps gating while scratches may still be installed; the next backstop or door retries.
+      The proof's two-marker round trip runs the real SeatOver and RestoreRecord with a probe builder of
+      BuildSeatMembers' shape (the real builder reads the live state through FF9Play_New; its override and rethrow
+      behaviour is W1b's offline proof and the in-game rows).
 
     **Lever:** `guestmenu old` (no seat). The selftest-only `restore skip <component>` is the mutant (decision 33);
     the selftest-only `guestmenu seat fault <component>` throws inside the seat, outside the builder's per-slot catch,
-    so GM0-SEATFAULT reads `fault`.
+    so GM0-SEATFAULT reads `fault` (one shot, spent by the next seat).
 
 13. **The content witness.** The open is refused with "Your game data differs from your partner's (<member>)." if any
     member's preset is missing on this install, its pa length differs from `_FF9Abil_PaData[preset].Length`, an
@@ -471,6 +570,10 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
       which read the bag.
     - **Key items:** unknown ids are seated unchanged (stock tolerates them with a blank name, FF9TextTool.cs:475) with
       one line naming them; they are never refused.
+    - **As built (W1c):** equipment and SA ids are checked from section 1, where the wire carries them; NoItem (255)
+      never refuses and negative SA ids are skipped, as the builder skips them; the member's name in the line comes from
+      section 1, else `character <id>`; a member with no section-12 entry would report component `preset`, a defensive
+      branch only, since term 7's consistency rule refuses that frame first as `no_data`.
 
     **Lever:** `guestmenu old`; GM0-WITNESS's mutant (seat anyway) must throw.
 
@@ -513,6 +616,10 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
       hook or a close step. The Folklore row is the Journal when `[Journal] Enabled` (:216-220): one `SubMenu.Folklore`
       row either way (the SubMenu enum has no Journal entry, :946-958), so the set needs nothing more. Its earlier value
       (empty outside battle) is put back on every restore path, drops and faults included (decision 16).
+    - **As built (W1f):** MainMenuUI.Show skips SetMasterSkill while seated (`master_skipped`); both AchievementManager
+      holds gain `NetSyncGuestMenu.HoldAchievement` (`ach_held`, one line per seat); the autosave ladder gains
+      `AutosaveSeatTerm` after Booted's; Boot refuses in its own `BootSeatRefused` after MayBoot (MayBoot and MayBootNow
+      untouched); LiveSlotChars reads the record's real member references.
 
     **Lever:** `guestmenu old`. GM0-MASTER, GM0-SAVEGATES, GM0-DIORAMA and GM0-GHOST each carry a mutant.
 
@@ -587,6 +694,14 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
       the pre-gate tick (decision 21). Proof rows: a config edge while seated leaves the session held and the close
       pending; after a normal stock Cancel the session and close-pending flags read clear, and a following `fireclose` is
       a no-op with no watchdog line (GM0-REOPEN too).
+    - **As built (W1f, W1h).** The restore is `RestoreRecord` / `RestoreFamilies`; every backstop and clear point goes
+      through `GuestMenuEndAt(site)`, its lines decided by `SessionEndsRule` / `BackstopLineRule`; the alarm lines are
+      Log.Warning. The load epoch is `NoteDeserialize` at ParseToFF9StateSystem's top while seated. `OnLevelWasLoaded`,
+      `TitleTick` and a UnityScene change restore through the identity rule, with the alarm, if a record is somehow still
+      held (`restore.backstops.scene`); a family fault there keeps the record and the seat, the fault rule above winning
+      over "the session ends at the clear point". A forced close's record ends at the same points: their gates (and the
+      ramp-fire backstop's) read `SeatedOrClosing`, not `Seated`; the backstop's `QuitScene.Hide()` stays keyed on
+      `Seated`.
 
     **Every close path ends in a restore or a drop:**
 
@@ -650,11 +765,28 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
       the seat lane's proposal to refuse them, because the reference seat already contains them). A Known limit.
     - **MenuOpenEvent on the world:** every MainMenu Show on the world map (the open and each sub-screen return)
       requests the guest's world copy's UID 0, tag 4 (UIManager.cs:581-589). K1 reads tag 4 in the deployed dispatchers;
-      GM0-WORLDTAG4 compares the runtime state before the open and after the close on 9010 and 9011.
+      GM0-WORLDTAG4 compares the runtime state before the open and after the close on 9010 and 9011 (as built, through
+      the review's settle stamp and its `uid0_vars` / `sysvar192` keys, decisions 32-33).
     - **Chocograph is out of scope:** it is opened only by a script (EventService.OpenChocoGraph, menu 5;
       EventService.cs:60-69 writes hintmap_id) or by WorldHUD's chocobo menu (WorldHUD.cs:1154), never from the guest's
       main menu. The open's WT3 riding term keeps a seat away from the world entry, and decision 18's "never a
       script-opened menu" covers the close.
+    - **As built (W1g).** Eight hooks, each `if (NetSyncGuestMenu.Seated && NetSyncGuestMenu.CensusRefuses(site, detail,
+      State)) { <the screen's own 102 template> }`, insertion-only (no stock line changed), each above its site's first
+      write and its ImpactfulActionCount++; a static check proves every such write in the three screens' confirm handlers
+      sits behind a hook. E2 copies the weapon slot's stock branch (102, then its three read-only redraws, return) rather
+      than editing `if (this.currentEquipPart != 0)`. A1/A2 pass `abilityType` as detail and also refuse a forced
+      Selected (stock buzzes there without writing; counted). A3 and I1 hook the target confirm's top, before
+      FieldCalcMain, so a confirm FieldCalcMain would judge no-effect is counted too. E2 on an empty non-weapon slot is
+      refused and counted. An unknown site, or a fault inside CensusRefuses while seated, refuses (fail closed). One line
+      per site per seat. `captures` counts the confirms the census caught; `passes` (added) counts those `capture off` let
+      through, which `seat_fp` (stamped only at the seat) cannot show.
+    - **The outside fingerprint (GM0-OUTSIDE), as built:** five components, stamped inside StampFpBefore and
+      StampFpAfter and judged by decision 33's verdict law (`fp.outside_equal`, `fp.outside_named`): `events`
+      (gEventGlobal without bytes 2032-2041, NetSyncState's co-op window that co-op writes every Update; without the mask
+      every live duo run reads red), `eventstate` (gStepCount, gAbilityUsage order-free, and the script store
+      gScriptVector / gScriptDictionary), `achievement` (every public instance field of AchievementState), `cards` (in
+      order, plus sWin, sLose, sDraw) and `hintmap`.
 
     **Lever:** `guestmenu capture off` (the changing confirms run their stock bodies into the SEATED copy).
 
@@ -685,7 +817,7 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
     | `out` | Host walks out to the world | section 7 b6 HfWorld (NetSyncDialog.cs:100) for a follower past the world-out's first terms; WMAPJUMP emits no intent | WorldOutTick (:7465), ahead of WorldOutStep's FieldHud term | following |
     | `rejoin` | Host enters a place from the world | the gMode-3 MAPJUMP intent (EventEngine.DoEventCode.cs:1040) or the serial world branch (:5127-5131) | WorldFollowFire, beside the full-map close (:6153) | following |
     | `world` | Host changes world without a field | the trailer's world valid and not my wldMapNo | inside WorldLaneStep (:8940), immediately after WorldCacheStep (:8944) and before its `if (line == LineNone) return;`, which returns on every Update with no lane edge; client role only (WorldLaneStep runs for both roles and the bench, :2639, :8834); no follow lane exists, and whether stock ever does this is unverified | following |
-    | `cut` | The host's battle cut, at EVERY cut, booted or not | the battle lane live on a host battle nonce this session has not yet closed for (TryGetPeerBattleOpen, NetSyncBattle.cs:4506); section 7 b5. A later open in the same fight is still refused by term 6 | the top of DioramaTick's live-nonce branch, after `if (!live) return` and before the skip check (:3697), so ahead of WorldBootWaits (:3751) and the UI gate (:3755): a scene not on this install or a late join stamps the skip nonce on the first tick; NoteBootWatch (:4537-4552) | battle |
+    | `cut` | The host's battle cut, at EVERY cut, booted or not | the battle lane live on a host battle nonce this session has not yet closed for (TryGetPeerBattleOpen, NetSyncBattle.cs:4506); section 7 b5. A later open in the same fight is still refused by term 6. As built the memory of the last closed nonce (the pure `CutMemoryRule`, the W1 review's LC1) is set at every accepted cut request, forgotten at a host epoch change and at the session reset (`ResetGuestDedupForEpoch`, `ResetIntentAndL1State`: a relaunched host restarts its Byte nonce, which also wraps at 256), spent when a different nonce goes live (`NoteCutLive`, DioramaTick's live branch), and kept through staleness (B3.6: staleness is not a battle boundary) | the top of DioramaTick's live-nonce branch, after `if (!live) return` and before the skip check (:3697), so ahead of WorldBootWaits (:3751) and the UI gate (:3755): a scene not on this install or a late join stamps the skip nonce on the first tick; NoteBootWatch (:4537-4552) | battle |
     | `ending` | The exit ramp armed (both branches) | `_exitRampPending` (set at :1805, :1839, :2146, :7821), while seated; where no ramp arms (`!_storyMirroring`: the selftest role), ApplyConfigChange's own explicit request (decision 16) | the ramp's tick at its arm, ahead of its settle (:1965-2020; THE RAMP'S SETTLE below); ApplyConfigChange (:1773-1812) for the explicit request | ending |
     | `title` | The host at the title | section 7 b7 HfTitle (NetSyncDialog.cs:101) | each Update, beside ServiceDialogAuthority (:11574) | title |
     | `scene` | A host conversation, chest, ATE or scene on my field (the owner, 2026-11-06) | a relayed talk or chest start for my field (sections 6/9); the s161 relayed ATE press for my field; section 7 b0 HfScene with the scene field mine (`_glSceneHere`, :11723-11726) | ServiceTalkFollow before its defer (:12677); NetSyncAte.Tick (`NetSyncAte.cs:978`); ServiceDialogAuthority | scene |
@@ -701,6 +833,20 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
     the full map's rule, and the full map is not the main menu). The host-at-title close has its own id, `title` (the
     critic's row filed it under leave); its words are a seed: "FF9 co-op: menu closed -- your partner is at the title
     screen.", on the owner's tune list.
+    **As built (W1h).** `CoopCloseGuestMenuIfDue(cause[, arg])` keys on the seat first, has its own try, fills ONE reused
+    GmCloseFacts with the site's signal and asks `TriggerFires`. It is asked first at eleven NetSyncClient sites: the
+    ramp's arm (outside the settle's try), ApplyConfigChange when no ramp arms, `title` beside ServiceDialogAuthority,
+    `cut` in DioramaTick's live-nonce branch before the skip check, the serial `leave` in FollowHostTick and the intent
+    `leave` in ServiceIntentFollow (each before its HUD defer), `rejoin` in WorldFollowFire ahead of the full-map close,
+    `out` in WorldOutTick, `world` in WorldLaneStep right after WorldCacheStep, and `scene` in ServiceDialogAuthority and
+    in ServiceTalkFollow; and at NetSyncAte.Tick's `scene` site. Three narrowings: a close is asked only from a
+    menu-family UI state (a seat kept on a HUD by a restore fault would otherwise count a close, re-arm the line and
+    log an end every frame); `world` only for a seat taken on the world (`SeatScene == World`: a field seat's wldMapNo
+    is stale, and WorldLaneStep runs before WorldOutTick, so a walk-out would book `world` instead of `out`); both
+    `leave` sites set LeaveIntent and all three `scene` sites set TalkHere (TriggerFires ORs each cause's signals: the
+    same verdict). `fireclose` goes through CloseRequestRule, so `close old` holds it too, and it bypasses the
+    menu-family guard. One log line per close, at its END: cause, from-state, ms and how it ended (`last_close.end`:
+    done, nothing, watchdog, scene, clear_point, fault).
 
     **THE RAMP'S SETTLE.** The close request at the ramp's arm stays; the fire then waits on the ramp's existing settle
     structure, with no clock of its own. The field branch already settles only on FieldHUD (NetSyncClient.cs:2007-2009),
@@ -715,14 +861,19 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
     that stalls past the watchdog fires the ramp at 10 s instead of about 1.8 s. The close's service tick must sit before
     the enabled gate (decision 21); otherwise co-op turned off while seated would always run into the 10 s fail-safe. The
     restore door runs before the HUD's Show, so `seated` is false whenever the state reads WorldHUD after a close, and
-    GM0-RAMP-WORLD can tell the door's restore from the backstop's.
+    GM0-RAMP-WORLD can tell the door's restore from the backstop's. As built both terms are the pure `RampSettleRule`,
+    run on both branches inside the settle's try; the press term reads `PressHoldsNow` (the deadline GuestOpen stamps);
+    on the field branch the seat term never fires (that branch already requires FieldHUD), so only the press term
+    changes it.
 
 19. **The battle cut reads BOOTING.** While a close is in flight for the host's battle nonce, `GuestBootState`'s `uiFree`
     input reads free (NoteBootWatch, NetSyncClient.cs:4537-4552), so the report says BOOTING
     (NetSyncBattle.cs:5487-5505) and the host's start hold arms (StartHoldStep, :5886; `LateArmMs` 1000, :247). **Except
     while the quit prompt holds the close** (`QuitScene.isShowQuitUI`, decision 21 step 1): the report stays BUSY, never
     BOOTING, so the host's gauges are never held for the guest's own prompt. A durable decline, an opt-out and the skip
-    nonce keep their own reports. **Lever:** `close old` (the report reads BUSY: the host's HoldNotArmed, measured).
+    nonce keep their own reports. As built this is the pure `CutUiFreeRule`; a cut merged into a close already in flight
+    for another cause also reads BOOTING (the menu is closing either way). **Lever:** `close old` (the report reads
+    BUSY: the host's HoldNotArmed, measured).
 
 20. **A link outage keeps the view.** A stall or the grace does not close the menu: it stays open as a view (from rung 1,
     confirms are refused while the link is not live) and closes when the ramp arms. Relay stalls of ~2.3 s are routine,
@@ -834,6 +985,21 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
       host's opening plus `LateArmMs`. A full replayed-Cancel unwind at FadeDuration 300 could miss LateArmMs, so the
       direct close is the contract.
     - **One line and harness keys per close:** cause, from-state, ms.
+    - **As built (W1c, W1h).** The step machine is `GmCloseTick` + `CloseDriveRule`, with `RequestCloseOver` (one close at
+      a time, idempotent; a cut's nonce merges into a close already in flight). The quit wait applies at every step; the
+      Loading wait (step 2) only before the close has issued its own Hide -- after it, Loading is the close's own fade and
+      the watchdog clock runs, otherwise the fades in the deadline would never count. A new UnityScene ends the close
+      first. Fade times come from `FadeMsRule`: rounded to the nearest ms (UIScene works in Single seconds), a
+      FastForwardFactor <= 0 read as unscaled. The watchdog's and the fault end's sweep covers OnLevelWasLoaded's
+      menu-family scenes (MainMenu, Item, Ability, Equip, Status, Card, Config, SaveLoad, Cloud, Shop, NameSetting,
+      PartySetting, Tutorial, QuadMist, Chocograph, Folklore, Journal), turns SubMenuPanel off, calls DisableAllGroup,
+      clears HelpEnabled and exits the control panel first; it never touches the HUD scenes, BattleResult, GameOver,
+      Title, Ending, EndGame, or Dialogs.CloseAll (the field's own windows). The sub form copies step 4's listed
+      statements, so it omits WaitForFade's depth pair (the ScreenFade panel at 100, then 10) and plays no FF9Sfx 101;
+      GM0-FADE and GM0-DEPTH judge the look. The tick's guarded fault end touches nothing while the quit prompt is up and
+      only ends the close record (step 1's law), so a cut close that faults under the prompt leaves the menu open until
+      the guest's own Cancel (the cut's nonce memory never re-asks). The held-bit write is `HeldBitsRule`, its harness
+      watch `HeldWatchStep`; the keys add `close_step` and `last_close.end`.
 
     **Lever:** `guestmenu close old|act` (decision 18).
 
@@ -981,57 +1147,124 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
     field-gate bench ON, so each round adds a new sub-verb). Every lever is released with the harness: a
     `HarnessReleaseGuestMenu` appended after HarnessReleaseWorldWalk in `NetSyncBattle.HarnessReleaseBench`'s chain,
     which runs on disarm, fault and reset. It does everything `clear` does -- restores every bench source seam
-    (SlotSource, the bag, the key items, rare_item_used, gil), nulls `_gmBenchFrame`, drops the bench host trailer and the
-    bench host field -- then returns every lever (`old|act`, caps, capture, close, chip, events, poke, seat skip,
-    restore skip, seat fault, door fault, close fault; from s169 also `apply`, back to on, and `check`, every gate back
-    on) to its default (GM0-RELEASE). Any role (THE DUO CANNOT PULL A SELFTEST-ROLE LEVER): `old|act`;
-    `caps off|on`; `capture off|on`; `close old|act` (every close trigger at once, decision 18); from s169 `apply off|on`
-    (host) and `check off <gate>` (host).
-    Selftest role with bench gates only:
-    - `frame <marker>` builds a two-marker host frame BEFORE any seat: sections 1, 2, 3 and 12 through the real
-      encoders, with a bench source substituted for every seated component and restored in a finally (the
-      `NetSyncParty.SlotSource` seam, NetSyncParty.cs:82, for the party; new seams in the same idiom for the bag, the
-      key-item set, rare_item_used and gil). The bytes are joined with `NetSyncState.AppendSection` directly, never
-      through the role-gated send rule (it needs the host role). The marker sets gil and one bag item to values the
-      guest does not hold; GM0-SEAT's gil and exp markers come from it. It writes the dedicated `_gmBenchFrame` slot
-      (decision 8's bench inputs), and also arms a bench host trailer (my caps word, place 1 on a field or 4 on the
-      world, my world) and a bench host field equal to my field, all released with the harness. The Menu key then opens
-      through the verdict.
+    (as built: `NetSyncParty.SlotSource` and the two new NetSyncParty seams `BagSource` and `KeyItemSource`, each put back
+    to its live source; rare_item_used and gil were never seams, see `frame` below), nulls `_gmBenchFrame` (its base,
+    marker, witness, intent and tick too), drops the bench host trailer `frame` armed (or puts the bench place and world
+    back) and sets the bench host field to -1 -- then returns every lever (`old|act`, caps, capture, close, chip, events,
+    poke, seat skip, restore skip, seat fault, door fault, close fault: twelve in s168; from s169 also `apply`, back to
+    on, and `check`, every gate back on) to its default (GM0-RELEASE), logging `[NetSync] harness: guestmenu levers
+    released (with the harness)` once, only when something was set. Any role (THE DUO CANNOT PULL A SELFTEST-ROLE LEVER;
+    co-op on, except `clear`): `old|act`;
+    `caps off|on`; `capture off|on`; `close old|act` (every close trigger at once, decision 18); `clear`; from s169
+    `apply off|on` (host) and `check off <gate>` (host).
+    Selftest role with bench gates only (otherwise refused: "netsync guestmenu: needs the selftest role with the bench on
+    (netsync selftest 1, netsync bench 1)"):
+    - `frame <marker 1-9999>` builds a two-marker host frame BEFORE any seat (refused while seated): sections 1, 2, 3 and
+      12 through the real encoders, with a bench source substituted for every seated component and restored in a finally
+      (the `NetSyncParty.SlotSource` seam, NetSyncParty.cs:82, for the party; as built the new `BagSource` and
+      `KeyItemSource` seams for the bag and the key-item set, while gil and rare_item_used are passed as arguments to
+      `HostMenuBlockOf`, the seam W1d built for exactly this, so they need none). The bytes are joined with
+      `NetSyncState.AppendSection` directly, never through the role-gated send rule (it needs the host role). The marker
+      sets gil and one bag item to values the guest does not hold; slot 0 is an impostor named "BENCH<marker>" at level
+      99 and every member's exp is a marker; GM0-SEAT's gil and exp markers come from it. The frame is read back through
+      the door's own readers into the dedicated `_gmBenchFrame` slot (decision 8's bench inputs), and `frame` also arms a
+      bench host trailer (my caps word, place 1 on a field or 4 on the world, my world; decision 8: directly, past
+      `worldwalk host path`'s refusals) and a bench host field equal to my field, all released with the harness. The
+      Menu key then opens through the verdict.
     - `frame witness preset|pa|equip|sa|char|bag|keyitem` (GM0-WITNESS's variants, each built before the seat like every
-      bench frame); `frame intent <field>` (term F2: a section 4 with a fresh nonce and dest != my field written into
-      `_gmBenchFrame`); `seat fault <component>` (GM0-SEATFAULT); `door fault open|restore` (decision 9's door fault
-      path, GM0-DOOR); `close fault <step>` (throws inside the close's service tick at that step, decision 21,
-      GM0-DEPTH's fault leg); `host elsewhere|here` (term F1). Term 6 reuses the existing `netsync lock 1` and
+      bench frame); `frame intent <field 1-65535>` (term F2: a section 4 with a fresh nonce and dest != my field written
+      into `_gmBenchFrame`); `seat fault players|party|bag|gil|keyitems|off` (GM0-SEATFAULT; one shot); `door fault
+      open|restore|off` (decision 9's door fault path, GM0-DOOR; one shot); `close fault
+      quit|loading|panel|root|sub|hide|show|off` (throws inside the close's service tick at that step, decision 21,
+      GM0-DEPTH's fault leg; one shot); `host elsewhere|here` (term F1). A one-shot lever is spent by the next seat,
+      door half or close step, so a fault leg never loops. Term 6 reuses the existing `netsync lock 1` and
       `netsync host battle 1` (decision 8).
-    - The in-game mutants: `chip off` (seated with no chip), `seat skip party` (the guest's own values drawn), `events
-      on` (SetEventEnable(true) while seated), `poke` (one gEventGlobal byte written at the next open, GM0-WORLDTAG4),
-      `restore skip <component>`.
-    - `fireclose <id>` (the close ACTION without its trigger, for one of decision 18's trigger ids: `leave`, `out`,
-      `rejoin`, `world`, `cut`, `ending`, `title`, `scene`; the selftest role runs no DioramaTick; with no seat it does
-      nothing, decision 16); from s169 `intent <hex>` (loopback through the real decoder), `intent duplicate` and
-      `intent drop` (GM1-ONCE); and `clear`.
+    - The in-game mutants: `chip off|on` (seated with no chip), `seat skip party|off` (the guest's own values drawn),
+      `events on|off` (the seat calls SetEventEnable(true) once, right after a complete seat: nothing turns events off
+      again while seated), `poke` / `poke off` (one shot: the next seat flips gEventGlobal[2047] bit 0 after fp_before's
+      outside stamp, so the restore's `fp.outside_equal` reads false and names `events`, GM0-WORLDTAG4's S leg; byte 2047
+      sits above the co-op window 2032-2041 and every kit band in flags.py, and it is not restored: the S leg must stay
+      red and the bench reloads its sandbox), `restore skip <component>|off`. `seat skip` and `restore skip` persist
+      until `off`, `clear` or the release.
+    - `fireclose leave|out|rejoin|world|cut|ending|title|scene` (the close ACTION without its trigger; the selftest role
+      runs no DioramaTick; it goes through CloseRequestRule, so with no seat it does nothing, decision 16, and `close old`
+      holds it; its ack names which: requested, already in flight, no seat, close old); from s169 `intent <hex>`
+      (loopback through the real decoder), `intent duplicate` and `intent drop` (GM1-ONCE).
+    - **Refusals** (HarnessAgent throws `InvalidOperationException(why)`): an unknown op or a bad arity answers the usage
+      line "netsync guestmenu: expected old|act, caps off|on, capture off|on, close old|act or clear (any role), or chip
+      off|on, frame <marker>|witness <component>|intent <field>, host elsewhere|here, seat skip party|off, seat fault
+      <component>|off, restore skip <component>|off, door fault open|restore|off, close fault <step>|off, fireclose <id>,
+      events on|off, poke [off] (the selftest bench)"; co-op off: "netsync guestmenu: co-op is off -- no role to act
+      on"; a fault: "netsync guestmenu: the lever faulted (<msg>)". Each lever lives in three places: its op in
+      `HarnessLever`, its reset in `ReleaseGuestMenuLevers` plus its term in `HarnessReleaseGuestMenu`'s `any`, and its
+      field in the `lever` key with its catch-literal sentinel.
 
-32. **The keys.** A new `netsync.guestmenu` (additive, protocol 5): lever (every lever's current setting, GM0-RELEASE);
-    caps {own, peer, on}; why; open; seated (the session, decision 16); close_pending (a forced close's record, up to
-    its step 5 or watchdog); seat {src, frame_age_ms, marker}; opens; door_refused (per why); `closes.<id>` per trigger,
-    keyed by decision 18's Id column (`leave`, `out`, `rejoin`, `world`, `cut`, `ending`, `title`, `scene`; the close
-    words are the drawn text only, never a key) and `closes.faults` (the close's service tick and the close request's
-    own try, decisions 18 and 21); last_close {cause (the same ids), from, ms}; refused {count, last_site, last_screen};
-    captures; fp {before, after, equal, named, components, outside_equal}; seat_fp {value, components} (over the
-    installed, seated copy: stamped at the seat, and from s169 at C's re-seat; readable while seated); event_enable
-    (UIManager.IsEventEnable); line {text, age}; chip; frame {type5_len (the last BUILT type-5 payload length, stamped
-    at the build), type5_max, tx_bps (type-5 bytes per second over the write ticks), sec12_len, dropped, faults};
-    impactful (MainMenuScene.ImpactfulActionCount); master_skipped; ach_held (the seat's own, distinct from
-    battle.end.ach_held); restore {doors, drops, backstops {replace, ramp, ramp_quit, load}}; held {bits (the last
-    held-bit write's mask), keyon (KeyOn edges ETb has read, after that write, of a Confirm, Cancel, Special or Menu
-    button held continuously since it; harness-only, stamped by the close's service tick while HarnessAgent.Active)}; on
-    the host role with b3, host_fp {value, components} over the same component set as `seat_fp`, stamped only while
-    HarnessAgent.Active, inside HostGuestMenuSectionNow's try, at each BuildStateFrame that carries section 12
-    (production builds pay nothing); and from s169 host {intents_rx, applied, refused, last_why, last_char, line,
-    line_age_ms, apply_count}. Every key's sentinel goes into AppendNetsync's catch literal (the catch at :4274, its
+32. **The keys.** A new `netsync.guestmenu` (additive, protocol 5), netsync's LAST key. As built (W1i, extended by each
+    piece and the W1 review), in this order:
+    - `lever` {menu, caps, chip, seat_skip, restore_skip, seat_fault, door_fault, capture, close, close_fault, events,
+      poke}: every lever's current setting, one field per lever (GM0-RELEASE). Live values: menu act|old; caps, chip,
+      capture on|off; seat_skip party|off; restore_skip and seat_fault <component>|off; door_fault open|restore|off;
+      close act|old; close_fault <step>|off; events on|off; poke armed|off.
+    - `caps` {own, peer, on}.
+    - `why`: the LAST refusal's why, from the closed set of 19 (stamped through `NoteRefusal`; not a live predicate read).
+    - `open`: `UIManager.IsUIStateMenu(State)` now, seated or not, the one read that tells a guest's own menu (GM0-HOLE's
+      OLD: `open` true, `seated` false) from a seated one.
+    - `session`: decision 6's guestSession, read live.
+    - `seated`: the seat record held (the session, decision 16).
+    - `opens`.
+    - `closes` {leave, out, rejoin, world, cut, ending, title, scene, faults}: per trigger, keyed by decision 18's Id
+      column (the close words are the drawn text only, never a key); `faults` counts the close's service tick and the
+      close request's own try (decisions 18 and 21).
+    - `refused` {count, last_site, last_screen}; `captures` (the confirms the census caught); `passes` (the confirms
+      `capture off` let through into the seated copy).
+    - `fp` {before, after, equal, named, components, outside_equal, outside_named} (decision 33; `outside_*` is the
+      outside fold, decision 17).
+    - `seat_fp` {value, components}: over the installed, seated copy, stamped at the seat (from s169 also at C's
+      re-seat); readable while seated.
+    - `frame` {type5_len, type5_max, tx_bps, sec12_len, dropped, faults}: decision 5's book, stamped at every build;
+      `tx_bps` is computed only at the harness read (production pays nothing): the last built payload length times the
+      state slot's StateProbe.Sends delta per second, over windows of at least 1000 ms between reads, in payload bytes
+      (the 5-byte frame header not counted), -1 with no transport.
+    - `host_fp` {value, components}: on the host role with b3, over the same component set as `seat_fp`, stamped only
+      while HarnessAgent.Active, inside HostGuestMenuSectionNow's try, at each BuildStateFrame that carries section 12.
+    - `line` {text, age} (the refusal line's book while it lives, also on the selftest role, where state 29 is never
+      drawn); `close_line` {text, age} (the forced-close line: two independently timed lines, decision 10); `chip` (the
+      drawn words, or null).
+    - `seat` {src, frame_age_ms, marker}: `frame_age_ms` reads -1 for a wire seat (the state slot exposes no arrival
+      stamp) and is measured only for bench frames.
+    - `door_refused` {lever, not_mirroring, session, older, link, host_busy, host_battle, no_data, data_differs, control,
+      busy, leaving, scene, ui, host_elsewhere, world_busy, riding, move, fault}: one counter per why.
+    - `restore` {doors, drops, backstops {replace, ramp, ramp_quit, load, scene}}: `scene` counts the restores found at
+      OnLevelWasLoaded, the title tick or a UnityScene change (decision 16).
+    - `master_skipped`; `ach_held` (the seat's own, distinct from battle.end.ach_held); `event_enable`
+      (UIManager.IsEventEnable).
+    - `bench` {marker, witness, intent, host_field}: the bench frame's marker and variant, its intent and the bench host
+      field.
+    - `impactful` (MainMenuScene.ImpactfulActionCount).
+    - `close_pending` (a forced close's record, up to its step 5 or watchdog) and `close_step`.
+    - `last_close` {cause (decision 18's ids), from, ms, end (done, nothing, watchdog, scene, clear_point, fault)}.
+    - `held` {bits (the last held-bit write's mask), keyon (KeyOn edges ETb has read, after that write, of a Confirm,
+      Cancel, Special or Menu button held continuously since it; harness-only, stamped by the close's service tick while
+      HarnessAgent.Active)}.
+    - `outside_settled` {set, equal, named}, `uid0_vars` and `sysvar192` (the W1 review's CR-3, harness-only, for
+      GM0-WORLDTAG4). The settle is armed by StampFpAfter only while HarnessAgent.Active; its tick
+      (`GuestMenuSettleTick`, own try, disarmed by a fault) sits in the pre-gate region after ServiceWorldOut and before
+      the close tick, and restamps the outside fold at the first frame after the one that first read FieldHUD/WorldHUD
+      with IsEventEnable true (the pure `SettleStepRule`), judged by decision 33's law against the seat's outside stamp;
+      the next seat clears it. `uid0_vars` is `VarsDigestRule` over the world copy's UID-0 object's instance variables
+      (`FindObjByUID(0).buffer[vofs*4, sofs*4)`), null off the world or with no object; `sysvar192` is GetSysvar(192) on
+      the world, -1 off it.
+    From s169 the key also gains host {intents_rx, applied, refused, last_why, last_char, line, line_age_ms,
+    apply_count}. Every key's sentinel goes into AppendNetsync's catch literal (the catch at :4274, its
     sentinel literal at :4363; the method is at :4194) in the same change (THE CATCH LITERAL IS PART OF EVERY KEY
-    ADDITION). `netsync.menu_refusal` (:4258) keeps every key and meaning: `now` gains `guest` only when active. Under
-    `guestmenu old`, or against a peer without b3, every s121 read is byte-identical. Re-key, never weaken:
+    ADDITION); as built the writer's static keys and the sentinel's are in the same order (a static check), and the
+    `fp`, `seat_fp` and `host_fp` components are keyed players, party, bag, gil, keyitems.
+    `netsync.menu_refusal` (:4258) keeps every key and meaning: `now` gains `guest` (GuestOpen and GuestQuiet), and a
+    refused guest press reads `audible` -- the bench and an unmirrored guest on a HUD, where s167 read `open`, and with the
+    guest menu off for the pair a press inside a HUD fade (decision 6); `count`, `lines` and `silent` also count
+    guest-press refusals. Under `guestmenu old` every s121 read is byte-identical; against a peer without b3, every s121
+    read of a mirroring guest is (an unmirrored guest stays refused, decision 7). The overlay's name for state 29 is
+    `guest_menu` (`session.overlay`). Re-key, never weaken:
     coop_world_walk.py's PR-SAVEMENU and coop_field_swap_timing_duo.py's `MENU_PRE_OK` (:174) accept `guest` only when
     the probe shows `netsync.guestmenu`; `_coop_peer_bench.STAGE_KEYS` (:210) gains the s168 stage; S167-P0's
     `lane.caps.own` and the round-B duo's `CAPS_S167` are re-keyed by stage (0x0B on an s168 stage, 0x03 under
@@ -1046,7 +1279,9 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
     - battlewire's twin becomes `ww_own_caps_rule(fp_off, menu_off)`, with test_coop_world_walk_b.py:273, :488 and :490
       re-keyed by stage (s167's '0003' = menu_off True), and fakegame.py:9872's call site follows;
     - the world-walk proof's tallies move: the kit gains an s168 tally constant beside `WORLD_WALK_PROOF_S167`, and
-      test_coop_world_walk_b.py's fallback assertions are re-keyed by stage.
+      test_coop_world_walk_b.py's fallback assertions are re-keyed by stage. As built it is (534, 198), from s167's
+      (532, 196): the new rows `caps.own_s168_word` and `caps.line_text_s168`, and the mutants `own_caps_menu_never` and
+      `own_caps_menu_lever_blind`.
 
 33. **THE MENU FINGERPRINT, stamped by the engine.** The engine stamps `fp_before` at the seat and `fp_after` at the
     restore, as the result screen stamps `_netFpOpen` (`Global/battle/Result/BattleResultUI.Net.cs:414`). The hash covers,
@@ -1057,6 +1292,21 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
     statuses, row and name. A separate seat fingerprint (`seat_fp`, decision 32, over the same component set as the
     host's `host_fp`) serves the capture rows. Mutants: `restore skip <component>`,
     once per component; each must go red and name its component.
+    **As built (W1i, W1f, W1g).** Five components, the restore families, so `restore skip <component>` names itself:
+    `players`, `party`, `bag`, `gil`, `keyitems`. The stamps are `StampFpBefore` (before anything is installed),
+    `StampSeatFp` (after the install), `StampFpAfter` (after a clean element-wise restore; a drop or a restore fault
+    stamps no after, so `equal` reads false, no verdict) and `StampHostFp`; the verdict needs both stamps and is never
+    read while seated; a null state clears the stamp with one fault line per process. The hash uses FNV-1a-64's offset
+    and prime with ONE step per value (MixU), not NetSyncEnd.FpMix's byte-wise fold: the byte-wise fold made the guest
+    menu selftest cost 772 ms per run offline, the word-wise one 126 ms, and each step is a bijection, so one changed
+    value always changes its component (`_netFpOpen` above is the stamping pattern, not the hash). Three
+    departures from "what the Common writer writes", each to make the compares sound: `players` folds order-free (the
+    loader re-keys them by slot_no, so the dictionary's order is not state); `party` adds an identity bit (is each
+    member the dictionary's own entry?), so `restore skip party` with the same members is visible; `bag` skips count-0
+    rows, as section 3 and NetFingerprint do, or `seat_fp` could never equal `host_fp`. `keyitems` folds each set in
+    enumeration order, the order the Key Items screen draws, so a `seat_fp` / `host_fp` compare leans on K1's HashSet
+    read. The outside fold (decision 17's five components) rides inside StampFpBefore and StampFpAfter, and the W1
+    review's settle stamp (decision 32's `outside_settled`) re-judges it once the HUD has turned events back on.
 
 34. **A new proof line in a new file.** `guest menu selftest: OK (N rows, M mutants caught)`, appended after the last
     proof line, from `NetSyncGuestMenu.cs` with its own row helper. `MenuRefusalSelfTest` stays at its pinned 14 rows
@@ -1067,6 +1317,20 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
     9), the two-marker seat round trip; from s169 the codec, each host gate, the one-answer ledger, the re-seat record
     row (decision 25). Battlewire twins are evaluated against the new proof's OWN rows (the
     `_run_cs_rows` pattern).
+    **As built, the selftest role's proof block ends with three lines, in this order** (a red line is a Log.Error `|E|`
+    line, `FAIL`):
+    - `[NetSync] world walk selftest: OK (534 rows, 198 mutants)` (s167: 532 / 196; decision 32);
+    - `[NetSync] seat bracket selftest: OK (19 rows, 7 mutants caught)` (new, W1a: `NetSyncSeatBracket.SelfTest`,
+      decision 11);
+    - `[NetSync] guest menu selftest: OK (420 rows, 249 mutants caught)` (new, W1c-W1i and the W1 review's four fixes;
+      every mutant caught by its own distinct row, row names unique).
+    `MenuRefusalSelfTest` stays at 14. The proof is pure statics over probe states: the seat round trip uses a probe
+    builder (decision 12), and nothing in NetSyncClient is compiled into it, so two of GM0-PROOF's listed mutants are
+    not proof rows -- the throwing close request at the ramp's arm and the throwing section-12 reader (the helper's
+    build inside BuildStateFrame). Their own-try call sites are pinned by the build's static call-site checks
+    (`check_order.py`, `check_w1h.py`), not by a row. Its cost: about 0.4 s per run offline (.NET Framework, unoptimized)
+    by W1g and more since, the seat rows rebuilding probe states for every mutant pass; Mono may be 2-3x slower. It runs
+    once per process, on the selftest role only.
 
 35. **What each harness proves.**
     - **The selftest role proves the ACTION only.** It never mirrors (the mirror arms only from a real socket's
@@ -1076,7 +1340,8 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
       the live state while seated serializes the scratches, and the seat checks pass vacuously. The SlotSource seam
       (NetSyncParty.cs:82) substitutes only section 1's four PLAYERs; sections 2 and 3 read `ff9.rare_item_obtained` and
       `ff9.item` directly (:169, :182), and section 12 reads gil and rare_item_used. So `frame` uses decision 31's
-      widened seams (bag, key items, rare_item_used, gil), restored in a finally as SlotSource is.
+      widened seams, restored in a finally as SlotSource is: as built `BagSource` and `KeyItemSource` for sections 3
+      and 2, and gil and rare_item_used passed to `HostMenuBlockOf` as arguments.
     - **The duo** (`tools/harness/duo.py`, two real games) proves the key path, the real triggers and parity end to end.
       It cannot run mixed DLLs (the instance roots junction `Managed`), so its older-peer row is `guestmenu caps off`;
       true version skew only on the two-PC sheet.
@@ -1092,7 +1357,9 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
     scenarios and runners under `studies/field-coop/s168/` (and `s169/`), modelled on s167's `round_b_lib.sh`;
     `GUEST_TERMS` (`ff9mapkit/ff9mapkit/workspace/coopdoc.py:63`, "there is no main menu and no saving") and
     `ff9mapkit/docs/tutorials/17-coop.md:81` reworded behind the caps condition ("when both builds have it");
-    `health.NETSYNC_GENERATIONS` (`ff9mapkit/ff9mapkit/health.py:35`) gains an s168 marker; docs. No new Workspace
+    an s168 marker in `health.NETSYNC_PENDING_GENERATIONS` (`ff9mapkit/ff9mapkit/health.py`), moved into
+    `NETSYNC_GENERATIONS` by the commit that ships the s168 engine bundle (W2 critic RK-3: a current row turns every
+    pre-s168 install amber with no build to clear it); docs. No new Workspace
     control (there is no off switch).
 
 ### The owner-visible words (proposed seeds; the owner tunes them)
@@ -1124,41 +1391,56 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
 ## The engine pieces
 
 **W0, docs before any code:** the registry rows (decision 3) in `memoria-patches/README.md`, S166-DESIGN decision 2's bit
-list and COMMS-MENU section 4.
+list and COMMS-MENU section 4. Done (commit 1f87d546).
 
 **s168 (W1), each piece small.** **Build order** (so each change is proven before the next depends on it): W1a and
 W1b, then a `build_memoria.py --no-deploy` artifact kept and pinned for GM0-BRACKET (its output DLLs copied into the
 MAIN repo's `backups/` under a label, the backup_memoria_dll.py naming, with their sha recorded; the deploy route is
 Order step 2); W1c; W1i's skeleton (the
 `guestmenu` sub-verb, `old`, the key with its catch-literal sentinel, the engine-stamped fingerprint); then W1d to W1h,
-each adding its own levers and keys to W1i. The two-marker seat round-trip proof rows land with W1f, not W1c.
+each adding its own levers and keys to W1i. The two-marker seat round-trip proof rows land with W1f, not W1c. As built
+the order was kept, with a W1i completion step after W1h (`events`, `poke`, the `open` key) and the W1 review's four
+fixes last. The W1a/b pin is label `pin-s168w1ab`, set 20261107-001809 (the As built section has its files and shas).
 
 - **W1a. The bracket extract (behaviour-neutral, first and alone).** `Memoria/Netsync/NetSyncDiorama.cs`: the static
   bracket (:2853-2896, RememberOriginalPlayer and RestoreParty, :3274-3296; its clears at :815-818, :999-1002, :6246)
   becomes an instance type, with the diorama's instance used everywhere the statics were. A new
   `Memoria/Netsync/NetSyncSeatBracket.cs`. Proven by SeatSelfTest, the bracket selftest (which carries GM0-BRACKET-CLEAR's
-  two-instance rows) and the diorama legs.
+  two-instance rows) and the diorama legs. As built the bracket selftest is a new proof line, so NetSyncClient.cs gains
+  one hunk (its line in the proof block), and SeatSelfTest runs in game only (decision 11).
 - **W1b. The builder extract (behaviour-neutral).** `NetSyncDiorama.cs` MirrorHostParty's per-slot scratch builder
   (:3140-3250) becomes a shared function with the diorama as its only caller. It takes optional per-member overrides
   (preset, category and pa right after FF9Play_New; exp after FF9Play_Build; basisCapa before its own FF9Play_Update)
   and a `rethrow` flag (the menu's seat, decision 12); the diorama passes neither, so it keeps its per-slot containment
-  and stays behaviour-neutral. The same proofs.
+  and stays behaviour-neutral. The same proofs. As built: `BuildSeatMembers(ff9, seat, bracket, overrides, rethrow)`
+  with `SeatOverride` keyed by CharacterId (decision 11).
 - **W1c. The pure core (inert).** New `Memoria/Netsync/NetSyncGuestMenu.cs`: GuestMenuKeyStep, the predicate's rule, the
   door rule, the section-12 codec and its pure order-keeping readers, the content witness, the section-12 guard and its
   TrailReserve, the close-trigger rule, the close-order states, the restore identity rule; the proof line (decision 34).
   Into the csproj and `tools/memoria_stack_replay.py`'s `DEFAULT_FILES` (:60). `NetSyncDiorama.cs` gains the read-only
-  `internal static Boolean Armed => _armed;` (decision 8's term 10).
+  `internal static Boolean Armed => _armed;` (decision 8's term 10). As built the key constants (`KeyGuestOpen` 5,
+  `KeyGuestQuiet` 6) and `SectionMenu` live here; NetSyncField's `MenuKeyGuestOpen`/`MenuKeyGuestQuiet` (W1e) and
+  NetSyncState's `SectionGuestMenu` (W1d) are tied to them, one source each. The replay list carries the two created
+  files in this worktree's uncommitted `tools/memoria_stack_replay.py`; the stock files s168 touches are owed (As
+  built).
 - **W1d. Caps b3 and the sender.** `NetSyncWorldWalk.cs` (OwnCapsRule's second argument; the `OwnCapsFn` delegate made
   two-argument, `OwnCapsNow` passing the live menu lever; the new proof row and s167's re-keyed rows and mutants,
   decision 32); `NetSyncState.cs` (the section-12 constant beside :53); `NetSyncClient.cs` BuildStateFrame
   (:10626-10634) with the send rule, the `HostGuestMenuSectionNow` helper (its own try, decision 5) and the
-  FRAME-CAP-GUARD's local check at section 12's append (TrailReserve; BuildStateFrame's order untouched).
+  FRAME-CAP-GUARD's local check at section 12's append (TrailReserve; BuildStateFrame's order untouched). As built:
+  `NetSyncState.SectionGuestMenu = 12` (13 reserved by comment only); `GmSectionSendRule`, `HostMenuBlockOf` /
+  `HostMenuBlockNow`, `Sec12FitsRule`; the `caps off|on` lever and the `frame` and `host_fp` keys.
 - **W1e. The gate seam, who, the words.** `Global/UI/UIKey/UIKeyTrigger.cs` (:719-722 only; the dialogue path's :889
   stays byte for byte); `NetSyncField.cs` (RefuseMainMenu(why), which takes the verdict as given, beside the
   byte-identical parameterless s121 entry; HarnessMenuKeyNow's `guest`; the why classes in the DeclineOnce book);
   `NetSyncClient.cs` (the press deadline, decision 9; overlay state 29 and its selection in the paired branch at
   :2662-2665 and the off-field chains, the chip beside DrawDialogChip at :15512, the forced-close line drawn by OnGUI on
-  its own timer).
+  its own timer). As built: UIKeyTrigger +5 lines, a new arm ahead of s38's line keyed first on `GuestMenuPressInPlay`
+  (W1f adds 2 more lines there, the load-entry backstop: +7 in all, :889 untouched); NetSyncField's `MenuKeyGuestOpen` 5 /
+  `MenuKeyGuestQuiet` 6, `GuestMenuPress` and `RefuseMainMenu(verdict, why, member, component)` (decision 6), each why
+  its own decline class "main menu (<why>)" (`older` and `lever` write s121's own line), the refusal line cleared at the
+  field load; NetSyncClient's live gatherer (`GatherGuestMenuFacts` / `GuestMenuWhyNow`: ONE reused GmFacts, created
+  lazily, never on vanilla); the `chip off|on` lever; the `line`, `close_line` and `chip` keys.
 - **W1f. The seat, the door, the restore.** `Global/UI/UIManager.cs` (ChangeUIState's door, :601-615: the one open
   verdict for every FieldHUD/WorldHUD -> MainMenu entry, in its own try); `Global/MainMenuUI.cs` (SetMasterSkill skipped
   while seated, :49; EnabledSubMenus); `SceneDirector.cs` (the Replace backstop, :114: it restores and ends the
@@ -1168,9 +1450,15 @@ each adding its own levers and keys to W1i. The two-marker seat round-trip proof
   epoch, :251); `Assets/SiliconSocial/AchievementManager.cs` (:80, :119); `EventEngine.cs` (the autosave ladder's seat
   term, beside :703-704); `NetSyncVisitor.cs` (LiveSlotChars itself, :326, covering ResolveDress at :256 and
   ReadSlotChars at NetSyncClient.cs:13969); `NetSyncDiorama.cs` (Boot's refusal, :752-756). The seat's own
-  all-or-nothing fault path (decision 12) and the session's clear points (decision 16).
+  all-or-nothing fault path (decision 12) and the session's clear points (decision 16). As built also:
+  `NetSyncParty.cs` (the `BagSource` and `KeyItemSource` seams and `LiveSlotSource`, for `frame` and the release);
+  `NetSyncSeatBracket.cs` (five methods over an explicit state, decision 11); the bench ops `frame`, `frame witness`,
+  `frame intent`, `host elsewhere|here`, `seat skip`, `seat fault`, `restore skip`, `door fault`; the `seat`,
+  `door_refused`, `restore`, `master_skipped`, `ach_held`, `event_enable` and `bench` keys.
 - **W1g. The confirm census.** `Global/EquipUI.cs`, `Global/AbilityUI.cs`, `Global/ItemUI.cs` at decision 17's sites;
-  Order, Party, Card and Config are greyed through EnabledSubMenus (W1f).
+  Order, Party, Card and Config are greyed through EnabledSubMenus (W1f). As built: eight insertion-only hooks
+  (decision 17), the `capture off|on` lever, the `captures`, `passes` and `impactful` keys, and the outside fold with
+  `fp.outside_equal` / `fp.outside_named`.
 - **W1h. The forced closes.** `NetSyncClient.cs`: CoopCloseGuestMenuIfDue, in its own try (decision 18), and its sites
   (:1965-2020: the close request at the ramp's arm, outside the settle's try{}, and THE RAMP'S SETTLE's two terms, the
   world branch's seat term at :2004 and the press term on both branches; :3697-3756, :4537-4552 with decision 19's BUSY
@@ -1180,12 +1468,17 @@ each adding its own levers and keys to W1i. The two-marker seat round-trip proof
   and the watchdog) after ServiceFollowWarp/ServiceWorldOut (:2054-2055) and before the enabled gate, with no role test,
   in its own try with the guarded fault end and `closes.faults` (decision 21); the close order law with stock's two fade
   forms, the watchdog (its deadline stamped at the request, the fades included), and the held-bit write into `ETb.sKey`
-  before each HUD route; `NetSyncAte.cs` (the ATE site, :978); `Global/QuitUI.cs` read only.
+  before each HUD route; `NetSyncAte.cs` (the ATE site, :978); `Global/QuitUI.cs` read only. As built also the `close`,
+  `close fault` and `fireclose` levers and the `close_pending`, `close_step`, `last_close` and `held` keys; UIManager's
+  OnLevelWasLoaded gate widened to `SeatedOrClosing` (decision 16).
 - **W1i. The harness and the fingerprint.** `Memoria/Harness/HarnessAgent.cs` (the `guestmenu` sub-verb at :2505; the
   key and its sentinels in AppendNetsync's catch, :4274, sentinel literal :4363); `HarnessReleaseGuestMenu` in
   NetSyncBattle.HarnessReleaseBench's chain; the `_gmBenchFrame` slot and the bench source seams for the bag, key
   items, rare_item_used and gil beside `NetSyncParty.SlotSource` (decision 31); the engine-stamped fingerprints (`fp`,
-  `seat_fp`, the harness-only `host_fp`) in `NetSyncGuestMenu.cs`.
+  `seat_fp`, the harness-only `host_fp`) in `NetSyncGuestMenu.cs`. As built W1i's skeleton carried the sub-verb, `old`,
+  `act`, `clear`, the release, the session book and the fingerprint; the bench slots and seams landed with W1e and W1f
+  (bag and key items only, decision 31), `host_fp`'s key with W1d, and a W1i completion step after W1h added `events`,
+  `poke` and the `open` key.
 
 **s169 (W2):** W2a the type-8 lane (`NetSyncSocket.cs` NetSyncFrames and INetTransport, `NetSyncRelay.cs`); W2b section 13
 and the host helper, gates and tripwires (`NetSyncGuestMenu.cs`, `NetSyncClient.cs` BuildStateFrame and its Update
@@ -1196,6 +1489,8 @@ Every hunk is tagged `[ff9mapkit netsync s168]` or `s169`; each file keeps its o
 `memoria-patches/` entry and README status row. Builds go only through `tools/build_memoria.py`'s literal CLI, with
 `--no-deploy` until the owner's s167 two-PC look is done, and never while the owner plays; the pinned W1a/b artifact is
 deployed only through `tools/restore_memoria_dll.py` after a `tools/backup_memoria_dll.py` snapshot (Order step 2).
+As built the s168 delta is 23 files, every hunk tagged, every file's BOM and line endings kept (CRLF throughout,
+HarnessAgent.cs LF); its `memoria-patches/` entry and README row are still owed.
 
 ## The bench
 
@@ -1211,9 +1506,14 @@ never under a running test suite.
 
 **K1, read-only, before the s168 deploy (Order step 1):** tag 4 of UID 0 in the deployed world dispatchers
 (MenuOpenEvent); whether HashSet enumeration keeps insertion order on this Mono (the key-item display order); the stock
-MainMenu close time at FadeDuration 40 and 300. The W1 build waits on one K1 result only: the HashSet-order read, which
-decides the order-keeping key-item reader (W1c); the rest is measured in step 1. (No type-5 length readout exists today,
-only type-0 `len`; decision 32's `frame` keys add it as
+MainMenu close time at FadeDuration 40 and 300. The W1 build was to wait on one K1 result only: the HashSet-order
+read, which decides the order-keeping key-item reader (W1c). As built it did not wait: the readers keep wire order
+whatever a HashSet does, so the read now decides only whether the seated key-item sets keep that order for the Key
+Items screen and for the `keyitems` component of a `seat_fp` / `host_fp` compare (decision 33); it is measured in step 1
+with the rest. Also measured there or in step 3, as the builders asked: `UIManager.IsLoading` at the door (decision 9),
+whether `frame`'s bench host trailer reaches the receiver cache on a field (terms 3 and 5 on the selftest role), and
+whether the HUD's Show turns events and control back on after a door refusal (GM0-DOOR). (No type-5 length readout
+exists today, only type-0 `len`; decision 32's `frame` keys add it as
 build work.)
 
 **The stand-in:** the fakegame `guestmenu` rung and the battlewire twins (decision 36). A green offline run proves the
@@ -1225,27 +1525,27 @@ written before launch (THE RECORDER DIALS THE OWNER).
 
 | Row | H | Judge (NEW) | OLD (s167) | Lever / mutant |
 |---|---|---|---|---|
-| GM0-PROOF | S | the proof line `guest menu selftest: OK (N rows, M mutants caught)`; `caps.own_s168_word` and s167's re-keyed caps rows (decision 32); the fault fallback row (a fault with guestSession false takes s121's read); the GuestQuiet row and the RefuseMainMenu(why) rows (decision 6); the door's fault rows (decision 9); the clear-points and config-edge rows (decision 16); the close-rule rows, one mutant per trigger (decision 18); the section-12 guard and the TrailReserve row (decision 5); the press-deadline row at FadeDuration > CloseCapMs (decision 9); the close request's own try (decision 18); the restore-identity rows, EnabledSubMenus put back on the drop path among them (decision 16) | absent | its mutants (each term deleted, seat at the press, Dialogs.Visible for UI quiet, guestSession on IsLiveFollowedSession, MayBoot seat term, a slot-index key, a fault that refuses outside a guest press, each close trigger's row deleted, the identity check skipped, EnabledSubMenus put back only on a restore, the restore door on the `prevState` field; a press bound of CloseCapMs alone: at FadeDuration > CloseCapMs the ramp fires inside the press-to-door fade; a throwing close request at the ramp's arm: the ramp must still fire and ServiceFollowWarp still run; a throwing section-12 reader: sections 0-11, 7 and 8 must stay in the built frame and the publish's Update must still reach NetSyncBattle.Pump) |
+| GM0-PROOF | S | the proof lines, in order: `world walk selftest: OK (534 rows, 198 mutants)`, `seat bracket selftest: OK (19 rows, 7 mutants caught)` and `guest menu selftest: OK (420 rows, 249 mutants caught)` (decision 34), with `MenuRefusalSelfTest` at 14; `caps.own_s168_word`, `caps.line_text_s168` and s167's re-keyed caps rows (decision 32); the W1 review's rows (`key.loading_caps_off_older` and `key.pair_on_rule`, `line.never_over_connecting` and `line.not_paired_arm_while_live`, the `settle.*` and `vars.*` rows, the `cut.memory_*` rows); the fault fallback row (a fault with guestSession false takes s121's read); the GuestQuiet row and the RefuseMainMenu(why) rows (decision 6); the door's fault rows (decision 9); the clear-points and config-edge rows (decision 16); the close-rule rows, one mutant per trigger (decision 18); the section-12 guard and the TrailReserve row (decision 5); the press-deadline row at FadeDuration > CloseCapMs (decision 9); the close request's own try (decision 18); the restore-identity rows, EnabledSubMenus put back on the drop path among them (decision 16) | absent | its mutants (each term deleted, seat at the press, Dialogs.Visible for UI quiet, guestSession on IsLiveFollowedSession, MayBoot seat term, a slot-index key, a fault that refuses outside a guest press, each close trigger's row deleted, the identity check skipped, EnabledSubMenus put back only on a restore, the restore door on the `prevState` field; a press bound of CloseCapMs alone: at FadeDuration > CloseCapMs the ramp fires inside the press-to-door fade; a throwing close request at the ramp's arm: the ramp must still fire and ServiceFollowWarp still run; a throwing section-12 reader: sections 0-11, 7 and 8 must stay in the built frame and the publish's Update must still reach NetSyncBattle.Pump -- as built these last two are static call-site checks, not proof rows, decision 34; the W1 review's `key_quiet_caps_blind`, `line_over_connecting`, `settle_same_frame`, `settle_events_blind`, `vars_digest_skips_last`, `cut_memory_never_forgets`, `cut_memory_never_spent` and `cut_memory_spent_by_staleness`) |
 | GM0-OFFLINE | O | each fakegame fault reds exactly its own row | n/a | the faults |
 | GM0-REGISTRY | O | every flag bit, section id and frame type assigned once across the guest menu, comms, the quit word and B4.2 | n/a | two claims of b1 or of section 12: red |
-| GM0-BRACKET | S, D | after W1a and W1b alone, on the pinned W1a/b DLL: SeatSelfTest and the bracket selftest identical; the diorama legs green: coop_diorama_return, coop_battle_flee_defeat, coop_battle_end_guest, coop_battle_result_replay, coop_leader_guard, coop_stock_menu with its _live and _content legs | green | one shared instance for both owners: the cross-restore row red |
-| GM0-BRACKET-CLEAR | S (rows of the bracket selftest, shipped with W1a) | two NetSyncSeatBracket instances, a record held in the menu instance; the diorama instance's two failure-clear routines run (the failed-boot clear, the :999-1002 shape; the snapshot-failure clear, the :815-818 shape): the diorama instance empty, the menu instance's references unchanged, party.member ReferenceEquals the originals | n/a (one bracket, no menu instance) | one shared instance: the menu's record erased, red |
-| GM0-HOLE | T, D | a world-paired unmirrored guest presses Menu: refused, `not_mirroring`, the owner's line | its own stock menu opens (`open`), measured | `guestmenu old`: opens |
+| GM0-BRACKET | S, D | after W1a and W1b alone, on the pinned W1a/b DLL (label `pin-s168w1ab`, DLL sha256 532486364ec05354...): SeatSelfTest's line and the containment selftest's line (`party[refs=ok untouched=ok]`) identical to s167, and the NEW `seat bracket selftest: OK (19 rows, 7 mutants caught)` green (s167 had no bracket selftest, decision 11); the diorama legs green: coop_diorama_return, coop_battle_flee_defeat, coop_battle_end_guest, coop_battle_result_replay, coop_leader_guard, coop_stock_menu with its _live and _content legs | green | one shared instance for both owners: the cross-restore row red |
+| GM0-BRACKET-CLEAR | S (rows of the bracket selftest, shipped with W1a) | two NetSyncSeatBracket instances, a record held in the menu instance; the diorama instance's two failure-clear routines run (the failed-boot clear, the :999-1002 shape; the snapshot-failure clear, the :815-818 shape): the diorama instance empty, the menu instance's references unchanged, party.member ReferenceEquals the originals (as built the rows `clear.snapfail.menu_record_kept`, `clear.failboot.menu_record_kept`, `clear.menu_restores_originals` and the `cross.*` rows) | n/a (one bracket, no menu instance) | one shared instance (the proof's `shared_instance` mutant): the menu's record erased, red |
+| GM0-HOLE | T, D | a world-paired unmirrored guest presses Menu: refused, `not_mirroring`, the owner's line; `menu_refusal.now` `audible` | its own stock menu opens (`open`), measured | `guestmenu old`: opens (`guestmenu.open` true, `seated` false) |
 | GM0-STALL-WHO | T (the duo's blackhole until the tape exists) | the same guest inside a 3 s blackhole: still refused | opens in the stall | mutant: guestSession on IsLiveFollowedSession (decision 6): the own menu opens in the stall |
 | GM0-KEY | D (T once the tape exists) | on FieldHUD with a b3 peer: `now` guest, MainMenu up, `menu_refusal.count` +0, opens +1, seated. A double-tap leg at FadeDuration 300 (two presses 100 ms apart): one open, `menu_refusal.count` +0, no line | `audible`, count +1, lines +1, FieldHUD for 2 s | `guestmenu old`: exactly OLD; mutant: no GuestQuiet row: the second press refused `ui`, count +1, the line over the opening menu |
 | GM0-WORLD | D | GM0-KEY on WorldHUD, frozen and walking; aboard: refused `riding`, audible | `audible` + the world-class line | `guestmenu old` |
 | GM0-SILENT | S, D | S: `now` reads `open` on BattleHUD and Pause (the bench keeps s121's step, decision 6), the diorama's BattleHUD refusal still buzzes and counts; D: a mirroring guest reads `silent` there; `bmenu mainmenu` still refused on the diorama (coop_stock_menu.py's X row) | S: `open` on BattleHUD and Pause, measured (the selftest role is not mirroring); D: `silent`; `bmenu mainmenu` still refused by BattleHUD's Active gate | the non-HUD RefuseSilent for the bench: S reads `silent`, red; a verdict that opens on BattleHUD: D reads `open`, red |
 | GM0-DIALOG-PATH | D, T | (a) a locked host line: judged at :852, `suppress` true, the window stays; (b) an input-taking line the lock does not hold (after the ~ menu unlock): judged at :889, s38's silent drop, `now` `dialog`, the window stays | green | (b) lift :889 for input-taking lines: the line closes |
-| GM0-WHY-x | S, D | one row per why: hostscene, host holds input (`swap hostctl off`), intent away (`guestmenu frame intent <field>`: `leaving`), a follow in flight (`swap intent`: `busy`), battle (`netsync lock 1` + `netsync host battle 1`), link dead, no data | not reached | each bench op; `guestmenu old` |
+| GM0-WHY-x | S, D | one row per why: hostscene, host holds input (`swap hostctl off`), intent away (`guestmenu frame intent <field>`: `leaving`), a follow in flight (`swap intent`: `busy`), battle (`netsync lock 1` + `netsync host battle 1`), link dead, no data. On S every row but no data runs after a `guestmenu frame <marker>` (without one, a bench press reads `no_data`, decision 8); each judges `why` and `door_refused.<why>` or `menu_refusal.count` | not reached | each bench op; `guestmenu old` |
 | GM0-DOOR | D (FadeDuration 300); S for the :889 and fault legs | Menu pressed as the host's intent arrives inside the HUD fade: the door refuses (`busy` once the follow has started, `leaving` for an intent not yet acted on) with that why's line, events and control back on, no seat, the follow lands; fp equal. One leg opens and closes the menu once on the field, then triggers a door refusal: FieldHUD shown, MainMenuUI inactive, events and control on. The :889 leg (S, on GM0-HUDSTRIP's strip field, `guestmenu host elsewhere`): the bench reaches OnKeyMenu through the dialogue path with no press verdict; the door refuses `host_elsewhere` with its line, the HUD back with events and control on, the strip stays closed (a Known limit). Fault legs (`guestmenu door fault open\|restore`): each ends on a live HUD with events and control on; nothing seated after the open leg; the restore leg keeps the record and the seat flag, and after the next backstop or door ff9.player[*], party.member[*], ff9.item and the rare sets are ReferenceEquals the originals and Order is not grey | not reached | mutant: seat at the press (fp differs, or the follow fade stalls under the menu); mutant: the refusal re-shows `prevState`: MainMenuUI active unseated on FieldHUD; mutant: the door re-runs the predicate only after a press verdict: the :889 leg opens the bench's own party, `seated` false |
-| GM0-SEAT | S, D | S: the marker character, level and name drawn on Status and in `guestmenu.seat`; the gil and exp markers come from `frame`'s bench sources (decision 31); D: for every wire-carried component `seat_fp` per component equals the host's `host_fp`; TWO-MARKER: the guest's own exp and gil markers on no screen | not reached | `guestmenu old`: own party |
+| GM0-SEAT | S, D | S: the marker character (slot 0's "BENCH<marker>" at level 99), level and name drawn on Status and in `guestmenu.seat` (`src` the bench frame, `marker`); the gil and exp markers come from `frame`'s bench sources (decision 31); D: for every wire-carried component `seat_fp` per component equals the host's `host_fp` (`keyitems` leans on K1's HashSet-order read, decision 33; `seat.frame_age_ms` reads -1 for a wire seat); TWO-MARKER: the guest's own exp and gil markers on no screen | not reached | `guestmenu old`: own party |
 | GM0-SEATFAULT | S | `guestmenu seat fault <component>`: ff9.player[*], party.member[*], ff9.item and the rare sets ReferenceEquals the originals; FieldHUD back with events and control on; why `fault`; opens +0 | not reached | mutant: no rollback: a scratch stays installed |
 | GM0-WITNESS | S | `frame witness` frames (decision 31): a preset missing, a pa length off, an unknown equip or SA id, an unknown CharacterId: refused `data_differs`, the component logged; an unknown bag item: refused, component "bag"; an unknown key item: seated, a blank row, the line | not reached | mutant: seat anyway: StatusUI throws |
 | GM0-BROWSE | S, D | Item, Ability, Equip, Status, Folklore (or Journal) by label, ui_state per screen, Cancel back, one shot per screen READ; Order, Party, Card and Config are 102 rows (grey, the buzz, no screen opens); Alt+F5 in the menu refused with 102 (s38's mirror gate for a mirroring guest; TryShowSaveScene's state gate on the bench); the main menu has no Save row | not reached | `guestmenu seat skip party`: the guest's own values drawn, red |
-| GM0-REFUSE-x | S (D spot checks) | one row per census id. E1-E3, A1-A3, I1 and I2: 102, refused +1 with the site, `seat_fp.value` unchanged, ImpactfulActionCount 0, group as the stock template; Cancel walks back up. O, P and CG (no census hook; greyed through EnabledSubMenus, decision 14): grey, 102, refused +0, no screen opens, `seat_fp.value` unchanged, as in GM0-BROWSE | not reached | per row: E1-E3, A1-A3, I1 and I2 red under `capture off` while GM0-RESTORE stays green; O, P and CG excluded from the `capture off` sweep, their own mutant EnabledSubMenus not set: the row opens |
+| GM0-REFUSE-x | S (D spot checks) | one row per census id. E1-E3, A1-A3, I1 and I2: 102, `refused.count` +1 and `captures` +1 with the site (`refused.last_site`, `last_screen`), `impactful` 0, group as the stock template; Cancel walks back up; at the close `fp_after == fp_before`. (As built `seat_fp` is stamped only at the seat, so "`seat_fp.value` unchanged" would be vacuous at rung 0; the W1g builder's re-key.) O, P and CG (no census hook; greyed through EnabledSubMenus, decision 14): grey, 102, refused +0, no screen opens, as in GM0-BROWSE | not reached | per row: E1-E3, A1-A3, I1 and I2 red under `capture off` (`passes` +1, `impactful` > 0, the seated copy changed) while GM0-RESTORE stays green; O, P and CG excluded from the `capture off` sweep, their own mutant EnabledSubMenus not set: the row opens |
 | GM0-LOCAL | S, D | Auto and manual sort, a key-item read, a Folklore read: the seated copy changes, the host's bag order does not, GM0-RESTORE green | not reached | mutant: a sort forwarded to the host |
 | GM0-RESTORE | every leg that opens | `fp_after == fp_before` per component; the sandbox saves unchanged; never judged while seated. One leg opens and Cancels at the root with no sub-screen visited (the close's `prevState` field then reads FieldHUD, decision 16) | not reached | `restore skip <c>` once per component: red, `named` == c; mutant: the restore door reads the `prevState` field: the root-only leg leaves the scratches installed, red |
-| GM0-OUTSIDE | S | gEventGlobal, Achievement and EventState counters, MiniGame cards, hintmap_id unchanged across a full refusal sweep | not reached | mutant: the Gysahl hook removed on a world map: [181] becomes 1 |
+| GM0-OUTSIDE | S | gEventGlobal, Achievement and EventState counters, MiniGame cards, hintmap_id unchanged across a full refusal sweep: as built `fp.outside_equal` true and `fp.outside_named` null at the close (components events, eventstate, achievement, cards, hintmap; events skip the co-op window 2032-2041, decision 17) | not reached | mutant: the Gysahl hook removed on a world map: [181] becomes 1 (`outside_named` `events`); `guestmenu poke` reddens it the same way |
 | GM0-MASTER | S (booster on) | SetMasterSkill not called while seated across two sub-screen returns (`master_skipped` +2); `guestmenu.ach_held` rises; nothing reaches the platform | not reached | mutant: the hold without the seat term |
 | GM0-SAVEGATES | O | with a seat held on the bench (not mirroring, not booted), the autosave ladder refuses through its seat term: the pure table alone reddens the mutant | n/a | mutant: drop the seat term (pure table only, never on disk) |
 | GM0-LOAD | S | seat, then a sandbox load: the backstop restored first (`restore.backstops.load` +1), `seated` false right after it while Serialize is up, and the loaded data sits in the real objects | n/a | backstop off (proof-only, never on disk): the dictionary holds scratches |
@@ -1270,17 +1570,17 @@ written before launch (THE RECORDER DIALS THE OWNER).
 | GM0-TIMING | D | close-to-HUD ms at FadeDuration 40 and 300, fast-forward on and off; the follow-start lag (a follow from a visible slot, about 12 ticks later than a join); the pin age against `PinMaxAgeMs` 2500; the LateArmMs margin | not reached | mutant: a full Cancel unwind at 300 misses the late arm |
 | GM0-FADE | D | a follow close at MainMenu depth and at one sub-screen depth, each at FadeDuration 40 and 300: the follow starts like a follow from a guest standing on the HUD (s164's Begin joins, hurries or fades the slot from where it is, no hard flash; the pin under 2500 ms); a game_snap pair records the brighten-then-darken below MainMenu at 300 (the visible cost, a Known limit); a close with no follow ends on the stock fade-in, never black | not reached | `close old`: no close; the follow waits for a manual Cancel, then starts from the HUD (today's DL-DEFER) |
 | GM0-HELDKEY | S | on a bench field with the guest facing a talkable NPC: Confirm held through a `fireclose`: `held.bits` has Confirm, `held.keyon` +0, no talk starts; released and pressed again: the talk starts (a real re-press is a real edge) | not reached | mutant: no held-bit write: `held.keyon` +1, the talk starts on the held Confirm |
-| GM0-PAIRED-LINE | D (one field) | a refused press: the overlay state is 29 for its timer, not OvlOff | no line | mutant: the unchanged paired branch |
+| GM0-PAIRED-LINE | D (one field; one world leg on 9011) | a refused press: the overlay state is 29 (`session.overlay` `guest_menu`) for its timer, not OvlOff, then back. The world leg (added for the W1 review's CR-2, decision 10): a following world guest's refused press (e.g. aboard: `riding`) shows 29 over the world-guest chain's line for its 4 s, then that line returns. A peer-lost leg (the duo's blackhole): a press inside the blip hold (most likely `link`) shows 29 (the paired branch's hold); a press past the grace, before the ramp fires, refuses `session` and shows only the connecting line; the buzz and `menu_refusal.count` +1 either way | no line | mutant: the unchanged paired branch; the connecting-line precedence is proof-only (`line_over_connecting`) |
 | GM0-CHIP | S, D | the chip shows while seated, hides at the close | absent | `guestmenu chip off`: seated with no chip, red; `guestmenu old`: not reached |
-| GM0-RELEASE | S | every lever set off its default (`old`, `caps off`, `capture off`, `close old`, `chip off`, `events on`, `poke`, `seat skip party`, `restore skip <c>`, `seat fault`, `door fault`, `close fault`; from s169 `apply off` and `check off <gate>`), then a disarm, and separately a harness fault and a reset: `netsync.guestmenu.lever` reads every lever at its default, and the next bench seat draws `frame`'s marker values | not reached | mutant: a release that skips `seat skip`: the next seat draws the guest's own values, red |
+| GM0-RELEASE | S | every lever set off its default (`old`, `caps off`, `capture off`, `close old`, `chip off`, `events on`, `poke`, `seat skip party`, `restore skip <c>`, `seat fault`, `door fault`, `close fault`: the twelve fields of `lever`; from s169 `apply off` and `check off <gate>`), then a disarm, and separately a harness fault and a reset: `netsync.guestmenu.lever` reads every lever at its default, the release line said once (none when nothing was set), the bench frame, host field and trailer dropped, and the next bench seat (after a new `frame`) draws `frame`'s marker values | not reached | mutant: a release that skips `seat skip`: the next seat draws the guest's own values, red |
 | GM0-CAPS-a | D | the host pulls `guestmenu caps off`: the guest's press is s121 exactly (`audible`, count +1, lines +1, FieldHUD), one caps line on the guest, the older-build line on screen | n/a | `caps on`: opens |
 | GM0-CAPS-b | T (s166 and s167 tapes) | refused as s121; the caps line names "guest menu" | refused as s121; the caps line names "world fingerprint" (s166 tape) or no line (s167 tape) | none |
 | GM0-CAPS-c | T (coop_cut_hold's s121 leg on its v14 tape, unchanged) | a capless peer: G0-G5 and C1 green, no caps line | green | none (the fallback row) |
 | GM0-FRAME | O (the proof line's rows and their battlewire twins) | the TrailReserve row recomputes 430 from HeaderLen, OpenLen, OpenCap, the count byte, RingCap and EventLen, plus section 8's 6 B; the pure guard rule appends 12 exactly when len + 3 + len(12) + TrailReserve <= 8192; from s169, 13 only with 12 | n/a | mutants: TrailReserve one byte short (the constant row red); the check without TrailReserve (a frame near the cap with a full ring goes past 8192, red); 13 appended without 12 (red) |
-| GM0-BW | D | `frame.type5_len` and `frame.tx_bps` with b3 and with `caps off`, LAN and relay | n/a | `caps off`: the frame shrinks by the block |
+| GM0-BW | D | `frame.type5_len` and `frame.tx_bps` with b3 and with `caps off`, LAN and relay (`tx_bps` is payload bytes per second over windows of at least 1000 ms between harness reads, decision 32: read the key at least 1 s apart) | n/a | `caps off`: the frame shrinks by the block |
 | GM0-HUDSTRIP | D (a mirroring guest on a kit field with a persistent [NFOC] strip) | MEASURING ROW for the Known limit (no guest menu while the location keeps a window up): the press takes s121's silent drop at :889: `now` `dialog`, `menu_refusal.count` and `.silent` +0, opens +0, no line, the strip stays | the same, measured | none (a Known limit) |
 | GM0-STSCENE | D (one PC, 9011) | MEASURING ROW: the host opens its own main menu for 2 s; read the guest's view of the host trailer's StScene and the walk's why | measure on s167 | none: if StScene rises, a Known limit and a later fix |
-| GM0-WORLDTAG4 | D (9010, 9011) | open the seated menu on the world, do at least one sub-screen round trip (Item, then Cancel), close. Judge runtime state before the open and after the close (the s167 world fingerprint hashes install content only and cannot see a script's writes): GM0-OUTSIDE's close-time fingerprint (gEventGlobal, the Achievement and EventState counters, hintmap_id) plus the world copy's UID-0 object variables and sysvar 192; mapNameStr, MenuOpenEvent's own expected write, excluded | not reached | an S leg with `guestmenu poke` (writes one gEventGlobal byte at the open; proves the judge sees runtime state): red; each tag-4 write K1 lists: expected to show |
+| GM0-WORLDTAG4 | D (9010, 9011) | open the seated menu on the world, do at least one sub-screen round trip (Item, then Cancel), close with no load following. Judge runtime state before the open and after the close (the s167 world fingerprint hashes install content only and cannot see a script's writes), as built (the W1 review's CR-3) through harness-only keys: the outside fold stamped at the seat against the settle stamp, `outside_settled.set` true, `outside_settled.equal` true and `named` null (restamped one frame after the HUD turned events back on, so MenuOpenEvent's queued tag-4 request has run; `fp.outside_equal`, stamped at the restore door before the HUD's Show, cannot see it); and `uid0_vars` and `sysvar192` read before the open equal those read after `outside_settled.set`. mapNameStr, MenuOpenEvent's own expected write, stays excluded (no outside component folds it) | not reached | an S leg with `guestmenu poke` (flips gEventGlobal[2047] bit 0 at the next seat, after fp_before's outside stamp; proves the judge sees runtime state): `outside_settled.equal` false, `named` `events`, red; each tag-4 write K1 lists: expected to show |
 | GM0-WALKGHOST | D + game_snap | the host's ghost of the guest while the guest's world menu is open (expected: frozen mid-stride) | n/a | none (a Known limit) |
 | GM0-OVERLAY | game_snap | the IMGUI lines and chips over the stock menu: readable, nothing covered | n/a | none |
 | GM0-DEATH | S, D | kill the guest while seated and relaunch: Continue loads its own or the pairing autosave, fp equal to the pre-session one | n/a | run under the existing `saveguard old` dry-write: any `would_save` +1 while seated is red, the sandbox untouched |
@@ -1317,7 +1617,9 @@ written before launch (THE RECORDER DIALS THE OWNER).
    snapshotted with `tools/backup_memoria_dll.py`, then the pin kept in the main repo's `backups/` at W1a/b time is
    deployed with `tools/restore_memoria_dll.py <label>` and its sha verified against the recorded one (never a hand
    copy, which skips the pre-build backup and the sha check). If an s167 fix rebases s168, W1a/b are rebuilt and
-   re-pinned before this step.
+   re-pinned before this step. As built the label is `pin-s168w1ab` (set 20261107-001809, DLL sha256
+   532486364ec05354...); the restore copies the two DLLs only, so the live `.mdb` stays s167's (stack-trace line
+   numbers only; the pinned `.mdb` sits beside the DLLs if wanted).
 3. The full s168 deploy, after the owner's s167 two-PC look: GM0-PROOF and GM0-OFFLINE; GM0-HOLE and GM0-STALL-WHO; the
    key and seat rows; the census and restore rows; the close rows one trigger at a time (each fires one trigger;
    `close old` is the lever); the measuring rows (GM0-BW, GM0-TIMING).
@@ -1360,8 +1662,12 @@ MAIN repo or with the templates extracted.
 - **A refusal inside the press-to-door window names the door's why** (decision 9): a follow that starts inside the HUD's
   hide fade shows "Try the menu again in a moment.", not a forced-close line (the menu never opened).
 - **A refusal raised after co-op is turned off draws no line** (state 29 is chosen only past the enabled gate,
-  NetSyncClient.cs:2057; ApplyConfigChange nulls `_ovlText`, :1814), and one raised on a grace-expiry ramp is outranked
-  by the lost-contact line (decision 10): the buzz and the log line only.
+  NetSyncClient.cs:2057; ApplyConfigChange nulls `_ovlText`, :1814), and one raised while the peer is lost (a `link`
+  refusal past the blip hold, or one on a grace-expiry ramp, on a field or the world) is outranked by the reconnecting,
+  lost-contact or connecting line (decision 10, the W1 review's CR-2): the buzz, the count and the log line only.
+- **The refusal line covers the status lines below it for its 4 s** (decision 10, ratified): on the world the
+  world-guest chain's lines (rejoining, the hold, host_world, s167's entry-refused, walk-refused and close-map), on a
+  field the following, world-out, peer-no-field and peer-elsewhere lines. Each returns when the line ends.
 - **A HUD Hide that never calls back after a guest's Menu press** leaves the HUD dead and the field frozen, as stock
   does; s167 never ran that Hide for a mirroring guest. The guest-menu design no longer recovers it (the press arms
   nothing, so no session, close record or watchdog exists in that window); the next follow or ramp load does.
@@ -1378,7 +1684,12 @@ MAIN repo or with the templates extracted.
 - **The quit prompt holds the close** (decision 21 step 1): the close lands when the guest answers; the battle cut's
   report stays BUSY meanwhile; the ramp's fire waits up to ExitRampSettleMaxMs on a held prompt, and its backstop then
   restores quietly (`restore.backstops.ramp_quit`). After that quit-held fire the menu stays open over the guest's own
-  objects, with input live, the census off and every row enabled, until the Autoload's scene load sweeps it.
+  objects, with input live, the census off and every row enabled, until the Autoload's scene load sweeps it. A cut
+  close whose service tick faults under the prompt ends its record without acting, and the cut's nonce memory never
+  re-asks, so that menu stays open until the guest's own Cancel (as built, decision 21).
+- **A seat rollback that itself faults** (a double fault) keeps the record and the seat flag held with the alarm
+  line, so the scratches may stay installed until the next backstop or door retries the restore element-wise
+  (decision 12, as built); every seat consumer keeps gating meanwhile.
 - **A world close that stalls past the watchdog:** the ramp fires at ExitRampSettleMaxMs (10 s) instead of about
   1.8 s, through the fire backstop's restore, alarmed (decision 18).
 - **No in-game switch for one close trigger:** `guestmenu close old` turns them all off; isolating one on the two-PC
@@ -1400,7 +1711,11 @@ MAIN repo or with the templates extracted.
 - **IMGUI over the stock menu:** OnGUI draws its lines and chips with no UI-state test (NetSyncClient.cs:15481). GM0-OVERLAY
   checks.
 - **MenuOpenEvent's world tag 4** runs on the guest's world copy at every MainMenu Show on the world map (the open and
-  each sub-screen return); its effect is unverified until K1 and GM0-WORLDTAG4.
+  each sub-screen return); its effect is unverified until K1 and GM0-WORLDTAG4. The settle stamp that judges it (the
+  W1 review's CR-3) reads one frame after events come back: a tag-4 script that waits across frames could still write
+  after it, and if a follow load lands right after the close, the settle reads the new place.
+- **The outside fingerprint skips the co-op window** (gEventGlobal 2032-2041, written every Update while co-op is on):
+  a stray write there while seated is invisible to GM0-OUTSIDE (decision 17).
 - **True version skew** is proven only on two PCs; the duo uses `guestmenu caps off`.
 - **Alt+F9 for an unmirrored paired guest** stays guarded only by s38's mirror gate (pre-existing; its own lane).
 - **The world StScene question:** if GM0-STSCENE shows the host's own main menu raising StScene, the guest cannot open on
@@ -1478,6 +1793,273 @@ removed, so a later reader can tell a cut from an omission:
 14. **The landing tracking** of the forced-close line and its D7 Departure are gone: the line lives on its own 4 s timer
     (decision 10).
 
+## As built (s168 W1, 2026-11-07)
+
+W1a-W1i, a W1i completion step and the W1 review's four fixes (W1, CR-2, CR-3, LC1) are built in the shared clone's
+working tree (`C:\gd\FFIX\Memoria\Assembly-CSharp`), uncommitted by design: 23 files, every hunk tagged
+`[ff9mapkit netsync s168]`, every file's BOM and line endings kept. `tools/build_memoria.py --no-deploy` compiles clean (0
+errors, 187 warnings, none in a touched file) and verified the 12 live engine files byte-identical before and after:
+nothing is deployed, and the live game runs s167 until the owner's s167 two-PC look. The decisions above are corrected
+in place; this section is the ledger. The builders' and the review's reports are `s168_w1p1.json`, `s168_w1p2.json`
+and `s168_w1review.json` in the s166-handoff-575aeb session's scratchpad, with every offline proof under its
+`s168proof\`.
+
+**The proofs (offline exes over the live clone files; no socket, no listener):**
+- `world walk selftest: OK (534 rows, 198 mutants)` -- s167's 532 / 196 plus the two s168 caps rows and two mutants.
+- `seat bracket selftest: OK (19 rows, 7 mutants caught)` -- new; W1b's neutrality transcripts equal s167's (S1-S7).
+- `guest menu selftest: OK (420 rows, 249 mutants caught)` -- new; each mutant caught by its own distinct row.
+- `MenuRefusalSelfTest` unchanged at 14 rows; the whole-delta static checks green (`catchjson_w1r.py`, `check_w1r.py`,
+  `check_w1ic.py`, `check_order.py`, `hunktags.py`, BOM and line endings).
+
+**The pinned W1a/b artifact (GM0-BRACKET, Order step 2):** label `pin-s168w1ab`, set 20261107-001809, in the main
+repo's `backups/`:
+- `Assembly-CSharp.x64.dll.pin-s168w1ab.20261107-001809` and `...x86.dll...`: DLL sha256 532486364ec05354..., 7949312 B.
+- `Assembly-CSharp.x64.mdb.pin-s168w1ab.20261107-001809` and `...x86.mdb...`: sha256 39fced7ae666c52c..., made by
+  pdb2mdb on a scratch copy (Output's `.mdb` is stale under `--no-deploy`; pdb2mdb is not deterministic).
+- The `.mdb` is named `Assembly-CSharp.<arch>.mdb.pin-...`, never `.dll.mdb`, so restore's `Assembly-CSharp.dll.*`
+  glob cannot copy it over the DLL; `restore_memoria_dll.py pin-s168w1ab` resolves to the two DLL pins only.
+- `restore_memoria_dll.py` restores DLLs only: after step 2 the live `.mdb` stays s167's (stack-trace line numbers
+  only). If an s167 fix rebases s168, W1a/b are rebuilt and re-pinned first.
+
+**Deviations kept, and why (one each):**
+- W1a: the bracket selftest is a new proof line logged after world walk (one NetSyncClient.cs hunk): s167 had none,
+  so GM0-BRACKET's "identical" is the containment line unchanged plus this line green.
+- W1a: `Clear()` writes in the Boot clear sites' order, not the containment finally's: on one thread with no throw
+  between the writes, unobservable.
+- W1a: the bracket's log label is `Who` ("diorama"): every line identical; only an exception's stack frame now names
+  BuildSeatMembers.
+- W1a: SeatSelfTest's red-row text still names `!_havePartySnapshot`, kept byte-identical (shown only on a red row).
+- W1b: SeatOverride is a CharacterId-keyed map applying all five fields, Pa null keeps FF9Play_New's array, pa always
+  copied: section 12 keys members by CharacterId.
+- W1b: under `rethrow` the faulting slot's scratch stays installed for the caller's record to restore (decision 12).
+- W1c: F2 also excludes the ending pseudo-field: ServiceIntentFollow's real test.
+- W1c: term 11 maps all eight close causes, so the pure rule never returns null for a firing trigger.
+- W1c: F2 / term 11's leave and F3-F4 / `scene` are separate inputs from one read, so each deletion mutant stays seen.
+- W1c: term 7 also refuses an inconsistent block as `no_data`: nothing about the install differs.
+- W1c: the section-12 reader skips trailing bytes and the encoder caps members, pa and ids: additive fmt-1 appends.
+- W1c: the witness's defensive `preset` branch, names from section 1, NoItem never refuses, negative SA ids skipped:
+  the builder's own rules, where the design was silent.
+- W1c: the close's Loading wait applies only before its own Hide; after it the fade is the close's and the clock runs.
+- W1c: FadeMsRule rounds to the nearest ms and reads FastForwardFactor <= 0 as unscaled (UIScene would divide by 0).
+- W1c: KeyGuestOpen 5, KeyGuestQuiet 6 and SectionMenu live in NetSyncGuestMenu; NetSyncField/NetSyncState tie to them.
+- W1c: extra pure helpers (GuestSessionRule, RefuseEffectRule, the Door* rules, CloseRequestRule, the word seeds): inert,
+  each with rows.
+- W1c: TrailReserve's section-8 part is recomputed from `NetSyncVisitor.DressBodyLen` plus its header, not the bare 6 B.
+- W1i: the fingerprint hash is word-wise FNV-1a 64 (MixU), not FpMix's byte fold: 772 ms -> 126 ms per offline run.
+- W1i: `players` folds order-free, `party` adds an identity bit, `bag` skips count-0 rows: sound before/after and
+  seat/host compares.
+- W1i: `why` is the last refusal's why (NoteRefusal), not a live verdict; `session` is the live guestSession.
+- W1i: `lever` is an object, one field per lever, so each later lever adds a field (twelve in s168).
+- W1i: its skeleton built the verb with `old`/`act`/`clear`, the release, the book, the key and the fingerprint; every
+  other op, slot, seam and key came with the piece that uses it.
+- W1d: the send rule reads the real host role, never `hostSections`: the selftest's pinned BuildStateFrame(true, true)
+  bytes stay.
+- W1d: an out-of-range preset leaves its member out (the guest refuses `no_data`) instead of wrapping to another preset.
+- W1d: `tx_bps` is computed only at the harness read over >= 1000 ms windows: production pays nothing.
+- W1d: `sec12_len` is section 12's body length; the frame book stamps at every build on any role.
+- W1d: the new row `caps.line_text_s168` pins decision 2's caps-line words; the usage line names `caps`.
+- W1d: the world walk proof now compiles with NetSyncGuestMenu.cs (OwnCapsNow reads its lever).
+- W1d: HostGuestMenuSectionNow also returns null on an empty body (defensive: the block is always at least 10 B).
+- W1d: an s167 HarnessAgent comment that named the own word 0x0003 gains a tagged s168 note; its code is unchanged.
+- W1e: term 10 passes FieldTransitionNow on a field only: as written it refused every world press (a spec bug).
+- W1e: the relay's 65535 host-field sentinel reads as 0 for WT6 and term 11's serial rejoin, as FollowHostTick reads it.
+- W1e: RefuseMainMenu's overload is (verdict, why, member, component): the verdict as given, the witness's member named.
+- W1e: state 29 also replaces OvlOff in the paired branch's blip-grace hold, where a `link` refusal is most likely.
+- W1e: "ended at every scene change" is explicit clears plus a gMode term: a battle has no load hook.
+- W1e: `close_line` sits beside `line`: the two lines are timed independently.
+- W1e: the bench slots exist from W1e so the gatherer has decision 8's named bench inputs; until a `frame`, a bench
+  press on a HUD reads audible `no_data`.
+- W1e: `chip off|on` is built as GM0-CHIP's own mutant (selftest bench, read live).
+- W1e: extra pure rules (PressActRule, FillIntentFacts, FillSceneFacts, LineWordsRule, the two line-live rules,
+  ChipShownRule, DeclineClassRule) and the press-deadline book: each with rows and mutants.
+- W1e: the gather reuses ONE GmFacts/GmSeat (none on vanilla); a guest press still parses its frame once, and the
+  harness `now` runs the full gather per publish while armed (harness-only cost).
+- W1e: GuestMenuPress's catch refuses `fault` for a fault outside the key step's guards (the caller already keyed on a
+  guest press).
+- W1e: `menu_refusal.now` reads `audible` (s167 `open`) for the bench and an unmirrored guest on a HUD, and counts them.
+- W1e: OnGUI reads `Seated` each frame, so NetSyncGuestMenu type-initialises on vanilla (static arrays only, no engine
+  read).
+- W1f: the record clears only when every family is back or on the identity drop (decision 16), not in a finally.
+- W1f: one seat flag, `Seated` = the record's `Held`; W1i's placeholder flag is gone.
+- W1f: a faulting rollback keeps the record and the flag held, so every consumer keeps gating (decision 12's exception).
+- W1f: five additive bracket methods over an explicit state, so the menu's own instance is the record (decision 11);
+  the diorama's four stay byte-identical.
+- W1f: the seat round trip runs with a probe builder: the real builder reads live state through FF9Play_New.
+- W1f: gil and rare_item_used are HostMenuBlockOf arguments, not seams; the bag and key items got NetSyncParty seams.
+- W1f: `seat fault`, `door fault` (and W1h's `close fault`) are one shot, so a fault leg never loops.
+- W1f: extra keys `restore.backstops.scene` (the scene clear points' restores) and `bench` (the bench frame's facts);
+  `seat.frame_age_ms` is -1 for a wire seat (no arrival stamp).
+- W1f: a scene clear point holding a record restores through the identity rule with the alarm; a fault keeps the seat.
+- W1f: a HUD -> MainMenu door retries a held record guest session or not (decision 16's retry rule).
+- W1f: SeatOver refuses an unknown bag id itself (rolled back), though the witness refuses it first: decision 12's list.
+- W1f: alarm lines are Log.Warning; the door's fault line is once per process.
+- W1f: `frame` arms the bench host directly, skipping `worldwalk host path`'s refusals; `events on` and `poke` came later.
+- W1f: the door's IsLoading exemption was not taken (AfterHide clears Loading before the callback); the bench measures
+  it.
+- W1f: the seat-keyed hooks also type-initialise NetSyncGuestMenu on vanilla (allocation only).
+- W1g: E2 copies the weapon slot's stock branch: every census hunk is insertion-only, no stock line changed.
+- W1g: `captures` = confirms caught; `passes` added for confirms `capture off` let through (seat_fp cannot show them).
+- W1g: `fp.outside_named` added beside `outside_equal`, naming the first changed outside component.
+- W1g: the outside fold masks the co-op window 2032-2041 and adds the script store (else every duo run reads red).
+- W1g: A1/A2 also count a forced Selected, A3/I1 hook the confirm's top, unknown sites and census faults refuse.
+- W1g: the outside stamps ride inside StampFpBefore/After (no new NetSyncClient site); a drop or restore fault has no
+  after, so no verdict.
+- W1g: the hooks book through `NoteCensusRefusalAt(site, UIState)`, so a refused press allocates nothing (W1i's
+  string form kept).
+- W1g: key order: captures/passes after refused, outside_* inside fp, impactful appended (decision 32's list had
+  diverged).
+- W1h: the close line arms at the close's first act when the quit prompt holds it: no "menu closed" over an open menu.
+- W1h: a close is asked only from a menu-family state: a seat kept on a HUD would book a close every frame.
+- W1h: `world` is asked only for a world seat: a field seat's wldMapNo is stale and would book `world` for `out`.
+- W1h: the tick's fault end touches nothing under the quit prompt (step 1's law) and only ends the record.
+- W1h: the watchdog's sweep list is OnLevelWasLoaded's menu family plus the panel steps; never the HUD (its own Show
+  follows) or Dialogs.CloseAll (the field's own windows).
+- W1h: the sub form omits WaitForFade's depth pair and FF9Sfx 101: the design listed neither.
+- W1h: one log line per close, at its end; `close_step` and `last_close.end` added for GM0-DEPTH/QUIT/REOPEN.
+- W1h: `fireclose` goes through CloseRequestRule, so `close old` holds it too.
+- W1h: both leave sites set LeaveIntent and all three scene sites TalkHere: TriggerFires ORs them, same verdict.
+- W1h: a cut merged into another close in flight reads BOOTING; term 11 reads the cut memory (W1e's -1 replaced).
+- W1h: three clear-point gates widened from `Seated` to `SeatedOrClosing`, so a close's record ends there too.
+- W1i completion: `open` = `IsUIStateMenu(State)`, seated or not: the one read telling the guest's own menu from a seat.
+- W1i completion: `poke` = gEventGlobal[2047] bit 0, above every kit band, not restored (the S leg must stay red).
+- W1i completion: `events off` and `poke off` added as disarm forms, like every other lever's `off`.
+- W1i completion: `events on` calls SetEventEnable(true) once at the seat: nothing turns events off again while seated.
+- W1i completion: the release restores the three seams that exist (SlotSource, BagSource, KeyItemSource).
+- W1i completion: the poke has 3 rows and 3 mutants, not one row: every mutant needs its own distinct row.
+- W1i completion: the catch literal's history gains the missing W1h line beside its own.
+- Review W1: GuestQuiet only for a feature-on pair (`pairOn`), so an off pair's fade press is s121's audible refusal.
+- Review CR-2: state 29 kept in place, never over the peer-lost connecting line: moving it would hide most world lines.
+- Review CR-3: `outside_settled`, `uid0_vars`, `sysvar192` make GM0-WORLDTAG4 judgeable on this DLL, no rebuild later.
+- Review LC1: the cut memory resets at an epoch change and the session reset, spent by another live nonce, not by
+  staleness.
+
+**Bench rows changed by the build** (corrected in the table above):
+- GM0-PROOF: three proof lines with their counts; the W1 review's rows and mutants; the two throwing mutants are
+  static checks.
+- GM0-BRACKET: the containment line unchanged plus the new seat bracket line, on the `pin-s168w1ab` DLL.
+- GM0-BRACKET-CLEAR: the bracket selftest's `clear.*` and `cross.*` rows; the `shared_instance` mutant.
+- GM0-HOLE: `menu_refusal.now` `audible`; under `guestmenu old` the `open` key true with `seated` false.
+- GM0-WHY-x: every bench row but `no_data` runs after a `guestmenu frame`.
+- GM0-SEAT: the BENCH<marker> impostor; `keyitems` leans on K1; `frame_age_ms` -1 for a wire seat.
+- GM0-REFUSE-x: judged on `refused` / `captures` +1, `impactful` 0 and fp equal (not the vacuous seat_fp); `capture
+  off` reads `passes`.
+- GM0-OUTSIDE: judged on `fp.outside_equal` / `outside_named`; `poke` reddens it too.
+- GM0-PAIRED-LINE: a world leg and a peer-lost leg (CR-2).
+- GM0-WORLDTAG4: judged on `outside_settled` plus `uid0_vars` and `sysvar192` (CR-3); the `poke` S leg named.
+- GM0-RELEASE: the twelve lever fields, one release line.
+- GM0-BW: `tx_bps`'s window (read the key at least 1 s apart).
+
+**Bench rows no leg reaches (s168 W2; named in the scenarios and `round_gm_new.sh`):**
+- GM0-LOAD: no harness verb injects Alt+F9. The proof's restore-identity rows and the stand-in's `gm_backstop` /
+  `gm_load` seams stand in, so the in-game load path of the decision text above ("GM0-LOAD covers ... a load") is
+  unrun.
+- GM0-DEATH: a kill plus a relaunch; no runner launches it (an open item).
+- GM0-CUT-NOBOOT: one install has no missing battle scene; the world decline has no route.
+- GM0-CUT-QUIT and GM0-QUIT-D: no any-role quit-prompt verb (`endbench quit on` is the selftest role's).
+- The GM0-RAMP-FIELD / GM0-RAMP-WORLD press legs: no instance-root [Interface] FadeDuration writer, so the
+  press-to-door fade stays under the 2 s config poll.
+- Halves the built legs do not reach: GM0-DIORAMA's open refused while armed or returning (no verb holds either
+  state; the booted half is GM0-SILENT's press) and GM0-SILENT's "still buzzes and counts" (not judged); GM0-HOLE's D
+  half (a duo pairs a mirroring guest: GM0-HOLE-T is the route) and GM0-DIALOG-PATH's T half (an open item);
+  GM0-REJOIN and GM0-WORLDTAG4-D on 9010 (the New-Game exit cascade lands on 9011 only: both run on 9011) and
+  GM0-REJOIN's frozen guest (an open item); GM0-PAIRED-LINE's past-grace press (`session` under the session's own line:
+  OvlReconnecting while SessionGrace holds, not the connecting line the row names; the window is ~0 at the stall
+  leg's SessionGraceMs 5000 against GhostGraceMs 5000; the precedence stays proof-only, `line_over_connecting`).
+
+**Owed (not built here):**
+- Kit twins in battlewire, evaluated against the proof's own rows (`_run_cs_rows`): every new rule and constant of
+  W1c-W1i and the review (the key step with `pairOn`, PairOnRule, PressActRule, the fill and line rules,
+  NotPairedLineRule, the codec and send/guard rules, the door, seat, restore and census rules, the close rules,
+  CutMemoryRule, SettleStepRule, VarsDigestRule, the fingerprint rules and MixU constants, PokeRule/PokeByte/PokeBit,
+  OutMaskLo/Hi, GuestLineMs/OvlGuestLine, the site ids and component names) and `ww_own_caps_rule(fp_off, menu_off)`.
+- Kit pins: guest menu (420, 249), seat bracket (19, 7), an s168 world walk tally (534, 198) beside
+  `WORLD_WALK_PROOF_S167`, MenuRefusalSelfTest 14.
+- Kit readers: the full `netsync.guestmenu` key (decision 32), the usage line, `menu_refusal.now`
+  `guest`/`audible`, `session.overlay` `guest_menu`.
+- Re-keys: test_coop_world_walk_b.py:273, :488, :490 and fakegame.py:9872 (caps by stage); `lane.caps.own` and
+  CAPS_S167 (0x0B on an s168 stage, 0x03 under `caps off`); PR-SAVEMENU and MENU_PRE_OK; STAGE_KEYS' s168 stage.
+- Re-keys: any bench leg that pressed Menu on a HUD with the field-gate bench on (now audible, `no_data` until a
+  `frame`); any check keyed on guestmenu's last key (now `sysvar192`).
+- The fakegame `guestmenu` rung and decision 36's faults; `coop_peer`'s b3 adoption and section-12 decoder; the
+  `COOP_TAPE_GUEST_MENU` tape.
+- Scenarios and runners under `studies/field-coop/s168/`; a GM0-RELEASE driver that sets all twelve levers.
+- `health`'s s168 marker (built in W2 as `NETSYNC_PENDING_GENERATIONS`; the bundle's ship commit moves it); GUEST_TERMS and `17-coop.md:81` reworded behind the caps condition.
+- `tools/memoria_stack_replay.py` DEFAULT_FILES: the two created files are in this worktree (uncommitted); the eight
+  stock files (UIManager, MainMenuUI, JsonParser, AchievementManager, EventEngine, EquipUI, AbilityUI, ItemUI) at the
+  freeze.
+- The `memoria-patches/` s168 entry and README status row.
+- The step checkers that compare against their own step's snapshot (check_w1e's +5, catchjson_w1h's 10-lever object,
+  check_w1f's old anchor) read expected drift; the whole-delta checks supersede them at the freeze.
+- In game, after the s167 two-PC look: every GM0 row; the K1 reads and the measurements named under "The bench" (K1).
+
+## As built (s168 W2, the kit and the bench, 2026-11-07)
+
+W2 ran as one workflow (`s168/s168-w2-kit-bench-wf.js`: sync, kit, bench, critic, reconcile). Its critic and reconcile
+died on a usage limit and were re-run from the finished phases (`s168/s168-w2-critic-resume-wf.js`). Nothing in W2
+touched the engine clone (it still matches the 23-file snapshot the W1 review signed off), `memoria-patches/`, the live
+install or the game.
+
+**What landed:**
+- `tools/harness/battlewire.py`: twins of every s168 constant and pure rule the bench reads or decodes (the caps word by
+  stage, the key step with the lazy `pairOn`, the 23 predicate terms, the close order law and causes, the doors, the
+  13 sites, section 12's codec and readers, the line rules with CR-2's NotPairedLineRule, the census and fingerprint
+  rules, the harness literals and GUEST_MENU_SENTINELS). The proof-row evaluator runs the twins against the proof's own
+  C# rows: 148 pass, 0 fail, 141 skip (block lambdas and probe builders). Pins: guest menu 420 / 249, seat bracket
+  19 / 7, world walk 534 / 198, each derived from the source when `FF9_S168_CLONE` is set, else the W1 build's tallies.
+- `tools/harness/fakegame.py`: an opt-in `guestmenu` rung (`guest_menu_stand_in`, never on the ladder; the default
+  stand-in stays s167) with 18 faults (`GUEST_MENU_FAULTS`: decision 36's plus release_skip, settle_same_frame and
+  guest_menu_proof_fail), each red on its own row.
+- `tools/harness/coop_peer.py`: `caps_now` 'auto' adopts b3 from an s168 host, `--caps 3` pins an s167-shaped guest,
+  section 12 is decoded in `dump` / `where --pose`, and replay-host carries section 12 as recorded.
+- Scenarios: `coop_guest_menu.py` (S: 17 legs, 63 rows) and `coop_guest_menu_duo.py` (D: 15 legs, 39 rows; T: 4 legs,
+  10 rows). Runners under `s168/` (`round_gm_lib.sh`, `round_gm_{old,new,lever,regress,rerun}.sh`,
+  `round_gm_guard.py`): OLD 35 launches, NEW 36 plus 2 named tape skips, LEVER 53, REGRESS 62 (9 with
+  `ROUND_GM_SET=bracket`). They keep s167's guards and add a DLL pin by kind (old `12be3220520813a6`, bracket
+  `532486364ec05354`), a gate-window refusal (02:30-07:00), a port preflight and a proof-block diff against OLD's
+  reference. Only their `ROUND_GM_PLAN=1` dry mode has run.
+- Re-keys by stage, none weakened: decision 32's list, plus two the regression pass found that would have reddened every
+  s165-s167 leg on s168 (`coop_world_follow.judge_probe`'s netsync tail gains `guestmenu` only when present;
+  S166-A-PROOF and S167-W-PROOF read their tally through `proof_stage`).
+- Texts: GUEST_TERMS and tutorial 17 behind the caps condition. The health marker waits in
+  `NETSYNC_PENDING_GENERATIONS` (RK-3, below).
+
+**The critic:** five read-only lenses (row coverage, falsifiability, twins against the C#, re-keys and runners, the
+open reds), each finding adversarially verified: 33 found, 24 confirmed, 0 unverified. One fixer applied all 24, and
+every fix that adds or tightens a check was broken on purpose, seen red and restored byte for byte (22 cases). The
+substantive ones:
+- Calibration: OLD now needs every predicted red MEASURED (`needs = pred`), and `cal_verdict` reds an s168 launch whose
+  lever was refused or never read back (L-3, L-6).
+- The stall rows: STALL-VIEW needs a stale sample, STALL-WHO-T counts only an in-stall press (the T hole's blackhole is
+  now STALL_S + 1.5), and PAIRED-LINE-LOST judges only samples taken while the link was still down (L-4, L-5, H1).
+  H1 was the red the dead run left: the duo leg read 29 after the link returned.
+- The close rows now judge the close WORDS (`_CloseWatch` samples the line at the close; L-7); the paired line needs
+  three live samples, every one `guest_menu` (L-9); the ramp's `close old` measure waits 2.5 s (L-8); GM0-WORLD's
+  frozen half must first read frozen (L-13); the pin bound is inclusive like PinUseRule (T-4).
+- The proof-row evaluator stopped dropping rows (three more mutants caught: CloseEndsAt, CutMemory, Boot; T-1).
+- RK-3: a current health row would turn every pre-s168 install, the owner's live s167 included, amber with no build
+  to clear it. The row waits in `NETSYNC_PENDING_GENERATIONS`, which `netsync_generation` never reads; **the commit
+  that ships the s168 engine bundle moves it into `NETSYNC_GENERATIONS`** and updates test_health's pending pin.
+
+The reconcile re-read every fix against the clone and found one defect both had missed: GM0-QUIT-D read
+`netsync.battle.end.quit_open`, which no engine publishes, so its "no quit prompt after the Autoload" half could not
+fail. It now reads `cb.quit_prompt_up`, and a new clone pin checks every `netsync.*` / guestmenu path the two s168
+scenarios read (221) against the catch literal's key tree.
+
+**Tests:** the co-op domain set (24 files, `FF9_S168_CLONE` set, clone pins live) ran once at `-n 6`: 3007 passed,
+1 failed, 46 skipped (all predating s168) in 1:22. The one red, test_coop_world_battle's `warm_lever_stuck`, passed
+alone: wall-clock noise under load. The two files the reconcile touched then re-ran green (141).
+
+**Open (beyond "Bench rows no leg reaches" above):**
+- `_CloseWatch` reads the guest's state from a second thread while the main thread drives the other game; proven on
+  the stand-in only. The first real duo run should confirm the close words land on the out, rejoin and scene legs.
+- The T hole leg's 4.5 s blackhole fits `pick_window`'s span offline only; `_t_pull`'s lever read-back and the T run's
+  `needs = pred` have no offline test (no T leg runs on the stand-in).
+- GM0-QUIT-D still has no duo route (`endbench quit on` is the selftest role's); its corrected read has never run.
+- The coverage tests still accept a row named anywhere in a docstring.
+- Still owed from W1's list: `tools/memoria_stack_replay.py`'s DEFAULT_FILES (left uncommitted until the freeze), the
+  `memoria-patches/` s168 entry, the `COOP_TAPE_GUEST_MENU` tape (owner-gated), OLD on the live s167 before any s168
+  deploy, then every GM0 row in game.
+
 ## The owner's calls
 
 All DECIDED. From 2026-10-31 (`GUEST-MENU.md`), by name:
@@ -1505,6 +2087,10 @@ From 2026-11-06:
 **A coordinator scope call the owner may reverse later** (round 3): Config and Card are greyed while seated, like Order
 and Party (decision 14). The study's screen table listed both as the guest's own (GUEST-MENU.md:170-171), and the
 owner's decisions are silent on them.
+
+**A coordinator call the owner may reverse later** (the s168 W1 review, CR-2, ratified 2026-11-07): the refusal line
+(overlay state 29) yields to the wire-mismatch, reconnecting, lost-contact and connecting lines and, for its 4 s, covers
+the following and world status lines below it (decision 10).
 
 **Open:** none. Only seeds the owner may tune after the two-PC look: every line's words (including the host-at-title
 close words and the rung-1 chip), the 4 s guest and host lines, CloseCapMs 1500 ms, the 3 s pending hold.

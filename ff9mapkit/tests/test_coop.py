@@ -1078,3 +1078,41 @@ def test_the_guests_world_map_words_say_it_walks_and_what_stays_the_hosts(game, 
     rc, lines = _coop(game, "show")
     shown = [ln for ln in lines if "follow-host:" in ln]
     assert rc == 0 and shown and shown[0].strip().startswith("follow-host: ON") and "on foot" in shown[0], shown
+
+
+# ------------------------------------------------------------------------------------------- [ff9mapkit netsync s168] the guest's main menu
+def _menu_surfaces() -> tuple:
+    """The guest-facing words about the main menu: the Workspace's guest card (GUEST_TERMS) and tutorial 17's menu bullet."""
+    from pathlib import Path
+    tutorial = (Path(coop.__file__).resolve().parents[1] / "docs" / "tutorials" / "17-coop.md").read_text(encoding="utf-8")
+    bullets = [b for b in tutorial.split("\n- ") if "main menu" in b]
+    assert len(bullets) == 1, [b[:80] for b in bullets]
+    return ("GUEST_TERMS", _guest_terms()), ("tutorial 17", bullets[0])
+
+
+def test_the_guests_main_menu_words_say_view_only_behind_the_caps_condition():
+    """From s168 a following guest's Menu press opens the stock main menu over a VIEW-ONLY copy of the host's party -- but only when BOTH
+    builds speak caps b3 (S168-DESIGN.md decisions 2 and 36): against an older partner the guest still has no main menu, s121 exactly.
+    Every surface that tells a guest what following means says so behind that condition ("when both builds have it", naming s168), says
+    view only and that nothing changes, keeps "no saving", and none keeps s121's blanket "no main menu and no saving" or claims the guest
+    can change the party."""
+    for name, text in _menu_surfaces():
+        flat = " ".join(text.split())
+        low = flat.lower()
+        assert "when both builds have it" in low, (name, flat)
+        assert "s168" in flat and "view only" in low, (name, flat)
+        assert "host's party" in low, (name, flat)
+        assert re.search(r"no main menu", low) and re.search(r"older build on either side", low), (name, flat)  # the fallback, named
+        assert not re.search(r"no main menu and no saving", low), (name, flat)                                 # s121's blanket, gone
+        assert re.search(r"(not change anything|nothing you pick changes anything)", low), (name, flat)
+        assert re.search(r"closes by itself", low), (name, flat)
+    terms = " ".join(_guest_terms().split()).lower()
+    tutorial = " ".join(_menu_surfaces()[1][1].split()).lower()
+    assert "no saving" in terms                                     # saving stays off while paired (decision 14's gates)
+    from pathlib import Path
+    whole = " ".join((Path(coop.__file__).resolve().parents[1] / "docs" / "tutorials" / "17-coop.md").read_text(
+        encoding="utf-8").split()).lower()
+    assert "there is no saving." in whole and "there is no main menu and no saving" not in whole
+    # the tutorial names what is greyed and what stays readable (decision 14's EnabledSubMenus; GM0-LOCAL's sort)
+    for word in ("order, party, card and config are greyed", "folklore", "key items", "sort the item list"):
+        assert word in tutorial, word

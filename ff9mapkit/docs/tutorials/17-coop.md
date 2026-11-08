@@ -78,7 +78,16 @@ While you're paired:
   something off, or pick up an item hidden at the top of a ladder, it plays on your screen only: it
   changes nothing in the host's game or your own save, and your game catches up with the host's at
   the next screen.
-- There is no main menu and no saving. When the session ends, your game reloads your own autosave:
+- When both builds have it (both PCs on the s168 co-op engine or newer), the
+  main menu opens on a copy of the host's party, view only. You can look through the items, key items,
+  abilities, equipment, status and the Folklore (or Journal), and sort the item list for yourself
+  until the menu closes, but nothing you pick changes anything: a choice that would plays the refusal
+  sound, and Order, Party, Card and Config are greyed. "View only: your partner's game makes the
+  changes." shows at the top while it is open. It opens once you have followed the host into a
+  location, on foot; when it can't open, a line on your screen says why. It closes by itself when the
+  host leaves the screen, starts a battle or a scene, or goes to the title, or when the session ends,
+  and a line says why. With an older build on either side there is no main menu, as before.
+- There is no saving. When the session ends, your game reloads your own autosave:
   the one it made of your own game the moment your partner came online, so you go back to that screen
   (from its entrance) with your progress up to then. If that autosave was skipped (the
   `AutoSaveOnlyAtMoogle` or `DisableAutoSave` option is on, or you were in the middle of a scene), it

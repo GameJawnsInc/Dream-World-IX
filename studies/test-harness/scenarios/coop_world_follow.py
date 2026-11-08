@@ -285,7 +285,7 @@ SOLO_SETUP = {
                "Field(300), block (18,12) stock, no fork of 300",
     "S165-S0": "newgame -> (the COOPPARTY seed) -> 6603 -> encounters off -> the forced selftest role",
     "S165-P0": "the s165 keys in the agent's order (netsync.world ends r3/out/host/dot; netsync ends swap/saveguard/host, then "
-               "s166's wire_peer on a v15 engine; world ends "
+               "s166's wire_peer on a v15 engine, then s168's guestmenu on an s168 engine; world ends "
                "block_ready) and the proof line 'world follow selftest: OK (N rows, M mutants)', none FAIL",
 }
 SOLO_OUT = {
@@ -542,6 +542,10 @@ def judge_probe(st, lines) -> tuple:
     # [ff9mapkit netsync s166] BY THE ENGINE'S STAGE: an A2 engine (wire v15) appends `wire_peer` after `host` (the prefix law: s165's
     # keys unmoved, `wire_peer` netsync's LAST key)
     tail = list(BW.NETSYNC_TOP_KEYS_S165) + (list(BW.NETSYNC_TOP_KEYS_S166) if cb.has(st, "netsync.wire_peer") else [])
+    # [ff9mapkit netsync s168] BY THE ENGINE'S STAGE (S168-DESIGN.md decision 32): an s168 engine appends `guestmenu` after `wire_peer` --
+    # netsync's LAST key now (the prefix law: s165's and s166's keys unmoved before it); without the key the tail is s166's exactly
+    if cb.has(st, "netsync.guestmenu"):
+        tail += list(BW.NETSYNC_TOP_KEYS_S168)
     top = ns[-len(tail):] == tail and "swap" in ns and ns.index("swap") == len(ns) - len(tail) - 1
     sg = list(cb.path(st, "netsync.saveguard") or {}) == list(BW.SAVEGUARD_SENTINELS)
     hw = list(cb.path(st, "netsync.host.world") or {}) == list(BW.HOST_WORLD_KEYS_S166 if cb.has(st, "netsync.host.world.guest")

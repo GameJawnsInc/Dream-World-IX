@@ -31,7 +31,9 @@ def find_game() -> tuple:
 # patch adds to Assembly-CSharp's metadata, what a player gets from it). Each marker is checked unique
 # to its patch in memoria-patches/ and present in the deployed s145 DLL. The LAST row is "current":
 # when a user-facing netsync patch ships, append its row and every older install reads amber with
-# the feature it lacks named.
+# the feature it lacks named. A generation BUILT but not yet shipped waits in NETSYNC_PENDING_GENERATIONS
+# below (its marker checked against its clone's source and declared by no earlier patch: tests/test_health.py)
+# -- never here, or every current install reads amber with no build to clear it.
 NETSYNC_GENERATIONS = (
     ("s36", b"NetSyncClient", "ghost sync"),
     ("s37", b"NetSyncBattle", "battle co-op and visitor outfits"),
@@ -42,6 +44,15 @@ NETSYNC_GENERATIONS = (
     ("s143", b"GuardCharAt", "the guard that keeps your leader yours"),
     ("s144", b"HostWhereBits", "world-map co-op"),
     ("s145", b"BeforeWorldEvents", "battles from the world map"),
+)
+
+# The generations BUILT but not yet SHIPPED, same shape. netsync_generation never reads this table: each row is
+# appended to NETSYNC_GENERATIONS in the commit that ships its engine bundle (as s145's row landed with its
+# deploy), so no install reads amber for a build nobody can install yet.
+NETSYNC_PENDING_GENERATIONS = (
+    # [ff9mapkit netsync s168] the guest's main menu, view only (studies/field-coop/S168-DESIGN.md decision 36): the class its new file
+    # NetSyncGuestMenu.cs declares -- in no s145-s167 engine (nor the pinned W1a/b bracket build)
+    ("s168", b"NetSyncGuestMenu", "the main menu for a following guest (view only)"),
 )
 
 
