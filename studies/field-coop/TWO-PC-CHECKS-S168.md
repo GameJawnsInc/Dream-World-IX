@@ -586,8 +586,10 @@ before the first press (B24 tests the first second).
     support ability too. Special pressed on the Use / Equip bar itself jumps to the Equip screen: that is stock, not a refusal.
     A grey or blank row writes nothing and logs nothing, by design. Record where the cursor started.
   - **e.** Abilities, a field-usable ability (Dagger's Cure if she is in the party and has it), a target whose HP is not full
-    if there is one, Confirm. Skip e if no member has a field ability. Before you confirm, note which ability the cursor starts
-    on after Use, and whether Dagger's Cure is white on the guest's copy; the host compares with its own Abilities screen. A
+    if there is one, Confirm. Skip e if no member has a field ability. After Use the cursor starts on the list's first cell,
+    which is blank while Dagger has learned no summon: that is stock Memoria (its default menu layout), and the host's own
+    Abilities screen does the same. Move to Cure (white) before you Confirm; a Confirm on a blank cell buzzes and writes no A3
+    line, by design. Check that Dagger's Cure is white on the guest's copy; the host compares with its own Abilities screen. A
     Cure that is grey on the guest but white on the host is a copy fault, not a refusal: take a screenshot of both and send the
     logs. Also compare her HP and MP numbers with the host's: different numbers are a red tell.
   - **f.** Items, a Potion, a target whose HP is not full, Confirm. If every member's HP is full, use any target: the stock
@@ -599,8 +601,8 @@ before the first press (B24 tests the first second).
   - The stock game also buzzes when an item would do nothing, so judge by the numbers, not the sound.
 - **Guest log:** once per kind of change per open, for example:
   `[NetSync] guest menu: E1 confirm refused on Equip -- view only: the seated copy is never written, the screen's own buzz (logged once per site per seat)`
-  The kinds are E1 to E3 on `Equip`, A1 to A3 on `Ability` and I1 on `Item`. Only I1 has been seen in a game so far: each E1
-  to E3 and A1 to A3 line you see is the first anywhere, so write down which ones appeared.
+  The kinds are E1 to E3 on `Equip`, A1 to A3 on `Ability` and I1 on `Item`. The bench has now seen every kind in a game except
+  A3 (e's line): an A3 line on e would be the first anywhere. Write down which lines appeared.
 - **Red tells:** anything changes after the buzz; the item is used up; no buzz.
 - **Record:** for each of a to f, whether it buzzed, whether anything changed, and whether its `confirm refused` line appeared.
 
@@ -682,20 +684,25 @@ before the first press (B24 tests the first second).
   video of this step helps.
 
 **B24. The first press after landing** (right after one of B8's landings). Within a second of a follow landing, a press may get
-*"FF9 co-op: Try the menu again in a moment."*; a second later it opens.
+*"FF9 co-op: Try the menu again in a moment."* or *"FF9 co-op: Your partner is in a scene. Try again when it ends."* (the host
+is still without control after its door); a second later it opens. A press in the very first instant after landing may do
+nothing at all (no buzz, no line): the stock game drops a press while the HUD is still fading in. Press again.
 - **Red tell:** refused for more than 5 s while the host stands still.
 
 **B18 (optional, three tries). The door race.** The host walks through a door while the guest presses Menu at the same moment.
 Any one of these is right on each try:
 - the buzz with *"FF9 co-op: You're about to follow your partner."* or *"FF9 co-op: Try the menu again in a moment."*, then
   the follow;
+- the buzz with *"FF9 co-op: Your partner is in a scene. Try again when it ends."*, then the follow. This is the likeliest
+  one: a door turns the host's control off and fades for most of a second before it moves, and that is what the guest reads;
 - the menu opens and closes at once with the following line, then the follow;
 - nothing opens, and the follow happens.
 
-The log may show any refusal whose words are one of those two lines: `main menu (leaving)`, `main menu (host_elsewhere)`,
-`main menu (host_busy)`, `main menu (busy)`, `main menu (control)` or `main menu (ui)`.
+The log may show any refusal whose words are one of those lines: `main menu (leaving)`, `main menu (host_elsewhere)`,
+`main menu (host_busy)`, `main menu (busy)`, `main menu (control)`, `main menu (ui)` or `main menu (scene)`.
 - **Red tells:** an open menu left behind on the old field; no follow; a field frozen after a refusal.
-- **Note:** at the normal fade a hand-timed press rarely lands inside the fade, so this mostly shows the refusals at the press.
+- **Note:** at the normal fade a hand-timed press rarely lands inside the fade, so this mostly shows the refusals at the press,
+  most often `scene`.
 
 **B15. The quit prompt holds a close.**
 - **Before:** on a field by a door, the guest's menu open.
@@ -707,10 +714,12 @@ The log may show any refusal whose words are one of those two lines: `main menu 
 - **Guest log:** `forced close (leave) from MainMenu done: ... after N ms`, with N about the time you waited. No WATCHDOG line.
 - **If Yes is pressed by mistake:** the laptop's game quits. Nothing is ever saved while the menu is open. Copy its
   `Memoria.log` aside first (`Memoria-laptop-B15.log`: it holds the session so far), then restart and pair again.
-- **Battle version (run it on the world map, after B12; please do not skip it this session: the bench cannot raise the guest's
-  quit prompt on a client, so this is the only check of it):** the prompt is up over the open menu when the host's random
-  battle starts. What you should see:
-  - The host's battle runs without waiting for the guest.
+- **Battle version (run it on the world map, after B12; please do not skip it this session: the bench now raises the guest's
+  quit prompt on a client, but only for a battle on a field, so this is the only world-map check of it):** the prompt is up over
+  the open menu when the host's random battle starts. What you should see:
+  - The host's battle runs without waiting for the guest while the prompt is up. After the guest's No, a short wait at the
+    battle's first command is fine (the host holds for the late guest). Red tell: a `start hold ARMED` line in the host's log
+    before the guest answered No.
   - The guest's menu stays until it answers No, then *"FF9 co-op: menu closed -- your partner's battle."*
   - The guest then joins late or sits the battle out. Record which.
 - **Red tells:** the menu closes while the prompt is still up; no control after No.

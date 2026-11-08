@@ -2088,17 +2088,49 @@ start), so offline green was no evidence for those rows. Adopted (the rows above
 - **N6. A kit bag seeder, GMBAG (30816)**, not an engine bench variant: Desert Boots, Gysahl Greens and one key item, so
   E1, I2 and LOCAL's key read have something to act on. The census drives follow the screens' real shapes: every bar is
   horizontal, Item opens on its list, the Ability lists open on the first lit row, and the root remembers the last
-  character picked and wraps.
+  character picked and wraps. (Corrected by R2 below: only the SUPPORT list opens on its first lit row; the Use list opens
+  on cell 0.)
 - **N7. FadeDuration 300 through `duo.py --root-ini`** (the roots are regenerated at every duo start; a hand edit is lost).
 - **N8. QUIT-D / CUT-QUIT drive the prompt by posting WM_CLOSE** to the guest's window (no DLL). An any-role engine verb
   only if that fails, and only after the owner's session.
 - **N9. B15's battle version is not optional** on the owner's sheet until the bench measures CUT-QUIT.
 
-Engine notes, none blocking the owner's session: (E-1, open) on both solo legs Garnet's Cure on the seated copy behaved as
-if not usable; the A3 drive now records where the list opens, and the sheet's B4-e asks the owner to compare (a rebuild
+Engine notes, none blocking the owner's session: (E-1, CLOSED by R2 below as a kit drive) on both solo legs Garnet's Cure on
+the seated copy behaved as if not usable; the A3 drive now records where the list opens, and the sheet's B4-e asks the owner to compare (a rebuild
 only if the copy's HP or MP numbers are wrong); (E-2) the open-side door does not test ClosePending, a one-Update gap no
 human can target and no data at risk; (E-3) the HOLE-T one-Update window is by design and the kit gates it; (E-4) a press
 is refused `host_battle` for about 2 s after a host battle (StaleMs 2000), now on the sheet and in Known limits.
+
+## Bench decisions after the reruns (2026-11-08)
+
+Rerun 1 (the fixed NEW legs, FadeDuration 40, `4b106fd0ca87afb6`): 12 of 15 legs green, the proof blocks 0 RED of 6; the solo
+refuse leg saw I1, E1, A1 and A2 in game and the deep leg E2, E3 and I2, so A3 is the only census kind never yet logged in a
+game. Rerun 2 (duo key + duo leave at FadeDuration 300 through `--root-ini`; the setting landed: both runs' ini backups read
+300 and the HUD fades measured ~320 ms). A read-only triage, each cluster independently verified, found 0 engine reds:
+
+- **R1. GM0-CUT-QUIT is a kit judge.** WM_CLOSE (N8) raised the stock quit prompt on the client guest (here and in the
+  rampquit leg's GM0-QUIT-D), the cut close held at close_step `quit`, the host reported `busy`, and No ended it `done`
+  after 2891 ms with no watchdog line. The judge's window opened when the battle was up on the HOST, one relay hop before
+  the guest's close began, so its first sample predates the cut. Fix (bench, not yet made): wait for the guest's
+  closes.cut +1 before the window, and keep every report seen, not only the last.
+- **R2. GM0-REFUSE-A3 is a kit drive; E-1 is closed.** With Memoria's default menu layout ([Interface] Enabled=1) the
+  Ability Use list opens on cell 0 (AbilityUI.Show's second UpdateUserInterface resets it, AbilityUI.cs:138/:218), a blank
+  summon slot for an early Garnet; blank cells publish the prefab label, so the label-based seek stopped. The shot shows
+  Cure WHITE on the seated copy: last night's blind confirms buzzed on the blank cell and never reached the A3 hook
+  (AbilityUI.cs:356 before :509). Fix (bench, not yet made): seek by the cell (`menu_selected`), stop on the cell index as
+  well as the label. The sheet's B4-e now says where the cursor starts.
+- **R3. GM0-LOCAL stays a predicted red** (the key-item gap alone; its sort half measured). The smallest kit lane: an
+  `[[on_entry]]` key item emitting AddItem(256 + id), then Mini-Burmecia (35) in GMBAG and BAG_KEY_ITEM = 35.
+- **R4. The FadeDuration-300 reds are one kit drive.** Every field load starts FieldHUD's Show fade, and a press inside it
+  takes GuestQuiet: a silent drop, exactly as stock drops it (UIScene.OnKeyMenu returns !isLoading). The bench pressed
+  ~250-290 ms after each landing, inside a 300 ms fade (outside a 40 ms one). Decision 6's GuestQuiet therefore also covers
+  the post-load Show fade, not only the Hide in flight; only TermUiQuiet's Loading arm is unreachable from a press. Fix
+  (bench, not yet made): a settle window of FadeDuration + ~100 ms after the ready gate, counted in samples. The other
+  eleven reds of rerun 2 were never reached.
+- **R5. GM0-DOOR-D is a design gap.** A host's door turns its control off and fades for most of a second before its
+  section-4 intent goes out, so inside the Hide fade the guest's door reads `scene` (F4), never `control` / `leaving`. Fix
+  (bench, not yet made): accept `scene` and run the row in its own leg at a ~1 s fade so it cannot race the follow's commit;
+  `leaving` / `control` stay proven by GM0-PROOF's why rows. The owner's B18 and B24 now list the `scene` refusal.
 
 ## The owner's calls
 
