@@ -24,7 +24,7 @@ block-shifted), `prefab_mesh_diff.py` (triangle multiset, vertex order ignored).
 
 | Build | Shift | Result |
 |---|---|---|
-| `build_landmass` grass/desert/snow, 1-2 lobes, no decals | 4u, 32u | different land (the block/cell clip moves) |
+| `build_landmass` grass/desert/snow, 1-2 lobes, no decals | 4u, 32u | different TRIANGLES (the block-border split moves) -- but the SAME SURFACE: corrected in [SYNTH-DEEP-DIVE.md](SYNTH-DEEP-DIVE.md) (height + uv identical at 382 samples; a 2u shift does differ) |
 | same | 64u, 128u, 192u | **identical** (position + UV, every triangle) |
 | same with `relief_amp` 1.3, `relief_seed` pinned | any | different: the relief noise reads ABSOLUTE x,z |
 | `world-island` grass r44 (meadow decals on) | 128u | 2 Terrain blocks differ: 136 tris wear other tiles |
@@ -54,17 +54,21 @@ stable across runs, so today's behaviour IS reproducible at a fixed site. It jus
 
 ## The laws that bound a prefab catalog
 
-- **Placement snaps to whole 64u blocks** (measured above). Turning a prefab is unmeasured: the mint has
+- **Placement snaps to whole 64u blocks** today, because the fingerprint hashes triangles and the relief/mountain
+  frames anchor at a block corner. The SURFACE is identical at any 4u shift (SYNTH-DEEP-DIVE.md), so a 4u snap is
+  reachable with a surface fingerprint and 4u frame anchors. Turning a prefab is unmeasured: the mint has
   no rotation, so a turned prefab would be a re-run, not a stamp, and would need its own walk.
 - **THE OPEN-OCEAN TARGET LAW** (every footprint block is true open ocean) keeps a prefab off other land,
   so its own sea ring is the only context it ever meets. That is what lets one walk stand for every site.
-  The stock map has 30 open 3x3 windows; the live folder is near full for multi-block carries (C20).
+  The stock map has 30 open 3x3 windows without the x seam and **56 with it** (19 4x4, 2 5x5); the kit already
+  wraps columns, but no prefab has been staged across x = 0 yet.
 - **Home ground** per massif (`world-donors --class massif`): desert peak / crag / scrub on desert, the
   snow ridge on snow, Uaho / horseshoe / comp20 on grass. A prefab bakes the match in.
 - **Size**: Uaho needs more than a 60u grass mint. A mountain's `--spread S` grows its footprint by S².
-  Dunes have a size class (about 130 cells or more), so there is no small dunes prefab.
-- **THE ONE-SITE WORLD LAW**: the two-ground landmass (`junction_compose`) is one per map. A prefab of
-  that class carries `max_per_world = 1`.
+  Dunes have a size class (no stock component under ~130 cells). Its "proof" used the label-stamp mechanism later
+  convicted, so a small dunes MESH carry is untested, not falsified (SYNTH-DEEP-DIVE.md).
+- **THE ONE-SITE WORLD LAW**: the two-ground landmass (`junction_compose`) found one stock site in a July scan that
+  excluded seam-crossing footprints; it is a dated census, not a law, until re-run with the seam allowed.
 - **Canopy vs rock**: a forest must be ringed by walkable ground (19u rim clearance on the re-home), and
   the rock's foot meets the canopy only on the 5-of-28 massifs measured. Screen offsets by home contact.
 
@@ -106,7 +110,8 @@ stable across runs, so today's behaviour IS reproducible at a fixed site. It jus
   the written land is the catalog's; a second placement on the same block refuses.
   **ROOM, MEASURED: no stock open-ocean 3x3 window is free in the live FolderNames stack today.**
   `FF9CustomMap-world` holds 128 disc-1 override blocks, 4-9 of them in each of the 30 windows. A prefab on the
-  live disc-1 map needs room made first (a sink or a move), a smaller footprint, or another world (Path D:
+  live disc-1 map needs room made first (removing KIT overrides -- a `world-sink` of stock land never frees room:
+  the open-ocean law probes the stock bundle), a smaller footprint, or another world (Path D:
   the frame under `--target-disc` is unmeasured). Fence: `tests/test_world_prefab.py` (24 tests; the two
   real-bytes ones are install-gated); 10 mutations of `prefab.py` each turn it red.
 - **P2 — seed the catalog from compositions already built here:** desert-peak isle and the meadow isle
