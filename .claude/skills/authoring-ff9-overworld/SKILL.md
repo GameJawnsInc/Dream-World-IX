@@ -57,6 +57,8 @@ The three productized INTERIOR verbs (the inland half of the pillar; the coast v
 
 Both carries were proven by ZERO-BYTE-DIFF identity against the deployed reference islands, so a re-run must reproduce the deployed files bit-for-bit — that identity IS the acceptance test; if a re-run diverges, something regressed. Full recipes, donor lists, and the carry laws → memory `[[project-ff9-overworld-interior-topography]]` (link only) + `[[project-ff9-overworld-coast-mosaic]]`.
 
+**Prefabs** — `world-prefab NAME --cell BX,BY --mod-folder F` places a frozen island + relief composition from `world/data/prefabs.toml` by whole blocks, refusing unless the staged land matches its catalog fingerprint and the window is clear (`--list`, `--dry-run`, `--fingerprint`). The opt-in `--prefab-frame` on `world-island`/`world-mountain` is what makes a moved copy the same bytes. Detail → `studies/overworld-editor/PREFABS.md`.
+
 `world-minimap` draws a mod folder's deployed land onto the in-game all-world map image (`world_map_full_all.png`), data-derived from the engine's own 1536x1280 projection, and takes off land the folder REMOVED (`world-sink`, an in-place coast cut) on that chart and the disc-1 Mist chart — run it after a landmass deploy or a sink, or the map shows the old land. The painted chart sits up to ~19px off the geometry, so the erase finds each island on the art; a site the chart does not draw is skipped and named.
 
 ## Entrances / buildings / vehicles / world-states

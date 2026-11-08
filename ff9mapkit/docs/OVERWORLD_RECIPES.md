@@ -125,6 +125,22 @@ rather than deploy a stranding. An island across the world's seam (between colum
 23 and 0) reads whole, so a carve can stand on the seam. The printed centre is
 always inside the world (x 0..1535), ready to teleport to or copy into a recipe.
 
+## A whole landmass in one command (prefabs)
+
+```bash
+py -m ff9mapkit world-prefab --list
+py -m ff9mapkit world-prefab desert-peak-isle --cell 21,1 --mod-folder FF9CustomMap-world --dry-run
+```
+
+A prefab is an island plus the relief carried onto it (a mountain, a forest, a hill), frozen as one unit in
+`world/data/prefabs.toml`. `--cell` is the block it is anchored on. The land is the same wherever it goes: the
+island moves by whole blocks with the prefab frame on (`world-island --prefab-frame`). The verb builds the prefab in a
+staging folder first and refuses unless that land matches the catalog's fingerprint. It also refuses when the target
+folder already holds land the prefab would cover or its carries would read, or when another installed folder has
+land in its footprint. Only then does it compose the prefab into your folder, through each verb's own gates.
+`--recipe-out placed.toml` writes the placed rows as a `world-fuse` recipe. A `candidate` prefab has not been walked
+in game yet: walk its rim and every carry before you trust it.
+
 ## Reshape stock ground (hills, craters, ridges)
 
 ```bash
