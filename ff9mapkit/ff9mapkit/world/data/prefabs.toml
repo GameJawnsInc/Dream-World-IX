@@ -14,7 +14,8 @@
 
 [[prefab]]
 name = "desert-peak-isle"
-status = "candidate"
+status = "qualified"
+walked = "2026-11-08: owner walk on the live map, anchored at block (10,9) -- passed"
 ground = "desert"
 note = "A r60 desert island with the desert peak (19,3) on its home ground, turned 90 deg: 139 rock tris, peak 14.5u."
 fingerprint = "732af2c5e7a973a7591b6935f7f583795a117c4794bcaf5c900152c831f0f338"

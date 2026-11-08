@@ -110,7 +110,14 @@ stable across runs, so today's behaviour IS reproducible at a fixed site. It jus
   the frame under `--target-disc` is unmeasured). Fence: `tests/test_world_prefab.py` (24 tests; the two
   real-bytes ones are install-gated); 10 mutations of `prefab.py` each turn it red.
 - **P2 — seed the catalog from compositions already built here:** desert-peak isle and the meadow isle
-  (forest + hill) are in as candidates (P1). Still to add: the snow-ridge isle (comp9:
+  (forest + hill) are in (P1). **`desert-peak-isle` is QUALIFIED (2026-11-08):** after the owner reset the world
+  map (memory `project-ff9-world-reset-2026-11`; all 30 stock windows free), it was placed on the live folder at
+  block (10,9) through `world-prefab` (staged + written == catalog, ledger 0 drift of 162, disc 4 mirrored, chart
+  redrawn) and the owner walked it in game: "Walked it fine". The harness put the party there: New Game -> 750 at
+  scenario 4000 -> its world exit -> `teleport(630.6, -605.4)` -> y 3.199 (predicted 3.2).
+  FOUND on the way: the hint `world-mountain` prints ("teleport (cx-32.5, cz+0.5)") landed EXACTLY on a tri edge
+  here (barycentric 0.0) -- the harness's invisible-at-y-0 case. Check castability before teleporting to it.
+  The meadow isle stays a candidate. Still to add: the snow-ridge isle (comp9:
   `--ground snow --radius 88 --lobes 2`) and the desert-scrub isle (comp26). Each one is walked once, then
   `qualified`.
 - **P3 — the World tab "Add a prefab" card**: ghost the whole footprint, snap to blocks, one Check, and an
