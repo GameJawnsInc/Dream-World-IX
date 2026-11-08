@@ -125,6 +125,35 @@ stable across runs, so today's behaviour IS reproducible at a fixed site. It jus
   The meadow isle stays a candidate. Still to add: the snow-ridge isle (comp9:
   `--ground snow --radius 88 --lobes 2`) and the desert-scrub isle (comp26). Each one is walked once, then
   `qualified`.
+- **P1b — seam, disc 4, the nav margin, carry units: BUILT (2026-11-08), offline-proven, adversarially reviewed.**
+  - **Disc 4:** the auto-mirror's copy must be the staged land and its navigation settled; the clear window counts
+    both disc trees.
+  - **THE NAV MARGIN (measured):** the coast-nav stamp classes a minted island's sea against stock ground within 16u
+    of each sea centroid; at (0,12), 9 Sea4 tris beside (22,13)/(22,14) went 57 -> 53. Identity therefore has TWO
+    TIERS. At a clean site (no stamp-visible stock ground within 16u of the footprint) the full fingerprint, classes
+    included, must equal the catalog's. Beside stock land, a reference copy is staged at the catalog's
+    `fingerprint_cell` (a clean site) and must equal the catalog; the target must equal it triangle for triangle with
+    the class masked only on water triangles within 16u of that stock ground; and the stamp must have settled those.
+    The first version masked EVERY water class and re-checked with the same stamp: the adversarial review (3 of 4
+    lenses independently) showed that blind to any change in the sea's navigation. A widened coast-nav reach (the
+    review's sabotage) is now refused, and an install-gated test keeps it so.
+  - **The x seam** changes nothing (six seam stagings, the beach chain across x = 0).
+  - **Carry units:** the four walked units are catalog prefabs on a `transplant` base; their carried stock sea is
+    fingerprinted in full; each identical at two anchors.
+  - **The clear window:** the target folder: footprint + one-block ring + relief read windows; other FolderNames
+    folders: footprint + ring (the stamp's loader reads only the target folder and stock). A neighbour already in
+    the target's ring refuses, deliberately: new land within 16u would leave that neighbour's own sea classes stale.
+  - Fence: `tests/test_world_prefab.py`, 38 tests (5 install-gated); 21 mutations across the two rounds each turn
+    one red.
+- **P1c — 4u placement (designed, not built).** Measured: a framed meadow mint shifted 4u or 32u is the same SURFACE
+  (height and uv identical at 382 samples); only the triangle split at block borders moves. What it needs:
+  (1) an explicit frame origin = the prefab's anchor point (a 4u point). At a block-aligned anchor it equals today's
+  block-corner origin, so the walked fingerprints and the qualified prefab stay valid. (2) A SURFACE fingerprint
+  (height, uv, masked class and area sampled on a fixed relative grid, compared at float32 tolerance) instead of the
+  triangle multiset. (3) A per-verb measurement for the carries: world-mountain's multi-block SPAN and its apron
+  taper "at the span's OUTER borders only" (interior.py ~2138, 2276) depend on which blocks the footprint covers,
+  so a 4u shift can change the carve's surface, not just its split. The mint is ready; each carry must show surface
+  identity at 4u before its prefabs take 4u anchors.
 - **P3 — the World tab "Add a prefab" card**: ghost the whole footprint, snap to blocks, one Check, and an
   Accept that lands as ONE undo step (a grouped step in `draft.py`'s history).
 - **P4 — the arrangement search ("synth")**: enumerate seed/radius x home-matched donors x offsets, keep

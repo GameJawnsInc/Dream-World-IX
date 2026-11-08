@@ -7,8 +7,9 @@
 #
 # `fingerprint` + `footprint` are taken by the tool, never typed:  ff9mapkit world-prefab NAME --fingerprint --cell BX,BY
 # A placement refuses unless the staged land matches them, so a fingerprint names the bytes that were walked.
-# The sea's navigation classes are MASKED in it (they depend on stock land within 16u of the site -- THE NAV
-# MARGIN); placement checks them against the coast-nav stamp at each site instead.
+# An island prefab's fingerprint is taken at a CLEAN site (no stock ground within 16u of the footprint) and names
+# it in fingerprint_cell: beside stock land the coast-nav stamp re-classes the nearest sea (THE NAV MARGIN), so a
+# placement there is judged against a reference copy staged at that clean site (world/prefab.py).
 #
 # status: "candidate" until the owner walks it in game (rim, every carry), then "qualified" with the walk noted.
 # Each prefab is a composition the verbs' own gates passed whole; the walk, not the gates, is the verdict
@@ -20,7 +21,8 @@ status = "qualified"
 walked = "2026-11-08: owner walk on the live map, anchored at block (10,9) -- passed"
 ground = "desert"
 note = "A r60 desert island with the desert peak (19,3) on its home ground, turned 90 deg: 139 rock tris, peak 14.5u."
-fingerprint = "0568f8cdef42e9e860dbab8f2d2a94adbcb68c07f4144742767ddc7d915a1945"
+fingerprint = "732af2c5e7a973a7591b6935f7f583795a117c4794bcaf5c900152c831f0f338"
+fingerprint_cell = [1, 14]
 footprint = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 0], [0, 1], [1, -1], [1, 0], [1, 1]]
 
 [[prefab.rows]]
@@ -42,7 +44,8 @@ name = "meadow-grove-isle"
 status = "candidate"
 ground = "grass"
 note = "A r60 meadow island (verbatim meadow stamps) with the clean canopy blob (15,15) and a r14 grass hill beside it."
-fingerprint = "429df6bf230a87e1adfa0cec5354e4de5f277516c4970bd590bab30b91289790"
+fingerprint = "78196ce1e7e11c6b8aafc58efd0aa65cbb6f68a55eb2e5d31d80cf3e94a1ada7"
+fingerprint_cell = [1, 14]
 footprint = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 0], [0, 1], [1, -1], [1, 0], [1, 1]]
 
 [[prefab.rows]]
