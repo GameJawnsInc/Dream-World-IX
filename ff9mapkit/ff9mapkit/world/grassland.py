@@ -512,19 +512,25 @@ def stamp_fwd(placement, xs: float, zs: float):
     return 4.0 * oi + X_, 4.0 * oj + Z_
 
 
-def place_stamps(cells, stamps, *, box_ok, seed: int = 0xF92, n_patches: int = 2, gap: int = 1):
+def place_stamps(cells, stamps, *, box_ok, seed: int = 0xF92, n_patches: int = 2, gap: int = 1,
+                 ordered: bool = False):
     """Greedy stamp placement over grass ``cells``: least-truncated first (trunc asc), then largest core.
     ``box_ok(box)`` is the caller's geometry constraint (flat-lattice / weld-clearance / no-poke). Enforces
     isolation (``gap`` cells between boxes -- real patches never merge) and the border-lattice guard (a
     conforming mid-edge stamp vert would micro-crack against a neighbour's straight edge once Y varies).
-    Returns ``(placements, stamped_cell)``."""
+    Returns ``(placements, stamped_cell)``.
+
+    ``ordered=True`` is THE PREFAB FRAME (studies/overworld-editor/PREFABS.md): the origin shuffle draws over the
+    cells in SORTED order, so the same island moved by whole blocks gets the same decals. The default shuffles
+    the set in its hash order, which follows the absolute cell ids -- kept, because every recipe on disk replays
+    its own bytes through it."""
     rng = random.Random(seed)
     cells_set = set(cells)
     placed = []
     stamped_cell = {}
     uses = collections.Counter()                         # diversity: don't repeat a stamp/rotation while
     rot_uses = collections.Counter()                     # an equally-good alternative exists
-    origins = sorted(cells_set, key=lambda c: rng.random())
+    origins = sorted(sorted(cells_set) if ordered else cells_set, key=lambda c: rng.random())
     while len(placed) < n_patches:
         by_pref = sorted(range(len(stamps)),                 # quality first (trunc asc); variety among equals
                          key=lambda si: (stamps[si].get("trunc", 0), uses[si], -stamps[si]["core"]))

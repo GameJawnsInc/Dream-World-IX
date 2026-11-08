@@ -5552,7 +5552,7 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
                   skip_mirror=args.skip_mirror, target_disc=args.target_disc,
                   all_sea_target=args.all_sea_target,
                   coastnav=not args.skip_coastnav, coastnav_policy=args.coastnav_policy,
-                  allow_overwrite=args.allow_overwrite, area=args.area)
+                  allow_overwrite=args.allow_overwrite, area=args.area, prefab_frame=args.prefab_frame)
         if args.center:
             wx, wz = (float(v) for v in args.center.split(","))
             summary = I.landmass(args.mod_folder, center=(wx, wz), **kw)
@@ -5821,7 +5821,7 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
         res = IN.carve_mountain(soup, max_apron_lift=args.max_apron_lift,
                                 gblend=args.gblend if args.gblend is not None else IN.MTN_GBLEND,
                                 foot_course_rects=fc_rects, rock_height=args.rock_height,
-                                rot_deg=args.rot, spread=args.spread,
+                                rot_deg=args.rot, spread=args.spread, prefab_frame=args.prefab_frame,
                                 center=(wx, wz) if exact else None,
                                 near=None if exact else (wx, wz), donor=donor_blocks, alcove=alcove,
                                 ground=args.ground, disc=args.disc, game=args.game)
@@ -10832,6 +10832,12 @@ def build_parser() -> argparse.ArgumentParser:
                           "GROUNDS scales it per family, e.g. desert ~1.6x). Only applies with --relief.")
     wis.add_argument("--relief-seed", type=float, default=None,
                      help="relief field seed (deterministic; default derives from the centre)")
+    wis.add_argument("--prefab-frame", action="store_true",
+                     help="THE PREFAB FRAME (opt-in; studies/overworld-editor/PREFABS.md): mint the SAME land, shifted, "
+                          "wherever the island is placed by whole 64u blocks -- the meadow decals shuffle in sorted "
+                          "cell order and the relief is read relative to the block holding the centre, its default "
+                          "seed from --seed. Needs --seed; not with --beach. Off = today's bytes, which every recipe "
+                          "on disk replays")
     wis.add_argument("--ground", choices=_ground_choices(), default="grass",
                      help="walkable ground family (byte-measured TRANSLATION LAWS): grass (default), "
                           "desert, snow, canyon are island-complete fills; scrub/brush/dunes are "

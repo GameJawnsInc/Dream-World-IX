@@ -5,6 +5,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the prefab frame: the same island wherever you place it
+- **`--prefab-frame`** on `world-island` and `world-mountain`, and `prefab_frame = true` on their `world-fuse`
+  rows: an island and its carried relief, moved by whole 64u blocks, write the same bytes at the new site, so one
+  in-game walk of a landmass stands for every place it can go. It is the groundwork for landmass prefabs
+  (`studies/overworld-editor/PREFABS.md`). It needs `--seed` and does not combine with `--beach`. Off (the
+  default), every mint and carry writes exactly what it did before, so saved recipes replay unchanged.
+
 ### Changed — World tab: faster, and the window no longer freezes while it works
 - **Undo, Redo and every Accept no longer reload the whole 3D map.** Only the blocks whose files changed are drawn
   again: Undo and Redo come back in under a second (8-11 s before), a forest Accept in about 5 s (22-25 s).

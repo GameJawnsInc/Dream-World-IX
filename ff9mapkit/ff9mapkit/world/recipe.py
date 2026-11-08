@@ -44,6 +44,8 @@ def row_for(argv) -> dict:
                                ("ground", a.ground, "grass")):
             if val != dflt:
                 row[key] = val
+        if a.prefab_frame:
+            row["prefab_frame"] = True
         return row
     if verb == "world-river":
         if a.remove or a.at.strip().lower() == "auto" or a.donor != "cluster-c" or a.skip_mirror or a.area is not None \
@@ -127,6 +129,8 @@ def row_for(argv) -> dict:
             row["ground"] = str(a.ground)
         if a.max_apron_lift is not None or a.foot_course or a.gblend is not None:
             raise ValueError("--max-apron-lift / --foot-course / --gblend have no [[mountain]] row key")
+        if a.prefab_frame:
+            row["prefab_frame"] = True
     if a.target_disc is not None or a.disc != 1:
         raise ValueError("a recipe row is a disc-1 edit")
     return row
@@ -134,8 +138,9 @@ def row_for(argv) -> dict:
 
 #: Each editor table's keys that :func:`row_for` leaves out at these values (the command leaves the default out)
 _ROW_DEFAULTS = {"forest": {"spread": 1.0, "reach": 96.0, "rot": 0.0},
-                 "mountain": {"spread": 1.0, "reach": 96.0, "rot": 0.0, "rock_height": 1.0, "ground": "grass"},
-                 "island": {"radius": 24.0, "lobes": 1, "height": 3.2, "ground": "grass"},
+                 "mountain": {"spread": 1.0, "reach": 96.0, "rot": 0.0, "rock_height": 1.0, "ground": "grass",
+                              "prefab_frame": False},
+                 "island": {"radius": 24.0, "lobes": 1, "height": 3.2, "ground": "grass", "prefab_frame": False},
                  "sink": {"cluster": False, "allow_entrances": False},
                  "morph": {"allow_entrances": False},
                  "transplant": {"rot": 0, "size": [1, 1]}}

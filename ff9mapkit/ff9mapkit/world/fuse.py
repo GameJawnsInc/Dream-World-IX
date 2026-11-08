@@ -384,7 +384,7 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
         _strict_keys("island", row, {"center", "cell", "radius", "height", "patches",
                                      "seed", "lobes", "rim_run", "flat", "ground",
                                      "relief_amp", "relief_seed", "coastnav",
-                                     "coastnav_policy"})
+                                     "coastnav_policy", "prefab_frame"})
         ren = {"radius": "base_radius", "height": "land_height", "patches": "n_patches"}
         kw = {ren.get(k, k): v for k, v in row.items() if k not in ("center", "cell")}
         if "center" in row:
@@ -481,7 +481,8 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
             res = IN.carve_mountain(soup, donor=donor, disc=disc, game=game,
                                     alcove=catalog_alcove(donor) or "auto",
                                     rock_height=arg("rock_height"), spread=arg("spread"),
-                                    rot_deg=rot, **loc, **extra)
+                                    rot_deg=rot, prefab_frame=bool(row.get("prefab_frame", False)),
+                                    **loc, **extra)
             IN.census_gate(res["changed"], disc=disc, game=game, baseline=blocks,
                            parts=IN.census_parts(res), stack=stack)
         if not dry_run:

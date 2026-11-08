@@ -70,9 +70,29 @@ stable across runs, so today's behaviour IS reproducible at a fixed site. It jus
 
 ## Proposed ladder (one rung per in-game check)
 
-- **P0 — the prefab frame.** An opt-in flag (`world-island` / `world-mountain` / `world-hill`, plus the
-  fuse rows) that closes the three leaks relative to an anchor block. Fence: today's bytes unchanged
-  without the flag; with it, the A/B folders here byte-identical (positions, UVs, tangents).
+- **P0 — the prefab frame: BUILT (2026-11-08), offline-proven; nothing deployed, no in-game step needed.**
+  `--prefab-frame` on `world-island` + `world-mountain` (a `[[mountain]]` handle, cli + row), and
+  `prefab_frame = true` on the `[[island]]` / `[[mountain]]` fuse rows, carried by `recipe.row_for`. The frame
+  origin is the corner of the block holding the centre, so it moves with the land in whole blocks:
+  - decals: `place_stamps(ordered=True)` shuffles the cells in sorted order;
+  - relief: read at `(x, z) - frame`, seeded from `seed` (x1000, salted `PREFAB_RELIEF_SALT`) unless
+    `--relief-seed` is given. The frame refuses a missing `--seed` (its default is centre-derived) and `--beach`;
+  - mountain: the undecodable-cell tile hashes `cell - 16 * floor(centre / 64)`.
+
+  `world-hill` and `world-forest` need no flag: measured byte-identical under a shift without one.
+  **Measured:**
+  - Default unchanged: 14 mint configs (decals, relief, desert, snow, no-seed; two sites) hash-identical before
+    vs after, and the CLI desert isle + desert peak re-run is byte-identical to the pre-change run over 81 files.
+  - Framed, through the CLI, sites 128u apart: the desert-peak isle is byte-identical, mountain block
+    included (it differed in 59 tris unframed). So is the meadow grass isle (r60) + forest + hill (r14),
+    all 81 world files.
+  - The relief mint is identical at every whole-block shift, and still differs at 32u (the control).
+
+  Fence: `tests/test_world_prefab_frame.py` (10 tests; the decal and carry ones install-gated). Each of five
+  mutations (unsorted shuffle, absolute relief, absolute hash, the fuse row dropping the key, the recipe row
+  dropping it) turns it red. `test_world_handles` covers the new handle. The overworld domain is green: 653 tests.
+  Comparator law: compare at **float32** (what the `.ff9mesh` stores). In float64 the wall UVs carry 1e-15
+  noise from absolute positions, which reads as "different land" that is not there.
 - **P1 — `world-prefab place NAME --cell BX,BY`.** It expands a relative recipe
   (`world/data/prefabs.toml`: rows + anchor + footprint + ground + status + a fingerprint of the qualified
   bytes) into an absolute `world-fuse` job. Placement refuses unless the written bytes match the
@@ -89,5 +109,6 @@ stable across runs, so today's behaviour IS reproducible at a fixed site. It jus
 
 - Which part of the editor feels janky to the owner (steps per landmass, Check waits, the island card
   offering only the plain mint, finding room) decides whether P3 comes before P1.
-- Hill and the multi-block carries (`world-transplant` units) are not measured under a shift. C14 already
+- The hill and forest ARE measured now (P0: byte-identical, no flag). The multi-block carries (`world-transplant`
+  units) are not measured under a shift. C14 already
   showed a carry relabelled across the x seam is byte-identical 6/6, which is encouraging but not this test.
