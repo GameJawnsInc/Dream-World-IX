@@ -16,10 +16,10 @@ import math
 import tomllib
 
 #: The tables the editor writes (the rest of a recipe it composes and lists, but does not edit).
-EDITOR_TABLES = ("forest", "mountain", "hill", "sink", "morph", "island", "transplant", "river")
+EDITOR_TABLES = ("forest", "mountain", "hill", "sink", "morph", "island", "transplant", "river", "prefab")
 #: The tables whose placed steps a card can open again, on the row's own handles (rungs C9, C12: every table the
 #: editor writes); any step can be deleted.
-EDITABLE_TABLES = ("forest", "mountain", "hill", "island", "transplant", "sink", "morph", "river")
+EDITABLE_TABLES = ("forest", "mountain", "hill", "island", "transplant", "sink", "morph", "river", "prefab")
 
 HEADER = ("# Dream World IX overworld recipe, written by the World tab.\n"
           "# Compose it onto a mod folder with:  ff9mapkit world-fuse <this file> --mod-folder <folder>\n")
@@ -31,6 +31,11 @@ def row_for(argv) -> dict:
     from .. import cli
     a = cli.build_parser().parse_args([str(v) for v in argv])
     verb = argv[0]
+    if verb == "world-prefab":
+        if not a.name or not a.cell or a.list or a.fingerprint or a.recipe_out or a.skip_mirror:
+            raise ValueError("a [[prefab]] row is one placement: a name and --cell (no --list, --fingerprint, "
+                             "--recipe-out, --skip-mirror)")
+        return {"table": "prefab", "name": str(a.name), "cell": [int(v) for v in a.cell.split(",")]}
     if verb == "world-island":
         if a.center is None:
             raise ValueError("an [[island]] row is placed by --center")
@@ -178,6 +183,9 @@ def label(row: dict) -> str:
     if table == "island":
         c = row.get("center") or (0, 0)
         return f"island r{_num(row.get('radius', 24))} seed {_num(row.get('seed', 0))} at {_num(c[0])}, {_num(c[1])}"
+    if table == "prefab":
+        c = row.get("cell") or (0, 0)
+        return f"prefab {row.get('name', '?')} on block ({c[0]}, {c[1]})"
     if table == "morph":
         c = row.get("cell") or (0, 0)
         return f"{row.get('verb', 'morph')} {_num(row.get('depth', 0))} at block ({c[0]}, {c[1]})"
@@ -271,6 +279,12 @@ def row_cells(row: dict) -> list:
     window round its point (``read_deployed_blocks``' rect at the row's reach); any other row, the whole world."""
     from .draft import all_cells
     table = row["table"]
+    if table == "prefab":                                 # its footprint, from the catalog (it writes nothing else)
+        try:
+            from .prefab import footprint_labels, get
+            return footprint_labels(get(str(row["name"])), tuple(int(v) for v in row["cell"])) or all_cells()
+        except (KeyError, ValueError):
+            return all_cells()
     pt = row.get("center") or row.get("near")
     if table in ("forest", "mountain", "hill") and pt:
         if table == "hill":
@@ -298,6 +312,13 @@ def anchor(row: dict):
     if table == "morph" and row.get("cell"):
         c = row["cell"]
         return 64.0 * c[0] + 32.0, -(64.0 * c[1] + 32.0)
+    if table == "prefab" and row.get("cell"):
+        c = tuple(int(v) for v in row["cell"])
+        try:
+            from .prefab import footprint_center, get
+            return footprint_center(get(str(row.get("name"))), c)
+        except (KeyError, ValueError):
+            return 64.0 * c[0] + 32.0, -(64.0 * c[1] + 32.0)
     if table == "river":
         return None                    # its ``at`` is the carry's translation, not a place on the map: any block of it
     pt = row.get("center") or row.get("at") or row.get("near")
@@ -349,6 +370,18 @@ def replay_window(step: dict) -> set:
     row = step["row"]
     table = row.get("table")
     cells = {tuple(c) for c in step.get("cells") or ()}
+    if table == "prefab":
+        # world-prefab's own clear window (prefab.window_blockers): the footprint, its ring (the nav stamp reads 16u
+        # past it) and every relief row's read window -- an edit dirtying any of them re-runs the step (review P3)
+        try:
+            from . import prefab as PF
+            p = PF.get(str(row["name"]))
+            c = tuple(int(v) for v in row["cell"])
+            foot = set(PF.footprint_labels(p, c))
+            return foot | PF._ring(foot) | PF.read_windows(PF.expand(p, c)) | cells
+        except (KeyError, ValueError):
+            from .draft import all_cells
+            return set(all_cells()) | cells
     if table in ("forest", "mountain", "hill"):
         return set(row_cells(row)) | cells
     if table == "island" and row.get("center"):

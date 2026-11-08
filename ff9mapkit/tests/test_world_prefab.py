@@ -15,7 +15,7 @@ import warnings
 
 import pytest
 
-from ff9mapkit.world import mesh as M, prefab as PF
+from ff9mapkit.world import fuse as FU, mesh as M, prefab as PF
 from ff9mapkit.world.extract import BlockMesh, CH_NRM, CH_POS, CH_TAN, CH_UV
 
 ISLAND = {"table": "island", "center": [32.0, 32.0], "radius": 60.0, "seed": 5.0}
@@ -242,14 +242,15 @@ def _place(fake, cell=(10, 9), **kw):
 
 def test_a_clear_window_at_a_clean_site_places_with_the_full_fingerprint(fake):
     rep = _place(fake)
-    assert rep["written"] == GOOD and rep["identity"].startswith("clean site") and len(fake["composed"]) == 1
+    assert rep["written_fingerprint"] == GOOD and rep["identity"].startswith("clean site") and len(fake["composed"]) == 1
+    assert not isinstance(rep.get("written"), str)       # "written" is the cards' file list: never the fingerprint
     assert fake["composed"][0][1][0]["center"] == [64.0 * 10 + 32.0, -64.0 * 10 + 32.0]
     assert fake["staged"] == [(10, 9)]                                   # no reference copy needed
     assert not any((fake["tmp"] / "stage1").exists() for _ in [0])       # the staging folder is removed
 
 
 def test_a_dry_run_writes_nothing(fake):
-    assert _place(fake, dry_run=True)["written"] is None and not fake["composed"]
+    assert _place(fake, dry_run=True)["written_fingerprint"] is None and not fake["composed"]
 
 
 def test_a_busy_target_window_refuses_footprint_ring_and_read_window(fake, tmp_path):
@@ -380,7 +381,7 @@ def test_the_disc_4_copy_must_be_the_staged_land_and_settled(fake, monkeypatch):
     with pytest.raises(PF.PrefabRefused, match="DISC-4 copy"):
         _place(fake)
     seen.clear()
-    assert _place(fake, skip_mirror=True)["written"] == GOOD and 4 not in seen     # no mirror, nothing to check
+    assert _place(fake, skip_mirror=True)["written_fingerprint"] == GOOD and 4 not in seen     # no mirror, nothing to check
     monkeypatch.setattr(PF, "fingerprint", lambda root, cell, blocks, **kw: GOOD)
     monkeypatch.setattr(PF, "nav_settled", lambda folder, *a, disc=1, **k: {55: 1} if disc == 4 else {})
     with pytest.raises(PF.PrefabRefused, match="navigation unsettled"):
@@ -440,7 +441,7 @@ def test_the_desert_peak_prefab_places_for_real_far_from_where_it_was_fingerprin
     _install()
     rep = PF.place("desert-peak-isle", (21, 1), str(tmp_path / "Target"), stack=(), skip_mirror=True,
                    log=lambda *a: None)
-    assert rep["staged"] == rep["written"]
+    assert rep["staged"] == rep["written_fingerprint"]
     with pytest.raises(PF.PrefabRefused, match="already holds land"):
         PF.place("desert-peak-isle", (21, 1), str(tmp_path / "Target"), stack=(), dry_run=True, log=lambda *a: None)
 
@@ -468,3 +469,84 @@ def test_the_verb_lists_the_catalog_and_writes_a_placed_recipe(tmp_path, capsys)
     rows = R.loads(path.read_text(encoding="utf-8"))
     assert [r["table"] for r in rows] == ["island", "mountain"]
     assert rows[0]["center"] == [64.0 * 21 + 32.0, -64.0 * 2 + 32.0] and rows[0]["prefab_frame"] is True
+
+
+def test_a_draft_defers_its_disc_4_copy_to_promote(fake, monkeypatch):
+    """Measured on a real draft: a draft gets no disc-4 copy (the auto-mirror needs the install's bundles; Promote
+    makes it in the live folder), so the disc-4 identity check refused every Accept from the World tab. A draft target
+    defers it, and says so; a live target still checks it."""
+    from ff9mapkit.world import draft as D
+    monkeypatch.setattr(PF, "fingerprint", lambda root, cell, blocks, *, disc=1, **kw: GOOD if disc == 1 else "")
+    with pytest.raises(PF.PrefabRefused, match="DISC-4 copy"):
+        _place(fake)                                                  # a live folder: still checked
+    monkeypatch.setattr(D, "stands_in_for", lambda folder: "FF9CustomMap-world")
+    laws = []
+    monkeypatch.setattr(PF, "_draft_laws", lambda *a, **k: laws.append(a))
+    rep = _place(fake)
+    assert len(laws) == 1                                             # the draft's own laws ran (before staging)
+    assert rep["written_fingerprint"] == GOOD and rep["written_disc4"].startswith("deferred")
+
+
+
+# ---------------------------------------------------------------- the review of the World-tab card (P3)
+def test_a_draft_s_own_laws_refuse_before_staging(fake, monkeypatch, tmp_path):
+    """A draft target is promoted later, so two laws judge it first: a live edit to its source since the copy must not
+    lie in or beside the footprint, and Promote's disc-4 copy must be a verbatim one (disc 4 open ocean there, the same
+    stock ground near it on both discs)."""
+    from ff9mapkit.world import draft as D
+    from ff9mapkit.world import island as I
+    monkeypatch.setattr(D, "stands_in_for", lambda folder: "FF9CustomMap-world")
+    monkeypatch.setattr(D, "stale", lambda d: ["FF9_Data/WorldMap/Disc1/0_1/r10/Block[12][10] Terrain.ff9mesh"])
+    with pytest.raises(PF.PrefabRefused, match="changed in or beside") as e:
+        _place(fake)
+    assert e.value.gate == "window" and e.value.where == [(12, 10)] and not fake["staged"]
+    monkeypatch.setattr(D, "stale", lambda d: ["FF9_Data/WorldMap/Disc1/0_1/r10/Block[14][10] Terrain.ff9mesh"])
+    monkeypatch.setattr(I, "_real_block_parts", lambda b, disc=1, game=None: {"terrain": 3} if (disc, b) == (4, (11, 9))
+                        else {})
+    with pytest.raises(PF.PrefabRefused, match="disc 4 has land") as e:
+        _place(fake)                                                 # (14,10) is past the ring: not in the way
+    assert e.value.gate == "disc4" and e.value.where == [(11, 9)]
+    monkeypatch.setattr(I, "_real_block_parts", lambda b, disc=1, game=None: {})
+    monkeypatch.setattr(PF, "stock_ground", lambda p, c, game=None, discs=(1, 4): {} if discs == (1,) else
+                        {(8, 10): [(1.0, 2.0)]})
+    with pytest.raises(PF.PrefabRefused, match="differs between disc 1 and disc 4") as e:
+        _place(fake)
+    assert e.value.gate == "disc4" and e.value.where == [(8, 10)]
+    monkeypatch.setattr(PF, "stock_ground", lambda *a, **k: {})
+    assert _place(fake)["written_disc4"].startswith("deferred")      # all clear: placed, disc 4 left to Promote
+
+
+def test_a_draft_waives_the_manifest_drift_gate_and_a_recipe_row_forwards_its_own(fake, monkeypatch):
+    """Review P3: place()'s nested compose never got allow_overwrite, so after the first prefab Accept wrote the
+    draft's world_manifest.json, any later edit there made every later prefab Accept refuse at manifest-drift."""
+    from ff9mapkit.world import draft as D
+    seen = []
+    monkeypatch.setattr(PF, "_compose", lambda folder, rows, **kw: seen.append(kw.get("allow_overwrite")))
+    _place(fake)
+    assert seen == [False]                                           # a live folder keeps the gate
+    monkeypatch.setattr(D, "stands_in_for", lambda folder: "FF9CustomMap-world")
+    monkeypatch.setattr(PF, "_draft_laws", lambda *a, **k: None)
+    _place(fake)
+    assert seen[-1] is True                                          # a draft waives it, as every editor job does
+    calls = []
+    monkeypatch.setattr(PF, "place", lambda *a, **k: calls.append(k["allow_overwrite"]))
+    FU.compose_layout(str(fake["tmp"]), {"prefab": [{"name": "x", "cell": [1, 1]}]}, game=fake["tmp"], dry_run=True,
+                      allow_overwrite=True)
+    assert calls == [True]
+    out = FU.compose_layout(str(fake["tmp"]), {"prefab": [{"name": "x", "cell": [1, 1]}]}, game=fake["tmp"],
+                            dry_run=True, disc=4)
+    assert "places on disc 1" in out["gates"][-1]["error"]
+
+
+def test_a_prefab_step_s_replay_window_is_its_clear_window():
+    """Review P3: the replay window was only the footprint, so an edit that put land in a later prefab's ring
+    replayed the prefab from its record instead of re-running it (a state world-prefab refuses)."""
+    from ff9mapkit.world import recipe as RC
+    row = {"table": "prefab", "name": "desert-peak-isle", "cell": [10, 9]}
+    win = RC.replay_window({"row": row, "cells": [[10, 9]]})
+    p = PF.get("desert-peak-isle")
+    foot = set(PF.footprint_labels(p, (10, 9)))
+    assert win >= foot | PF._ring(foot) | PF.read_windows(PF.expand(p, (10, 9)))
+    assert (12, 9) in win and (12, 9) not in set(RC.row_cells(row))   # the ring re-runs it; the snapshot is the footprint
+    from ff9mapkit.world.draft import all_cells
+    assert RC.replay_window({"row": {"table": "prefab", "name": "nope", "cell": [1, 1]}, "cells": []}) == set(all_cells())

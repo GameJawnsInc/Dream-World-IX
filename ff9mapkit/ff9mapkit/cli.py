@@ -5823,17 +5823,20 @@ def _cmd_world_prefab(args: argparse.Namespace) -> int:
             return 2 if not args.recipe_out else 0
         rep = PF.place(args.name, cell, args.mod_folder, game=args.game, dry_run=args.dry_run,
                        skip_mirror=args.skip_mirror)
-    except PF.PrefabRefused as e:
-        print(f"REFUSED: {e}", file=sys.stderr)
+    except (PF.PrefabRefused, ValueError) as e:
+        refused = isinstance(e, PF.PrefabRefused)
+        print(f"REFUSED: {e}" if refused else f"world-prefab: {e}", file=sys.stderr)
         if args.report_json:
-            Path(args.report_json).write_text(json.dumps({"ok": False, "refused": str(e), "where": e.where}),
-                                              encoding="utf-8")
-        return 1
-    except ValueError as e:
-        print(f"world-prefab: {e}", file=sys.stderr)
-        return 2
+            # the World tab's verdict shape (every card reads it): the gate, the words, and WHERE as world points
+            where = [[64.0 * bx + 32.0, -(64.0 * by + 32.0)] for bx, by in (e.where if refused else ())]
+            Path(args.report_json).write_text(json.dumps({
+                "ok": False, "dry_run": bool(args.dry_run),
+                "refused": {"gate": e.gate if refused else "error", "message": str(e), "where": where,
+                            "blocks": [list(b) for b in (e.where if refused else ())]}}, indent=1), encoding="utf-8")
+        return 1 if refused else 2
     if args.report_json:
-        Path(args.report_json).write_text(json.dumps({"ok": True, **rep}, indent=1), encoding="utf-8")
+        Path(args.report_json).write_text(json.dumps({"ok": True, "refused": None, **rep}, indent=1),
+                                          encoding="utf-8")
     if args.dry_run:
         print("dry run: nothing written")
     return 0

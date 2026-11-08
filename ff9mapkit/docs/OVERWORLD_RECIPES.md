@@ -139,7 +139,8 @@ staging folder first and refuses unless that land matches the catalog's fingerpr
 folder already holds land the prefab would cover or its carries would read, or when another installed folder has
 land in its footprint. Only then does it compose the prefab into your folder, through each verb's own gates.
 `--recipe-out placed.toml` writes the placed rows as a `world-fuse` recipe. A `candidate` prefab has not been walked
-in game yet: walk its rim and every carry before you trust it.
+in game yet: walk its rim and every carry before you trust it. In the Workspace, the World tab's **Edit the map → Add a prefab**
+card does the same into a draft: click open ocean, read its verdict, Accept.
 
 ## Reshape stock ground (hills, craters, ridges)
 

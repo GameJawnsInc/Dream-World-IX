@@ -76,11 +76,13 @@ _NAV_WATER = {53, 54, 55, 56, 57}
 
 
 class PrefabRefused(ValueError):
-    """A place or check that refuses; ``where`` = the blocks (wrapped labels) it refuses over, if any."""
+    """A place or check that refuses; ``where`` = the blocks (wrapped labels) it refuses over, if any; ``gate`` = which
+    law refused (the World tab's card names it): catalog, rows, window, identity, nav, written, disc4, compose."""
 
-    def __init__(self, msg: str, where=()):
+    def __init__(self, msg: str, where=(), gate: str = "prefab"):
         super().__init__(msg)
         self.where = sorted(where)
+        self.gate = gate
 
 
 # ---------------------------------------------------------------- the catalog
@@ -133,7 +135,8 @@ def get(name: str, path=None) -> dict:
     for p in load_catalog(path):
         if p["name"] == name:
             return p
-    raise PrefabRefused(f"no prefab named {name!r} (have: {', '.join(p['name'] for p in load_catalog(path))})")
+    raise PrefabRefused(f"no prefab named {name!r} (have: {', '.join(p['name'] for p in load_catalog(path))})",
+                        gate="catalog")
 
 
 def stamped_nav(prefab: dict) -> bool:
@@ -393,6 +396,21 @@ def window_blockers(prefab: dict, cell, mod_root, *, stack=None) -> dict:
     return out
 
 
+def footprint_labels(prefab: dict, cell) -> list:
+    """The footprint's wrapped block labels on anchor ``cell``, sorted."""
+    return sorted(label_of(r, cell) for r in prefab.get("footprint") or ())
+
+
+def footprint_center(prefab: dict, cell) -> tuple:
+    """The world ``(x, z)`` middle of the footprint's bounding rect on anchor ``cell`` (x folded into [0, 1536))."""
+    foot = prefab.get("footprint") or [(0, 0)]
+    dx0, dx1 = min(int(b[0]) for b in foot), max(int(b[0]) for b in foot) + 1
+    dy0, dy1 = min(int(b[1]) for b in foot), max(int(b[1]) for b in foot) + 1
+    x = BLOCK * (int(cell[0]) + (dx0 + dx1) / 2.0)
+    z = -BLOCK * (int(cell[1]) + (dy0 + dy1) / 2.0)
+    return (x % WORLD_W, z)
+
+
 def check_rows_on_map(prefab: dict, cell) -> None:
     """The footprint must sit on the map's rows (rows do not wrap for writes: the kit's edged-row policy)."""
     from .mesh import GRID_ROWS
@@ -400,17 +418,18 @@ def check_rows_on_map(prefab: dict, cell) -> None:
         by = int(cell[1]) + int(rel[1])
         if not 0 <= by < GRID_ROWS:
             raise PrefabRefused(f"prefab {prefab['name']!r} on block {tuple(cell)} reaches row {by}, off the map "
-                                f"(rows 0..{GRID_ROWS - 1})")
+                                f"(rows 0..{GRID_ROWS - 1})", gate="rows")
 
 
 # ---------------------------------------------------------------- compose + place
-def _compose(mod_folder, rows, *, game, skip_mirror: bool, dry_run: bool = False) -> dict:
+def _compose(mod_folder, rows, *, game, skip_mirror: bool, dry_run: bool = False, allow_overwrite: bool = False) -> dict:
     from . import fuse as FU
-    out = FU.compose_layout(str(mod_folder), doc_for(rows), game=game, skip_mirror=skip_mirror, dry_run=dry_run)
+    out = FU.compose_layout(str(mod_folder), doc_for(rows), game=game, skip_mirror=skip_mirror, dry_run=dry_run,
+                            allow_overwrite=allow_overwrite)
     if not out["clean"]:
         bad = [g for g in out["gates"] if not g.get("ok")]
         raise PrefabRefused("a prefab row refused: " + "; ".join(
-            f"{g['gate']}: {g.get('error') or g.get('skipped') or g}" for g in bad))
+            f"{g['gate']}: {g.get('error') or g.get('skipped') or g}" for g in bad), gate="compose")
     return out
 
 
@@ -435,16 +454,19 @@ def _identity(prefab: dict, name: str, cell, staged: dict, *, game, log) -> str:
     """Judge the staged target against the catalog (the two tiers of the module docstring). Returns the tier."""
     if staged["footprint"] != sorted(tuple(b) for b in prefab["footprint"]):
         raise PrefabRefused(f"prefab {name!r} staged on {cell} covers {staged['footprint']}, the catalog says "
-                            f"{sorted(tuple(b) for b in prefab['footprint'])}: IDENTITY BROKEN, nothing written")
+                            f"{sorted(tuple(b) for b in prefab['footprint'])}: IDENTITY BROKEN, nothing written",
+                            gate="identity")
     ground = stock_ground(prefab, cell, game=game) if stamped_nav(prefab) else {}
     if not ground:
         if staged["fingerprint"] != prefab["fingerprint"]:
             raise PrefabRefused(f"prefab {name!r} staged on {cell} is NOT the land its catalog entry names "
                                 f"(fingerprint {staged['fingerprint'][:12]} vs {prefab['fingerprint'][:12]}): a verb "
-                                f"it rides changed its bytes -- a regression to find; nothing written")
+                                f"it rides changed its bytes -- a regression to find; nothing written",
+                                gate="identity")
         if staged["nav"]:
             raise PrefabRefused(f"prefab {name!r} staged on {cell} leaves sea the coast-nav stamp would still re-class "
-                                f"({staged['nav']}): a regression in the stamp or the mint; nothing written")
+                                f"({staged['nav']}): a regression in the stamp or the mint; nothing written",
+                                gate="nav")
         return "clean site: the full fingerprint"
     # THE NAV MARGIN: the reference copy at the catalog's clean site, then the target against it triangle for triangle
     points = [pt for pts in ground.values() for pt in pts]
@@ -453,7 +475,8 @@ def _identity(prefab: dict, name: str, cell, staged: dict, *, game, log) -> str:
     try:
         if ref["fingerprint"] != prefab["fingerprint"]:
             raise PrefabRefused(f"prefab {name!r}'s reference copy at its catalog site {ref_cell} is NOT the catalog's "
-                                f"land: a verb it rides changed its bytes -- a regression to find; nothing written")
+                                f"land: a verb it rides changed its bytes -- a regression to find; nothing written",
+                                gate="identity")
         mask = margin_mask(points, cell)
         tgt = fingerprint(staged["root"], cell, staged["blocks"], mask_tri=mask)
         want = fingerprint(ref["root"], ref_cell, ref["blocks"], mask_tri=mask)
@@ -462,40 +485,99 @@ def _identity(prefab: dict, name: str, cell, staged: dict, *, game, log) -> str:
             shutil.rmtree(ref["root"], ignore_errors=True)
     if tgt != want:
         raise PrefabRefused(f"prefab {name!r} staged on {cell} differs from the catalog's land OUTSIDE the nav margin "
-                            f"of the stock land at {sorted(ground)}: a regression to find; nothing written")
+                            f"of the stock land at {sorted(ground)}: a regression to find; nothing written",
+                            gate="identity")
     if staged["nav"]:
         raise PrefabRefused(f"prefab {name!r} staged on {cell} leaves sea the coast-nav stamp would still re-class "
-                            f"({staged['nav']}) beside the stock land at {sorted(ground)}; nothing written", ground)
+                            f"({staged['nav']}) beside the stock land at {sorted(ground)}; nothing written", ground,
+                            gate="nav")
     log(f"site beside stock land {sorted(ground)}: the catalog's land, its sea within {NAV_MARGIN:g}u of that land "
         f"re-classed by the coast-nav stamp")
     return "nav margin: the catalog's land, the margin's classes settled by the stamp"
 
 
+def _stale_labels(draft) -> set:
+    """The block labels of the files the draft's SOURCE changed since the draft was copied (``draft.stale``)."""
+    from .draft import stale
+    out = set()
+    for rel in stale(Path(draft)):
+        m = re.search(r"Disc[14]/0_1/r\d+/Block\[(\d+)\]\[(\d+)\] ", str(rel).replace("\\", "/"))
+        if m:
+            out.add((int(m[1]), int(m[2])))
+    return out
+
+
+def _draft_laws(prefab: dict, name: str, cell, draft, source: str, *, game=None) -> None:
+    """The two laws a DRAFT target adds (:func:`place`'s docstring), refused before anything is staged."""
+    from .island import _real_block_parts
+    foot = set(footprint_labels(prefab, cell))
+    near = foot | _ring(foot)
+    moved = sorted(_stale_labels(draft) & near)
+    if moved:
+        raise PrefabRefused(f"{source} changed in or beside the prefab's footprint at {moved} since the draft was made: "
+                            f"the draft cannot see that land; make a new draft (Discard) or place it elsewhere",
+                            moved, gate="window")
+    d4 = sorted(b for b in foot if _real_block_parts(b, disc=4, game=game))
+    if d4:
+        raise PrefabRefused(f"disc 4 has land or coast of its own at {d4}: Promote's mirror would not copy the checked "
+                            f"bytes there (the disc-4 world, scenario 11090+, would differ); place it elsewhere",
+                            d4, gate="disc4")
+    if stamped_nav(prefab):
+        g1 = stock_ground(prefab, cell, game=game, discs=(1,))
+        g4 = stock_ground(prefab, cell, game=game, discs=(4,))
+        if g1 != g4:
+            diff = sorted(set(g1) ^ set(g4) | {k for k in set(g1) & set(g4) if g1[k] != g4[k]})
+            raise PrefabRefused(f"the stock land within {NAV_MARGIN:g}u of the footprint differs between disc 1 and "
+                                f"disc 4 at {diff}: the disc-4 copy would carry disc 1's sea classes beside other land; "
+                                f"place it elsewhere", diff, gate="disc4")
+
+
+def _undo_words(draft_of) -> str:
+    """How a refused write is taken back: a draft's step comes back out with it (the card aborts the step)."""
+    return ("the World tab takes the step back out of the draft" if draft_of is not None else
+            "undo it through the draft (World tab) or the files' ledger, never by hand copy")
+
+
 def place(name: str, cell, mod_folder, *, game=None, dry_run: bool = False, skip_mirror: bool = False,
-          catalog=None, stack=None, log=print) -> dict:
+          catalog=None, stack=None, allow_overwrite: bool = False, log=print) -> dict:
     """Place prefab ``name`` with its anchor on block ``cell``: the row check, the clear window, the staging
     identity, then (unless ``dry_run``) the compose into ``mod_folder`` and the identity of what it wrote on both
     discs. Raises :class:`PrefabRefused` before writing anything on any of the first three. ``stack`` = the FolderNames
     roots (default: the install's own -- pass ``()`` only for a folder that will never be promoted into the live map,
-    such as a test's)."""
+    such as a test's). ``allow_overwrite`` waives the compose's manifest-drift gate (``fuse.compose_layout``); a DRAFT
+    always waives it, as every editor job does -- a draft's files change by design (rung C11).
+
+    A DRAFT target (the World tab's card) is held to two more laws, because it is promoted later: a live edit to its
+    source since it was copied must not lie in or beside the footprint (the stack read skips the source the draft
+    stands in for), and Promote's disc-4 copy must be predictable now -- every footprint block open ocean on disc 4 too
+    and the same stock ground near it on both discs, so the mirror copies the checked bytes verbatim."""
     from .. import config
     from .render import game_stack
     prefab = get(name, catalog)
     cell = (int(cell[0]) % 24, int(cell[1]))
     if not prefab.get("fingerprint") or not prefab.get("footprint"):
         raise PrefabRefused(f"prefab {name!r} has no fingerprint/footprint yet: take them with "
-                            f"`world-prefab {name} --fingerprint --cell BX,BY` and write them into the catalog")
+                            f"`world-prefab {name} --fingerprint --cell BX,BY` and write them into the catalog",
+                            gate="catalog")
     check_rows_on_map(prefab, cell)
     game_path = config.find_game_path(game)
     mod_root = game_path / mod_folder
-    blockers = window_blockers(prefab, cell, mod_root, stack=game_stack(game_path) if stack is None else stack)
+    from .draft import stands_in_for
+    draft_of = stands_in_for(mod_root)                   # the live folder this target is a DRAFT of, else None
+    if stack is None:
+        # a DRAFT stands in for its source (world/draft.py): the stack read skips the folder it was copied from, as
+        # every World-tab card's occupancy read does -- the draft holds what it copied from there
+        stack = tuple(r for r in (game_stack(game_path) or ()) if Path(r).name != draft_of)
+    blockers = window_blockers(prefab, cell, mod_root, stack=stack)
+    if draft_of is not None:
+        _draft_laws(prefab, name, cell, mod_root, draft_of, game=game)
     if blockers["target"]:
         raise PrefabRefused(f"the target folder already holds land the prefab would read, cover or border at "
                             f"{sorted(blockers['target'])}: the staged bytes could not stand for these",
-                            blockers["target"])
+                            blockers["target"], gate="window")
     for folder, hit in blockers["stack"].items():
         raise PrefabRefused(f"{folder} (in the FolderNames stack) holds overrides in or beside the prefab's footprint "
-                            f"at {sorted(hit)}", hit)
+                            f"at {sorted(hit)}", hit, gate="window")
     if prefab["status"] != "qualified":
         log(f"CANDIDATE: {name!r} has not been walked in game yet -- walk its rim and every carry, then mark it "
             f"qualified in the catalog.")
@@ -503,23 +585,30 @@ def place(name: str, cell, mod_folder, *, game=None, dry_run: bool = False, skip
     try:
         tier = _identity(prefab, name, cell, staged, game=game, log=log)
         report = {"name": name, "cell": list(cell), "status": prefab["status"], "staged": staged["fingerprint"],
-                  "footprint": staged["footprint"], "identity": tier, "dry_run": dry_run, "written": None}
+                  "footprint": staged["footprint"], "identity": tier, "dry_run": dry_run, "written_fingerprint": None,
+                  "blocks": [list(b) for b in staged["blocks"]], "center": list(footprint_center(prefab, cell))}
         log(f"staged on {cell}: {tier} ({len(staged['blocks'])} blocks)")
         if dry_run:
             return report
-        _compose(mod_root, expand(prefab, cell), game=game, skip_mirror=skip_mirror)
-        report["written"] = fingerprint(mod_root, cell, staged["blocks"])
-        if report["written"] != staged["fingerprint"]:
+        _compose(mod_root, expand(prefab, cell), game=game, skip_mirror=skip_mirror,
+                 allow_overwrite=allow_overwrite or draft_of is not None)
+        # (``written`` is the cards' list of written files: the land's identity goes under its own key -- review P3)
+        report["written_fingerprint"] = fingerprint(mod_root, cell, staged["blocks"])
+        if report["written_fingerprint"] != staged["fingerprint"]:
             raise PrefabRefused(f"prefab {name!r} was WRITTEN into {mod_folder} but its bytes there are not the staged "
-                                f"ones (fingerprint {report['written'][:12]}): IDENTITY BROKEN after the write -- undo "
-                                f"it through the draft (World tab) or the files' ledger, never by hand copy")
+                                f"ones (fingerprint {report['written_fingerprint'][:12]}): IDENTITY BROKEN after the "
+                                f"write -- {_undo_words(draft_of)}", gate="written")
         stamped = stamped_nav(prefab)
         left = nav_settled(mod_root, staged["blocks"], policy=nav_policy(prefab), game=game) if stamped else {}
         if left:
             raise PrefabRefused(f"prefab {name!r} was WRITTEN into {mod_folder} but the coast-nav stamp would still "
-                                f"re-class its sea there ({left}) -- undo it through the draft or the ledger, never by "
-                                f"hand copy")
-        if not skip_mirror:
+                                f"re-class its sea there ({left}) -- {_undo_words(draft_of)}", gate="written")
+        if draft_of is not None:
+            # a DRAFT gets no disc-4 copy (the auto-mirror needs the install's bundles): Promote makes it in the live
+            # folder (world/draft.py promote). Measured: the card's Accept into a draft refused here on an empty disc 4
+            report["written_disc4"] = ("deferred: Promote makes a draft's disc-4 copy in the live folder, a verbatim "
+                                       "copy (disc 4 is open ocean there, with the same stock land near it)")
+        elif not skip_mirror:
             # THE DISC-4 HALF (deep dive C14): the player sees disc 4's copy from scenario 11090 on. The mirror copies
             # an open-ocean cell verbatim, so the copy must be the staged land; a held-back or replayed cell is not.
             report["written_disc4"] = fingerprint(mod_root, cell, staged["blocks"], disc=4)
@@ -531,9 +620,10 @@ def place(name: str, cell, mod_folder, *, game=None, dry_run: bool = False, skip
                                     + (f", navigation unsettled {left4}" if left4 else "") + "): the mirror held a "
                                     f"cell back or replayed it on disc 4's own ground. Disc 4 (scenario 11090+) would "
                                     f"show a different or missing island -- undo through the draft or the ledger, "
-                                    f"never by hand copy")
+                                    f"never by hand copy", gate="disc4")
         log(f"placed {name!r} on block {cell}: {len(staged['blocks'])} blocks, the staged land"
-            + ("" if skip_mirror else " on disc 1 and disc 4"))
+            + (" (a draft: Promote makes its disc-4 copy)" if draft_of is not None
+               else "" if skip_mirror else " on disc 1 and disc 4"))
         return report
     finally:
         if staged.get("root"):
