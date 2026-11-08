@@ -233,7 +233,8 @@ def fuse_layout(mod_folder: str, placements, *, disc: int = 1, lod: str = "0_1",
 #: The fixed execution order: base mint (placement layouts + synthetic islands) -> interior
 #: relief (reads the DEPLOYED bytes the base tier wrote) -> navigation stamps (reclassify the
 #: deployed water). Within a tier, rows run in document order.
-COMPOSE_TIERS = (("placement", "island", "river", "sink", "morph", "transplant"), ("mountain", "forest", "hill"),
+COMPOSE_TIERS = (("placement", "island", "river", "sink", "morph", "transplant", "prefab"),
+                 ("mountain", "forest", "hill"),
                  ("coastnav", "rim_retile"))
 COMPOSE_TABLES = tuple(t for tier in COMPOSE_TIERS for t in tier)
 
@@ -596,6 +597,20 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
         if cli._cmd_world_transplant(cli.build_parser().parse_args(argv)) != 0:
             raise ValueError(f"world-transplant refused the carry of {d} to {c}")
 
+    def _prefab_runner(row):
+        # `world-prefab`'s ONE pipeline (world/prefab.py place): its clear window, the staged identity against the
+        # catalog, its own compose of the prefab's rows, and the written land's identity -- so a recipe places the
+        # land the catalog names, exactly as the World tab's card and the command do
+        from . import prefab as PF
+        _strict_keys("prefab", row, {"name", "cell"})
+        if "name" not in row or "cell" not in row:
+            raise ValueError("[[prefab]] needs name = \"...\" and cell = [bx, by]")
+        try:
+            PF.place(str(row["name"]), tuple(int(v) for v in row["cell"]), mod_folder, game=game, dry_run=dry_run,
+                     skip_mirror=skip_mirror)
+        except PF.PrefabRefused as e:
+            raise ValueError(str(e)) from e
+
     def _placement_runner(_row):
         out = fuse_layout(mod_folder, list(placements), disc=disc, lod=lod, game=game,
                           allow_overwrite=allow_overwrite, dry_run=dry_run,
@@ -607,7 +622,7 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
         return out
 
     runners = {"island": _island_runner, "river": _river_runner, "sink": _sink_runner, "morph": _morph_runner,
-               "transplant": _transplant_runner,
+               "transplant": _transplant_runner, "prefab": _prefab_runner,
                "coastnav": _coastnav_runner, "rim_retile": _rim_runner}
 
     steps = []                                               # (label, table, spec, runner)

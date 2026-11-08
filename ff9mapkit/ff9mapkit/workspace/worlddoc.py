@@ -452,7 +452,7 @@ class WorldDoc(QWidget):
                  mountain_runner=None, mountain_seams=None, recipe_runner=None, recipe_seams=None,
                  sink_runner=None, sink_seams=None, coast_runner=None, coast_seams=None, island_runner=None,
                  island_seams=None, transplant_runner=None, transplant_seams=None, river_runner=None,
-                 river_seams=None, hill_runner=None, hill_seams=None):
+                 river_seams=None, hill_runner=None, hill_seams=None, prefab_runner=None, prefab_seams=None):
         super().__init__()
         self.pal = pal
         self.on_setup = on_setup
@@ -493,6 +493,9 @@ class WorldDoc(QWidget):
         self._hill = None                          # the hill tool (rung 6): built on the first Add-a-hill click
         self._hill_runner = hill_runner
         self._hill_seams = hill_seams or {}
+        self._prefab = None                        # the prefab tool (rung P3): built on the first Add-a-prefab click
+        self._prefab_runner = prefab_runner
+        self._prefab_seams = prefab_seams or {}
         self._recipe = None                        # the recipe bar (rung C3): built with the 3D page
         self._recipe_runner = recipe_runner        # ...its world-fuse runner and its seams (ask, file dialogs)
         self._recipe_seams = recipe_seams or {}
@@ -599,13 +602,16 @@ class WorldDoc(QWidget):
         from PySide6.QtWidgets import QMenu
         self.tools_btn = QPushButton("Edit the map")
         self.tools_btn.setProperty("role", "quiet")
-        self.tools_btn.setToolTip("Add a forest, a mountain, a hill or an island, shape or carry a coast, move the "
-                                  "river or sink an island: each tool's "
+        self.tools_btn.setToolTip("Add a whole prefab landmass, a forest, a mountain, a hill or an island, shape or "
+                                  "carry a coast, move the river or sink an island: each tool's "
                                   "card shows where it is lawful, its own world verb judges it, and Accept writes it to "
                                   "a draft the game does not load.")
         menu = QMenu(self.tools_btn)
         self.tool_actions = {}
         for key, text, tip in (
+                ("prefab", "Add a prefab", "Place a whole landmass in one step -- an island with the mountain, forest "
+                 "or hill carried onto it, or a walked stock island -- from the prefab catalog: pick it, click open "
+                 "ocean; world-prefab holds it to the land its catalog names, and one Undo takes it back."),
                 ("forest", "Add forest", "Place a real stock canopy on a deployed island: click where it goes, drag, "
                  "turn and spread it; every world-forest gate judges it."),
                 ("mountain", "Add mountain", "Place a real stock rock massif on a deployed island: drag, turn, spread "
@@ -949,7 +955,7 @@ class WorldDoc(QWidget):
 
     def _carry_tools(self):
         return [t for t in (self._forest, self._mountain, self._hill, self._sink, self._coast, self._island,
-                            self._transplant, self._river) if t is not None]
+                            self._transplant, self._river, self._prefab) if t is not None]
 
     def _open_carry(self, which, *, sync=False, edit=False):
         """The 3D view first (the tools work on it), then that tool's card under it; one card at a time, and the
@@ -977,6 +983,8 @@ class WorldDoc(QWidget):
                 from .worldriver import RiverTool as Tool
             elif which == "hill":
                 from .worldhill import HillTool as Tool
+            elif which == "prefab":
+                from .worldprefab import PrefabTool as Tool
             else:
                 from .worldmountain import MountainTool as Tool
             tool = Tool(self.pal, self._view3d, game_fn=lambda: self._game, source_fn=lambda: self._census.root,
@@ -1035,6 +1043,10 @@ class WorldDoc(QWidget):
         """The Add-a-hill menu entry."""
         return self._open_carry("hill", sync=sync)
 
+    def open_prefab(self, *, sync=False):
+        """The Add-a-prefab menu entry."""
+        return self._open_carry("prefab", sync=sync)
+
     def open_river(self, *, sync=False):
         """The Move-the-river menu entry."""
         return self._open_carry("river", sync=sync)
@@ -1042,7 +1054,7 @@ class WorldDoc(QWidget):
     # -- a placed step (rung C9) --
     EDIT_CARDS = {"forest": "forest", "mountain": "mountain", "hill": "hill", "island": "island",
                   "transplant": "transplant", "sink": "sink", "morph": "coast",
-                  "river": "river"}                    # a table -> the card that opens on its rows
+                  "river": "river", "prefab": "prefab"}   # a table -> the card that opens on its rows
 
     def _mark_step(self, step):
         """Mark the picked step's place on the view (a pin at its anchor), or clear the mark; a card's own drawing

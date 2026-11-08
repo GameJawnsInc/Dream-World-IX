@@ -468,3 +468,16 @@ def test_the_verb_lists_the_catalog_and_writes_a_placed_recipe(tmp_path, capsys)
     rows = R.loads(path.read_text(encoding="utf-8"))
     assert [r["table"] for r in rows] == ["island", "mountain"]
     assert rows[0]["center"] == [64.0 * 21 + 32.0, -64.0 * 2 + 32.0] and rows[0]["prefab_frame"] is True
+
+
+def test_a_draft_defers_its_disc_4_copy_to_promote(fake, monkeypatch):
+    """Measured on a real draft: a draft gets no disc-4 copy (the auto-mirror needs the install's bundles; Promote
+    makes it in the live folder), so the disc-4 identity check refused every Accept from the World tab. A draft target
+    defers it, and says so; a live target still checks it."""
+    from ff9mapkit.world import draft as D
+    monkeypatch.setattr(PF, "fingerprint", lambda root, cell, blocks, *, disc=1, **kw: GOOD if disc == 1 else "")
+    with pytest.raises(PF.PrefabRefused, match="DISC-4 copy"):
+        _place(fake)                                                  # a live folder: still checked
+    monkeypatch.setattr(D, "stands_in_for", lambda folder: "FF9CustomMap-world")
+    rep = _place(fake)
+    assert rep["written"] == GOOD and rep["written_disc4"].startswith("deferred")
