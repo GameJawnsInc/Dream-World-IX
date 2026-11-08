@@ -436,6 +436,47 @@ def _seated(**over):
     return _s("MainMenu", mr={"count": 3, "now": "guest"}, **base)
 
 
+def test_every_duo_legs_host_setup_lands_on_the_legs_own_field_not_the_new_game_field(md):
+    """duo.py runs a pair's host_setup RIGHT AFTER the host's New Game, while the game stands on field 70 (the New-Game override: no
+    player control). The seeder used to warp back to ``g.state.field_id or HOME`` -- 70 -- and the OLD run of 2026-11-07 lost nine duo
+    legs at setup (60 s waiting for control on 70). Pin: from a game standing on 70, every leg's host_setup warps LAST to its pair's
+    own field, through COOPPARTY when registered, and never to 70."""
+    class _State:
+        field_id = 70
+
+    class _Game:
+        def __init__(self, regs):
+            self.state, self.warps, self.regs = _State(), [], regs
+
+        def registered_fields(self):
+            return (self.regs,)
+
+        def warp(self, field, *a, **k):
+            self.warps.append(int(field))
+            self.state.field_id = int(field)
+
+        def wait_frames(self, n):
+            pass
+
+    seeded = 0
+    for leg in md.DUO_LEGS:
+        pair = md._pair_of(leg)
+        setup = pair.get("host_setup")
+        if setup is None or leg == "chest":                 # hudstrip seeds nothing; chest runs the chest relay duo's own recipe
+            continue
+        for regs in ([md.cb.PARTY_FIELD, pair["field"]], [pair["field"]]):
+            g = _Game(regs)
+            note = setup(g)
+            if md.cb.PARTY_FIELD in regs:                   # seeded: through COOPPARTY, then on to the leg's own field
+                assert g.warps and g.warps[-1] == pair["field"], (leg, regs, g.warps, note)
+            else:                                           # not registered: no warp here, duo.py's own warp takes it to the field
+                assert g.warps == [], (leg, g.warps, note)
+            assert 70 not in g.warps, (leg, g.warps)
+            assert (md.cb.PARTY_FIELD in g.warps) == (md.cb.PARTY_FIELD in regs), (leg, regs, g.warps)
+        seeded += 1
+    assert seeded >= 10, seeded
+
+
 def test_the_key_seat_ghost_and_double_judges(md):
     pre = _s(mr={"count": 3, "now": "guest"})
     s = _seated()

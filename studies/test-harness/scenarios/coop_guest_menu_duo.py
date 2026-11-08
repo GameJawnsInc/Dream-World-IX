@@ -964,9 +964,15 @@ def blackhole(d, seconds: float):
 
 
 # ================================================================================================ the duo
-def _seed_host(g) -> str:
-    """PAIR's host_setup: the HOST's party seeded through COOPPARTY, so the seat is a SECOND MARKER the guest's own party is not."""
-    return cb.seed_party(g, back_to=g.state.field_id or HOME)
+def _seed_host_to(field: int):
+    """PAIR's host_setup for a leg paired on ``field``: the HOST's party seeded through COOPPARTY, so the seat is a SECOND MARKER the
+    guest's own party is not. duo.py runs host_setup RIGHT AFTER the host's New Game, while the game stands on field 70 (the New-Game
+    override, no player control), so the seeder must warp on to the LEG's field, never to ``g.state.field_id``: the OLD run of
+    2026-11-07 lost nine duo legs at setup to exactly that (the warp back to 70 waited 60 s for control that never comes)."""
+    def seed(g) -> str:
+        return cb.seed_party(g, back_to=field)
+    seed.field = field
+    return seed
 
 
 def _chest_setup(g) -> str:
@@ -979,17 +985,17 @@ def _pair_of(leg) -> dict:
     extra_host = {"GhostAs": "auto"} if leg == "key" else {}
     extra_guest = {"GhostAs": "auto"} if leg == "key" else {"SessionGraceMs": str(GRACE_MS)} if leg in ("stall", "world") else {}
     if leg == "world":
-        return {"field": FARSHORE, "host_setup": _seed_host, "role_extra": {"host": {}, "guest": extra_guest}}
+        return {"field": FARSHORE, "host_setup": _seed_host_to(FARSHORE), "role_extra": {"host": {}, "guest": extra_guest}}
     if leg in ("out", "rejoin"):
-        return {"field": FARSHORE, "host_setup": _seed_host}
+        return {"field": FARSHORE, "host_setup": _seed_host_to(FARSHORE)}
     if leg in ("scene", "dialog"):
-        return {"field": SCRIBE_FIELD, "host_setup": _seed_host}
+        return {"field": SCRIBE_FIELD, "host_setup": _seed_host_to(SCRIBE_FIELD)}
     if leg == "hudstrip":
         return {"field": STRIP_FIELD}
     if leg == "chest":
         import coop_chest_relay as cr
         return {"field": cr.FIELD, "host_setup": _chest_setup, "guest_setup": _chest_setup}
-    pair = {"field": HOME, "host_setup": _seed_host}
+    pair = {"field": HOME, "host_setup": _seed_host_to(HOME)}
     if extra_host or extra_guest:
         pair["role_extra"] = {"host": extra_host, "guest": extra_guest}
     return pair
