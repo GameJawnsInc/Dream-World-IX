@@ -28,7 +28,7 @@ for l in hole older166 older167; do
   leg "OLD T2 $l" t2 "old_t2_$l.log" -- env COOP_CALIBRATE=1 COOP_GMT_LEG=$l py tools/play.py $SC/coop_guest_menu_duo.py
 done
 # 3. the duo: a MIRRORING guest's press refused as s121 on every leg (the measuring rows read the same on OLD and NEW)
-for l in key caps world leave out rejoin cut title scene chest ramp rampquit stall dialog hudstrip; do
+for l in key caps world leave door out rejoin cut title scene chest ramp rampquit stall dialog hudstrip; do
   leg "OLD duo $l" duo "old_duo_$l.log" -- env COOP_CALIBRATE=1 COOP_GMD_LEG=$l $DUO $SC/coop_guest_menu_duo.py
 done
 proof_reference

@@ -309,6 +309,11 @@ def test_duo_carries_root_ini_only_when_round_gm_fade_is_set(tmp_path):
     assert not any("--root-ini" in c for *_, c in _legs(rows40))
     says40 = _says(rows40)
     assert "ROUND_GM_FADE unset: no --root-ini" in says40 and "The 300 pass: ROUND_GM_FADE=300 ROUND_GM_RERUN=" in says40
+    # S168-DESIGN R5: GM0-DOOR-D has its own `door` leg at FadeDuration >= 800 -- named at 40 and 300, said as run at 800
+    assert 'The door pass: ROUND_GM_FADE=800' in says40 and 'ROUND_GM_RERUN="new:duo:door"' in says40
+    assert 'The door pass: ROUND_GM_FADE=800' in says and "GM0-DOOR-D ran on its own door leg" not in says
+    says800 = _says(_plan(tmp_path / "plan800", "round_gm_new.sh", ROUND_GM_FADE="800"))
+    assert "GM0-DOOR-D ran on its own door leg (ROUND_GM_FADE=800 >= 800)" in says800 and "The door pass" not in says800
     assert "FadeDuration = 300 on BOTH roots by hand" not in says40 and "no writer exists" not in _text("round_gm_new.sh")
     assert "GM0-QUIT-D (and GM0-CUT-QUIT's prompt half)" in says40 and "an OPEN ITEM, never a pass" in says40 and "B32" in says40
 

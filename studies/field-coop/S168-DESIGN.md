@@ -235,7 +235,8 @@ waits were seen only through the pause screen (s164's MENU leg). The main menu m
      state not FieldHUD and not WorldHUD -> MenuKeyStep(enable, IsMirroringStory, state)
                                            (s121's step: s38's silent drop for a mirroring guest; the bench and an
                                             unmirrored guest keep Open, so BattleHUD's diorama refusal still buzzes and counts)
-     loading && pairOn                  -> GuestQuiet     (the HUD's Hide in flight, e.g. a second press inside its fade:
+     loading && pairOn                  -> GuestQuiet     (the HUD's Hide in flight, e.g. a second press inside its fade,
+                                                           and the HUD's Show fade after every field load, R4 below:
                                                            stock OnKeyMenu, which reads false while Loading -- silent,
                                                            never counted, no line, `now` stays `guest`; never `ui`)
      why == null                        -> GuestOpen      (sceneFromState.OnKeyMenu and the press deadline, decision 9; nothing armed)
@@ -1543,7 +1544,7 @@ written before launch (THE RECORDER DIALS THE OWNER).
 | GM0-SILENT | S, D | S: `now` reads `open` on BattleHUD and Pause (the bench keeps s121's step, decision 6), the diorama's BattleHUD refusal still buzzes and counts; D: a mirroring guest reads `silent` there; `bmenu mainmenu` still refused on the diorama (coop_stock_menu.py's X row) | S: `open` on BattleHUD and Pause, measured (the selftest role is not mirroring); D: `silent`; `bmenu mainmenu` still refused by BattleHUD's Active gate | the non-HUD RefuseSilent for the bench: S reads `silent`, red; a verdict that opens on BattleHUD: D reads `open`, red |
 | GM0-DIALOG-PATH | D, T | (a) a locked host line: judged at :852, `suppress` true, the window stays; (b) an input-taking line the lock does not hold (after the ~ menu unlock): judged at :889, s38's silent drop, `now` `dialog`, the window stays | green | (b) lift :889 for input-taking lines: the line closes |
 | GM0-WHY-x | S, D | one row per why: hostscene and host holds input (`swap hostctl off`), each under `netsync lock 1`, intent away (`guestmenu frame intent <field>`: `leaving`), a follow in flight (`swap intent`: `control`, landing on ALT_FIELD; term 10's `busy` has no bench op and is proven by GM0-PROOF's rows alone), battle (`netsync lock 1` + `netsync host battle 1`), link dead, no data. On S every row but no data runs after a `guestmenu frame <marker>` (without one, a bench press reads `no_data`, decision 8); each judges `why` and `door_refused.<why>` or `menu_refusal.count` | not reached | each bench op; `guestmenu old` |
-| GM0-DOOR | D (FadeDuration 300); S for the :889 and fault legs | Menu pressed as the host's intent arrives inside the HUD fade: the door refuses (`control` once the follow has started, since the follow turns control off as it starts; `leaving` for an intent not yet acted on) with that why's line, events and control back on, no seat, the follow lands; fp equal. One leg opens and closes the menu once on the field, then triggers a door refusal: FieldHUD shown, MainMenuUI inactive, events and control on. The :889 leg (S, on GM0-HUDSTRIP's strip field, `guestmenu host elsewhere`): the bench reaches OnKeyMenu through the dialogue path with no press verdict; the door refuses `host_elsewhere` with its line, the HUD back with events and control on, the strip stays closed (a Known limit). Fault legs (`guestmenu door fault open\|restore`): each ends on a live HUD with events and control on; nothing seated after the open leg; the restore leg keeps the record and the seat flag, and after the next backstop or door ff9.player[*], party.member[*], ff9.item and the rare sets are ReferenceEquals the originals and Order is not grey | not reached | mutant: seat at the press (fp differs, or the follow fade stalls under the menu); mutant: the refusal re-shows `prevState`: MainMenuUI active unseated on FieldHUD; mutant: the door re-runs the predicate only after a press verdict: the :889 leg opens the bench's own party, `seated` false |
+| GM0-DOOR | D (its own `door` leg at FadeDuration 800, R5); S for the :889 and fault legs | Menu pressed, then the host's warp, inside the guest's Hide fade: the door refuses (`scene` during the host door's control-off lead-in, the likeliest; `control` once the follow has started, since the follow turns control off as it starts; `leaving` for an intent not yet acted on) with that why's line, events and control back on, no seat, the follow lands; fp equal. One leg opens and closes the menu once on the field, then triggers a door refusal: FieldHUD shown, MainMenuUI inactive, events and control on. The :889 leg (S, on GM0-HUDSTRIP's strip field, `guestmenu host elsewhere`): the bench reaches OnKeyMenu through the dialogue path with no press verdict; the door refuses `host_elsewhere` with its line, the HUD back with events and control on, the strip stays closed (a Known limit). Fault legs (`guestmenu door fault open\|restore`): each ends on a live HUD with events and control on; nothing seated after the open leg; the restore leg keeps the record and the seat flag, and after the next backstop or door ff9.player[*], party.member[*], ff9.item and the rare sets are ReferenceEquals the originals and Order is not grey | not reached | mutant: seat at the press (fp differs, or the follow fade stalls under the menu); mutant: the refusal re-shows `prevState`: MainMenuUI active unseated on FieldHUD; mutant: the door re-runs the predicate only after a press verdict: the :889 leg opens the bench's own party, `seated` false |
 | GM0-SEAT | S, D | S: the marker character (slot 0's "BENCH<marker>" at level 99), level and name drawn on Status and in `guestmenu.seat` (`src` the bench frame, `marker`); the gil and exp markers come from `frame`'s bench sources (decision 31); D: for every wire-carried component `seat_fp` per component equals the host's `host_fp` (`keyitems` leans on K1's HashSet-order read, decision 33; `seat.frame_age_ms` reads -1 for a wire seat); TWO-MARKER: the guest's own exp and gil markers on no screen | not reached | `guestmenu old`: own party |
 | GM0-SEATFAULT | S | `guestmenu seat fault <component>`: ff9.player[*], party.member[*], ff9.item and the rare sets ReferenceEquals the originals; FieldHUD back with events and control on; why `fault`; opens +0 | not reached | mutant: no rollback: a scratch stays installed |
 | GM0-WITNESS | S | `frame witness` frames (decision 31): a preset missing, a pa length off, an unknown equip or SA id, an unknown CharacterId: refused `data_differs`, the component logged; an unknown bag item: refused, component "bag"; an unknown key item: seated, a blank row, the line | not reached | mutant: seat anyway: StatusUI throws |
@@ -2079,7 +2080,9 @@ start), so offline green was no evidence for those rows. Adopted (the rows above
   that arms it (StartFollowWarp, NetSyncClient.cs:6670/:6674), so a press or a door during a follow fade reads `control`,
   not `busy`. Both carry "Try the menu again in a moment.". Term 10's `busy` is reached only with control ON while a busy
   input holds (a script EnableMove inside the follow fade, the step-out's StepInMs back-dwell, a world-out committed); no
-  bench op stages one, so in-game `busy` is proven by GM0-PROOF's why rows alone.
+  bench op stages one, so in-game `busy` is proven by GM0-PROOF's why rows alone. A HOST's door differs (R5 below): its
+  control-off lead-in reaches the guest before any intent, so a guest door inside its Hide fade reads `scene` (F4), and
+  GM0-DOOR-D accepts it.
 - **N2. F3, F4 and term 11 bench under `netsync lock 1`** (decision 8 above).
 - **N3. The close ends** follow decisions 16 and 18 as built: `clear_point` is a right end at a scene load (CUT on a field)
   and at the exit ramp's fire (the RAMP rows); OUT and REJOIN keep the request frame's one HUD wait line.
@@ -2111,26 +2114,34 @@ game. Rerun 2 (duo key + duo leave at FadeDuration 300 through `--root-ini`; the
 - **R1. GM0-CUT-QUIT is a kit judge.** WM_CLOSE (N8) raised the stock quit prompt on the client guest (here and in the
   rampquit leg's GM0-QUIT-D), the cut close held at close_step `quit`, the host reported `busy`, and No ended it `done`
   after 2891 ms with no watchdog line. The judge's window opened when the battle was up on the HOST, one relay hop before
-  the guest's close began, so its first sample predates the cut. Fix (bench, not yet made): wait for the guest's
-  closes.cut +1 before the window, and keep every report seen, not only the last.
+  the guest's close began, so its first sample predates the cut. Fix (bench, made 2026-11-08, its live rerun pending): the
+  window opens at the guest's close's first JUDGED step (closes.cut goes up at the request, one service tick before
+  close_step is set), and the judge keeps every report seen ('busy' seen, 'booting' never).
 - **R2. GM0-REFUSE-A3 is a kit drive; E-1 is closed.** With Memoria's default menu layout ([Interface] Enabled=1) the
   Ability Use list opens on cell 0 (AbilityUI.Show's second UpdateUserInterface resets it, AbilityUI.cs:138/:218), a blank
   summon slot for an early Garnet; blank cells publish the prefab label, so the label-based seek stopped. The shot shows
   Cure WHITE on the seated copy: last night's blind confirms buzzed on the blank cell and never reached the A3 hook
-  (AbilityUI.cs:356 before :509). Fix (bench, not yet made): seek by the cell (`menu_selected`), stop on the cell index as
-  well as the label. The sheet's B4-e now says where the cursor starts.
+  (AbilityUI.cs:356 before :509). Fix (bench, made 2026-11-08, its live rerun pending): a snake seek by the cell
+  (`menu_selected`, `_seek`) that stops on the cell index, the label only a cross-check: A3 tries Cure 'Item 8', then
+  Panacea 'Item 13'. The sheet's B4-e now says where the cursor starts.
 - **R3. GM0-LOCAL stays a predicted red** (the key-item gap alone; its sort half measured). The smallest kit lane: an
   `[[on_entry]]` key item emitting AddItem(256 + id), then Mini-Burmecia (35) in GMBAG and BAG_KEY_ITEM = 35.
 - **R4. The FadeDuration-300 reds are one kit drive.** Every field load starts FieldHUD's Show fade, and a press inside it
   takes GuestQuiet: a silent drop, exactly as stock drops it (UIScene.OnKeyMenu returns !isLoading). The bench pressed
   ~250-290 ms after each landing, inside a 300 ms fade (outside a 40 ms one). Decision 6's GuestQuiet therefore also covers
   the post-load Show fade, not only the Hide in flight; only TermUiQuiet's Loading arm is unreachable from a press. Fix
-  (bench, not yet made): a settle window of FadeDuration + ~100 ms after the ready gate, counted in samples. The other
+  (bench, made 2026-11-08, its live rerun pending): THE HUD-FADE SETTLE in the pre-init sample (coop_guest_menu._ready):
+  FadeDuration + 100 ms, whichever ends later of that many game frames (`wait N`, at 60 fps) and that much wall time,
+  then the sample read again, restarting on a new landing. The other
   eleven reds of rerun 2 were never reached.
 - **R5. GM0-DOOR-D is a design gap.** A host's door turns its control off and fades for most of a second before its
   section-4 intent goes out, so inside the Hide fade the guest's door reads `scene` (F4), never `control` / `leaving`. Fix
-  (bench, not yet made): accept `scene` and run the row in its own leg at a ~1 s fade so it cannot race the follow's commit;
-  `leaving` / `control` stay proven by GM0-PROOF's why rows. The owner's B18 and B24 now list the `scene` refusal.
+  (bench, made 2026-11-08, its live rerun pending): `scene` accepted, and the row runs alone on its own `door` leg at
+  FadeDuration 800 (FADE_DOOR_MS; `ROUND_GM_FADE=800 ROUND_GM_RERUN="new:duo:door"`). The long fade is for the relay: at
+  300 the host's control-off beat the door by only ~33-96 ms, so a slower hop seats the menu; the follow's commit (0.9 s
+  after the warp plus the ~450 ms follow fade) stays after the door below ~1.4 s. Under the `old` lever the row runs at any
+  fade (its press is refused at the press); `leaving` / `control` stay proven by GM0-PROOF's why rows. The owner's B18 and
+  B24 now list the `scene` refusal.
 
 ## The owner's calls
 
