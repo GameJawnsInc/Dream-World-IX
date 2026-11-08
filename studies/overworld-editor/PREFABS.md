@@ -154,8 +154,32 @@ stable across runs, so today's behaviour IS reproducible at a fixed site. It jus
   taper "at the span's OUTER borders only" (interior.py ~2138, 2276) depend on which blocks the footprint covers,
   so a 4u shift can change the carve's surface, not just its split. The mint is ready; each carry must show surface
   identity at 4u before its prefabs take 4u anchors.
-- **P3 — the World tab "Add a prefab" card**: ghost the whole footprint, snap to blocks, one Check, and an
-  Accept that lands as ONE undo step (a grouped step in `draft.py`'s history).
+- **P3 — the World tab "Add a prefab" card: BUILT (2026-11-08), adversarially reviewed; owner look pending.**
+  `workspace/worldprefab.py` PrefabTool over `world/prefabedit.py`, first in "Edit the map". The catalog picker
+  (walked first); the anchor under the click (the footprint centred, the column wrapped, the rows on the map); the
+  ghost is the prefab's own land (the mint's coast ring, a carried base by its quarter-turn map, the carried
+  mountain/forest ghosts); `world-prefab`'s first laws as the preview. Check/Accept run `world-prefab --dry-run`
+  and then into the draft; it lands as ONE recipe step (`[[prefab]]` name + cell, a `world-fuse` runner over
+  `prefab.place`). Real bytes: the card's exact command against a real draft of FF9CustomMap-world placed the meadow
+  isle (check 34 s, accept 58 s) and the terminus pair (5 s / 6 s) into one draft; each is the catalog's land, and
+  the live folder is untouched.
+  A DRAFT target (the card's only target) adds two laws, refused before staging. (1) A live edit to the draft's
+  source since the copy must not lie in or beside the footprint, because the stack check skips the source the draft
+  stands in for. (2) Promote's disc-4 copy must be predictable: every footprint block is open ocean on disc 4 too,
+  with the same stock land near it on both discs, so the mirror copies the checked bytes verbatim. The disc-4
+  fingerprint itself is deferred to Promote (a draft has no disc-4 tree).
+  The review found 14 real defects, all fixed and fenced (13 mutations, each red):
+  - the replay window is the prefab's whole clear window, not its footprint;
+  - a draft waives the nested compose's manifest-drift gate;
+  - `written` (the cards' file list) no longer carries the fingerprint (the card said "64 blocks written");
+  - the card works on a folder with no deployed Terrain;
+  - the picker is sized from its own labels;
+  - a closed card forgets its click;
+  - an `error` verdict is world-prefab's, not "the carve";
+  - the runner refuses disc 4 / target-disc;
+  - the snap anchors clear of the synthetic island;
+  - one test that could not fail now can.
+  Snap: `world:3d-prefab` (invented land).
 - **P4 — the arrangement search ("synth")**: enumerate seed/radius x home-matched donors x offsets, keep
   the all-green ones, and render them for the owner. Only the walked ones become prefabs.
 

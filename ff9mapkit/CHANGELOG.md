@@ -5,6 +5,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — World tab: "Add a prefab", a whole landmass in one click
+- **Edit the map → Add a prefab** places a catalog prefab where you click: pick it, see its land as a ghost on the
+  ocean, and the card checks it with `world-prefab` (about half a minute: the prefab is built outside the install
+  and held to the land its catalog names). Accept puts it in your draft as one step, and one Undo takes the whole
+  landmass back. A placed prefab can be opened again from the recipe bar like any other step, and saved recipes
+  carry it as a `[[prefab]]` row.
+
 ### Added — landmass prefabs: a whole island in one command
 - **`world-prefab NAME --cell BX,BY --mod-folder F`** places a landmass from the new catalog
   (`world/data/prefabs.toml`): an island plus the mountain, forest or hill carried onto it, as one unit, on the

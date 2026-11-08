@@ -603,11 +603,14 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
         # land the catalog names, exactly as the World tab's card and the command do
         from . import prefab as PF
         _strict_keys("prefab", row, {"name", "cell"})
+        if disc != 1 or rtarget != 1 or lod != "0_1":
+            raise ValueError("[[prefab]] places on disc 1 (lod 0_1); its disc-4 copy is the mirror's -- no --disc or "
+                             "--target-disc")
         if "name" not in row or "cell" not in row:
             raise ValueError("[[prefab]] needs name = \"...\" and cell = [bx, by]")
         try:
             PF.place(str(row["name"]), tuple(int(v) for v in row["cell"]), mod_folder, game=game, dry_run=dry_run,
-                     skip_mirror=skip_mirror)
+                     skip_mirror=skip_mirror, allow_overwrite=allow_overwrite)
         except PF.PrefabRefused as e:
             raise ValueError(str(e)) from e
 

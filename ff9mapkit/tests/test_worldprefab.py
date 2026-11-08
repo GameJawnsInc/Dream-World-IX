@@ -178,18 +178,19 @@ def test_a_draft_s_own_source_is_not_another_folder_in_the_stack(monkeypatch, tm
     src = _mod(game, "Src", ((10, 9),))                               # the source holds land in the footprint
     draft = D.ensure_draft(src, game=game, root=tmp_path / "drafts")
     monkeypatch.setattr(render, "game_stack", lambda g: (src,))
-    seen = {}
-    monkeypatch.setattr(PF, "window_blockers", lambda p, c, root, stack=None: seen.setdefault("stack", stack) and
-                        {"target": set(), "stack": {}} or {"target": set(), "stack": {}})
+    seen = []
+    monkeypatch.setattr(PF, "window_blockers", lambda p, c, root, stack=None: seen.append(tuple(stack)) or
+                        {"target": set(), "stack": {}})
+    monkeypatch.setattr(PF, "_draft_laws", lambda *a, **k: None)
     monkeypatch.setattr(PF, "stage", lambda *a, **k: (_ for _ in ()).throw(PF.PrefabRefused("stop", gate="x")))
     cat = tmp_path / "c.toml"
     cat.write_text(CATALOG, encoding="utf-8")
     with pytest.raises(PF.PrefabRefused, match="stop"):
         PF.place("isle", (10, 9), str(draft), catalog=cat, log=lambda *a: None)
-    assert tuple(seen["stack"]) == ()                                  # Src skipped: the draft stands in for it
+    assert seen[-1] == ()                                              # Src skipped: the draft stands in for it
     with pytest.raises(PF.PrefabRefused, match="stop"):
         PF.place("isle", (10, 9), "Other", catalog=cat, log=lambda *a: None)
-    assert [p.name for p in seen["stack"]] in ([], ["Src"])            # a live target keeps the rest of the stack
+    assert [p.name for p in seen[-1]] == ["Src"]                       # a live target keeps the whole stack
 
 
 # ---------------------------------------------------------------- the card
@@ -221,7 +222,8 @@ def test_the_card_picks_an_anchor_draws_the_prefab_checks_and_places_it_as_one_s
     def answer(kind, argv):
         cell = [int(v) for v in argv[argv.index("--cell") + 1].split(",")]
         return {"ok": True, "dry_run": kind == "check", "refused": None, "identity": "clean site: the full fingerprint",
-                "blocks": [[cell[0] + dx, cell[1] + dy] for dx, dy in FOOT], "center": [672.0, -608.0], "written": None}
+                "blocks": [[cell[0] + dx, cell[1] + dy] for dx, dy in FOOT], "center": [672.0, -608.0],
+                "written_fingerprint": "f" * 64, "written_disc4": "deferred: Promote makes it"}   # the CLI's real shape
     tool, run, panel, land = _card(app, tmp_path, catalog, answer)
     tool.open_tool()
     assert [tool.prefab_box.itemText(i) for i in range(tool.prefab_box.count())] == ["isle 3x3", "unit 3x2 · new"]
@@ -281,3 +283,52 @@ def test_the_world_tab_menu_opens_the_prefab_card_one_card_at_a_time(app, monkey
     assert isinstance(doc._prefab, PrefabTool) and not doc._prefab.isHidden()
     doc.tool_actions["mountain"].trigger()
     assert doc._prefab.isHidden() and not doc._mountain.isHidden()
+
+
+
+def test_the_review_s_card_findings(app, tmp_path, catalog):
+    """Review P3: the picker's labels are never clipped (sized from its own text, not a fixed 16); an error verdict
+    is world-prefab's, not "the carve"; a closed card forgets its click (no half-minute check without a new one)."""
+    tool, run, _panel, _land = _card(app, tmp_path, catalog, lambda k, a: {
+        "ok": False, "dry_run": True, "refused": {"gate": "error", "message": "boom", "where": []}})
+    shipped, _r, _p, _l = _card(app, tmp_path / "shipped", None, lambda k, a: None)   # the real catalog's labels
+    texts = [shipped.prefab_box.itemText(i) for i in range(shipped.prefab_box.count())]
+    assert max(len(t) for t in texts) > 16                               # (a fixed 16 would clip these)
+    assert shipped.prefab_box.minimumContentsLength() >= max(len(t) for t in texts)
+    tool.open_tool()
+    tool.place(64 * 15 + 40.0, -64 * 9 - 20.0)
+    tool._timer.stop()
+    tool._check()
+    assert "Refused by world-prefab: boom" in tool.verdict_lbl.text() and "carve" not in tool.verdict_lbl.text()
+    n = len(run.argvs)
+    tool.close_tool()
+    tool.open_tool()
+    assert tool.cell() is None and tool.cell_lbl.text() == "Click open ocean."
+    tool.prefab_box.setCurrentIndex(tool.prefab_box.findData("unit"))
+    tool._timer.stop()
+    tool._check()
+    assert len(run.argvs) == n                                           # nothing re-placed, nothing checked
+
+
+def test_the_card_works_on_a_folder_with_no_deployed_land(app, tmp_path, catalog):
+    """Review P3: the soup read refuses a folder with no deployed Terrain, and the card waited forever on it; a prefab
+    goes onto open ocean, so an empty folder is a fine place to start."""
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.worldprefab import PrefabTool
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    from .test_worldforest import Scripted
+    game = _game(tmp_path)
+    src = game / "Empty"                                   # world files (a sea override), but no deployed Terrain
+    (src / "FF9_Data" / "WorldMap" / "Disc1" / "0_1" / "r0").mkdir(parents=True)
+    (src / "FF9_Data" / "WorldMap" / "Disc1" / "0_1" / "r0" / "Block[0][0] Sea4.ff9mesh").write_bytes(b"sea")
+    run = Scripted(lambda k, a: {"ok": True, "dry_run": True, "refused": None, "blocks": [[10, 9]],
+                                 "center": [672.0, -608.0]})
+    tool = PrefabTool(pick_palette("dark"), WorldView3DPanel(pick_palette("dark")), game_fn=lambda: game,
+                      source_fn=lambda: src, runner=run, drafts_root=tmp_path / "drafts", sync=True,
+                      stack_fn=lambda: [], ghost_fn=lambda p: np.zeros((0, 3, 3)), ocean_fn=lambda: set(),
+                      catalog=catalog)
+    tool.open_tool()
+    tool.place(64 * 10 + 40.0, -64 * 9 - 20.0)
+    tool._timer.stop()
+    tool._check()
+    assert run.argvs and "Passes" in tool.verdict_lbl.text()

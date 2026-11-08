@@ -932,8 +932,10 @@ def _snap_world_transplant(ctx: _Ctx, win) -> None:
 
 def _snap_world_prefab(ctx: _Ctx, win) -> None:
     """Rung P3: the prefab card on the pinned 3D page -- the shipped catalog in the picker, an INVENTED land (an island
-    fan with a rock cone on it; the surface never reads the install) placed on an open anchor beside the synthetic
-    island, passing its check at a clean site; then a refusal named by its gate (the identity check)."""
+    fan with a rock cone on it; the surface never reads the install) placed on an open anchor east of the synthetic
+    island -- (23,18): its footprint and ring clear of the island's land, a site the real card accepts (review P3: the
+    first anchor overlapped the island with the laws switched off) -- passing its check at a clean site; then a
+    refusal named by its gate (the identity check), one row up."""
     import math
     import shutil as _sh
     import numpy as np
@@ -985,18 +987,18 @@ def _snap_world_prefab(ctx: _Ctx, win) -> None:
         pt = doc.open_prefab(sync=True)
         pt._occupied_in = lambda blocks, stack: {}
         pt.prefab_box.setCurrentIndex(pt.prefab_box.findData("desert-peak-isle"))
-        pt.place(1376.0, -1184.0, 0.0)
+        pt.place(1504.0, -1184.0, 0.0)
         pt._timer.stop()
         pt._check()
         view = doc._view3d.view
         if view is not None:
-            view.focus(1376.0, -1184.0, dist=300.0, y=0.0)
+            view.focus(1460.0, -1184.0, dist=320.0, y=0.0)
             view.camera.yaw, view.camera.pitch = 20.0, 45.0
             view.update()
         _settle(12)
         _grab(ctx, "world-3d-prefab", win)
         state["refuse"] = True
-        pt.place(1376.0 + 64.0, -1184.0, 0.0)
+        pt.place(1504.0, -1120.0, 0.0)
         pt._timer.stop()
         pt._check()
         _settle(12)

@@ -370,6 +370,18 @@ def replay_window(step: dict) -> set:
     row = step["row"]
     table = row.get("table")
     cells = {tuple(c) for c in step.get("cells") or ()}
+    if table == "prefab":
+        # world-prefab's own clear window (prefab.window_blockers): the footprint, its ring (the nav stamp reads 16u
+        # past it) and every relief row's read window -- an edit dirtying any of them re-runs the step (review P3)
+        try:
+            from . import prefab as PF
+            p = PF.get(str(row["name"]))
+            c = tuple(int(v) for v in row["cell"])
+            foot = set(PF.footprint_labels(p, c))
+            return foot | PF._ring(foot) | PF.read_windows(PF.expand(p, c)) | cells
+        except (KeyError, ValueError):
+            from .draft import all_cells
+            return set(all_cells()) | cells
     if table in ("forest", "mountain", "hill"):
         return set(row_cells(row)) | cells
     if table == "island" and row.get("center"):

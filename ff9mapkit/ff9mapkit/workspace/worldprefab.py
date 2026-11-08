@@ -18,7 +18,7 @@ from .worldforest import GATE_WORDS, CarryTool
 
 PREFAB_GATES = {**GATE_WORDS, "catalog": "the catalog", "rows": "the map's rows", "window": "the clear window",
                 "identity": "the identity check", "nav": "the navigation check", "written": "the written-land check",
-                "disc4": "the disc-4 check", "compose": "a row of the prefab"}
+                "disc4": "the disc-4 check", "compose": "a row of the prefab", "error": "world-prefab"}
 
 
 class PrefabTool(CarryTool):
@@ -60,9 +60,11 @@ class PrefabTool(CarryTool):
             tip = (p.get("note", "") + " " + (f"Walked: {p['walked']}." if p.get("walked") else
                                              "Not yet walked in game.")).strip()
             self.prefab_box.setItemData(self.prefab_box.count() - 1, tip, 3)
-        # a long name never sets the card's width (the window's floor): the combo shows ~16 characters
+        # sized from its own labels (characters, so it hears the text-size dial): a candidate's " · new" must not be
+        # clipped off the closed box (review P3: 3 of 6 shipped labels outran a fixed 16)
         self.prefab_box.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        self.prefab_box.setMinimumContentsLength(16)
+        self.prefab_box.setMinimumContentsLength(max([16] + [len(self.prefab_box.itemText(i))
+                                                             for i in range(self.prefab_box.count())]))
         self.prefab_box.currentIndexChanged.connect(lambda _ix: self._prefab_changed())
         row.addWidget(self.prefab_box)
         self.cell_lbl = widgets.role_label("Click open ocean.", "caption")
@@ -155,6 +157,25 @@ class PrefabTool(CarryTool):
     def island_changed(self):
         self.__dict__.pop("_occ", None)
         super().island_changed()
+
+    def close_tool(self):
+        """Put the card away and forget the click: a reopened card waits for a new one (review P3: a remembered click
+        re-placed the ghost and started a half-minute check when the prefab changed)."""
+        super().close_tool()
+        if self.isHidden():
+            self._click = self._anchor = None
+            self.cell_lbl.setText("Click open ocean.")
+
+    def _read_soup(self, folder, seam=False):
+        """The island soup, or an EMPTY one when the folder holds no deployed Terrain at all: a prefab goes onto open
+        ocean and does not stand on deployed land (review P3: the card waited forever on a fresh folder)."""
+        from ..world import interior as IN
+        try:
+            return super()._read_soup(folder, seam=seam)
+        except IN.CarveRefused as e:
+            if "no deployed Terrain overrides" not in str(e):
+                raise
+            return self.FE.SoupIndex(IN.soup_from_blocks({}))
 
     def _live_stack(self):
         from ..world import river as R
