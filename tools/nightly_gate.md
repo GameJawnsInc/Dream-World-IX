@@ -1,6 +1,7 @@
 # The nightly test gate — full-suite runs on master, off the critical path
 
-The full `ff9mapkit` pytest suite takes ~45 min serial and degrades to **hours** when several
+The full `ff9mapkit` pytest suite took ~45 min serial when the gate was built. It now takes about
+**3 h even at `-n 6`** (2026-11; see "The time budget"), and it degrades further when several
 sessions run it concurrently (every install-gated test re-reads the same shared
 `StreamingAssets/p0data*.bin` bundles; the OS file cache thrashes — see memory
 `project-ff9-test-suite-perf`). The gate replaces "every session tails itself with a full run" with:
@@ -21,9 +22,10 @@ that already passed its targeted tests, so bisect with the relevant subset.
 | Piece | Where | What |
 |---|---|---|
 | Runner | `tools/nightly_gate.py` | the whole gate: worktree mgmt, provisioning, lock, run, ledger |
+| Results plugin | `tools/gate_plugin/ff9_gate_results.py` | writes each test's outcome as it finishes, so a killed run still names its failures |
 | Gate worktree | `C:\gd\ff9-test-gate` | detached checkout, re-pointed at `master` every run; provisioned once and kept |
-| State dir | `C:\gd\Dream-World-IX\.test-gate\` (gitignored) | `lock` · `ledger.jsonl` (history) · `latest.json` (read this) · `runs/*.log` |
-| Scheduled task | Task Scheduler: **"FF9 nightly test gate"** | daily 04:00, wakes the machine, skips overlaps, 4 h limit |
+| State dir | `C:\gd\Dream-World-IX\.test-gate\` (gitignored) | `lock` · `ledger.jsonl` (history) · `latest.json` (read this) · `runs/*.log` · `runs/*.results.jsonl` (newest 30 kept) |
+| Scheduled task | Task Scheduler: **"FF9 nightly test gate"** | fires 08:00 UTC: **03:00** EST, 04:00 EDT (the trigger keeps a fixed offset). Wakes the machine, skips overlaps, **4 h limit** |
 
 The gate worktree lives **outside** `.claude\worktrees\` on purpose — it is infrastructure, not an
 agent session, and must never be pruned with them. It stays permanently provisioned (templates +
@@ -50,20 +52,96 @@ the floor while part of the suite silently isn't in it.
   "ruff_f": 109, "ruff_f_baseline": 109,   // pyflakes findings in the package: a RATCHET (only an increase is a verdict)
   "workers": 6,
   "passed": 6947, "skipped": 15,
+  "failed_ids": ["ff9mapkit/tests/test_x.py::test_y"],   // present when not green; error_ids for setup/teardown errors
+  "completed": 6962,            // tests that reached an outcome (the results log's count)
+  "slowest_files": [["ff9mapkit/tests/test_harness_netsync.py", 9123.4], ...],   // setup+call seconds, top 10
+  "worker_busy_s": {"gw0": 10210, "gw1": 9874, ...},     // per-worker seconds: a wide spread is a scheduling tail
   "duration_s": 1130.4,
   "log": "...runs\\<ts>.log",   // the gate's own narration
-  "suite_log": "...runs\\<ts>.pytest.log"  // full pytest output, incl. --durations=25 profiling
+  "suite_log": "...runs\\<ts>.pytest.log",  // full pytest output, incl. --durations=25 profiling
+  "results_log": "...runs\\<ts>.results.jsonl"  // one JSON line per finished test (see below)
 }
 ```
+
+A `timeout` row also carries `timeout_min`, `finished: false`, and the counts and ids of everything that
+finished before the kill.
 
 **`latest.json` is a VERDICT file: only a FULL run writes it.** A `--smoke` or narrowed
 (`--pytest-args`) run appends to `ledger.jsonl` only — the 2026-08-05 incident (a narrowed
 verification run flipped `latest.json` to `skip-long`, restored by hand) is why. So `latest.json`
 always answers "what did the whole suite last say", never "what did somebody's subset say".
 
-`ledger.jsonl` is the same shape, one line per run, append-only — grep it for trends. The
-`--durations=25` block at the end of each `*.pytest.log` is the standing profiling data: if the
-suite creeps toward the timeout, look there first.
+`ledger.jsonl` is the same shape, one line per run, append-only — grep it for trends. For profiling,
+read the ledger row's `slowest_files` and `worker_busy_s` first, then the run's `*.results.jsonl`
+(every test's setup+call time). The `--durations=25` block at the end of each `*.pytest.log` shows
+only the 25 slowest tests, about 14% of the work on 2026-11-03, and a killed run never prints it.
+
+## A killed run still names its failures
+
+A killed pytest never prints its summary, so the 2026-11-07 and 11-08 timeouts left 5 and 73 `F`
+marks in their progress lines and not one name. The suite command now loads
+`tools/gate_plugin/ff9_gate_results.py` (`-p ff9_gate_results --gate-results=<runs>\<ts>.results.jsonl`,
+with that directory on `PYTHONPATH`). The xdist **controller** writes one JSON line per finished test
+and flushes each one. On a timeout the gate reads that file and writes the counts, `failed_ids` and
+`error_ids` into the ledger row. A complete run gets the same names, with pytest's summary line still
+the authority for the counts, and falls back to the `FAILED`/`ERROR` lines of the short summary if the
+results log is missing.
+
+- **The `=` is load-bearing.** Always pass `--gate-results=PATH` as one token, never as two tokens.
+  An xdist worker sizes its rootdir before the plugin registers the option, so it reads a separate
+  value as a positional path. The worker's rootdir then becomes the common ancestor of the tests and
+  the log, which for the nightly is `C:\gd`. The first forced-kill run through `main()` caught this:
+  the workers stalled in collection and 0 tests ran in 45 s. `test_nightly_gate.py` pins both the
+  token shape and the worker's rootdir.
+- **A timeout kills the whole tree** with `taskkill /T /F`. `Popen.kill` killed only the `py` launcher.
+  On 2026-11-08 the xdist workers kept writing the suite log for three more minutes and kept tripping
+  benchguard.
+- Proven 2026-11-08: a narrowed run on a stub suite with `--timeout-min 0.75` was killed and its ledger
+  row named the one failure and the one setup error (`finished: false`). Do the same to re-check:
+  `--pytest-args "<stub dir>/test_x.py --dist loadfile" --workers 2 --timeout-min 0.75`. A narrowed row
+  writes `ledger.jsonl` only.
+
+## The time budget
+
+Task Scheduler kills the task at its **4 h** `ExecutionTimeLimit`. That kill skips `main()`'s
+`finally`, so the night leaves **no ledger row at all**. The suite cap therefore lives inside it:
+`DEFAULT_TIMEOUT_MIN` (225) + `PRESUITE_BUDGET_MIN` (15) ≤ `TASK_LIMIT_MIN` (240), and a test pins
+this. `--register-task` reads the same constant. To raise the cap, raise `TASK_LIMIT_MIN` too, merge,
+and re-register. A run started by hand is not under the limit; the gate warns when the two disagree.
+
+**Why 225, from the ledger (all `-n 6`):**
+
+| Night | Collected | Wall |
+|---|---|---|
+| 10-08 … 10-19 | 11.6k–13.1k | 2,168–2,842 s |
+| 10-24 | 14,275 | 7,097 s |
+| 11-03 | 15,628 | 10,003 s |
+| 11-07 | 16,302 | killed at 98% at the 180 cap, so it needed ~184 min |
+| 11-08 | 16,535 | killed at 87% with 73 `F` marks (a red-heavy night runs longer) |
+
+Collection grew 26% from 10-15 to 11-03 while wall time grew 4.4×. The new tests cost far more than the
+old ones: the co-op stand-in families (`test_harness_netsync.py`, `test_coop_*.py`) run 150–550 s each.
+Since 10-24 wall time has grown about 250–290 s a night. **225 is a stopgap:** from 11-07's ~184 min it
+buys about 9 nights at that rate. It is also the most the 4 h task allows.
+
+**What else the numbers say:**
+
+- **Contention is not what drives the overruns.** Measured alone on 2026-11-08, the s139 stand-in leg
+  took 497 s against 533 s in the 11-03 gate, about 7%. Night-to-night variance is real, though: 10-28
+  ran 5,394 s while its neighbours ran 7,993 and 8,685. The window is now 03:00 to about 06:47. The
+  gate holds its lock that whole time, so benches started before then are refused.
+- **The two slowest tests are a test-hygiene bug, not slow tests.**
+  `test_workspace_encounters.py::test_the_help_badge_keeps_its_glyph_at_150` takes 0.22 s alone and
+  took 878 s in the gate. `test_the_library_sidebar_never_scrolls_sideways_under_the_app_sheet` takes
+  0.14 s alone and took 740 s. Both call `QApplication.setStyleSheet` app-wide, which repolishes every
+  widget that earlier GUI tests left alive in that xdist worker. Fix the test or its cleanup (a Workspace
+  task). A slice does not help, because each worker still accumulates its share of leaked widgets.
+- **A slice at the same `-n` makes things slower.** Each sequential pytest invocation adds its own
+  scheduling tail. A slice pays only at a different worker count. The candidate is the stand-in
+  families: alone, a `test_coop_world_wait` bench test used 0.47 cpu-seconds per wall-second, so half
+  its time is paced sleep. A higher `-n` for that slice has not been tried, because those tests are
+  paced by the wall clock and the co-op sweep already shows load flakes. Size it from one complete
+  night's `slowest_files` and `worker_busy_s` before changing anything.
 
 **On red — whose job is the fix?** The gate only detects; the responsibility rule is
 **first-reader triages**: the first session of the day that reads a red ledger must triage
@@ -197,9 +275,11 @@ Everything is idempotent; re-running any step is safe.
 ## Adjusting things
 
 - **Run time:** re-register with `--register-task --at 03:30` (or edit the trigger in Task
-  Scheduler → "FF9 nightly test gate").
+  Scheduler → "FF9 nightly test gate"). The trigger keeps a fixed UTC offset, so it moves an hour
+  when the clocks change. The cap and the task limit are covered in "The time budget".
 - **Workers:** the task runs the script's defaults (`-n 6` — the measured sweet spot; `-n auto`
-  re-contends on disk, don't). To change permanently, edit `--workers`'s default in the script and
+  re-contends on disk, don't). That was measured on the old, disk-bound suite. The stand-in families
+  that now dominate are about half paced sleep, so re-measure before changing it ("The time budget"). To change permanently, edit `--workers`'s default in the script and
   merge; the gate picks it up the next night. Falls back to serial automatically if xdist is missing.
 - **Collect floor:** self-maintaining since Lane C (2026-08-23): the effective floor is 98% of the
   last full green's own `collected` (the ledger is the baseline), with the static `--collect-floor`
@@ -249,8 +329,10 @@ Everything is idempotent; re-running any step is safe.
   ignored files ARE its provisioning, and every dev checkout keeps the same leftover and would stay red.
 - **Stale lock** (`lock` present, no run live) → the runner detects a dead PID and steals it
   automatically; delete `.test-gate\lock` by hand only if it somehow persists.
-- **`timeout`** → almost always contention (something else was hammering the machine at 04:00),
-  not a slow test — see the memory's contention section before chasing anything.
+- **`timeout`** → read the row's `failed_ids`/`error_ids` first. A red-heavy night runs longer, so
+  triage those. Then compare `completed` with `collected`. If the run was close, the suite has
+  outgrown the cap: read "The time budget" before raising anything. Contention was measured at about
+  7% on the heaviest test family, so don't blame contention without numbers.
 - **The task must never run concurrently with itself or a manual run** — it doesn't: the task is
   registered `IgnoreNew` and the runner exits gracefully when the lock is held.
 - **A live game bench refuses to start while the lock is held** — `tools/play.py` and
