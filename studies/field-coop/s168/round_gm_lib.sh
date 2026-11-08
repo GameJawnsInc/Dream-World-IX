@@ -38,7 +38,9 @@
 #   ROUND_GM_PEER_PORT=P     the regression runner's coop_climb_anim_peer port (COOP_PEER_PORT; default 49257); ROUND_B_ / ROUND_A_ honoured
 #   ROUND_GM_FADE=MS         every duo of this run carries [Interface] FadeDuration = MS on BOTH instance roots (duo.py --root-ini: a hand
 #                            edit of a root is regenerated away by Instance.ensure at every duo start); >= 300 is the FadeDuration-300 pass
-#                            (GM0-KEY-DOUBLE, GM0-DOOR-D, GM0-FADE's 300 half); unset, the roots' own fade (the install's 40 ms)
+#                            (GM0-KEY-DOUBLE, GM0-FADE's 300 half); >= 800 is GM0-DOOR-D's pass (its `door` leg launches at every
+#                            fade and reads "not run (configuration)" below 800; fade_door_ok, S168-DESIGN R5); unset, the roots' own
+#                            fade (the install's 40 ms)
 #   ROUND_GM_REF=<file>      the s167 proof block (default .harness-runs/s168-round-gm/s167-proof-block.txt; OLD writes it)
 #   ROUND_GM_LOGS=<dir>      the run folder (default .harness-runs/s168-round-gm/<stamp>-<kind>)
 #   ROUND_GM_PLAN=1          THE PLAN: print every leg's [N], name, route and command and launch NOTHING -- no guard, no DLL read, no
@@ -220,6 +222,11 @@ leg() {   # leg <name> <kind: solo|t2|duo> <log> -- <command...> (env set by the
 fade_ok() {   # 0 = this run's duos carry [Interface] FadeDuration >= 300 (ROUND_GM_FADE: $DUO's --root-ini writes it on BOTH roots at every
   local f="${ROUND_GM_FADE:-0}"   # duo start -- a hand edit of a root is regenerated away by Instance.ensure); a non-number reads as unset
   [ -n "$f" ] && [ "${f//[!0-9]/}" = "$f" ] && [ "$f" -ge 300 ]
+}
+
+fade_door_ok() {   # 0 = this run's duos carry FadeDuration >= 800: GM0-DOOR-D's own `door` leg (S168-DESIGN R5; the duo's FADE_DOOR_MS)
+  local f="${ROUND_GM_FADE:-0}"
+  [ -n "$f" ] && [ "${f//[!0-9]/}" = "$f" ] && [ "$f" -ge 800 ]
 }
 
 fade_line() {   # what every duo of this run carries for [Interface] FadeDuration (said by preflight)

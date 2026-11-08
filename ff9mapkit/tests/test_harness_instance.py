@@ -230,7 +230,8 @@ def test_wanted_ini_carries_the_extra_and_an_empty_extra_restores_install_plus_b
 def test_post_close_posts_wm_close_only_to_the_pids_visible_windows():
     """post_close (GM0-QUIT-D's any-role route to the guest's quit prompt): WM_CLOSE (0x0010) to every VISIBLE top-level window of the
     pid and nothing else -- never a hidden one, another pid's, a null handle -- counting only the posts the queue took; a pid <= 0, junk
-    or this very process posts nothing. Offline through the seams: the in-game effect is the rampquit leg's to prove."""
+    or this very process posts nothing. Offline through the seams: the in-game effect was proven by the 2026-11-08 rampquit and cut
+    reruns."""
     sent = []
     wins = lambda: [(101, 4242, True), (102, 4242, False), (103, 777, True), (0, 4242, True), (104, 4242, True)]   # noqa: E731
     assert I.post_close(4242, windows=wins, post=lambda h, msg: sent.append((h, msg)) or True) == 2
