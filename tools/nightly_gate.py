@@ -44,6 +44,14 @@ DEFAULT_GATE = Path(r"C:\gd\ff9-test-gate")
 # The subset of .ff9mapkit-cache worth seeding from the main repo (per project-ff9-test-suite-perf;
 # deploy/deploysnap are live deploy state and deliberately NOT copied into the gate).
 CACHE_SEED = ["fields", "thumbs", "model_thumbs", "battlemap", "worldstock.json"]
+# THE TIME BUDGET. Task Scheduler hard-kills the task at TASK_LIMIT_MIN -- and a kill there skips main()'s
+# `finally`, so the night leaves NO ledger row at all (worse than a timeout row). The suite cap must therefore
+# fit inside it with room for the pre-suite steps (collect ~1.5 min, measured up to 84 s) and the post-kill
+# teardown + ledger write. 225 (was 180): the 2026-11-07 run reached 98% at 180 min, so it needed ~184; the
+# suite has been growing ~250-290 s of wall per night since 2026-10-24 (nightly_gate.md, "The time budget").
+TASK_LIMIT_MIN = 240
+PRESUITE_BUDGET_MIN = 15
+DEFAULT_TIMEOUT_MIN = 225
 
 
 # ---- path resolution ------------------------------------------------------------------------------
@@ -125,14 +133,35 @@ def acquire_lock(lock: Path, log) -> bool:
     return False
 
 
+def kill_tree(pid: int, log) -> None:
+    """Kill ``pid`` AND every process under it. ``Popen.kill`` is TerminateProcess on the one child -- the ``py``
+    launcher -- and the xdist workers below it outlived the 2026-11-08 kill by three minutes, still writing into the
+    suite log and still counted as live pytest by benchguard. ``taskkill /T`` walks the parent-pid tree. (Windows
+    only, like the gate; elsewhere the caller's own ``Popen.kill`` is all there is.)"""
+    if os.name != "nt":
+        return
+    p = subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True, text=True)
+    log(f"taskkill /T /F /PID {pid}: rc={p.returncode} {(p.stdout or p.stderr).strip()[:300]}")
+
+
 def run(cmd, log, cwd=None, env=None, timeout=None, tee_to=None):
-    """Run a child, streaming combined output to the run log (and optionally a separate file)."""
+    """Run a child, streaming combined output to the run log (and optionally a separate file). On ``timeout`` the
+    WHOLE process tree is killed (:func:`kill_tree`) and ``subprocess.TimeoutExpired`` is raised, as before."""
     log(f"$ {' '.join(str(c) for c in cmd)}" + (f"   (cwd={cwd})" if cwd else ""))
     sink = open(tee_to, "a", encoding="utf-8", errors="replace") if tee_to else log.fh
     try:
-        p = subprocess.run([str(c) for c in cmd], cwd=str(cwd) if cwd else None, env=env,
-                           stdout=sink, stderr=subprocess.STDOUT, timeout=timeout)
-        return p.returncode
+        p = subprocess.Popen([str(c) for c in cmd], cwd=str(cwd) if cwd else None, env=env,
+                             stdout=sink, stderr=subprocess.STDOUT)
+        try:
+            return p.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            kill_tree(p.pid, log)
+            p.kill()
+            try:
+                p.wait(timeout=60)
+            except subprocess.TimeoutExpired:
+                pass
+            raise
     finally:
         if tee_to:
             sink.close()
@@ -311,6 +340,113 @@ def parse_summary(run_log: Path) -> dict:
     return counts
 
 
+# ---- the kill-proof results log (tools/gate_plugin/ff9_gate_results.py) --------------------------------
+PLUGIN_DIR = Path(__file__).resolve().parent / "gate_plugin"
+PLUGIN_NAME = "ff9_gate_results"
+#: the most ids one ledger row names per kind; past it the row says how many it left out (``*_ids_total``)
+MAX_IDS = 200
+#: how many ``runs/*.results.jsonl`` to keep (~2 MB each at 16.5k tests)
+KEEP_RESULTS = 30
+
+
+def plugin_args(results: Path, env: dict, log):
+    """The suite-command tokens that load the results plugin, with ``env``'s PYTHONPATH extended to reach it --
+    or ``[]`` (logged) when the plugin file is missing, so an old checkout still runs, just without the log.
+
+    ⚠ ONE token, ``--gate-results=PATH`` -- never ``--gate-results PATH``. An xdist worker sizes its rootdir before
+    the plugin's option is registered, so a separate value reads as a positional path there: the worker's rootdir
+    becomes the common ancestor of the tests and the log (for the nightly's gate + state dirs, ``C:\\gd``), and with
+    a large ancestor the workers stalled in collection and ran nothing (measured 2026-11-08: 0 tests in 45 s)."""
+    if not (PLUGIN_DIR / f"{PLUGIN_NAME}.py").is_file():
+        log(f"!! results plugin missing ({PLUGIN_DIR}) -- a killed run will not name its failures")
+        return []
+    env["PYTHONPATH"] = os.pathsep.join(p for p in (str(PLUGIN_DIR), env.get("PYTHONPATH")) if p)
+    return ["-p", PLUGIN_NAME, f"--gate-results={results}"]
+
+
+def parse_results(path: Path) -> dict:
+    """Read a results log into ledger fields, counting REPORTS the way pytest's own summary line does: a failed call
+    (or an xdist worker crash, phase ``???``) is ``failed``; a failed setup or teardown, or a collection error, is
+    ``error``; ``completed`` is how many distinct tests reached an outcome; ``finished`` is False when the
+    session-finish record never came -- the run was killed. ``slowest_files`` sums setup + call time per file, top 10;
+    ``worker_busy_s`` sums it per xdist worker (a wide spread is a scheduling tail, not a slow suite). Torn or non-JSON
+    lines (a kill mid-write) are skipped. ``{}`` when the file is absent."""
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return {}
+    counts, failed, errors, done, per_file, per_worker = {}, [], [], set(), {}, {}
+    finished = False
+    for ln in lines:
+        try:
+            r = json.loads(ln)
+        except ValueError:
+            continue
+        if not isinstance(r, dict):
+            continue
+        if r.get("ev") == "finish":
+            finished = True
+            continue
+        nid, w, o = r.get("id"), r.get("w"), r.get("o")
+        if not nid or not o:
+            continue
+        if w in ("call", "???"):
+            kind = o
+        elif o == "failed":                                    # setup / teardown / collect
+            kind = "error"
+        elif w == "setup":                                     # a skip (or xfail) decided before the call
+            kind = o
+        else:
+            continue
+        counts[kind] = counts.get(kind, 0) + 1
+        if kind == "failed" and nid not in failed:
+            failed.append(nid)
+        elif kind == "error" and nid not in errors:
+            errors.append(nid)
+        if w in ("call", "setup", "???"):
+            done.add(nid)
+        f = nid.split("::")[0]
+        spent = float(r.get("d") or 0) + float(r.get("s") or 0)
+        per_file[f] = per_file.get(f, 0.0) + spent
+        if r.get("wk"):
+            per_worker[r["wk"]] = per_worker.get(r["wk"], 0.0) + spent
+    out = dict(counts)
+    out["completed"] = len(done)
+    out["finished"] = finished
+    out["failed_ids"] = failed[:MAX_IDS]
+    out["error_ids"] = errors[:MAX_IDS]
+    if len(failed) > MAX_IDS:
+        out["failed_ids_total"] = len(failed)
+    if len(errors) > MAX_IDS:
+        out["error_ids_total"] = len(errors)
+    out["slowest_files"] = [[f, round(s, 1)] for f, s in sorted(per_file.items(), key=lambda kv: -kv[1])[:10]]
+    if per_worker:
+        out["worker_busy_s"] = {k: round(v) for k, v in sorted(per_worker.items())}
+    return out
+
+
+def parse_short_summary(run_log: Path) -> dict:
+    """The ``FAILED <id>`` / ``ERROR <id>`` lines of pytest's short test summary (``-rfE``) -- the names a COMPLETE run
+    prints, the fallback when the results log is missing. A killed run printed none: that is what the log is for."""
+    text = run_log.read_text(encoding="utf-8", errors="replace")
+    cut = text.rfind("short test summary info")
+    if cut < 0:
+        return {}
+    failed, errors = [], []
+    for kind, nid in re.findall(r"^(FAILED|ERROR) (\S+)", text[cut:], re.M):
+        (failed if kind == "FAILED" else errors).append(nid)
+    return {"failed_ids": failed[:MAX_IDS], "error_ids": errors[:MAX_IDS]}
+
+
+def prune_results(runs: Path, keep: int = KEEP_RESULTS) -> None:
+    """Keep the newest ``keep`` results logs (names sort by their timestamp); the text logs stay forever."""
+    for old in sorted(runs.glob("*.results.jsonl"))[:-keep]:
+        try:
+            old.unlink()
+        except OSError:
+            pass
+
+
 # ---- ledger ---------------------------------------------------------------------------------------
 def run_mode(smoke: bool, pytest_args) -> str:
     """What kind of run this is, for the ledger. Only a ``full`` run is a suite VERDICT: a ``--pytest-args``
@@ -350,7 +486,7 @@ def register_task(main: Path, gate: Path, at: str, log) -> None:
         f"$a = New-ScheduledTaskAction -Execute '{py_exe()}' -Argument '\"{script}\"';"
         f"$t = New-ScheduledTaskTrigger -Daily -At {at};"
         f"$s = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable "
-        f"-ExecutionTimeLimit (New-TimeSpan -Hours 4) -MultipleInstances IgnoreNew;"
+        f"-ExecutionTimeLimit (New-TimeSpan -Minutes {TASK_LIMIT_MIN}) -MultipleInstances IgnoreNew;"
         f"Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $a -Trigger $t -Settings $s -Force | Out-Null;"
         f"Write-Output 'registered'"
     )
@@ -391,7 +527,10 @@ def main() -> int:
     ap.add_argument("--pytest-args", default=None,
                     help="extra tokens appended to the suite pytest command -- for narrowed "
                          "verification runs of the gate itself, never the nightly schedule")
-    ap.add_argument("--timeout-min", type=int, default=180, help="suite hard timeout (default 180)")
+    ap.add_argument("--timeout-min", type=float, default=DEFAULT_TIMEOUT_MIN,
+                    help=f"suite hard timeout in minutes (default {DEFAULT_TIMEOUT_MIN}: the most the scheduled "
+                         f"task's {TASK_LIMIT_MIN}-min limit leaves room for; fractions allowed, for a forced-kill "
+                         f"check)")
     ap.add_argument("--register-task", action="store_true", help="create/refresh the scheduled task")
     ap.add_argument("--unregister-task", action="store_true", help="remove the scheduled task")
     ap.add_argument("--at", default="04:00", help="daily trigger time for --register-task (default 04:00)")
@@ -413,6 +552,10 @@ def main() -> int:
         register_task(main_repo, gate, args.at, log)
         return 0
 
+    if args.timeout_min + PRESUITE_BUDGET_MIN > TASK_LIMIT_MIN:
+        log(f"!! --timeout-min {args.timeout_min} + {PRESUITE_BUDGET_MIN} min of pre-suite budget exceeds the "
+            f"scheduled task's {TASK_LIMIT_MIN}-min limit: under the task, Task Scheduler would kill this run before "
+            f"it writes ANY ledger row. Fine for a manual run; for the task, raise TASK_LIMIT_MIN and re-register.")
     if not acquire_lock(state / "lock", log):
         return 0  # graceful: a run is already going; the scheduler also has IgnoreNew
     t0 = time.time()
@@ -470,15 +613,39 @@ def main() -> int:
         entry["workers"] = workers or 1
         suite_log = log.path.with_suffix(".pytest.log")
         entry["suite_log"] = str(suite_log)
+        # THE KILL-PROOF NAMES: a killed pytest prints no summary, so the 2026-11-08 timeout's 73 F marks had no
+        # names. The plugin writes each test's outcome as it finishes; whatever finished before a kill is named.
+        results = log.path.with_suffix(".results.jsonl")
+        env = child_env()
+        extra = plugin_args(results, env, log)
+        cmd += extra
+        if extra:
+            entry["results_log"] = str(results)
+        prune_results(results.parent)
         try:
-            rc = run(cmd, log, cwd=kit, env=child_env(), timeout=args.timeout_min * 60, tee_to=suite_log)
+            rc = run(cmd, log, cwd=kit, env=env, timeout=args.timeout_min * 60, tee_to=suite_log)
         except subprocess.TimeoutExpired:
             entry["result"] = "timeout"
-            log(f"suite exceeded {args.timeout_min} min -- killed.")
+            entry["timeout_min"] = args.timeout_min
+            got = parse_results(results)
+            entry.update(got)
+            log(f"suite exceeded {args.timeout_min} min -- killed after {got.get('completed', '?')} of "
+                f"{entry.get('collected', '?')} tests ({ {k: got[k] for k in ('passed', 'failed', 'error') if k in got} }).")
+            for nid in got.get("failed_ids", []) + got.get("error_ids", []):
+                log(f"   not green before the kill: {nid}")
             return 1
+        # A complete run: pytest's own summary line stays the authority for the COUNTS; the results log adds the
+        # names (and the per-file profile). No names in it -> the short summary's FAILED/ERROR lines.
+        got = parse_results(results)
+        entry.update({k: got[k] for k in ("failed_ids", "error_ids", "failed_ids_total", "error_ids_total",
+                                          "slowest_files", "worker_busy_s", "completed") if got.get(k)})
+        if not entry.get("failed_ids") and not entry.get("error_ids"):
+            entry.update({k: v for k, v in parse_short_summary(suite_log).items() if v})
         entry.update(parse_summary(suite_log))
         entry["result"] = "green" if rc == 0 else "red" if rc == 1 else "error"
         entry["exit_code"] = rc
+        for nid in entry.get("failed_ids", []) + entry.get("error_ids", []):
+            log(f"   not green: {nid}")
         # THE SKIP CEILING (audit rec 18): the collect floor is structurally blind to a
         # module-level skipif -- a silenced family still COLLECTS, so 56 coastmorph tests
         # skipping en masse would read as a green ledger. A green run that skipped more

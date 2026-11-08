@@ -975,8 +975,8 @@ def test_the_hole_gate_the_cut_quit_seat_and_the_door_read_the_published_session
     stale = cut.index('"netsync.battle.peer.live") is False')
     assert wf < stale < cut.index('_seat_at(guest, "Item")', wf), cut[wf:wf + 600]
     assert "_raise_quit_prompt(d, guest)" in cut and "close_out(guest)" in cut[cut.index("_quit_unreachable("):]
-    assert set(md.DOOR_D_WHYS) == {BW.GM_WHY_BUSY, BW.GM_WHY_LEAVING, BW.GM_WHY_CONTROL}
-    assert "DOOR_D_WHYS" in inspect.getsource(md._leg_leave)
+    assert set(md.DOOR_D_WHYS) == {BW.GM_WHY_BUSY, BW.GM_WHY_LEAVING, BW.GM_WHY_CONTROL, BW.GM_WHY_SCENE}   # R5: + `scene`
+    assert "DOOR_D_WHYS" in inspect.getsource(md.judge_door_d) and "judge_door_d" in inspect.getsource(md._leg_door)
     assert "_raise_quit_prompt(d, guest)" in inspect.getsource(md._leg_rampquit)
 
 
@@ -1106,7 +1106,7 @@ def _unmodelled(md, leg) -> set:
 
 
 #: the duo legs the stand-in runs end to end (each green but its STANDIN_UNMODELLED / CONFIG_SKIPPED rows)
-STANDIN_LEGS = ("key", "caps", "leave", "title", "stall", "out", "world")
+STANDIN_LEGS = ("key", "caps", "leave", "door", "title", "stall", "out", "world")
 #: the legs the stand-in cannot drive (every row red for its pinned reason)
 STANDIN_LEG_REASONS = ("dialog", "hudstrip", "cut", "scene", "chest", "ramp", "rampquit", "rejoin")
 #: each (leg, fault) -> the words each of its rows must show (an unmodelled row's red alone would not prove the fault reached it)
@@ -1163,7 +1163,7 @@ def test_the_legs_the_stand_in_cannot_drive_say_why(md):
             assert _pinned_words(row) in r["detail"][row], (leg, row, r["detail"][row])
 
 
-@pytest.mark.parametrize("leg", ["key", "caps", "leave", "title", "stall", "out"])
+@pytest.mark.parametrize("leg", ["key", "caps", "leave", "door", "title", "stall", "out"])
 def test_old_on_two_s167_stand_ins_is_exactly_its_rows_measured_and_no_guestmenu_op_is_sent(md, leg):
     r = _runs(r=dict(leg=leg, stage=167, cal=True))["r"]
     want = set(md.old_predicted(leg))
@@ -1179,7 +1179,7 @@ def test_old_on_two_s167_stand_ins_is_exactly_its_rows_measured_and_no_guestmenu
 STANDIN_UNCALIBRATED = {("key", "capture")}
 
 
-@pytest.mark.parametrize("case", ["key/old", "caps/old", "leave/old", "leave/closeold", "title/old", "title/closeold",
+@pytest.mark.parametrize("case", ["key/old", "caps/old", "leave/old", "leave/closeold", "door/old", "title/old", "title/closeold",
                                   "stall/old", "out/old", "out/closeold"])
 def test_each_lever_calibrates_exactly_and_measures_its_shape(md, case):
     leg, lever = case.split("/")
@@ -1263,3 +1263,75 @@ def test_the_tape_leg_without_the_owner_gated_tape_is_its_gate_and_unrun_rows(md
     assert all("no b3 tape (owner-gated)" in r["detail"][x] for x in rows)
     assert "no COOP_TAPE_GUEST_MENU" in r["detail"]["S168-GMT-GATE"] and "S168T-CAL" not in r["red"]
     assert r["ini_same"] is True and r["sent"] == [] and "never edited" in r["detail"]["T2-INI"]
+
+
+# ------------------------------------------------------------------------------------------------ the 2026-11-08 rerun fixes (R1, R5)
+def test_cut_quit_judges_every_report_the_window_saw(md):
+    """R1: the window keeps every host report (not only the last): 'busy' seen and 'booting' never; a lone name still reads as one."""
+    b = _base("Item")
+    waiting = [_s("Item", close_step="quit", seated=True)] * 3
+    assert md.judge_cut_quit(waiting, [None, "busy", "busy"], _closed("cut"), b)[0]
+    assert md.judge_cut_quit(waiting, ["none", "busy"], _closed("cut"), b)[0]
+    ok, why = md.judge_cut_quit(waiting, ["busy", "booting", "busy"], _closed("cut"), b)
+    assert not ok and "['busy', 'booting']" in why and "never 'booting'" in why                         # a booting between two busy
+    assert not md.judge_cut_quit(waiting, [None, None], _closed("cut"), b)[0]
+    assert not md.judge_cut_quit(waiting, [], _closed("cut"), b)[0] and not md.judge_cut_quit(waiting, None, _closed("cut"), b)[0]
+
+
+def test_cut_quits_window_opens_at_the_guests_close_not_the_hosts_battle(md):
+    """R1: start_battle returns at the HOST's battle, one relay hop before the guest's cut close: the window waits for closes.cut +1 on
+    the guest first; a close that never begins is 'not reached' (the prompt lowered, the menu closed, the host's fight run out)."""
+    import inspect
+    cut = inspect.getsource(md._leg_cut)
+    sb = cut.index("host.start_battle(SCENE, group=GROUP)")
+    began = cut.index('began = poll(guest, lambda x: _d(base2, snap(x), "closes", "cut") >= 1 and (_gm(x).get("close_step") is not None')
+    window = cut.index("waiting, reports = [], []")
+    assert sb < began < window, cut[sb:window]
+    # the request frame's publish reads closes.cut +1 with close_step None: the window waits for the first JUDGED step (or a close ended)
+    assert 'or not _gm(x).get("close_pending")),' in cut[began:window] and 'CLOSE_S, "the cut close began on the guest")' in cut[began:window]
+    miss = cut[began:window]
+    assert "not reached: the host's battle never closed the guest's menu" in miss
+    assert miss.index("_lower_quit_prompt(guest, how)") < miss.index("close_out(guest)") < miss.index("_fight_out(host)")
+    assert "reports.append(boot_name(host.state))" in cut and "judge_cut_quit(waiting, reports," in cut
+    assert 'd.note(f"GM0-CUT-QUIT: the quit prompt up by {how}' in cut
+
+
+def test_door_d_runs_on_its_own_long_fade_leg_and_accepts_scene(md):
+    """R5: GM0-DOOR-D left the leave leg for its own `door` launch, gated on FadeDuration >= FADE_DOOR_MS (800); its door verdicts take
+    `scene` -- the host door's control-off lead-in, the likeliest."""
+    import inspect
+    assert md.DUO_ROWS["door"] == ("GM0-DOOR-D",) and "GM0-DOOR-D" not in md.DUO_ROWS["leave"] and md.FNS["door"] is md._leg_door
+    assert md.LEG_LEVERS["door"] == ("old",) and md.LEVER_PREDICTED[("door", "old")] == ("GM0-DOOR-D",) and md.FADE_DOOR_MS == 800
+    assert "GM0-DOOR-D" in md.FADE_ROWS and md.DUO_LEGS.index("door") == md.DUO_LEGS.index("leave") + 1
+    assert "GM0-DOOR-D" not in inspect.getsource(md._leg_leave)
+    door = inspect.getsource(md._leg_door)
+    gate = door.index('if ctx["pulled"] != "old" and (ctx["fade_ms"] or 40) < FADE_DOOR_MS:')     # under `old`: at any fade
+    assert door.index("_old_gate(") < gate < door.index("ready(guest)") < door.index('guest.press("menu")')
+    assert door.index('guest.press("menu")') < door.index('host.send(f"warp {AWAY} -1 -1", wait=False)') < door.index("judge_door_d(")
+    pre = _s()
+    for w in md.DOOR_D_WHYS:
+        s = _s(door_refused=dict(_gmk()["door_refused"], **{w: 1}), seated=False)
+        assert md.judge_door_d(pre, s, True)[0], w
+    s = _s(door_refused=dict(_gmk()["door_refused"], scene=1), seated=False)
+    ok, why = md.judge_door_d(pre, s, True)
+    assert ok and "{'scene': 1}" in why
+    assert not md.judge_door_d(pre, s, False)[0]                                                          # the follow never landed
+    assert not md.judge_door_d(pre, _s(door_refused=dict(_gmk()["door_refused"], ui=1), seated=False), True)[0]   # not a door verdict
+    assert not md.judge_door_d(pre, _s(door_refused=dict(_gmk()["door_refused"], scene=1, control=1), seated=False), True)[0]
+    assert not md.judge_door_d(pre, _s(door_refused=dict(_gmk()["door_refused"], scene=1), seated=True), True)[0]
+    assert not md.judge_door_d(pre, _s(door_refused=dict(_gmk()["door_refused"], scene=1), seated=False, event_enable=False), True)[0]
+
+
+def test_every_duo_press_carries_the_launchs_fade_into_the_settle(md):
+    """R4: _d0 keeps the guest's FadeDuration in LAUNCH_FADE, and _gctx hands it to coop_guest_menu._ready's HUD-FADE SETTLE."""
+    import inspect
+    d0 = inspect.getsource(md._d0)
+    assert d0.index('ctx["fade_ms"] = ') < d0.index('LAUNCH_FADE["ms"] = ctx["fade_ms"]')
+    old = md.LAUNCH_FADE["ms"]
+    try:
+        md.LAUNCH_FADE["ms"] = 800
+        from types import SimpleNamespace
+        g = SimpleNamespace(state=SimpleNamespace(raw={"netsync": {"guestmenu": {}}}, netsync={"guestmenu": {}}))
+        assert md._gctx(g)["fade_ms"] == 800
+    finally:
+        md.LAUNCH_FADE["ms"] = old

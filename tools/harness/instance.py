@@ -214,7 +214,8 @@ def post_close(pid: int, *, windows=None, post=None) -> int:
     LAW holds. FF9's UIKeyTrigger.OnApplicationQuit cancels the quit and raises the stock quit prompt (Unity 5.2.3 honours
     CancelQuit) on any scene but Bundle -- so never call it on the title/boot (Bundle) scene, and never Confirm the prompt it
     raises (Cancel closes it). GM0-QUIT-D's any-role route to the guest's prompt (the duo guest is role client: ``endbench
-    quit on`` is the selftest role's); unproven in game until the rampquit leg measures it. ``windows`` (a callable returning
+    quit on`` is the selftest role's); proven in game by the 2026-11-08 reruns (rampquit and cut each raised the prompt on a
+    client). ``windows`` (a callable returning
     ``[(hwnd, pid, visible)]``) and ``post`` (``post(hwnd, msg) -> bool``) are the test seams."""
     try:
         pid = int(pid)

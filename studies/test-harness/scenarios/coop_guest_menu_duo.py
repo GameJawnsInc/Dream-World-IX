@@ -45,11 +45,16 @@ the leg's -- 250 with the HOST's party seeded through COOPPARTY, so the seat is 
            GM0-RAMP-WORLD's duo half until the b3 tape). LEVER `old`.
   leave    GM0-LEAVE (the guest in Equip's candidates, the host `warp`s 30602: closes.leave +1, end done, the guest lands, the pin
            under 2500 ms, a guest shot within 4 s of the close -- READ it for the close line), GM0-FADE (a second follow close at the ROOT
-           as the host warps back: both closes land, both pins fresh), GM0-TIMING (MEASURING: close-to-HUD ms, the pin's age, FadeDuration),
-           GM0-DOOR-D (FadeDuration >= 300 only: a press, then the host's warp inside the HUD fade: the DOOR refuses control / busy /
-           leaving -- DESIGN D1: `control` once the follow has started, it turns control off as it arms -- nothing seated, the follow
-           lands). LEVERS `old`, `closeold` (`close old` on the guest + a Cancel 3.5 s after the warp: no close, the follow DEFERRED to the
-           manual close -- DP-AGED's shape).
+           as the host warps back: both closes land, both pins fresh), GM0-TIMING (MEASURING: close-to-HUD ms, the pin's age, FadeDuration).
+           LEVERS `old`, `closeold` (`close old` on the guest + a Cancel 3.5 s after the warp: no close, the follow DEFERRED to the manual
+           close -- DP-AGED's shape).
+  door     GM0-DOOR-D alone, on its own launch (S168-DESIGN R5; FadeDuration >= 800 only, else "not run (configuration)"): a press,
+           then the host's warp inside the guest's Hide fade: the DOOR refuses scene / control / busy / leaving -- a host's door turns
+           its control off and fades for most of a second before its intent goes out, so the guest's door reads `scene` (F4), the
+           likeliest; `control` once the follow has armed (DESIGN D1), `busy` / `leaving` before -- nothing seated, events on, the
+           follow lands. The long fade puts the host's control-off well inside the Hide fade (at 300 it beat the door by ~33-96 ms, so a
+           slower hop seats the menu), while the commit -- 0.9 s after the warp plus the ~450 ms follow fade -- still lands after the
+           door. LEVER `old` (its press is refused at the press, so the row runs at any fade).
   out      pair on 6603: GM0-OUT (the guest seated, the host walks out: closes.out +1, the guest lands on 9011, at most one 'waits: the
            field HUD is not up' -- the request frame's, decision 18 keeps deferring -- logged before the close's end line, the start
            after the door, its 'live on the world map for N ms' >= 1200). LEVERS `old`, `closeold`.
@@ -61,11 +66,13 @@ the leg's -- 250 with the HOST's party seeded through COOPPARTY, so the seat is 
            the fight: it lands at the command phase), fp equal after the return, a shot), GM0-SILENT-D (the guest's diorama: `now`
            'silent' on BattleHUD, a press keeps BattleHUD, `bmenu mainmenu` refused), GM0-CUT-QUIT (once the host's battle lane is stale
            on the guest -- term 6's PeerBattleLive holds StaleMs 2000 -- a second battle with the guest's quit prompt up: the close waits
-           -- close_step 'quit' -- the report 'busy', never 'booting'; the prompt's Cancel lets the close end). LEVERS `old`, `closeold`.
+           -- close_step 'quit' -- the report 'busy', never 'booting', over a window that opens at the guest's own close, closes.cut +1,
+           never at the host's battle: S168-DESIGN R1; the prompt's Cancel lets the close end). LEVERS `old`, `closeold`.
            COOP_GMD_BATTLE=0: the cut rows "not run (configuration)" (the stand-in duo models no diorama). THE QUIT PROMPT ON A DUO:
            `endbench quit on` is a SELFTEST-ROLE lever (NetSyncEnd.HarnessEndBench), so on its refusal the leg posts a WM_CLOSE to the
            guest's window (instance.post_close: UIKeyTrigger.OnApplicationQuit cancels the quit and opens the stock prompt -- grounded in
-           source, UNPROVEN in game: run rampquit ALONE first; never Confirm under it); when that raises nothing GM0-CUT-QUIT and
+           source, PROVEN in game by the 2026-11-08 reruns, rampquit and cut each raised it on a client; never Confirm under it); when
+           that raises nothing GM0-CUT-QUIT and
            GM0-QUIT-D read "not run" (named, out of the calibration) -- an OPEN ITEM, not a pass; its two-PC route is B32.
   title    GM0-TITLE (the host soft-resets: closes.title +1 within CloseCapMs + two fades, its words). LEVERS `old`, `closeold` (MEASURED:
            closes.title +0, still seated for TITLE_HOLD_S, then the guest's own Cancel restores at the door: doors +1, fp equal).
@@ -107,12 +114,14 @@ THE T LEGS (COOP_GMT_LEG, `py tools/play.py studies/test-harness/scenarios/coop_
   GM0-CAPS-c is coop_cut_hold.py's s121 leg on its v14 tape, unchanged (the regression set's fallback row): not a leg here.
 
 THE D HALVES CARRIED BY OTHER ROWS: GM0-WHY-x's -- the whys a duo reaches ride their own rows: older (GM0-CAPS-a), riding
-(GM0-WORLD), link (GM0-PAIRED-LINE-LOST), control / busy / leaving (GM0-DOOR-D); the rest are the S bench's bench ops. GM0-REFUSE-x's D spot check
-is GM0-REFUSE-I1-D; GM0-RESTORE's is GM0-RESTORE-D plus every close row's fp_after == fp_before (THE RESTORE FINGERPRINT AFTER EACH
-CLOSE); GM0-SEAT / GM0-CHIP / GM0-BROWSE / GM0-LOCAL / GM0-SILENT / GM0-RAMP-CFG / GM0-QUIT / GM0-PAIRED-LINE / GM0-WORLDTAG4 /
+(GM0-WORLD), link (GM0-PAIRED-LINE-LOST), scene / control / busy / leaving (GM0-DOOR-D); the rest are the S bench's bench ops.
+GM0-REFUSE-x's D spot check is GM0-REFUSE-I1-D; GM0-RESTORE's is GM0-RESTORE-D plus every close row's fp_after == fp_before
+(THE RESTORE FINGERPRINT AFTER EACH CLOSE); GM0-SEAT / GM0-CHIP / GM0-BROWSE / GM0-LOCAL / GM0-SILENT / GM0-RAMP-CFG / GM0-QUIT /
+GM0-PAIRED-LINE / GM0-WORLDTAG4 /
 GM0-STALL-VIEW / GM0-RAMP-FIELD / GM0-RAMP-WORLD / GM0-FREEZE carry a -D (or -F / -W / -LOST) row here; GM0-HOLE / GM0-STALL-WHO /
-GM0-KEY / GM0-FREEZE / GM0-LEAVE / GM0-CUT / GM0-RAMP-WORLD a -T row (GM0-RAMP-T with COOP_GMT_RAMP=world). GM0-DOOR's FadeDuration-300
-duo leg is GM0-DOOR-D. GM0-STALL-WHO has no duo half (the duo pairs a MIRRORING guest: an unmirrored one is the T route's).
+GM0-KEY / GM0-FREEZE / GM0-LEAVE / GM0-CUT / GM0-RAMP-WORLD a -T row (GM0-RAMP-T with COOP_GMT_RAMP=world). GM0-DOOR's long-fade
+duo leg is GM0-DOOR-D (its own `door` launch). GM0-STALL-WHO has no duo half (the duo pairs a MIRRORING guest: an unmirrored one is
+the T route's).
 GM0-HOLE's D half likewise: a duo pairs a mirroring guest, so the unmirrored world-paired press is the T route's (GM0-HOLE-T).
 GM0-DIALOG-PATH has no T half: the duo's -A / -B judge the same s121 dialog path on two real games; a T leg on the tape's recorded host
 talk is an open item.
@@ -128,9 +137,11 @@ the window is ~0 at this leg's SessionGraceMs 5000 against GhostGraceMs 5000; CR
 its in-game half an open item); GM0-DEATH (a kill and a relaunch: NO runner or leg launches it -- an open item); GM0-RAMP-WORLD's and
 GM0-RAMP-FIELD's D press legs (a FadeDuration above the 2 s config poll: no leg drives one yet -- an open item); the guest's quit
 prompt on a duo past the WM_CLOSE fallback (GM0-CUT-QUIT, GM0-QUIT-D: no any-role verb -- an open item, two-PC B32); the s169 rows. The
-FadeDuration-300 rows (GM0-KEY-DOUBLE, GM0-DOOR-D, GM0-FADE's 300 half) run only on a launch whose games read FadeDuration >= 300 (duo.py
+FadeDuration-300 rows (GM0-KEY-DOUBLE, GM0-FADE's 300 half) run only on a launch whose games read FadeDuration >= 300 (duo.py
 `--root-ini Interface.FadeDuration=300`, the runners' ROUND_GM_FADE=300: a hand edit of a root is regenerated away by Instance.ensure at
-every duo start); GM0-OVERLAY's shots are the close shots the leave and cut legs take (READ them).
+every duo start), GM0-DOOR-D only on its own `door` launch at FadeDuration >= 800 (ROUND_GM_FADE=800); every press waits out THE HUD-FADE
+SETTLE first (coop_guest_menu._ready: one FadeDuration + 100 ms past the pre-init sample, whichever ends later of that many game frames
+and that much wall time, S168-DESIGN R4); GM0-OVERLAY's shots are the close shots the leave and cut legs take (READ them).
 
 THE STAND-IN (ff9mapkit/tests/test_coop_guest_menu_duo.py): two fakegame stand-ins (the opt-in `guestmenu` rung) under a stub link -- the
 host's lane, flags, intent and caps word onto the guest, a stub blackhole -- run the legs it models: NEW green but STANDIN_UNMODELLED, OLD
@@ -190,18 +201,24 @@ TITLE_HOLD_S = 4.0       # `close old`: the menu held this long after the host's
 CLOSE_OLD_CANCEL_S = 3.5  # `close old` on the leave leg: the guest's own Cancel this long after the host's warp (DP-AGED)
 DOUBLE_GAP_S = 0.1       # GM0-KEY-DOUBLE: the second press 100 ms after the first
 FADE_LONG_MS = 300       # the FadeDuration the 300 rows need
+#: GM0-DOOR-D's own launch (S168-DESIGN R5): at this FadeDuration the host's control-off lands well inside the guest's Hide fade (at 300 it
+#: beat the door by only ~33-96 ms, so a slower relay hop seats the menu), and the follow's commit -- the debug warp's 0.9 s lead-in
+#: (Ff9mkDebugMenu.cs:114), then the guest's ~450 ms follow fade -- still lands after the door (around 1.4 s of fade the door reaches it)
+FADE_DOOR_MS = 800
 STSCENE_S = 2.0          # GM0-STSCENE: the host's own main menu held this long
 OUT_LIVE_MS = 1200       # GM0-OUT: the world-out starts at LiveMs >= this (the start line's host-alive ms)
-#: GM0-DOOR-D's door verdicts (DESIGN D1: term 9 `control` precedes term 10 `busy` -- a started follow turns control off as it arms)
-DOOR_D_WHYS = (BW.GM_WHY_BUSY, BW.GM_WHY_LEAVING, BW.GM_WHY_CONTROL)
+#: GM0-DOOR-D's door verdicts: `scene` (F4) during a host door's control-off lead-in, the likeliest -- the host's control is off and its
+#: fade runs for most of a second before the section-4 intent goes out (S168-DESIGN R5); `control` once the follow has armed (DESIGN D1:
+#: term 9 precedes term 10 `busy`, a started follow turns control off as it arms); `busy` / `leaving` before it
+DOOR_D_WHYS = (BW.GM_WHY_BUSY, BW.GM_WHY_LEAVING, BW.GM_WHY_CONTROL, BW.GM_WHY_SCENE)
 SKEW_FRAMES = gm.SKEW_FRAMES
 DETAIL_W = 1400
 D_BATTLE = os.environ.get("COOP_GMD_BATTLE", "1").strip() != "0"   # 0: the stand-in duo (no diorama model): the cut rows not run
 FIGHT_S, RETURN_S = 240.0, 60.0
 
 # ================================================================================================ the legs and rows
-DUO_LEGS = ("key", "caps", "world", "leave", "out", "rejoin", "cut", "title", "scene", "chest", "ramp", "rampquit", "stall", "dialog",
-            "hudstrip")
+DUO_LEGS = ("key", "caps", "world", "leave", "door", "out", "rejoin", "cut", "title", "scene", "chest", "ramp", "rampquit", "stall",
+            "dialog", "hudstrip")
 T_LEGS = ("hole", "older166", "older167", "tape")
 _RAW_DUO = (os.environ.get("COOP_GMD_LEG") or "key").strip().lower()
 DUO_LEG = _RAW_DUO if _RAW_DUO in DUO_LEGS else None
@@ -215,7 +232,8 @@ DUO_ROWS = {
             "GM0-RESTORE-D", "GM0-KEY-DOUBLE"),
     "caps": ("GM0-CAPS-a", "GM0-PAIRED-LINE-F", "GM0-BW"),
     "world": ("GM0-WORLD", "GM0-PAIRED-LINE-W", "GM0-WORLDTAG4-D", "GM0-STSCENE", "GM0-WALKGHOST", "GM0-RAMP-WORLD-D"),
-    "leave": ("GM0-LEAVE", "GM0-FADE", "GM0-TIMING", "GM0-DOOR-D"),
+    "leave": ("GM0-LEAVE", "GM0-FADE", "GM0-TIMING"),
+    "door": ("GM0-DOOR-D",),
     "out": ("GM0-OUT",),
     "rejoin": ("GM0-REJOIN",),
     "cut": ("GM0-CUT", "GM0-SILENT-D", "GM0-CUT-QUIT"),
@@ -236,7 +254,8 @@ T_ROWS = {
 }
 #: the rows a leg reads on OLD and NEW alike (s121's own behaviour, or a MEASURING row): never in an OLD or `old` prediction
 SAME_ON_OLD = frozenset(("GM0-STSCENE", "GM0-HUDSTRIP", "GM0-DIALOG-PATH-A", "GM0-DIALOG-PATH-B"))
-#: the rows a launch's configuration can leave unrun (out of the verdict, named): FadeDuration >= 300, a battle the stand-in duo cannot fight
+#: the rows a launch's configuration can leave unrun (out of the verdict, named): FadeDuration >= 300 (GM0-KEY-DOUBLE) / >= FADE_DOOR_MS
+#: (GM0-DOOR-D, its own door leg), a battle the stand-in duo cannot fight
 FADE_ROWS = frozenset(("GM0-KEY-DOUBLE", "GM0-DOOR-D"))
 BATTLE_ROWS = frozenset(("GM0-CUT", "GM0-SILENT-D", "GM0-CUT-QUIT"))
 
@@ -277,8 +296,9 @@ DUO_CHECKS = {
                  "on 30602 with the pin < 2500 ms, its close line, fp equal; a guest shot within 4 s",
     "GM0-FADE": "a second follow close at the ROOT (the host warps back to 250): it lands too, the pin < 2500 ms, fp equal",
     "GM0-TIMING": "MEASURING: close-to-HUD ms (last_close.ms), the pin ages, FadeDuration -- read on both closes",
-    "GM0-DOOR-D": "FadeDuration >= 300: Menu, then the host's warp inside the HUD fade: the DOOR refuses control / busy / leaving (`control` "
-                  "once the follow has started: it turns control off as it arms), nothing seated, events on, the follow lands",
+    "GM0-DOOR-D": "FadeDuration >= 800 (its own launch): Menu, then the host's warp inside the Hide fade: the DOOR refuses scene / control "
+                  "/ busy / leaving (`scene` in the host door's control-off lead-in, the likeliest; `control` once the follow has armed), "
+                  "nothing seated, events on, the follow lands",
     "GM0-OUT": "the guest seated, the host walks out of 6603: closes.out +1 (end done), the guest lands on 9011, at most one 'waits: the "
                "field HUD is not up' (the request frame's), before the close's end line; the start after the door, its live ms >= 1200",
     "GM0-REJOIN": "both on 9011, the guest seated, the host Confirms into 300: closes.rejoin +1, the guest lands on 300; at most one 'waits: "
@@ -333,7 +353,8 @@ GATE = {"S168-GMT-GATE": "the OWNER-GATED COOP_TAPE_GUEST_MENU (coop_tape_record
 
 #: the calibration levers per leg (COOP_GMD_LEVER / COOP_GMT_LEVER; unset = the leg's first): every one an ANY-ROLE `guestmenu` op, on the
 #: role LEVER_ROLE names (THE DUO CANNOT PULL A SELFTEST-ROLE LEVER)
-LEG_LEVERS = {"key": ("old", "capture"), "caps": ("old",), "world": ("old",), "leave": ("old", "closeold"), "out": ("old", "closeold"),
+LEG_LEVERS = {"key": ("old", "capture"), "caps": ("old",), "world": ("old",), "leave": ("old", "closeold"), "door": ("old",),
+              "out": ("old", "closeold"),
               "rejoin": ("old", "closeold"), "cut": ("old", "closeold"), "title": ("old", "closeold"), "scene": ("old", "closeold"),
               "chest": ("old", "closeold"), "ramp": ("old", "closeold"), "rampquit": ("old",), "stall": ("old",), "dialog": (),
               "hudstrip": (), "hole": ("old",), "older166": (), "older167": (), "tape": ("old",)}
@@ -728,15 +749,19 @@ def judge_silent(now, ui_after, opens_delta: int, bmenu_ok: bool, booted: bool) 
 
 
 def judge_cut_quit(waiting: list, report, s_after: dict, base: dict, lines=()) -> tuple:
-    """GM0-CUT-QUIT (PURE): the prompt held the cut close (close_step 'quit', seated, the host's report 'busy'), then the prompt's Cancel
-    let it end -- `done`, or on this FIELD the boot's scene load (cut_end_ok, as GM0-CUT)."""
+    """GM0-CUT-QUIT (PURE): the prompt held the cut close (close_step 'quit', seated, the host's report 'busy' and never 'booting'), then
+    the prompt's Cancel let it end -- `done`, or on this FIELD the boot's scene load (cut_end_ok, as GM0-CUT). ``report`` is every report
+    the window saw, in order (a lone name reads as one): 'busy' seen and 'booting' never (S168-DESIGN R1)."""
     held = bool(waiting) and all(_n(w, "close_step", default=None) == "quit" and _n(w, "seated", default=False) for w in waiting)
     lc = _n(s_after, "last_close", default={}) or {}
     end_ok = cut_end_ok(lc.get("end"), lines)
-    ok = held and report == BW.BOOT_NAMES[BW.BOOT_BUSY] and _d(base, s_after, "closes", "cut") == 1 and end_ok
-    return ok, (f"{len(waiting)} samples under the prompt, close_step quit and seated on all {held}; the host's report {report!r} (want "
-                f"'busy'); after the prompt's Cancel closes.cut +{_d(base, s_after, 'closes', 'cut')}, end {lc.get('end')!r} (done, or the "
-                f"boot's scene load after the door: {end_ok})")
+    seen = [] if report is None else [report] if isinstance(report, str) else [r for r in report if r is not None]
+    rep_ok = BW.BOOT_NAMES[BW.BOOT_BUSY] in seen and BW.BOOT_NAMES[BW.BOOT_BOOTING] not in seen
+    ok = held and rep_ok and _d(base, s_after, "closes", "cut") == 1 and end_ok
+    names = sorted(set(seen), key=seen.index)
+    return ok, (f"{len(waiting)} samples under the prompt, close_step quit and seated on all {held}; the host's reports {names} (want "
+                f"'busy', never 'booting'); after the prompt's Cancel closes.cut +{_d(base, s_after, 'closes', 'cut')}, end "
+                f"{lc.get('end')!r} (done, or the boot's scene load after the door: {end_ok})")
 
 
 def judge_title(base: dict, s: dict, fade_ms, words=None) -> tuple:
@@ -928,9 +953,13 @@ def _gmop(g, ctx: dict, *args) -> tuple:
     return ok, why
 
 
+#: this launch's FadeDuration (the guest's ini, read once in _d0): THE HUD-FADE SETTLE's length for every press (S168-DESIGN R4)
+LAUNCH_FADE = {"ms": None}
+
+
 def _gctx(g) -> dict:
-    """coop_guest_menu's ctx shape for its moves (THE PRE-INIT SAMPLE reads `new`)."""
-    return {"new": stage_new(g.state), "measured": {}}
+    """coop_guest_menu's ctx shape for its moves (THE PRE-INIT SAMPLE reads `new`; its HUD-FADE SETTLE reads `fade_ms`)."""
+    return {"new": stage_new(g.state), "measured": {}, "fade_ms": LAUNCH_FADE["ms"]}
 
 
 def ready(g, *, world: bool = False, timeout: float = CLOSE_S):
@@ -1212,8 +1241,8 @@ def _raise_quit_prompt(d, g) -> tuple:
     """The guest's stock quit prompt over its seated menu: `endbench quit on` (the selftest role's) -- else, on its 'needs the selftest
     role' refusal (a duo guest is role client), a WM_CLOSE posted to the guest's own window: UIKeyTrigger.OnApplicationQuit cancels the
     quit and opens the same stock prompt BenchQuitPrompt does (UIKeyTrigger.cs:412-418; Unity 5.2.3 honours CancelQuit). Grounded in
-    source, UNPROVEN in game: run its leg ALONE first. -> (ok, why, how): how 'endbench' | 'wm_close' | None. NEVER Confirm while the
-    prompt is up -- its Yes quits the game."""
+    source and PROVEN in game (the 2026-11-08 reruns: rampquit and cut each raised it on a client). -> (ok, why, how): how 'endbench' |
+    'wm_close' | None. NEVER Confirm while the prompt is up -- its Yes quits the game."""
     okq, whyq = cb.try_ns(g, "endbench", "quit", "on")
     if okq:
         return True, "", "endbench"
@@ -1254,7 +1283,9 @@ def _d0(d, check, ctx: dict) -> bool:
     ctx["new"] = stage_new(gs)
     fade = cb.ini_value(guest, "Interface", "FadeDuration")
     ctx["fade_ms"] = int(fade) if fade is not None and str(fade).strip().isdigit() else None
-    d.note(f"the guest reads s{168 if ctx['new'] else 167}; FadeDuration {ctx['fade_ms']!r} ms")
+    LAUNCH_FADE["ms"] = ctx["fade_ms"]
+    d.note(f"the guest reads s{168 if ctx['new'] else 167}; FadeDuration {ctx['fade_ms']!r} ms (each press settles "
+           f"{gm.settle_frames(ctx['fade_ms'])} frames and at least {gm.settle_ms(ctx['fade_ms'])} ms past the pre-init sample)")
     paired = gs.field_id == field and gs.ui_state == "FieldHUD" and cb.path(gs, "netsync.session.mirroring") is True
     if not paired or stage_new(hs) != stage_new(gs):
         return False                                     # (a probe-shape red alone still runs the leg: its own row is red)
@@ -1660,21 +1691,42 @@ def _leg_leave(d, check, rest, ctx: dict) -> None:
             wait_field(guest, dest)
     check("GM0-FADE", *judge_fade(cycles))
     check("GM0-TIMING", *judge_measuring(timing, f"(FadeDuration {ctx['fade_ms']!r} ms): {timing}", need=2))
-    if (ctx["fade_ms"] or 40) < FADE_LONG_MS:
-        _not_run(check, ctx, ("GM0-DOOR-D",), f"FadeDuration {ctx['fade_ms']!r} < {FADE_LONG_MS} (this launch's)")
+
+
+def judge_door_d(pre: dict, s: dict, landed: bool) -> tuple:
+    """GM0-DOOR-D (PURE): exactly one door refusal of DOOR_D_WHYS, nothing seated, events on, the follow landed."""
+    per = {w: _d(pre, s, "door_refused", w) for w in DOOR_D_WHYS}
+    dr = sum(per.values())
+    hits = {w: n for w, n in per.items() if n}
+    ok = dr == 1 and not _n(s, "seated", default=True) and landed and _n(s, "event_enable", default=None) is True
+    return ok, (f"door_refused {'+'.join(DOOR_D_WHYS)} +{dr} ({hits}), why "
+                f"{_n(s, 'why', default=None)!r}, seated {_n(s, 'seated', default=None)!r}, the follow landed {landed}, event_enable "
+                f"{_n(s, 'event_enable', default=None)!r}")
+
+
+def _leg_door(d, check, rest, ctx: dict) -> None:
+    """GM0-DOOR-D on its own launch (S168-DESIGN R5): the guest's Menu press, then the host's warp right behind it, so the host's door --
+    its control off, its lead-in -- lands inside the guest's Hide fade and the guest's DOOR refuses (`scene` the likeliest). Below
+    FADE_DOOR_MS the door can run before the host's control-off has crossed the relay (the margin was ~33-96 ms at 300), and it then
+    passes and seats the menu: not run (configuration). The commit cannot beat the door below ~1.4 s of fade: it comes 0.9 s after the
+    warp (the debug warp's lead-in) plus the guest's ~450 ms follow fade."""
+    host, guest = d.host, d.guest
+    if not _old_gate(d, check, rest, ctx):
+        return
+    # under `old` the press is refused AT the press (s121's audible refusal): no door at any fade, the row red by its judge and its shape
+    # already measured by _old_gate -- so the gate is the NEW run's only (a gate here would leave the lever's CAL nothing to calibrate)
+    if ctx["pulled"] != "old" and (ctx["fade_ms"] or 40) < FADE_DOOR_MS:
+        _not_run(check, ctx, ("GM0-DOOR-D",), f"FadeDuration {ctx['fade_ms']!r} < {FADE_DOOR_MS} (this launch's)")
         return
     st = ready(guest)
-    pre = snap(st or guest.state)
+    if st is None:
+        check("GM0-DOOR-D", False, f"not reached: no FieldHUD with control before the press (ui {guest.state.ui_state!r})")
+        return
+    pre = snap(st)
     guest.press("menu")
     host.send(f"warp {AWAY} -1 -1", wait=False)
     landed = wait_field(guest, AWAY) is not None
-    s = snap(guest.state)
-    # DESIGN D1: term 9 (control) precedes term 10 (busy), and a started follow turns control off in the call that arms it
-    # (StartFollowWarp) -- a door inside the follow's fade reads `control`; `busy` / `leaving` before it starts
-    dr = sum(_d(pre, s, "door_refused", w) for w in DOOR_D_WHYS)
-    ok = dr == 1 and not _n(s, "seated", default=True) and landed and _n(s, "event_enable", default=None) is True
-    check("GM0-DOOR-D", ok, f"door_refused control+busy+leaving +{dr}, why {_n(s, 'why', default=None)!r}, seated "
-                            f"{_n(s, 'seated', default=None)!r}, the follow landed {landed}, event_enable {_n(s, 'event_enable', default=None)!r}")
+    check("GM0-DOOR-D", *judge_door_d(pre, snap(guest.state), landed))
 
 
 def _leg_out(d, check, rest, ctx: dict) -> None:
@@ -1793,6 +1845,7 @@ def _leg_cut(d, check, rest, ctx: dict) -> None:
         _quit_unreachable(check, ctx, ("GM0-CUT-QUIT",), whyq)
         close_out(guest)                                  # never end the leg seated (as _leg_rampquit)
         return
+    d.note(f"GM0-CUT-QUIT: the quit prompt up by {how}{(' (' + whyq + ')') if whyq else ''}")
     at2 = cb.mark(guest)
     try:
         host.start_battle(SCENE, group=GROUP)
@@ -1801,16 +1854,31 @@ def _leg_cut(d, check, rest, ctx: dict) -> None:
         _lower_quit_prompt(guest, how)
         close_out(guest)
         return
-    waiting, report2 = [], None
+    # THE WINDOW OPENS AT THE GUEST'S CLOSE (S168-DESIGN R1): start_battle returns once the battle is up on the HOST, one relay hop before
+    # the guest's cut close begins -- a window from there samples the guest before its close (close_step None) and reds a correct hold.
+    # closes.cut goes up at the close's REQUEST, one service tick before its first step is judged (the request frame's publish reads
+    # close_step None, close_pending true), so the window opens at the first JUDGED step -- or at a close already ended, which the
+    # strict judge then reds with its true step. From there it covers the held close past the CloseCapMs it would otherwise end at.
+    began = poll(guest, lambda x: _d(base2, snap(x), "closes", "cut") >= 1 and (_gm(x).get("close_step") is not None
+                                                                                  or not _gm(x).get("close_pending")),
+                 CLOSE_S, "the cut close began on the guest")
+    if began is None:
+        check("GM0-CUT-QUIT", False, "not reached: the host's battle never closed the guest's menu (closes.cut +0)")
+        _lower_quit_prompt(guest, how)
+        close_out(guest)
+        _fight_out(host)
+        wait_field(guest, HOME, RETURN_S)
+        return
+    waiting, reports = [], []
     end = time.time() + (BW.GM_CLOSE_CAP_MS + 1000) / 1000.0
     while time.time() < end:
         waiting.append(snap(guest.state))
-        report2 = boot_name(host.state) or report2
+        reports.append(boot_name(host.state))
         time.sleep(0.2)
     _lower_quit_prompt(guest, how)
     s2 = snap(poll(guest, lambda x: (_gm(x).get("last_close") or {}).get("cause") == "cut" and not _gm(x).get("close_pending"), CLOSE_S,
                    "the close ended") or guest.state)
-    check("GM0-CUT-QUIT", *judge_cut_quit(waiting, report2, s2, base2, lines=cb.new(guest, at2)))
+    check("GM0-CUT-QUIT", *judge_cut_quit(waiting, reports, s2, base2, lines=cb.new(guest, at2)))
     _fight_out(host)
     wait_field(guest, HOME, RETURN_S)
 
@@ -2026,7 +2094,8 @@ def _leg_hudstrip(d, check, rest, ctx: dict) -> None:
     check("GM0-HUDSTRIP", *judge_hudstrip(pre, snap(guest.state), st is not None))
 
 
-FNS = {"key": _leg_key, "caps": _leg_caps, "world": _leg_world, "leave": _leg_leave, "out": _leg_out, "rejoin": _leg_rejoin,
+FNS = {"key": _leg_key, "caps": _leg_caps, "world": _leg_world, "leave": _leg_leave, "door": _leg_door, "out": _leg_out,
+       "rejoin": _leg_rejoin,
        "cut": _leg_cut, "title": _leg_title, "scene": _leg_scene, "chest": lambda d, c, r, x: _leg_scene(d, c, r, x, chest=True),
        "ramp": _leg_ramp, "rampquit": _leg_rampquit, "stall": _leg_stall, "dialog": _leg_dialog, "hudstrip": _leg_hudstrip}
 

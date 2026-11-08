@@ -58,6 +58,7 @@ for l in leave out rejoin cut title scene chest ramp; do
   duo $l closeold
 done
 duo stall old
+duo door old
 solo world old
 solo world poke
 duo world old

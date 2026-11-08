@@ -11,12 +11,14 @@
 # COOP_TAPE_GUEST_MENU_OWNER=1 -- the owner's go, never set by a runner; the Order's step 4) -- until it exists the T `tape` legs are NOT
 # RUN (S168-GMT-GATE stays red, named below) and their rows run on the duo (FREEZE-D, STALL-VIEW-D, RAMP-FIELD-D, RAMP-WORLD-D); the
 # two-PC look (the owner's). NAMED, NOT REACHED BY ANY LEG: GM0-LOAD (no Alt+F9 verb), GM0-DEATH (a kill + relaunch), GM0-CUT-NOBOOT, the
-# guest's quit prompt on a duo (GM0-CUT-QUIT, GM0-QUIT-D: no any-role verb; a WM_CLOSE fallback tried, unproven -- an OPEN ITEM said after
-# the duo closes), the RAMP press legs (a FadeDuration above the 2 s config poll).
-# FadeDuration 300: GM0-KEY-DOUBLE, GM0-DOOR-D and GM0-FADE's 300 half need [Interface] FadeDuration >= 300 on BOTH instance roots -- at
-# 40 ms those rows read "not run (configuration)"; the 300 pass is a second `key` / `leave` launch:
+# guest's quit prompt on a duo past the WM_CLOSE fallback (GM0-CUT-QUIT, GM0-QUIT-D run on that fallback in the cut / rampquit legs,
+# proven in game by the 2026-11-08 reruns; no any-role verb, so a "not run" there is an OPEN ITEM said after the duo closes), the RAMP
+# press legs (a FadeDuration above the 2 s config poll).
+# FadeDuration 300: GM0-KEY-DOUBLE and GM0-FADE's 300 half need [Interface] FadeDuration >= 300 on BOTH instance roots -- at 40 ms those
+# rows read "not run (configuration)"; the 300 pass is a second `key` / `leave` launch:
 # ROUND_GM_FADE=300 ROUND_GM_RERUN="new:duo:key new:duo:leave" bash studies/field-coop/s168/round_gm_rerun.sh (a hand edit of a root is
-# regenerated away by Instance.ensure at every duo start; ROUND_GM_FADE rides every duo as duo.py --root-ini). Step 6b says which half ran.
+# regenerated away by Instance.ensure at every duo start; ROUND_GM_FADE rides every duo as duo.py --root-ini). GM0-DOOR-D has its own
+# `door` leg at FadeDuration >= 800 (S168-DESIGN R5): ROUND_GM_FADE=800 ROUND_GM_RERUN="new:duo:door". Step 6b says which ran.
 ROUND_GM_KIND=new
 . "$(dirname "$0")/round_gm_lib.sh"
 preflight new t2 duo
@@ -55,11 +57,11 @@ if softreset_ok; then
 else
   skip_leg "solo softreset" "the install lacks [Control] SoftReset 1 / [Cheats] Enabled 1 (GM0-SOFTRESET's precondition: set them by hand, then rerun it)"
 fi
-for l in leave out rejoin ramp rampquit cut title scene chest stall; do   # rampquit before cut: the first WM_CLOSE runs alone
+for l in leave door out rejoin ramp rampquit cut title scene chest stall; do   # rampquit before cut: the first WM_CLOSE runs alone
   duo $l
 done
-say "   GM0-QUIT-D (and GM0-CUT-QUIT's prompt half): no any-role quit-prompt verb (\`endbench quit on\` is the selftest role's) and the legs' WM_CLOSE"
-say "   fallback is unproven in game -- a 'not run (configuration)' there is an OPEN ITEM, never a pass; its two-PC route is B32"
+say "   GM0-QUIT-D (and GM0-CUT-QUIT's prompt half): no any-role quit-prompt verb (\`endbench quit on\` is the selftest role's), so the legs ride the WM_CLOSE"
+say "   fallback (proven in game by the 2026-11-08 reruns) -- a 'not run (configuration)' there is an OPEN ITEM, never a pass; its two-PC route is B32"
 solo world
 duo world
 # 6. THE CAPS AND THE MEASURING ROWS (GM0-CAPS-a, the paired line, GM0-BW on LAN and on the relay; the dialogue path, the HUD strip)
@@ -68,15 +70,21 @@ duo caps caps_relay --topology relay
 duo dialog
 duo hudstrip
 # 6b. FadeDuration: every duo leg above ran at ROUND_GM_FADE (duo.py --root-ini on both roots) or, unset, the roots' own fade; the other
-#     half is a SECOND pass of `key` and `leave`
+#     half is a SECOND pass of `key` and `leave`, and GM0-DOOR-D's own pass is the `door` leg at 800
 if fade_ok; then
-  say "   ROUND_GM_FADE=$ROUND_GM_FADE (>= 300, on both roots through duo.py --root-ini): this run is the 300 pass (GM0-KEY-DOUBLE, GM0-DOOR-D,"
+  say "   ROUND_GM_FADE=$ROUND_GM_FADE (>= 300, on both roots through duo.py --root-ini): this run is the 300 pass (GM0-KEY-DOUBLE and"
   say "   GM0-FADE's 300 half ran); the 40 half: ROUND_GM_RERUN=\"new:duo:key new:duo:leave\" bash studies/field-coop/s168/round_gm_rerun.sh"
   say "   with ROUND_GM_FADE unset"
 else
-  say "   the duos ran below FadeDuration 300 (ROUND_GM_FADE ${ROUND_GM_FADE:-unset}): GM0-KEY-DOUBLE, GM0-DOOR-D and GM0-FADE's 300 half read"
+  say "   the duos ran below FadeDuration 300 (ROUND_GM_FADE ${ROUND_GM_FADE:-unset}): GM0-KEY-DOUBLE and GM0-FADE's 300 half read"
   say "   'not run (configuration)'. The 300 pass: ROUND_GM_FADE=300 ROUND_GM_RERUN=\"new:duo:key new:duo:leave\" bash"
   say "   studies/field-coop/s168/round_gm_rerun.sh (a hand edit of a root is regenerated away by Instance.ensure at every duo start)"
+fi
+if fade_door_ok; then
+  say "   GM0-DOOR-D ran on its own door leg (ROUND_GM_FADE=$ROUND_GM_FADE >= 800)"
+else
+  say "   GM0-DOOR-D read 'not run (configuration)' (its door leg needs FadeDuration >= 800). The door pass: ROUND_GM_FADE=800"
+  say "   ROUND_GM_RERUN=\"new:duo:door\" bash studies/field-coop/s168/round_gm_rerun.sh"
 fi
 # 7. THE T ROWS: the older hosts (s166's / s167's tape or THE INSTRUMENT of that caps word); the b3 tape's legs only once it exists
 t2 older166

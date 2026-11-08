@@ -9,7 +9,13 @@ need git + a provisioned worktree.
 
 import importlib.util
 import json
+import os
+import subprocess
+import sys
+import time
 from pathlib import Path
+
+import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 _spec = importlib.util.spec_from_file_location("nightly_gate", REPO / "tools" / "nightly_gate.py")
@@ -197,3 +203,170 @@ def test_main_wires_the_lint_ratchet_and_records_it():
     assert "no_lint_ratchet" in _SRC
     assert _SRC.index('"lint-up"') > _SRC.index('"skip-long"'), \
         "the lint verdict sits beside the skip ceiling, after the suite -- never before it runs"
+
+
+# ---- a KILLED run still names its failures (the 2026-11-07/08 timeouts named none) -------------------------
+def _results(path: Path, rows, finish=None):
+    lines = [json.dumps({"ev": "start", "pid": 1, "workers": 6})] + [json.dumps(r) for r in rows]
+    if finish is not None:
+        lines.append(json.dumps({"ev": "finish", "exitstatus": finish}))
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_parse_results_counts_reports_the_way_pytest_does(tmp_path):
+    """A failed call or an xdist worker crash (phase ``???``) is ``failed``; a failed setup/teardown or a collection
+    error is ``error`` -- pytest's own summary-line arithmetic, so a killed run's counts read like a finished one's.
+    No finish record = the run was killed; a torn last line (the kill landed mid-write) is skipped, not fatal."""
+    p = tmp_path / "r.results.jsonl"
+    _results(p, [
+        {"id": "t/a.py::ok", "w": "call", "o": "passed", "d": 1.0, "s": 0.5},
+        {"id": "t/a.py::bad", "w": "call", "o": "failed", "d": 2.0, "s": 0.0},
+        {"id": "t/a.py::bad", "w": "teardown", "o": "failed", "d": 0.1},
+        {"id": "t/b.py::fix", "w": "setup", "o": "failed", "d": 0.2},
+        {"id": "t/b.py::skip", "w": "setup", "o": "skipped", "d": 0.0},
+        {"id": "t/b.py::xf", "w": "call", "o": "xfailed", "d": 0.0, "s": 0.0},
+        {"id": "t/c.py::hung", "w": "???", "o": "failed", "d": 0.0},
+        {"id": "t/d.py", "w": "collect", "o": "failed"},
+    ])
+    with p.open("a", encoding="utf-8") as fh:
+        fh.write('{"id": "t/e.py::torn", "w": "ca')
+    got = ng.parse_results(p)
+    assert (got["passed"], got["failed"], got["error"], got["skipped"], got["xfailed"]) == (1, 2, 3, 1, 1)
+    assert got["failed_ids"] == ["t/a.py::bad", "t/c.py::hung"]
+    assert got["error_ids"] == ["t/a.py::bad", "t/b.py::fix", "t/d.py"]
+    assert got["finished"] is False and got["completed"] == 6
+    assert got["slowest_files"][0] == ["t/a.py", 3.6]
+    _results(p, [{"id": "t/a.py::ok", "w": "call", "o": "passed", "d": 1.0}], finish=0)
+    assert ng.parse_results(p)["finished"] is True
+    assert ng.parse_results(tmp_path / "absent.jsonl") == {}
+
+
+def test_parse_results_caps_the_ids_and_says_how_many(tmp_path):
+    p = tmp_path / "r.results.jsonl"
+    _results(p, [{"id": f"t/a.py::f{i}", "w": "call", "o": "failed", "d": 0} for i in range(ng.MAX_IDS + 7)])
+    got = ng.parse_results(p)
+    assert len(got["failed_ids"]) == ng.MAX_IDS and got["failed_ids_total"] == ng.MAX_IDS + 7
+
+
+def test_parse_short_summary_reads_a_complete_runs_names(tmp_path):
+    # the fallback when the results log is absent: the shapes the 2026-11-03 red printed
+    log = tmp_path / "run.pytest.log"
+    log.write_text("....F [100%]\n=== short test summary info ===\n"
+                   r"FAILED tests\test_coop_world_battle.py::test_the_solo_leg_is_green_on_the_s145_stand_in" "\n"
+                   r"ERROR tests\test_x.py::test_y - RuntimeError: setup" "\n"
+                   "1 failed, 1 error, 15550 passed in 9970.94s (2:46:10)\n", encoding="utf-8")
+    got = ng.parse_short_summary(log)
+    assert got["failed_ids"] == [r"tests\test_coop_world_battle.py::test_the_solo_leg_is_green_on_the_s145_stand_in"]
+    assert got["error_ids"] == [r"tests\test_x.py::test_y"]
+    log.write_text("....F [ 87%]\n", encoding="utf-8")                      # a killed run printed no summary
+    assert ng.parse_short_summary(log) == {}
+
+
+def test_prune_results_keeps_the_newest(tmp_path):
+    for ts in ("20261101-030001", "20261102-030002", "20261103-030002"):
+        (tmp_path / f"{ts}.results.jsonl").write_text("", encoding="utf-8")
+        (tmp_path / f"{ts}.pytest.log").write_text("", encoding="utf-8")
+    ng.prune_results(tmp_path, keep=2)
+    assert sorted(p.name for p in tmp_path.glob("*.results.jsonl")) == [
+        "20261102-030002.results.jsonl", "20261103-030002.results.jsonl"]
+    assert len(list(tmp_path.glob("*.pytest.log"))) == 3                     # the text logs are never pruned
+
+
+_STUB = '''
+import os, time, pytest
+def test_ok(): pass
+def test_bad(): assert 0
+@pytest.fixture
+def boom(): raise RuntimeError("setup")
+def test_setup_err(boom): pass
+def test_hangs(request):
+    open(os.environ["GATE_STUB_ROOT"], "w").write(str(request.config.rootpath))
+    open(os.environ["GATE_STUB_PID"], "w").write(str(os.getpid()))
+    time.sleep(600)
+'''
+
+
+def _stub_suite(tmp_path):
+    """The stub suite in ``suite/`` and its results log in a SIBLING ``state/`` -- the nightly's own shape (the gate
+    worktree's tests, the main repo's ``.test-gate/runs``), which is what exposed the two-token rootdir drift."""
+    suite, state = tmp_path / "suite", tmp_path / "state"
+    suite.mkdir()
+    state.mkdir()
+    (suite / "test_stub.py").write_text(_STUB, encoding="utf-8")
+    env = dict(os.environ)
+    env["GATE_STUB_PID"] = str(tmp_path / "worker.pid")
+    env["GATE_STUB_ROOT"] = str(tmp_path / "worker.rootdir")
+    results = state / "r.results.jsonl"
+    cmd = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(suite / "test_stub.py")]
+    cmd += ng.plugin_args(results, env, _quiet)
+    if importlib.util.find_spec("xdist") is not None:
+        # the gate's shape (only the CONTROLLER writes); loadfile keeps the file's order, so the hang runs LAST
+        cmd += ["-n", "2", "--dist", "loadfile"]
+    return cmd, env, results, suite
+
+
+def test_plugin_args_pass_the_log_path_as_one_token():
+    """THE ROOTDIR DRIFT (found by the first forced-kill run through main(), 2026-11-08): ``--gate-results PATH`` as two
+    tokens reads as a positional path in an xdist worker, whose rootdir then drifts to the common ancestor of the tests
+    and the log -- for the nightly that is C:\\gd, and the workers stalled in collection: 0 tests ran in 45 s."""
+    env = {}
+    got = ng.plugin_args(Path("C:/state/runs/x.results.jsonl"), env, _quiet)
+    assert got == ["-p", ng.PLUGIN_NAME, "--gate-results=" + str(Path("C:/state/runs/x.results.jsonl"))]
+    assert env["PYTHONPATH"].split(os.pathsep)[0] == str(ng.PLUGIN_DIR)
+
+
+def test_a_killed_suite_still_names_what_failed_before_the_kill(tmp_path):
+    """THE PROOF, end to end: a real pytest (under xdist when it is installed, as the gate runs it) with the plugin
+    loaded the gate's way, one test hanging, killed by the gate's own ``run`` timeout. The kill must still leave the
+    failure and the setup error NAMED, report the run unfinished -- and take the hung worker down with it (the
+    2026-11-08 workers outlived their kill by three minutes). The worker's rootdir must be the SUITE's, not the common
+    ancestor of the suite and the log (the two-token drift)."""
+    cmd, env, results, suite = _stub_suite(tmp_path)
+    assert "-p" in cmd and ng.PLUGIN_NAME in cmd, "the plugin must load through -p, from PLUGIN_DIR on PYTHONPATH"
+    lines = []
+    with pytest.raises(subprocess.TimeoutExpired):
+        # cwd = the suite (no ini: pytest's rootdir is the common ancestor of cwd and the args), so a correct worker
+        # roots at suite/ -- and the two-token drift roots it at tmp_path, the ancestor of the suite and the log
+        ng.run(cmd, lines.append, cwd=suite, env=env, timeout=20, tee_to=tmp_path / "run.log")
+    got = ng.parse_results(results)
+    assert got["finished"] is False
+    assert got["failed_ids"] == ["test_stub.py::test_bad"], (got, (tmp_path / "run.log").read_text())
+    assert got["error_ids"] == ["test_stub.py::test_setup_err"]
+    assert got["passed"] == 1
+    assert Path((tmp_path / "worker.rootdir").read_text()) == suite, "the worker's rootdir drifted off the suite"
+    pid_file = tmp_path / "worker.pid"
+    assert pid_file.is_file(), "the hanging test never started -- the kill proved nothing"
+    pid = int(pid_file.read_text())
+    deadline = time.time() + 10
+    while ng.pid_alive(pid) and time.time() < deadline:
+        time.sleep(0.2)
+    assert not ng.pid_alive(pid), f"the hung test's process {pid} outlived the kill (orphaned worker)"
+
+
+def test_parse_results_sums_each_workers_busy_time(tmp_path):
+    # the tail witness: a wide spread between workers is scheduling, not a slow suite
+    p = tmp_path / "r.results.jsonl"
+    _results(p, [{"id": "t/a.py::x", "w": "call", "o": "passed", "d": 10.0, "s": 1.0, "wk": "gw0"},
+                 {"id": "t/a.py::y", "w": "call", "o": "passed", "d": 4.0, "s": 0.0, "wk": "gw1"},
+                 {"id": "t/a.py::z", "w": "call", "o": "passed", "d": 2.0, "s": 0.0, "wk": "gw1"}])
+    assert ng.parse_results(p)["worker_busy_s"] == {"gw0": 11, "gw1": 6}
+
+
+def test_the_suite_cap_fits_inside_the_scheduled_tasks_limit():
+    """THE TIME BUDGET: Task Scheduler kills the task at its ExecutionTimeLimit, and a kill there skips main()'s
+    finally -- the night leaves no ledger row at all. So the default cap plus the pre-suite budget must fit inside the
+    limit the task is REGISTERED with, and the registration must read the same constant (raising one alone breaks it)."""
+    assert ng.DEFAULT_TIMEOUT_MIN + ng.PRESUITE_BUDGET_MIN <= ng.TASK_LIMIT_MIN
+    assert ng.DEFAULT_TIMEOUT_MIN > 184, "the 2026-11-07 run needed ~184 min (98% at the old 180 cap)"
+    assert "New-TimeSpan -Minutes {TASK_LIMIT_MIN}" in _SRC and "New-TimeSpan -Hours" not in _SRC
+    assert "default=DEFAULT_TIMEOUT_MIN" in _SRC
+
+
+def test_main_names_failures_on_both_paths():
+    # the helpers existing is not the fix -- main() must load the plugin into the SUITE command, read the log in the
+    # timeout branch (where the summary never printed), and also on a complete run
+    assert "cmd += extra" in _SRC and "plugin_args(results, env, log)" in _SRC
+    timeout_branch = _SRC[_SRC.index("except subprocess.TimeoutExpired:\n            entry[\"result\"] = \"timeout\""):]
+    assert timeout_branch.index("parse_results(results)") < timeout_branch.index("return 1")
+    assert "parse_short_summary(suite_log)" in _SRC
+    assert "kill_tree(p.pid, log)" in _SRC

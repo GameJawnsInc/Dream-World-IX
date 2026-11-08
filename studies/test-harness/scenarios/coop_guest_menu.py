@@ -159,6 +159,7 @@ import hashlib
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -192,8 +193,9 @@ FARSHORE, WORLD = 6603, 9011
 SCRIBE_AT = (-210.0, -837.0)                         # beside the scribe (a plain window): coop_talk_relay.py's WEST
 #: GM0-DOOR-889's field: the roll-stream bench's persistent [NFOC] [[behavior.hud]] strip (GM0-HUDSTRIP's; round_gm_lib.sh exports it)
 STRIP_FIELD = _env_int("COOP_GMD_STRIP_FIELD", 30890)
-#: GMBAG, the bench bag seeder (D6): Desert Boots (192) first, then Gysahl Greens (251) (a stock key item: BAG_KEY_ITEM), on entry -- the
-#: frame copies the guest's count>0 rows and rare sets, so E1 has a candidate every member can wear, I2 the greens, LOCAL a key item
+#: GMBAG, the bench bag seeder (D6): Desert Boots (192) first, then Gysahl Greens (251) (a regular item: I2's), on entry -- the frame
+#: copies the guest's count>0 rows and rare sets, so E1 has a candidate every member can wear, I2 the greens, LOCAL a key item once
+#: GMBAG grants one (BAG_KEY_ITEM below: Mini-Burmecia, 35)
 BAG_FIELD = _env_int("COOP_GM_BAG_FIELD", 30816)
 BAG_TOML = "studies/field-coop/s168/bench/gmbag.field.toml"
 BAG_SITES = ("E1", "I2")                             # the census sites that need the seeded bag (and LOCAL's key read)
@@ -1077,15 +1079,60 @@ def _hud(world: bool) -> str:
     return "WorldHUD" if world else "FieldHUD"
 
 
+#: THE HUD-FADE SETTLE (S168-DESIGN R4): every field load starts the HUD's Show fade, and a Menu press inside it takes GuestQuiet -- the
+#: stock silent drop (UIScene.OnKeyMenu returns !isLoading): no buzz, no line, a press that looks as if it never landed. THE PRE-INIT
+#: SAMPLE has no signal for that fade (`fading` is the screen fade, and events come back on early in it), so after the sample holds the
+#: settle waits one FadeDuration + SETTLE_PAD_MS more -- whichever ends LATER of that many GAME frames (`wait N`, at SETTLE_FPS: never
+#: wall time alone across a reload's blind gap) and that much wall time (the fade is timed in seconds: a game drawing faster than
+#: SETTLE_FPS would end the frame half early) -- and the sample is read again
+SETTLE_PAD_MS = 100
+SETTLE_FPS = 60           # the frames per second the frame half counts at (a slower game lengthens it; a faster one is the wall half's)
+
+
+def settle_ms(fade_ms) -> int:
+    """(PURE) THE HUD-FADE SETTLE's length: FadeDuration (40 ms when unread) + SETTLE_PAD_MS."""
+    return max(0, int(fade_ms) if fade_ms is not None else 40) + SETTLE_PAD_MS
+
+
+def settle_frames(fade_ms) -> int:
+    """(PURE) THE HUD-FADE SETTLE's game frames: settle_ms at SETTLE_FPS, rounded up."""
+    return max(1, -(-settle_ms(fade_ms) * SETTLE_FPS // 1000))
+
+
+def _landings(s):
+    """The guest's follow landings so far (`netsync.swap.counts.landings`): a change inside the settle is a new load, so a new fade."""
+    return cb.path(s, "netsync.swap.counts.landings")
+
+
 def _ready(g, ctx: dict, *, world: bool = False, timeout: float = CLOSE_S):
-    """THE PRE-INIT SAMPLE: the HUD with control, no fade, no window (and, on s168, events on). The state or None."""
+    """THE PRE-INIT SAMPLE: the HUD with control, no fade, no window (and, on s168, events on) -- then THE HUD-FADE SETTLE: the game runs
+    settle_frames(ctx['fade_ms']) frames, at least settle_ms of wall time passes, and the sample is read again. It must still hold, with
+    no follow landing in between, else the wait starts over (until ``timeout``). A reload that began inside the settle is still running
+    at its end (its fades alone outlast it), so the second read sees it. The settled state, or None."""
     hud = _hud(world)
 
     def ok(s):
         if s.ui_state != hud or not s.control or getattr(s, "fading", False) or getattr(s, "dialog_open", False):
             return False
         return not ctx.get("new") or _gm(s).get("event_enable") is True
-    return cb.poll(g, ok, timeout, f"{hud} with control (the pre-init sample)")
+    what = f"{hud} with control (the pre-init sample)"
+    need, wall = settle_frames(ctx.get("fade_ms")), settle_ms(ctx.get("fade_ms")) / 1000.0
+    deadline = time.time() + timeout
+    while True:
+        st = cb.poll(g, ok, max(0.0, deadline - time.time()), what)
+        if st is None:
+            return None
+        land = _landings(st)
+        t0 = time.time()
+        g.wait_frames(need)
+        left = wall - (time.time() - t0)
+        if left > 0:
+            time.sleep(left)
+        x = g.state
+        if ok(x) and _landings(x) == land:
+            return x
+        if time.time() >= deadline:
+            return None
 
 
 def _frame(g, ctx: dict, marker: int) -> tuple:
@@ -1186,10 +1233,83 @@ def _label(g):
     return getattr(g.state, "menu_label", None)
 
 
+def _cell(st):
+    """The highlighted cell's NAME: `menu_selected` (a list's pool cell, 'Item N', RecycleListPopulator.cs:308), else the active button
+    (ButtonGroupState.ActiveButton: the agent's `menu.button`). Every blank cell publishes the prefab's label, so a seek walks by this."""
+    sel = getattr(st, "menu_selected", None)
+    if sel:
+        return sel
+    raw = getattr(st, "raw", None)
+    menu = raw.get("menu") if isinstance(raw, dict) else None
+    return menu.get("button") if isinstance(menu, dict) else None
+
+
 def _where(g) -> tuple:
-    """(menu_group, menu_label) right now: one entry of a try's trail."""
+    """(menu_group, menu_label, the cell) right now: one entry of a try's trail."""
     st = g.state
-    return getattr(st, "menu_group", None), getattr(st, "menu_label", None)
+    return getattr(st, "menu_group", None), getattr(st, "menu_label", None), _cell(st)
+
+
+SEEK_PRESSES = 40         # a list seek's cap (Garnet's Panacea, cell 13, is about 18 presses into her three-column Use list)
+SEEK_FRAMES = 10          # the frames after each seek press (as Session.menu_pick)
+
+
+def _seek(g, group: str, labels, cells=(), *, max_presses: int = SEEK_PRESSES, why: list | None = None) -> bool:
+    """Walk ``group``'s list as a snake -- along the row until the CELL stops moving, one down, back the other way -- until the highlight
+    is one of ``cells`` (the cell index: the truth even where a blank NoDraw cell keeps a stale name, AbilityUI.cs:1063-1068) or, with
+    no ``cells``, one of ``labels`` (S168-DESIGN R2). Progress is judged by the cell (`_cell`), never by the label: every blank cell
+    publishes the prefab's label, so a label-judged walk (Session.menu_pick) stops at the first blank row. A list that publishes no cell
+    at all falls back to that label walk. False (``why`` appended, with the walk) on the cap, the list's end, a wrap, or a move that
+    leaves ``group``; the plan's next step (the Target group) catches a cell that is not what the plan says. The engine's key navigation
+    (UIKeyNavigation.Get: the nearest cell in a 45-degree cone, no wrap) sends Right at the end of a short last row UP to a seen cell,
+    and Down from above a short last row's gap to its last cell (ScrollItemKeyNavigation.CheckEmptyLastRow): a seen cell reached by a
+    move ALONG the row is therefore the list's end, never a wrap."""
+    def hit(st):
+        return _cell(st) in cells if cells else getattr(st, "menu_label", None) in labels
+
+    st = g.state
+    if _cell(st) is None and not cells:
+        return any(_pick(g, lb, confirm=False, directions=("down", "right"), why=why) for lb in labels)
+    walk, seen, across, a, stop, along = [], set(), ("right", "left"), 0, None, False
+    presses = [0]
+
+    def move(button):
+        g.press(button)
+        g.wait_frames(SEEK_FRAMES)
+        presses[0] += 1
+        return g.state
+
+    while stop is None:
+        cell, label = _cell(st), getattr(st, "menu_label", None)
+        walk.append((cell, label))
+        if hit(st):
+            return True
+        if getattr(st, "menu_group", None) != group:
+            stop = f"left {group} for {getattr(st, 'menu_group', None)!r}"
+        elif cell is None:
+            stop = "no cell published"
+        elif cell in seen:
+            stop = f"the list's end (a move along the last row stepped back to {cell!r})" if along else f"wrapped to {cell!r}"
+        elif presses[0] >= max_presses:
+            stop = f"the cap ({max_presses} presses)"
+        else:
+            seen.add(cell)
+            nxt = move(across[a])
+            along = True
+            if _cell(nxt) == cell and getattr(nxt, "menu_group", None) == group:   # the row's end: one down, then the other way
+                along = False
+                nxt = move("down")
+                if _cell(nxt) == cell:                       # nothing below this column (a shorter last row?): back one, then down
+                    back = move(across[a ^ 1])
+                    nxt = move("down")
+                    if _cell(nxt) in (cell, _cell(back)):
+                        stop = "the list's end"
+                else:
+                    a ^= 1
+            st = nxt
+    if why is not None:
+        why.append(f"seek {tuple(cells) or tuple(labels)} in {group}: {stop}; walked {walk[-12:]}")
+    return False
 
 
 def _trail_text(trail, limit: int = 600) -> str:
@@ -1245,10 +1365,12 @@ def goto_screen(g, label: str, *, char: int = 0) -> tuple:
 
 
 #: THE CENSUS PLANS (the second in-game round's: the first run measured the screens -- every bar HORIZONTAL, Item opening ON its list, the
-#: Ability lists opening on their first lit row): site -> tries, each (screen, char, steps); char a PARTY SLOT (goto_screen walks it from
-#: the root's remembered character). A step is ("bar", (labels...)) a horizontal bar's pick (its Confirm); ("expect", group, (labels...))
-#: the list's group polled and its opening label read -- a seek only when it is none of ``labels``; ("group", group) a poll; ("key",
-#: button) one press; ("shot", name) a screenshot. The census is polled after each step that presses (bar, pick, key).
+#: SUPPORT list opening on its first lit row; the 2026-11-08 reruns: the Use list opens on CELL 0, S168-DESIGN R2): site -> tries, each
+#: (screen, char, steps); char a PARTY SLOT (goto_screen walks it from the root's remembered character). A step is ("bar", (labels...))
+#: a horizontal bar's pick (its Confirm); ("expect", group, (labels...)[, (cells...)]) the list's group polled and its opening read --
+#: a seek by the cell (`_seek`) only when it is none of ``labels`` (with ``cells``: when its cell is none of them, the label then the
+#: cross-check); ("group", group) a poll; ("key", button) one press; ("shot", name) a screenshot. The census is polled after each step
+#: that presses (bar, pick, key).
 #: each tried member's OWN lit support abilities (never one list shared by all: a NoDraw row's NameLabel is never rewritten, AbilityUI.cs:1140-
 #: 1145, so a reused cell can publish another member's lit name): slot 0 (the impostor drawn on Freya: Dragon Killer from the Javelin first),
 #: slot 3 (Steiner)
@@ -1265,18 +1387,45 @@ SITE_PLANS = {
     "A2": [("Ability", c, (("bar", ("Equip",)), ("expect", "Ability.SupportAbility", lit), ("key", "special"))) for c, lit in _LIT_SAS],
     "E2": [("Equip", 0, (("bar", ("Off", "Remove")),) + tuple(("key", k) for k in ["down"] * n + ["confirm"])) for n in range(1, 5)],
     "E3": [("Equip", 0, (("bar", ("Optimize", "Ability")),))],          # the bar pick's own Confirm is E3 (EquipUI.cs:329)
-    # char 2 IS Garnet only with the remembered character tracked: Cure is her first Enable AA by source; the expect records what the list
-    # really opens on, and the shot right after the Use pick shows whether Cure is lit on the seated copy (DESIGN D10)
-    "A3": [("Ability", 2, (("bar", ("Use",)), ("shot", "s168-a3-garnet-use"), ("expect", "Ability.ActionAbility", ("Cure", "Panacea")),
+    # char 2 IS Garnet only with the remembered character tracked. With Memoria's default menu layout ([Interface] Enabled=1) the Use list
+    # opens on CELL 0 (AbilityUI.Show's second UpdateUserInterface resets it, AbilityUI.cs:138/:218) -- a blank summon slot for an early
+    # Garnet, publishing the prefab's label -- so the seek walks by the cell: Cure is 'Item 8' and Panacea 'Item 13' in her stock list
+    # (the 2026-11-08 shot; three columns under [Interface] Enabled=1), each its own try; the label is the cross-check and the Target group
+    # catches a wrong cell (S168-DESIGN R2). The shot right after the first Use pick shows whether Cure is lit on the seated copy (DESIGN
+    # D10) whatever the seek then does (the pointer still on cell 0); the second, after the seek, shows the pointer on Cure
+    "A3": [("Ability", 2, (("bar", ("Use",)), ("shot", "s168-a3-garnet-use"), ("expect", "Ability.ActionAbility", ("Cure",), ("Item 8",)),
+                           ("shot", "s168-a3-garnet-cure"), ("key", "confirm"), ("group", "Ability.Target"), ("key", "confirm"))),
+           ("Ability", 2, (("bar", ("Use",)), ("expect", "Ability.ActionAbility", ("Panacea",), ("Item 13",)),
                            ("key", "confirm"), ("group", "Ability.Target"), ("key", "confirm")))],
     "I2": [("Item", 0, (("expect", "Item.Item", ("Gysahl Greens",)), ("key", "confirm")))],
 }
 _MOVES = ("up", "down", "left", "right")
 
 
+def _expect_step(g, screen: str, site: str, step: tuple, trail: list, whys: list):
+    """One plan's ("expect", group, (labels...)[, (cells...)]) step: the list's group polled and its opening read (joins ``trail``); then,
+    only when the opening is none of ``labels`` (with cells: its cell none of them), the seek by the cell (`_seek`). With cells, the cell
+    it ends on joins ``trail`` too, carrying the label cross-check when its label is none of ``labels``. None when the highlight is on a
+    wanted row, else the stop's words (the seek's walk among them)."""
+    group, labels = step[1], tuple(step[2])
+    cells = tuple(step[3]) if len(step) > 3 else ()
+    ok_group = _group(g, group, f"{site}: {group}") is not None
+    where = _where(g)
+    trail.append(where)
+    if not ok_group:
+        return f"{screen}: never reached {group} (read {where})"
+    there = where[2] in cells if cells else where[1] in labels
+    if not there and not _seek(g, group, labels, cells, why=whys):
+        return f"{screen}: {group} opened on {where[1]!r} ({where[2]!r}), none of {cells or labels} reached ({'; '.join(whys)})"
+    if cells:
+        at = _where(g)
+        trail.append(at if at[1] in labels else at + (f"label not one of {labels}",))
+    return None
+
+
 def drive_site(g, ctx: dict, site: str) -> dict:
     """Each of the site's tries from the root until a census confirm is counted: {reached, why, before, after, back, reached_pass, trail}.
-    No blind Confirm: a label not found ends the try with a why. After every Confirm (and Special) the (menu_group, menu_label) joins
+    No blind Confirm: a label not found ends the try with a why. After every Confirm (and Special) the (menu_group, menu_label, cell) joins
     ``trail``, and every not-reached why carries it. A site that needs the seeded bag (BAG_SITES) on a run whose seeder did not run
     (ctx['bag_why']) is not driven: its why names the seeder."""
     rec = {"reached": False, "why": "no try ran", "before": None, "after": None, "back": False, "reached_pass": False, "trail": []}
@@ -1307,7 +1456,8 @@ def drive_site(g, ctx: dict, site: str) -> dict:
                 path, swhy = cb.shot(g, step[1])
                 trail.append(f"shot {path or 'FAILED: ' + swhy}")
                 if path:
-                    g.note(f"GM0-REFUSE-{site}: {path} (READ it: is the row under the cursor lit on the seated copy?)")
+                    g.note(f"GM0-REFUSE-{site}: {path} (READ it: is the row the plan seeks lit on the seated copy? A shot before the "
+                           f"seek can show the pointer on a list's blank first cell)")
                 continue
             if kind == "group":
                 if _group(g, step[1], f"{site}: {step[1]}") is None:
@@ -1315,15 +1465,8 @@ def drive_site(g, ctx: dict, site: str) -> dict:
                     break
                 continue
             if kind == "expect":
-                group, labels = step[1], tuple(step[2])
-                ok_group = _group(g, group, f"{site}: {group}") is not None
-                where = _where(g)
-                trail.append(where)
-                if not ok_group:
-                    stop = f"{screen}: never reached {group} (read {where})"
-                    break
-                if where[1] not in labels and not any(_pick(g, lb, confirm=False, directions=("down", "right"), why=whys) for lb in labels):
-                    stop = f"{screen}: {group} opened on {where[1]!r}, none of {labels} found ({'; '.join(whys)})"
+                stop = _expect_step(g, screen, site, step, trail, whys)
+                if stop:
                     break
                 continue
             if kind == "bar":

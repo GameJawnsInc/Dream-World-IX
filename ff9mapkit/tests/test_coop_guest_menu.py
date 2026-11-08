@@ -1593,7 +1593,16 @@ def test_solo_the_census_plans_read_the_measured_screens(solo):
     assert ("expect", "Equip.Inventory", ("Desert Boots",)) in plans["E1"][0][2]
     assert plans["I2"][0][2][0] == ("expect", "Item.Item", ("Gysahl Greens",))
     a3 = plans["A3"]
-    assert len(a3) == 1 and a3[0][1] == 2 and a3[0][2][:2] == (("bar", ("Use",)), ("shot", "s168-a3-garnet-use"))
+    assert len(a3) == 2 and all(char == 2 for _s, char, _st in a3) and a3[0][2][:2] == (("bar", ("Use",)), ("shot", "s168-a3-garnet-use"))
+    # R2: the Use list opens on cell 0 -- each try seeks its own cell (Cure 'Item 8', then Panacea 'Item 13'), the Target group after it
+    assert [next(st for st in steps if st[0] == "expect")[2:] for _s, _c, steps in a3] == [(("Cure",), ("Item 8",)),
+                                                                                         (("Panacea",), ("Item 13",))]
+    assert all(steps[0] == ("bar", ("Use",)) and ("group", "Ability.Target") in steps for _s, _c, steps in a3)
+    t1 = a3[0][2]
+    assert t1[t1.index(next(st for st in t1 if st[0] == "expect")) + 1] == ("shot", "s168-a3-garnet-cure")   # the pointer on Cure
+    for _site, tries in plans.items():                                                  # a cells tuple only on an expect, never empty
+        for _screen, _char, steps in tries:
+            assert all(len(st) == 3 or (st[0] == "expect" and len(st) == 4 and st[3]) for st in steps if st[0] == "expect"), steps
     assert set(solo.BAG_SITES) == {"E1", "I2"} and solo.BAG_FIELD == 30816 and solo.STRIP_FIELD == 30890
 
 
@@ -1747,3 +1756,182 @@ def test_solo_the_cfg_edge_and_the_door_889_not_reached_words(solo):
     assert solo.judge_cfg({"gm": {"closes": {"ending": 0}}}, ending, True)[0]
     ok, detail = solo.judge_door_889({}, {}, False)
     assert not ok and "no window up at the press" in detail and "strip" in detail
+
+
+# ------------------------------------------------------------------------------------------------ the 2026-11-08 rerun fixes (R2, R4)
+class _Grid(_Stub):
+    """A list as the engine's key navigation moves it: ``cols`` columns of cells 'Item 0'.. in row order, each published with its label (a
+    blank cell publishes the prefab's 'Skill'). Right / Left move along the row and stop at its ends -- but Right at the end of a SHORT
+    last row goes up to the cell one row up and one column right (UIKeyNavigation.Get: the nearest cell in a 45-degree cone, no wrap);
+    Down moves one row, and from a row above a short last row's gap to the list's LAST cell (ScrollItemKeyNavigation.CheckEmptyLastRow);
+    on the last row it stays (``wrap_down``: back to the top, which the engine never does); ``left_out`` -- a Left at column 0 leaves the
+    list's group for ``left_out``."""
+
+    def __init__(self, solo, labels, *, cols=3, at=0, group="Ability.ActionAbility", wrap_down=False, left_out=None):
+        self.labels, self.cols, self.i, self.group, self.wrap_down, self.left_out = list(labels), cols, at, group, wrap_down, left_out
+        super().__init__(solo, self._draw())
+
+    def _draw(self):
+        return _st("Ability", group=self.group, label=self.labels[self.i], selected=f"Item {self.i}")
+
+    def press(self, button, *_a, **_k):
+        self.presses.append(button)
+        c, n = self.i % self.cols, len(self.labels)
+        row, last = self.i // self.cols, (n - 1) // self.cols
+        if button == "right" and c + 1 < self.cols:
+            if self.i + 1 < n:
+                self.i += 1
+            elif row == last and row > 0:                    # a short last row's end: the cone finds the row above
+                self.i = self.i - self.cols + 1
+        elif button == "left" and c > 0:
+            self.i -= 1
+        elif button == "left" and self.left_out:
+            self.group = self.left_out
+        elif button == "down":
+            if self.i + self.cols < n:
+                self.i += self.cols
+            elif row < last:                                 # above a short last row's gap: its last cell
+                self.i = n - 1
+            elif self.wrap_down:
+                self.i = c
+        self.state = self._draw()
+
+
+#: an early Garnet's Use list under Memoria's default layout (three columns, [Interface] Enabled=1): blank summon slots first (each the
+#: prefab's 'Skill'), Cure at cell 8, Panacea at cell 13, Protect at cell 16 (the 2026-11-08 shot)
+_GARNET = ["Skill"] * 8 + ["Cure", "Skill", "Skill", "Skill", "Skill", "Panacea", "Skill", "Skill", "Protect"] + ["Skill"] * 7
+
+
+def test_solo_the_seek_walks_by_the_cell_through_blank_rows(solo):
+    """R2: the Use list opens on cell 0, a blank slot publishing the prefab's label -- a label-judged walk (Session.menu_pick) calls it
+    stuck after three blank rows. _seek walks a snake by the CELL: right to the row's end, down, back left, and stops on the wanted cell
+    (Cure 'Item 8', Panacea 'Item 13') within the cap; a label alone stops by label; the walk never presses Confirm."""
+    g, why = _Grid(solo, _GARNET), []
+    assert solo._seek(g, "Ability.ActionAbility", ("Cure",), ("Item 8",), why=why), why
+    assert g.state.menu_selected == "Item 8" and g.state.menu_label == "Cure" and "confirm" not in g.presses and why == []
+    g = _Grid(solo, _GARNET)
+    assert solo._seek(g, "Ability.ActionAbility", ("Panacea",), ("Item 13",)) and g.state.menu_selected == "Item 13"
+    assert len(g.presses) <= solo.SEEK_PRESSES and set(g.presses) <= {"right", "left", "down"}, g.presses
+    g = _Grid(solo, _GARNET)
+    assert solo._seek(g, "Ability.ActionAbility", ("Cure",)) and g.state.menu_selected == "Item 8"        # by label: still by the cell
+    g = _Grid(solo, _GARNET, cols=1)                                                                     # one column: down, down ...
+    assert solo._seek(g, "Ability.ActionAbility", ("Cure",), ("Item 8",)) and g.state.menu_selected == "Item 8"
+    g = _Grid(solo, _GARNET, cols=2)                                                                     # two columns
+    assert solo._seek(g, "Ability.ActionAbility", ("Cure",), ("Item 8",)) and g.state.menu_selected == "Item 8"
+    # a blank NoDraw cell that kept a stale lit name (AbilityUI.cs:1063-1068): the cell index wins, the label is only the cross-check
+    stale = list(_GARNET)
+    stale[3] = "Cure"
+    g = _Grid(solo, stale)
+    assert solo._seek(g, "Ability.ActionAbility", ("Cure",), ("Item 8",)) and g.state.menu_selected == "Item 8"
+    g = _Grid(solo, stale)
+    assert solo._seek(g, "Ability.ActionAbility", ("Cure",)) and g.state.menu_selected == "Item 3"       # by label alone: fooled
+
+
+def test_solo_the_seek_stops_with_a_why_at_the_end_a_wrap_a_group_change_or_the_cap(solo):
+    g, why = _Grid(solo, _GARNET), []
+    assert not solo._seek(g, "Ability.ActionAbility", ("Curaga",), ("Item 30",), why=why)
+    assert len(why) == 1 and "the list's end" in why[0] and "Item 23" in why[0], why
+    # a short last row: Down from above its gap reaches its last cell (the diagonal), then the back-one-then-Down path ends the walk
+    g, why = _Grid(solo, _GARNET[:15], cols=2), []
+    assert not solo._seek(g, "Ability.ActionAbility", ("Curaga",), ("Item 30",), why=why)
+    assert "the list's end" in why[0] and "Item 14" in why[0] and "wrapped" not in why[0], why
+    # Right at the end of a short last row steps UP to a seen cell: the list's end, never a wrap (the engine has none)
+    g, why = _Grid(solo, _GARNET[:13], cols=2), []
+    assert not solo._seek(g, "Ability.ActionAbility", ("Curaga",), ("Item 30",), why=why)
+    assert "the list's end (a move along the last row stepped back to 'Item 11')" in why[0], why
+    # a wanted cell on a short last row (Item 21, Item 22), reached by the diagonal: Down from Item 20 lands on the list's last cell
+    g = _Grid(solo, _GARNET[:23])
+    assert solo._seek(g, "Ability.ActionAbility", ("Skill",), ("Item 22",)) and g.state.menu_selected == "Item 22"
+    g, why = _Grid(solo, _GARNET, wrap_down=True), []
+    assert not solo._seek(g, "Ability.ActionAbility", ("Curaga",), ("Item 30",), why=why) and "wrapped to" in why[0], why
+    g, why = _Grid(solo, _GARNET, at=1, left_out="Ability.SubMenu"), []
+    assert not solo._seek(g, "Ability.ActionAbility", ("Cure",), ("Item 8",), why=why), why          # right to Item 2, down, left out
+    assert "left Ability.ActionAbility for 'Ability.SubMenu'" in why[0], why
+    g, why = _Grid(solo, _GARNET), []
+    assert not solo._seek(g, "Ability.ActionAbility", ("Panacea",), ("Item 13",), max_presses=4, why=why) and "the cap (4 presses)" in why[0]
+    assert len(g.presses) <= 5, g.presses
+
+
+def test_solo_the_seek_falls_back_to_the_label_walk_when_no_cell_is_published(solo):
+    """A list with no `menu_selected` and no `menu.button`: the label walk (menu_pick, down then right) as before; `_cell` reads the
+    active button when no pool cell is focused."""
+    g = _Stub(solo, _st("Item", group="Item.Item", label="Ether"))
+    assert solo._seek(g, "Item.Item", ("Potion",)) and g.picks == [("Potion", "down", False)]
+    st = _st("Item", group="Item.Item", label="Potion")
+    st.raw["menu"] = {"button": "Item 4"}
+    assert solo._cell(st) == "Item 4" and solo._cell(_st(selected="Item 2")) == "Item 2" and solo._cell(_st()) is None
+    assert solo._where(_Stub(solo, _st("Item", group="Item.Item", label="Potion", selected="Item 0"))) == ("Item.Item", "Potion", "Item 0")
+
+
+def test_solo_the_expect_step_seeks_by_its_cells_and_trails_the_cross_check(solo):
+    """drive_site's expect step (_expect_step): with cells the opening's CELL is judged and the seek stops on the cell -- a stale lit name
+    on a blank cell cannot stop it -- and the cell it ends on joins the trail, carrying the label cross-check when its label is none of
+    the step's; without cells the label decides; a list that ends first names the opening and the walk; a group never reached stops."""
+    import inspect
+    assert "_expect_step(g, screen, site, step, trail, whys)" in inspect.getsource(solo.drive_site)
+    cure = ("expect", "Ability.ActionAbility", ("Cure",), ("Item 8",))
+    stale = list(_GARNET)
+    stale[3] = "Cure"
+    g, trail, whys = _Grid(solo, stale), [], []
+    assert solo._expect_step(g, "Ability", "A3", cure, trail, whys) is None and g.state.menu_selected == "Item 8"
+    assert trail == [("Ability.ActionAbility", "Skill", "Item 0"), ("Ability.ActionAbility", "Cure", "Item 8")], trail
+    blank8 = list(_GARNET)
+    blank8[8] = "Skill"
+    g, trail = _Grid(solo, blank8), []
+    assert solo._expect_step(g, "Ability", "A3", cure, trail, []) is None
+    assert trail[-1] == ("Ability.ActionAbility", "Skill", "Item 8", "label not one of ('Cure',)"), trail
+    g, trail = _Grid(solo, stale), []                                                     # no cells: the label decides (fooled by it)
+    assert solo._expect_step(g, "Ability", "A3", cure[:3], trail, []) is None and g.state.menu_selected == "Item 3" and len(trail) == 1
+    g, trail = _Grid(solo, ["Potion", "Ether"], group="Item.Item"), []                      # already on it: no press
+    assert solo._expect_step(g, "Item", "I1", ("expect", "Item.Item", ("Potion",)), trail, []) is None and g.presses == []
+    g, whys = _Grid(solo, _GARNET[:10]), []
+    stop = solo._expect_step(g, "Ability", "A3", ("expect", "Ability.ActionAbility", ("Panacea",), ("Item 13",)), [], whys)
+    assert "Ability: Ability.ActionAbility opened on 'Skill' ('Item 0'), none of ('Item 13',) reached" in stop and "walked" in stop
+    g = _Grid(solo, _GARNET, group="Ability.SubMenu")
+    assert "never reached Ability.ActionAbility" in solo._expect_step(g, "Ability", "A3", cure, [], [])
+
+
+def test_solo_the_hud_fade_settle_frames(solo):
+    """R4: one FadeDuration + 100 ms (40 ms when the ini was not read), and its game frames at 60 a second, rounded up."""
+    assert [solo.settle_ms(f) for f in (None, 40, 0, 300, 800, -5)] == [140, 140, 100, 400, 900, 100]
+    assert [solo.settle_frames(f) for f in (None, 40, 0, 300, 800, 1000)] == [9, 9, 6, 24, 54, 66]
+    assert solo.SETTLE_PAD_MS == 100 and solo.SETTLE_FPS == 60
+
+
+def _ready_st(landings=0, *, fading=False, ee=True):
+    s = _st(gm={"event_enable": ee})
+    s.raw["netsync"]["swap"] = {"counts": {"landings": landings}}
+    s.fading = fading
+    return s
+
+
+class _Settle(_Stub):
+    """A pre-init sample stub whose game runs on: each `wait N` records N and moves the game to the next of ``after_wait``."""
+
+    def __init__(self, solo, state, after_wait=(), queue=()):
+        super().__init__(solo, state, queue=queue)
+        self.after_wait, self.waits = list(after_wait), []
+
+    def wait_frames(self, n):
+        self.waits.append(n)
+        if self.after_wait:
+            self.state = self.after_wait.pop(0)
+
+
+def test_solo_ready_settles_past_the_hud_fade_and_restarts_on_a_new_load(solo):
+    """R4: THE PRE-INIT SAMPLE, then `wait settle_frames(fade)` and a second read: it must still hold with the same landings. A landing in
+    between (a follow's new load) or a sample gone bad (a reload began) starts the wait over; a sample that never holds is None."""
+    import time
+    ctx = {"new": True, "fade_ms": 300}
+    g = _Settle(solo, _ready_st(), after_wait=[_ready_st()])
+    t0 = time.time()
+    assert solo._ready(g, ctx) is g.state and g.waits == [24]
+    assert time.time() - t0 >= 0.39                       # a game whose frames run fast still waits the fade's wall time (400 ms)
+    g = _Settle(solo, _ready_st(0), after_wait=[_ready_st(1), _ready_st(1)])            # a landing inside the settle: once more
+    assert solo._ready(g, ctx) is not None and g.waits == [24, 24]
+    g = _Settle(solo, _ready_st(), after_wait=[_ready_st(fading=True)], queue=[_ready_st()])   # a reload began: poll again, settle again
+    assert solo._ready(g, ctx) is not None and g.waits == [24, 24]
+    g = _Settle(solo, _ready_st(ee=False))                                                # never events on: no settle, None
+    assert solo._ready(g, ctx) is None and g.waits == []
+    g = _Settle(solo, _ready_st(), after_wait=[_ready_st()])
+    assert solo._ready(g, {"new": True}) is not None and g.waits == [9]                   # FadeDuration unread: 40 ms
