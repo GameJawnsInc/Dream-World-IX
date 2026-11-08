@@ -66,6 +66,8 @@ WALL_LEAN_FLOOR = 0.2
 JOIN_CUT_DENT = 0.01
 #: the lip's own mains stream: a cell-lip mint's NEW lip cells draw from ``mains_seed`` plus this
 LIP_MAINS_SEED = 0x11F
+#: THE PREFAB FRAME's relief seed is the island seed (x1000) salted with this, never the centre (PREFABS.md)
+PREFAB_RELIEF_SALT = 0xF93
 #: per-family beach reference blocks (language pins AND the beach block's divert
 #: donor -- both host Terrain+Sea1/2/4/5+Beach1 transforms, verified 2026-07-15)
 BEACH_PINS = {"grass": (7, 17), "desert": (20, 5)}
@@ -375,7 +377,8 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
                    mains_seed: int = 0xF91, stamp_seed: int = 0xF92, ground: str = "grass",
                    relief_amp: float = 0.0, relief_seed=None,
                    beach=None, disc: int = 1, game=None,
-                   outline=None, rim_at=None, shore_origin: float = 0.0, cell_lip: bool = True) -> dict:
+                   outline=None, rim_at=None, shore_origin: float = 0.0, cell_lip: bool = True,
+                   prefab_frame: bool = False) -> dict:
     """Build a synthetic cliff landmass around WORLD ``center = (cx, cz)`` as per-block ``Terrain``
     meshes. ``lobes=1`` = the perturbed-circle outline; ``lobes>=2`` = the ASYMMETRIC multi-lobe union
     (:func:`mesh.multi_blob_outline` -- elongation, waists, natural corner creases; the shape gate in
@@ -407,7 +410,15 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
     crest is snapped onto and cut at the 4u lattice lines and the grass clipped per cell, so no lip tri wears a
     collapsed mains map. ``cell_lip=False`` is the pre-fix mint byte for byte -- the input the July world-forest /
     world-hill / world-mountain benches were proven on, which their identity nets rebuild. A beach mint always keeps
-    the old lip."""
+    the old lip.
+
+    THE PREFAB FRAME (``prefab_frame=True``, opt-in; studies/overworld-editor/PREFABS.md): the mint is the SAME land,
+    shifted, wherever it is placed by whole 64u blocks -- so one in-game walk of a prefab stands for every site. Two of
+    the mint's draws read ABSOLUTE position and are made relative here: the meadow-decal shuffle runs over the cells
+    in sorted order (:func:`grassland.place_stamps` ``ordered``), and the rolling relief is read in the frame of the
+    block holding the centre, its seed from ``seed`` rather than the centre. ``seed`` is then required (its default
+    comes from the centre too). Off (the default), every mint is byte-for-byte what it was: each recipe on disk replays
+    its own bytes. A shift that is not a whole block re-clips the cells and is different land either way (measured)."""
     from . import mesh as M
     from .extract import BlockMesh, encode_id, CH_POS, CH_NRM, CH_UV, CH_TAN
     gspec = G.GROUNDS[ground]
@@ -433,6 +444,16 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
                          f"{sorted(n for n, g in G.GROUNDS.items() if g.get('wall_coastal'))}")
 
     cx, cz = center
+    if prefab_frame:
+        if seed is None:
+            raise ValueError("the prefab frame needs an explicit seed: the default seed comes from the centre, so the "
+                             "same prefab would mint a different island at every site")
+        if beach is not None or outline is not None:
+            raise ValueError("the prefab frame covers the blob mint only: a beach or custom-outline mint has not been "
+                             "measured under a shift (studies/overworld-editor/PREFABS.md)")
+    # the frame's origin: the corner of the block holding the centre (moves with the island in whole blocks)
+    frame_x = BLOCK * math.floor(cx / BLOCK) if prefab_frame else 0.0
+    frame_z = BLOCK * math.floor(cz / BLOCK) if prefab_frame else 0.0
     if seed is None:
         seed = float(int(cx * 7 + cz * 13) % 997)
     if outline is not None:
@@ -635,7 +656,12 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
 
     # OPT-IN rolling relief (world-XZ value noise; default relief_amp=0 => flat => byte-identity).
     r_amp = relief_amp * gspec.get("relief_scale", 1.0)
-    r_seed = int(cx * 7 + cz * 13) & 0xFFFFFFFF if relief_seed is None else int(relief_seed)
+    if relief_seed is not None:
+        r_seed = int(relief_seed)
+    elif prefab_frame:
+        r_seed = (int(round(float(seed) * 1000.0)) ^ PREFAB_RELIEF_SALT) & 0xFFFFFFFF
+    else:
+        r_seed = int(cx * 7 + cz * 13) & 0xFFFFFFFF
     rim_keys = {(round(x, 3), round(z, 3)) for (x, _y, z) in ring}
 
     def _edge_dist(x, z):
@@ -655,7 +681,7 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
         w = G.relief_fade(_edge_dist(x, z))              # fade to 0 at the rim (welds), full inland
         if w == 0.0:
             return land_height
-        return land_height + w * G.relief(x, z, seed=r_seed, amp=r_amp)
+        return land_height + w * G.relief(x - frame_x, z - frame_z, seed=r_seed, amp=r_amp)
 
     # THE CELL-CLIPPED LIP, the grass half: every grass tri as its per-cell pieces (an interior lattice tri is one
     # piece, itself; a beach mint keeps every tri whole, as before).
@@ -704,7 +730,7 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
         return True
 
     placements, stamped_cell = ([], {}) if not stamps else G.place_stamps(
-        cells_used, stamps, box_ok=box_ok, seed=stamp_seed, n_patches=n_patches)
+        cells_used, stamps, box_ok=box_ok, seed=stamp_seed, n_patches=n_patches, ordered=prefab_frame)
 
     def shore_s(x, z):
         bi, bd = 0, None
@@ -907,6 +933,7 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
     return {"blocks": blocks, "outline": outline, "rim": rim, "rim_y": rim_y, "shore_origin": shore_origin,
             "crest_cuts": sum(len(c) for c in crest_cuts.values()),
             "seed": seed, "center": (cx, cz),
+            "prefab_frame": (frame_x, frame_z) if prefab_frame else None,
             "was_land": was_land, "top": top, "placements": placements, "ring_edge_flips": ring_flips,
             "ground": ground, "beach": bch,
             # THE MINTED (quad,ori) FIELD -- the very per-4u-cell window assignment every mains tri
@@ -1403,7 +1430,7 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
              game=None, dry_run: bool = False, skip_mirror: bool = False,
              target_disc: int | None = None, all_sea_target: bool = False,
              coastnav: bool = True, coastnav_policy: str = "land-anywhere",
-             allow_overwrite: bool = False, area: int | None = None) -> dict:
+             allow_overwrite: bool = False, area: int | None = None, prefab_frame: bool = False) -> dict:
     """Build, GATE, and deploy a synthetic landmass. ``cell=(bx, by)`` centres it on that block;
     ``center=(wx, wz)`` places it anywhere (a multi-block landmass splits per block automatically).
     Raises ``ValueError`` with the report if any gate fails. Deploys per touched block: the ``Terrain``
@@ -1443,7 +1470,7 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
                            land_height=land_height, rim_run=rim_run, n_patches=n_patches,
                            stamps=None if flat else "auto",
                            ground=ground, relief_amp=relief_amp, relief_seed=relief_seed,
-                           beach=beach, disc=disc, game=game)
+                           beach=beach, disc=disc, game=game, prefab_frame=prefab_frame)
     # THE OPEN-OCEAN TARGET LAW (the world-transplant gate, ported here 2026-07-12): every
     # footprint block must be TRUE open ocean. No escape hatch -- on a sea-only real block the
     # Terrain override has no transform to bind to (the fragment silently never renders), and
@@ -1495,6 +1522,8 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
                          + (f"; failing placement probes: {bad_place}" if bad_place else ""))
     summary = {"op": "landmass", "center": list(built["center"]), "seed": built["seed"],
                "radius": base_radius, "blocks": [], "report": report, "area": stamp}
+    if prefab_frame:
+        summary["prefab_frame"] = list(built["prefab_frame"])
     # THE READ/WRITE DISC SPLIT. `disc` stays the READ disc -- which stock tree the meshes, sea plane, stamps
     # and donor prefabs borrow real bytes from. It MUST remain 1 or 4: extract._worldmap_env has no other
     # `worldmap/disc{N}/` bundle tree to scan and raises for anything else. `target` is purely where the

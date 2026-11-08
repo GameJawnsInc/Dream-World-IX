@@ -2119,7 +2119,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                    scan_band=None, gblend=MTN_GBLEND, search_radius=10, search_step=2,
                    scan_cutoff=60, ground: str = "grass", disc: int = 1, game=None,
                    max_apron_lift=None, foot_course_rects=None, rock_height: float = 1.0,
-                   rot_deg=None, spread: float = 1.0, log=print) -> dict:
+                   rot_deg=None, spread: float = 1.0, prefab_frame: bool = False, log=print) -> dict:
     """Carry a REAL rock massif (largest ``rock_topos`` component + enclosed raised tris
     + optional alcove floor + Object-aperture plugs) verbatim onto the island at
     ``center`` (exact placement, rotation 0) or the best lawful placement scanned around
@@ -2155,6 +2155,10 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     ``rock_height`` (1.0..:data:`MTN_ROCK_HEIGHT_MAX`) stretches the carried rock pure-Y
     about its pinned rim before it is seated (:func:`_rock_height_map`, terrain study X1); the
     rock-rigid gate then measures the carry against that DECLARED shape. 1.0 = byte-identical.
+
+    ``prefab_frame=True`` (opt-in, THE PREFAB FRAME, studies/overworld-editor/PREFABS.md): the one draw that read
+    the ABSOLUTE cell -- the tile an undecodable apron cell falls back to -- reads it relative to the block holding the
+    centre, so the same carry moved by whole 64u blocks writes the same bytes. Off (the default) it is unchanged.
 
     ``rot_deg`` turns the massif to ANY angle about its centre (degrees; positive is clockwise
     seen from above, east toward south, as the quarter-turn scan's +90): exact with ``center``, the only angle the ``near``
@@ -3229,6 +3233,12 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         if best2 is None:
             import random as _r
             i2, j2 = cell
+            if prefab_frame:
+                # THE PREFAB FRAME (PREFABS.md): an undecodable cell's tile hashes the cell RELATIVE to the corner of
+                # the block holding the massif centre, so the carry moved by whole blocks wears the same tiles. Off,
+                # the absolute cell -- the bytes every recipe on disk replays.
+                i2 -= 16 * math.floor(TX / 64.0)
+                j2 -= 16 * math.floor(TZ / 64.0)
             rr = _r.Random((i2 * 73856093) ^ (j2 * 19349663) ^ 0xF95)
             best2 = (QUADS[rr.randrange(4)], ORIS[rr.randrange(4)])
         _dec[cell] = best2

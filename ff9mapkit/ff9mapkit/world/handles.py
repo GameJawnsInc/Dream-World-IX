@@ -136,6 +136,11 @@ HANDLES = {
                "With --rock-height S as well it scales uniformly. Needs a bigger island: the footprint grows S "
                "squared. In-game passed to x1.5 on Uaho, alone and scaled whole (terrain study round 20). Default "
                "1.0 = the rigid carry."),
+        H("prefab_frame", "--prefab-frame", action="store_true", default=False, surfaces="cli row",
+          help="THE PREFAB FRAME (opt-in; studies/overworld-editor/PREFABS.md): the tile an undecodable apron cell "
+               "falls back to is hashed relative to the block holding the centre, not the absolute cell, so the same "
+               "carry moved by whole 64u blocks writes the same bytes. Off (default) = the bytes every recipe on disk "
+               "replays."),
         H("gblend", "--gblend", type=float, metavar="U", surfaces="cli",
           help="ground-apron blend reach in units (default 12.0, the proven hill-at-scale value): how far out from"
                " the rigid rim the grass apron spreads its rise. Wider = a broader, gentler bank into the foot (a "
