@@ -263,9 +263,11 @@ Everything is idempotent; re-running any step is safe.
    py C:\gd\Dream-World-IX\tools\nightly_gate.py --register-task
    ```
 
-   The task runs the **gate worktree's** copy (`C:\gd\ff9-test-gate\tools\nightly_gate.py`), which
-   is always at master — so the gate self-updates when you merge changes to the script; the main
-   repo's checked-out branch never matters.
+   The task runs the **gate worktree's** copy (`C:\gd\ff9-test-gate\tools\nightly_gate.py`), so the
+   main repo's checked-out branch never matters. ⚠ That copy is whatever the **last** run checked
+   out: a run loads its script *before* it re-points the worktree at master, so a merged gate change
+   would first take effect the night after next. After merging a gate change, run `--smoke` once.
+   It re-points the gate worktree at master, so tonight's run loads the new script.
 5. **Optional first full run now** (instead of waiting for tonight):
 
    ```bash
