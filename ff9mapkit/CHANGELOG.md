@@ -13,8 +13,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   or read, or when another installed folder has land in its footprint. `--list` shows the catalog, `--dry-run`
   checks without writing, `--recipe-out` saves the placed rows as a `world-fuse` recipe, and `--fingerprint`
   takes a new entry's fingerprint.
-- **Two prefabs to start, both `candidate` (not yet walked in game):** `desert-peak-isle` (a desert island with
-  the desert peak on its home ground) and `meadow-grove-isle` (a meadow island with a forest and a hill).
+- **Six prefabs:** `desert-peak-isle` (walked, qualified), `meadow-grove-isle` (candidate), and the four walked
+  stock carry units as prefabs: `comma-isle`, `crystal-reef`, `terminus-pair` and `beach-chain` (real beaches).
+- **Placement reaches across the x seam and beside stock land.** Near stock land the island's sea is re-classed for
+  boats by the coast-nav stamp; placement then checks the island against a reference copy built at the catalog's
+  clean site, and requires the stamp to have settled those classes. The disc-4 copy is checked too.
 
 ### Added — the prefab frame: the same island wherever you place it
 - **`--prefab-frame`** on `world-island` and `world-mountain`, and `prefab_frame = true` on their `world-fuse`

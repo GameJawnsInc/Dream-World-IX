@@ -7,6 +7,9 @@
 #
 # `fingerprint` + `footprint` are taken by the tool, never typed:  ff9mapkit world-prefab NAME --fingerprint --cell BX,BY
 # A placement refuses unless the staged land matches them, so a fingerprint names the bytes that were walked.
+# An island prefab's fingerprint is taken at a CLEAN site (no stock ground within 16u of the footprint) and names
+# it in fingerprint_cell: beside stock land the coast-nav stamp re-classes the nearest sea (THE NAV MARGIN), so a
+# placement there is judged against a reference copy staged at that clean site (world/prefab.py).
 #
 # status: "candidate" until the owner walks it in game (rim, every carry), then "qualified" with the walk noted.
 # Each prefab is a composition the verbs' own gates passed whole; the walk, not the gates, is the verdict
@@ -19,6 +22,7 @@ walked = "2026-11-08: owner walk on the live map, anchored at block (10,9) -- pa
 ground = "desert"
 note = "A r60 desert island with the desert peak (19,3) on its home ground, turned 90 deg: 139 rock tris, peak 14.5u."
 fingerprint = "732af2c5e7a973a7591b6935f7f583795a117c4794bcaf5c900152c831f0f338"
+fingerprint_cell = [1, 14]
 footprint = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 0], [0, 1], [1, -1], [1, 0], [1, 1]]
 
 [[prefab.rows]]
@@ -41,6 +45,7 @@ status = "candidate"
 ground = "grass"
 note = "A r60 meadow island (verbatim meadow stamps) with the clean canopy blob (15,15) and a r14 grass hill beside it."
 fingerprint = "78196ce1e7e11c6b8aafc58efd0aa65cbb6f68a55eb2e5d31d80cf3e94a1ada7"
+fingerprint_cell = [1, 14]
 footprint = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 0], [0, 1], [1, -1], [1, 0], [1, 1]]
 
 [[prefab.rows]]
@@ -57,3 +62,68 @@ center = [52.0, 20.0]
 table = "hill"
 center = [4.0, 24.0]
 radius = 14.0
+
+# ---- walked stock carry units (donors.toml class "coast"): the base is a transplant, no minted surface at all.
+# Each was walked in game as a carry at the rotation given (studies/overworld-editor/C5.md, C20.md); the prefab
+# entry is that carry, placed by block with its fingerprint measured identical at two anchors.
+
+[[prefab]]
+name = "comma-isle"
+status = "qualified"
+ground = "desert"
+walked = "as the carry unit the-comma, turned 90, onto (20,0): party at 9.551 (predicted 9.554), C5.md"
+note = "The comma, turned 90: a teardrop island ~190u long, a bare rock spine to 26.5u and a green arm 51u out."
+fingerprint = "dc977f24e67110f56dce43e967a58f786aa6777a9ef6b36358ed56eec8dfbe26"
+footprint = [[0, 0], [1, 0], [1, 1], [2, 0], [2, 1]]
+
+[[prefab.rows]]
+table = "transplant"
+cell = [0, 0]
+donor = [9, 5]
+size = [2, 3]
+rot = 90
+
+[[prefab]]
+name = "crystal-reef"
+status = "qualified"
+ground = "crystal"
+walked = "as the carry unit crystal-reef, turn 0, onto (11,1): party on a shard at 9.266 (predicted 9.265), C5.md"
+note = "The Shimmering crystal reef: six small unwalkable crystal masses in 2x2 blocks."
+fingerprint = "fd9e3b22d0300c16c9e4ba332cb7f40317b44d7de78e0f9aceb35cbdca92a014"
+footprint = [[0, 0], [0, 1], [1, 0], [1, 1]]
+
+[[prefab.rows]]
+table = "transplant"
+cell = [0, 0]
+donor = [6, 4]
+size = [2, 2]
+
+[[prefab]]
+name = "terminus-pair"
+status = "qualified"
+ground = "grass"
+walked = "as the carry unit terminus-pair, turn 0, onto (3,0): party on its grass at 5.039 (predicted 5.044), C5.md"
+note = "Two small grass islands stacked north-south in 1x2 blocks."
+fingerprint = "04746eb89a45460ee0765d4e3f0d7145ab310c81154367b9d576fb66284688bd"
+footprint = [[0, 0], [0, 1]]
+
+[[prefab.rows]]
+table = "transplant"
+cell = [0, 0]
+donor = [10, 17]
+size = [1, 2]
+
+[[prefab]]
+name = "beach-chain"
+status = "qualified"
+ground = "grass"
+walked = "as the carry unit beach-chain, turn 0, onto (19,1): party on its grass at 6.516 (predicted 6.521), C20.md"
+note = "The beach island and its chain of dots, 4x2 blocks: real beaches. Turn 0 only."
+fingerprint = "49bcb6f4a96a61e3dcfcee419438873fa4ca533b1a9b9e4cdf0173087e834e99"
+footprint = [[0, 0], [1, 0], [1, 1], [2, 0], [2, 1], [3, 0], [3, 1]]
+
+[[prefab.rows]]
+table = "transplant"
+cell = [0, 0]
+donor = [7, 17]
+size = [4, 2]

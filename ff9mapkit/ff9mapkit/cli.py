@@ -5796,9 +5796,23 @@ def _cmd_world_prefab(args: argparse.Namespace) -> int:
             print(f"wrote the placed recipe: {args.recipe_out} (compose it with world-fuse)")
         if args.fingerprint:
             PF.check_rows_on_map(prefab, cell)
+            if PF.stamped_nav(prefab):
+                near = PF.stock_land_near(prefab, cell, game=args.game)
+                if near:
+                    print(f"not a clean site: stock land within {PF.NAV_MARGIN:g}u of the footprint at {sorted(near)} "
+                          f"re-classes the island's sea (THE NAV MARGIN). Take an island prefab's fingerprint where "
+                          f"no stock land is near.", file=sys.stderr)
+                    return 1
             st = PF.stage(prefab, cell, game=args.game)
             print(f"fingerprint = \"{st['fingerprint']}\"")
+            if PF.stamped_nav(prefab):
+                print(f"fingerprint_cell = [{cell[0]}, {cell[1]}]")
             print("footprint = [" + ", ".join(f"[{a}, {b}]" for a, b in st["footprint"]) + "]")
+            print("navigation: " + ("carried with the stock sea (fingerprinted)" if not PF.stamped_nav(prefab)
+                                    else "settled (the coast-nav stamp would change nothing)" if not st["nav"]
+                                    else f"NOT settled -- the stamp would still re-class {st['nav']}"))
+            if st["nav"]:
+                return 1
             if prefab.get("fingerprint"):
                 same = st["fingerprint"] == prefab["fingerprint"]
                 print("the catalog entry: " + ("IDENTICAL" if same else "DIFFERENT -- the catalog names other land"))
