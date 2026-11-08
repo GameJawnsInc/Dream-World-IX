@@ -68,6 +68,10 @@ REF="${ROUND_GM_REF:-$RUNS/s167-proof-block.txt}"
 # 420 / 249 as built); the clone the build came from is named here (an explicit FF9_S168_CLONE wins). FF9_S167_CLONE stays as the caller
 # set it (unset = the s167 patch's post-image: 532 / 196) -- preflight refuses one that names the s168 clone.
 export FF9_S168_CLONE="${FF9_S168_CLONE:-C:/gd/FFIX/Memoria/Assembly-CSharp}"
+# GM0-HUDSTRIP's field (coop_guest_menu_duo.py COOP_GMD_STRIP_FIELD): a kit field whose persistent [NFOC] [[behavior.hud]] strip is up
+# from entry -- the roll-stream bench 30890 (studies/roll-stream/bench/roll0.field.toml, in-game proven). Unset, the scenario falls back to
+# its pairing field 30801, which has no strip: the OLD run of 2026-11-07 read GM0-HUDSTRIP 'not reached' there (an unpredicted red).
+export COOP_GMD_STRIP_FIELD="${COOP_GMD_STRIP_FIELD:-30890}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 PLAN="${ROUND_GM_PLAN:-0}"
 if [ "$PLAN" = 1 ]; then

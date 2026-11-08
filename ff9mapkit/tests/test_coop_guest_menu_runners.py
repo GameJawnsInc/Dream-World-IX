@@ -178,6 +178,22 @@ def test_the_library_keeps_s167s_guards_and_the_s168_pins_and_knobs():
 
 
 # ================================================================================================ THE PLAN
+def test_the_hudstrip_legs_field_carries_a_persistent_hud_strip():
+    """GM0-HUDSTRIP measures the silent drop under a persistent kit strip, so the runners must hand the duo a field that HAS one: the
+    library exports COOP_GMD_STRIP_FIELD, and its default is a bench field whose toml carries a [[behavior.hud]] strip (the OLD run of
+    2026-11-07 fell back to 30801, which has none, and read the row 'not reached')."""
+    lib = (RUNNERS / "round_gm_lib.sh").read_text(encoding="ascii")
+    m = re.search(r'^export COOP_GMD_STRIP_FIELD="\$\{COOP_GMD_STRIP_FIELD:-(\d+)\}"$', lib, re.M)
+    assert m, "round_gm_lib.sh must export COOP_GMD_STRIP_FIELD with a default"
+    fid = int(m.group(1))
+    hits = []
+    for toml in (REPO / "studies").glob("*/bench/*.field.toml"):
+        text = toml.read_text(encoding="utf-8", errors="replace")
+        if re.search(rf"^\s*id\s*=\s*{fid}\b", text, re.M) and "[[behavior.hud]]" in text:
+            hits.append(toml)
+    assert hits, f"no studies/*/bench/*.field.toml with id = {fid} and a [[behavior.hud]] strip"
+
+
 def test_old_calibrates_every_leg_on_s167_and_records_the_proof_reference(tables, tmp_path):
     rows = _plan(tmp_path, "round_gm_old.sh")
     legs = _legs(rows)
