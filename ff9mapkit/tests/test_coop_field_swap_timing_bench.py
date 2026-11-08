@@ -3463,6 +3463,7 @@ OUT = {"close": du.menu_close_t(gs), "close_none": du.menu_close_t([Sx(t, 250, u
        "pre": [du.menu_pre_void(v) for v in ("open", "audible", None)],
        "pre_void": [bool(du.menu_pre_void(v)) for v in ("dialog", "off", "silent", "")],
        "pre_why": du.menu_pre_void("dialog"),
+       "pre_s168": [bool(du.menu_pre_void("guest")), du.menu_pre_void("guest", True), bool(du.menu_pre_void("dialog", True))],
        "landed": [du.host_landed_on(h(0, 30602, -1), 30602, 4000), du.host_landed_on(h(0, 30602, 322), 30602, 4000),
                   du.host_landed_on(h(0, 250, 322), 30602, 4000), du.host_landed_on(h(0, 30602, 0), 30602, 4000),
                   du.host_landed_on(h(0, 30602, 322, e=4000), 30602, 4000), du.host_landed_on(h(0, 30602, 322), 30602),
@@ -3493,6 +3494,8 @@ OUT = {"close": du.menu_close_t(gs), "close_none": du.menu_close_t([Sx(t, 250, u
 ''')
     assert out["close"] == 900 and out["close_none"] is None, out           # keyed on Pause: the MainMenu stretch never reads
     assert out["pre"] == [None, None, None] and out["pre_void"] == [True] * 4, out
+    # [ff9mapkit netsync s168] decision 32's re-key BY STAGE: `guest` goes on only when the probe shows `netsync.guestmenu` (a VOID on s167)
+    assert out["pre_s168"] == [True, None, True], out["pre_s168"]
     assert out["pre_why"].startswith("VOID (a setup miss): the guest's menu_refusal.now reads 'dialog'"), out["pre_why"]
     assert out["landed"] == [False, True, False, True, False, True, False], out["landed"]
     assert out["probe"] == {"active": True, "nonce": 4, "now_ms": 700, "end_t": -1, "last_end": "stands"}, out["probe"]

@@ -311,6 +311,11 @@ FLAG_FOLLOW = 0x01
 CAPS_S166 = CAP_WORLD_POSE
 CAPS_S167 = CAP_WORLD_POSE | CAP_WORLD_FP
 SECTION_FP = BW.SECTION_FP
+#: [ff9mapkit netsync s168] s168's caps word (b0 + b1 + b3, the guest menu: S168-DESIGN.md decision 2; `guestmenu caps off` speaks s167's
+#: 0x0003, `worldwalk fp off` s166's 0x0001) and section 12, the guest-menu block a host appends between sections 11 and 7 only to a b3
+#: guest that follows (GmSectionSendRule) -- decoded here through battlewire's twin of TryReadMenuBlock
+CAPS_S168 = CAP_WORLD_POSE | CAP_WORLD_FP | CAP_GUEST_MENU
+SECTION_GUEST_MENU = BW.SECTION_GUEST_MENU
 
 
 def build_world_trailer(*, caps: int = CAP_WORLD_POSE, seq: int = 0, ms: int = 0, place: int = PLACE_NONE, state: int = 0,
@@ -495,10 +500,68 @@ def describe_frame(wtype: int, payload) -> str:
         # [ff9mapkit netsync s144] the host's section 7 flags byte, by name (b6 world / b7 title are s144's; an older host never
         # sets them, and a frame without section 7 -- a guest's, a pre-ring host's -- reads as before)
         view = BW.parse_dialog_section(BW.old_try_read_section(payload, BW.SECTION_DIALOG) or b"")
+        menu = menu_section_text(payload)                   # [ff9mapkit netsync s168] section 12 ('' when absent)
         if view is not None:
             names = ",".join(BW.host_flag_names(view["flags"])) or "none"
-            return f"{name} {len(bytes(payload or b''))} B; section 7 flags 0x{view['flags']:02X} ({names})"
+            return f"{name} {len(bytes(payload or b''))} B; section 7 flags 0x{view['flags']:02X} ({names})" + menu
+        return f"{name} {len(bytes(payload or b''))} B" + menu
     return f"{name} {len(bytes(payload or b''))} B"
+
+
+def menu_section_of(payload) -> dict | None:
+    """[ff9mapkit netsync s168] A host type-5 payload's section 12 (the guest-menu block, decision 5) as an s168 guest's door reads it
+    (battlewire.gm_try_read_menu_block over the FIRST id-12 section): ``{fmt, policy, apply_mask, gil, used, members}`` (each member
+    ``{char, preset, category, exp, basis_capa, pa}``) plus ``len`` (the body's bytes); None = absent (an s166 / s167 host, a host whose
+    send rule is off: an older guest, `guestmenu caps off`, a guest that does not follow) or unreadable (an unknown fmt, a truncation)."""
+    body = BW.old_try_read_section(payload, SECTION_GUEST_MENU)
+    got = BW.gm_try_read_menu_block(body) if body is not None else None
+    if got is None:
+        return None
+    return dict(got, len=len(body))
+
+
+def menu_section_text(payload) -> str:
+    """[ff9mapkit netsync s168] The dump's section-12 column ('' when the frame carries none)."""
+    m = menu_section_of(payload)
+    if m is None:
+        return ""
+    chars = ",".join(str(x["char"]) for x in m["members"]) or "none"
+    return (f"; section 12 ({m['len']} B) fmt {m['fmt']} gil {m['gil']} members {len(m['members'])} [{chars}] used {len(m['used'])}"
+            + (f" policy 0x{m['policy']:02X}" if m["policy"] else "") + (f" applyMask 0x{m['apply_mask']:02X}" if m["apply_mask"] else ""))
+
+
+def menu_section_bytes(gil: int, used=(), members=(), policy: int = 0, apply_mask: int = 0) -> bytes:
+    """[ff9mapkit netsync s168] Section 12 whole (its 3-byte header + WriteMenuBlock's body) -- a synthetic s168 host frame's (offline
+    vectors; ``members`` battlewire.gm_member dicts)."""
+    return BW.append_section(b"", SECTION_GUEST_MENU, BW.gm_write_menu_block(policy, apply_mask, gil, used, members))
+
+
+def tape_menu_sections(records) -> dict:
+    """[ff9mapkit netsync s168] Section 12 on a tape's HOST type-5 frames (PURE over the records): how many state frames, how many carry
+    section 12 (and how many of those read), the bodies' lengths (min / max: GM0-BW's cost), whether 12 always sits AFTER 11 (when present)
+    and BEFORE 7 (decision 3's order law), and the first readable block -- what a T2 replay hands an s168 guest's door as recorded."""
+    out = {"frames": 0, "with12": 0, "readable": 0, "len_min": None, "len_max": None, "order_ok": 0, "first": None}
+    for _r, wtype, payload in host_frames(records):
+        if wtype != TYPE_STATE:
+            continue
+        out["frames"] += 1
+        ids = [sid for sid, _b in BW.walk_sections(payload)[0]]
+        if SECTION_GUEST_MENU not in ids:
+            continue
+        out["with12"] += 1
+        at = ids.index(SECTION_GUEST_MENU)
+        after11 = SECTION_FP not in ids or ids.index(SECTION_FP) < at
+        before7 = BW.SECTION_DIALOG not in ids or at < ids.index(BW.SECTION_DIALOG)
+        out["order_ok"] += int(after11 and before7)
+        m = menu_section_of(payload)
+        if m is None:
+            continue
+        out["readable"] += 1
+        out["len_min"] = m["len"] if out["len_min"] is None else min(out["len_min"], m["len"])
+        out["len_max"] = m["len"] if out["len_max"] is None else max(out["len_max"], m["len"])
+        if out["first"] is None:
+            out["first"] = m
+    return out
 
 
 def tape_actions(records) -> dict:
@@ -1438,12 +1501,15 @@ class GuestModel:
 
     def caps_now(self) -> int:
         """[ff9mapkit netsync s167] The caps word this guest speaks now (call with the lock held or from the sender): ``caps`` pinned, else
-        the host's (b0 always; b1 when the host carries it), else s166's 0x0001 before any host trailer."""
+        the host's (b0 always; b1 when the host carries it), else s166's 0x0001 before any host trailer. [ff9mapkit netsync s168] ...and b3
+        (the guest menu) when the host carries it beside b1: a guest of an s168 host's own build speaks 0x000B (an s168 engine never speaks
+        b3 without b1: `worldwalk fp off` drops both); ``--caps 3`` pins an s167-shaped guest (no guest menu), ``--caps 0xB`` an s168 one."""
         if self.caps != "auto":
             return int(self.caps) & 0xFFFF
         if self.host_caps is None:
             return CAPS_S166
-        return CAP_WORLD_POSE | (int(self.host_caps) & CAP_WORLD_FP)
+        hc = int(self.host_caps)
+        return CAP_WORLD_POSE | (hc & CAP_WORLD_FP) | (hc & CAP_GUEST_MENU if hc & CAP_WORLD_FP else 0)
 
     def digest_now(self) -> int:
         """[ff9mapkit netsync s167] The digest this guest's place-4 trailer carries under its caps word (0 without b1: FpTxDigestRule)."""
@@ -2402,10 +2468,14 @@ def _record_text(args) -> str:
 
 
 def _caps_text(caps) -> str:
-    """[ff9mapkit netsync s167] The banner's caps word."""
+    """[ff9mapkit netsync s167] The banner's caps word. [ff9mapkit netsync s168] ...naming an s167-shaped pin (b1, no b3: no guest menu)."""
     if caps == "auto":
-        return "the HOST's own (0x0003 from an s167 host, 0x0001 from an s166 one)"
-    return f"0x{int(caps):04X} (pinned" + (": an s166-shaped guest, no fingerprint)" if not int(caps) & CAP_WORLD_FP else ")")
+        return "the HOST's own (0x000B from an s168 host, 0x0003 from an s167 one, 0x0001 from an s166 one)"
+    if not int(caps) & CAP_WORLD_FP:
+        return f"0x{int(caps):04X} (pinned: an s166-shaped guest, no fingerprint)"
+    if not int(caps) & CAP_GUEST_MENU:
+        return f"0x{int(caps):04X} (pinned: an s167-shaped guest, no guest menu)"
+    return f"0x{int(caps):04X} (pinned)"
 
 
 def _digest_text(digest) -> str:
@@ -3329,7 +3399,8 @@ def frame_pose(payload) -> dict:
             "flags": flags, "hb": view["heartbeat"] if view is not None else None,
             "b6": bool(flags is not None and flags & BW.HF_WORLD), "b1": bool(flags is not None and flags & BW.HF_CONTROL),
             "intent": intent, "intent_unlanded": intent is not None and not intent["landed"],
-            "fp": fp_section_of(payload)}                                       # [ff9mapkit netsync s167] section 11 (None = absent)
+            "fp": fp_section_of(payload),                                       # [ff9mapkit netsync s167] section 11 (None = absent)
+            "menu": menu_section_of(payload)}                                   # [ff9mapkit netsync s168] section 12 (None = absent)
 
 
 def fp_section_of(payload) -> dict | None:
@@ -3389,7 +3460,9 @@ def pose_row_text(row: dict, near=None) -> str:
         text += f"  | d {torus_distance((p['x'], p['z']), near):.1f}"
     fp = row.get("fp")                                                       # [ff9mapkit netsync s167] the host's section 11
     s11 = f"  | s11 world {fp['world']} lang {fp['lang']} mask 0x{fp['mask']:02X}" if fp else ""
-    return text + trailer_row_text(row, near) + s11
+    mn = row.get("menu")                                                     # [ff9mapkit netsync s168] the host's section 12
+    s12 = f"  | s12 gil {mn['gil']} members {len(mn['members'])} used {len(mn['used'])}" if mn else ""
+    return text + trailer_row_text(row, near) + s11 + s12
 
 
 def trailer_row_text(row: dict, near=None) -> str:
@@ -3440,6 +3513,7 @@ def tape_pose_lines(path, every: float = POSE_EVERY_S, near=None) -> tuple:
     posed = [r for r in rows if r["pose"] is not None]
     trailed = [r for r in rows if r.get("trailer") is not None]              # [ff9mapkit netsync s166]
     fped = [r for r in rows if r.get("fp") is not None]                      # [ff9mapkit netsync s167]
+    menued = [r for r in rows if r.get("menu") is not None]                  # [ff9mapkit netsync s168]
     digests = sorted({r["trailer"]["digest"] for r in trailed if r["trailer"].get("digest") and r["trailer"]["caps"] & CAP_WORLD_FP})
     capses = sorted({r["trailer"]["caps"] for r in trailed})
     lines = [f"POSE (section 0 64-72, [102] [190] [2..3] [181]; section 7 heartbeat, b6 / b1): {len(rows)} host state frame(s), "
@@ -3449,6 +3523,7 @@ def tape_pose_lines(path, every: float = POSE_EVERY_S, near=None) -> tuple:
              + (f"; the trailer's caps {', '.join(f'0x{c:04X}' for c in capses)}" if trailed else "")
              + (f", digest {', '.join(f'0x{d:08X}' for d in digests)}" if digests else "")
              + (f"; {len(fped)} with section 11 (`s11`: the host's world fingerprint)" if fped else "")
+             + (f"; {len(menued)} with section 12 (`s12`: the host's guest-menu block)" if menued else "")
              + (f"; TORN tail {torn} B" if torn else "")
              + (f"; d = the torus distance to ({near[0]:g}, {near[1]:g})" if near is not None else "")]
     lines += [pose_row_text(r, near) for r in pose_rows_thinned(rows, every)]
@@ -3765,8 +3840,9 @@ def _add_guest_options(p) -> None:
                    help="the trailer's flags b0 CLEAR: a peer that does not follow (the host draws no lines and no ghost for it)")
     # [ff9mapkit netsync s167] THE CAPS WORD and THE DIGEST (decision 2's b1, decision 21's fingerprint)
     p.add_argument("--caps", type=_parse_caps, default="auto", metavar="auto|N",
-                   help="the trailer's caps word: auto (default: the host's own -- 0x0003 from an s167 host, 0x0001 from an s166 one) "
-                        "or pinned (1 = an s166-shaped guest: no world fingerprint, no digest; 3 = an s167 one)")
+                   help="the trailer's caps word: auto (default: the host's own -- 0x000B from an s168 host, 0x0003 from an s167 one, "
+                        "0x0001 from an s166 one) or pinned (1 = an s166-shaped guest: no world fingerprint, no digest; 3 = an s167 one: "
+                        "no guest menu, so an s168 host sends it no section 12; 0xB = an s168 one)")
     p.add_argument("--digest", type=_parse_digest, default="echo", metavar="echo|HEX",
                    help="the place-4 trailer's digest (bytes 88-91) while the caps word carries b1: echo (default: the host's own last "
                         "digest -- a guest of the same world content) or pinned (a mismatch; 0 = checking)")
@@ -3812,7 +3888,7 @@ def _parse_caps(text: str):
     except ValueError:
         v = -1
     if not 0 <= v <= 0xFFFF:
-        raise argparse.ArgumentTypeError("--caps is auto or a caps word 0..0xFFFF (1 = s166's, 3 = s167's)")
+        raise argparse.ArgumentTypeError("--caps is auto or a caps word 0..0xFFFF (1 = s166's, 3 = s167's, 0xB = s168's)")
     return v
 
 

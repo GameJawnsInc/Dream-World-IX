@@ -78,7 +78,8 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
 2. **The v15 law.** `NetSyncWire.Version` 14 -> 15 (NetSyncSocket.cs:176), alone in this round. No v14 byte changes
    meaning. Every later v15 feature is additive (a trailer, a new section, a new type, a longer body) and gated on the
    PEER's capability bit, which rides the trailer both ways: b0 world pose (s166), b1 world fingerprint (s167), b2 comms,
-   b3 the guest menu, b4 B4.2's v2 command frame. Two v15 builds of different vintages then pair and switch the newer feature
+   b3 the guest menu (spoken from s168: sections 12-13 and type 8 kind 1, `studies/field-coop/S168-DESIGN.md` decision 3;
+   the registry of every v15 id now lives in `memoria-patches/README.md`), b4 B4.2's v2 command frame. Two v15 builds of different vintages then pair and switch the newer feature
    off with a line, instead of half-syncing. "Off" always means the older behaviour: for the walk that is the s166 freeze,
    never a walk without the check (decision 14 term 10). Peer caps are re-read from every sample, never latched per link;
    every v15 frame carries the trailer, the relay's constructor sentinel included (decision 4). `B4-B5-DESIGN.md:1241` ("the

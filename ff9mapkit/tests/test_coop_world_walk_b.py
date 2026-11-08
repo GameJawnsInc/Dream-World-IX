@@ -270,7 +270,11 @@ def test_worldtps_the_map_the_minimap_and_the_caps():
     assert latch and BW.ww_hint_latch_step(latch, True, False, False, False)            # a warm return (no new visit) keeps it
     assert not BW.ww_hint_latch_step(latch, True, True, False, False) and not BW.ww_hint_latch_step(True, False, False, True, True)
     assert BW.ww_minimap_hint_quiet_rule(True, True, False) and not BW.ww_minimap_hint_quiet_rule(True, True, True)
-    assert BW.ww_own_caps_rule(False) == 3 and BW.ww_own_caps_rule(True) == BW.WW_OWN_CAPS == 1
+    # [ff9mapkit netsync s168] re-keyed over the TWO-argument rule (S168-DESIGN.md decision 32), never weakened: s167's word is menu_off True
+    # (an s167 engine never speaks b3), `fp off` is s166's word whatever the menu lever says, and s168's own word is 0x000B
+    assert BW.ww_own_caps_rule(False, True) == 3 and BW.ww_own_caps_rule(True, True) == BW.WW_OWN_CAPS == 1
+    assert BW.ww_own_caps_rule(False, False) == BW.WW_OWN_CAPS_MENU == 0x0B and BW.ww_own_caps_rule(True, False) == 1
+    assert [BW.ww_own_caps_by_stage(s) for s in (166, 167, 168)] == [1, 3, 0x0B]
     said = []
     assert BW.ww_caps_line_step(said, 3, 1) and not BW.ww_caps_line_step(said, 3, 1) and not BW.ww_caps_line_step(said, 1, 3)
     assert BW.ww_caps_line_text(3, 1) == ("the partner's co-op build lacks my world fingerprint (its caps 0x0001, mine 0x0003) -- off for "
@@ -308,6 +312,11 @@ def test_the_owner_lines_the_world_line_and_the_host_walk_line():
 # ================================================================================================ THE ENGINE PINS (by stage)
 def _s167_patch_live() -> bool:
     return any(nm.startswith("s167-") and nm not in msr.DEAD for nm in msr.stack())
+
+
+def _s168_patch_live() -> bool:
+    """[ff9mapkit netsync s168] An s168 patch on this branch's stack (none until the W1 clone is frozen: the s167 stage reads as before)."""
+    return any(nm.startswith("s168-") and nm not in msr.DEAD for nm in msr.stack())
 
 
 def _engine_text(file_name: str) -> str:
@@ -484,17 +493,24 @@ def test_s167_every_sender_speaks_the_live_caps_word():
     sock = _engine_text("NetSyncSocket.cs")
     assert "return KeepaliveTrailer(worldTps, NetSyncWorldWalk.OwnCaps);" in sock
     ww = _engine_text("NetSyncWorldWalk.cs")
-    assert "internal static Int32 OwnCapsNow { get { return NetSyncWorldWalk.OwnCapsRule(Off); } }" in ww
-    assert re.fullmatch(BW.OWN_WIRE_RE, BW.log_own_wire("the relay", 15, BW.ww_own_caps_rule(False))).groups() == ("15", "0003", "the relay")
+    # [ff9mapkit netsync s168] BY STAGE: once an s168 patch is live OwnCapsNow passes the guest menu's `caps` lever (0x000B), else s167's
+    # one-argument call (0x0003 = the two-argument rule with menu_off True)
+    s168 = _s168_patch_live()
+    assert ("internal static Int32 OwnCapsNow { get { return NetSyncWorldWalk.OwnCapsRule(Off, NetSyncGuestMenu.LeverCapsOff); } }" if s168
+            else "internal static Int32 OwnCapsNow { get { return NetSyncWorldWalk.OwnCapsRule(Off); } }") in ww
+    caps = BW.ww_own_caps_by_stage(168 if s168 else 167)
+    assert caps == BW.ww_own_caps_rule(False, not s168)
+    assert re.fullmatch(BW.OWN_WIRE_RE, BW.log_own_wire("the relay", 15, caps)).groups() == ("15", f"{caps:04X}", "the relay")
     assert CP.parse_world_trailer(CP.build_pos_payload(CP.FIELD_SENTINEL, rot=(0.0, 0.0, 0.0, 1.0), anim_frame=0, frame_n=0)
-                                  + CP.keepalive_trailer(20, BW.ww_own_caps_rule(False)))["caps"] == 3
+                                  + CP.keepalive_trailer(20, caps))["caps"] == caps
 
 
 def test_s167_the_proof_and_the_overlay_selftest_tallies_are_the_sources():
     """The proof's (rows, mutants) DERIVED from the s167 source equal the fallback the stand-in keeps (BW.WORLD_WALK_PROOF_S167); the
     overlay text selftest's rows (OvlRow sites) equal BW.overlay_text_selftest_rows(167)."""
     ww = _engine_text("NetSyncWorldWalk.cs")
-    assert BW.world_walk_proof_counts(ww) == BW.WORLD_WALK_PROOF_S167
+    # [ff9mapkit netsync s168] BY STAGE: the stack's post-image is s168's once its patch lands (two caps rows and two mutants: 534 / 198)
+    assert BW.world_walk_proof_counts(ww) == BW.world_walk_proof_by_stage(168 if _s168_patch_live() else 167)
     client = _engine_text("NetSyncClient.cs")
     i = client.index("internal static Boolean OverlayTextSelfTest(")
     body = client[i:client.index("\n        }\n", i)]

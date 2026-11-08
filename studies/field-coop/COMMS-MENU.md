@@ -255,6 +255,13 @@ bridge drops frames while redialling, so FIFO delivery is at-most-once.
 - **A type-5 section:** host-to-guest only.
 - **TypeControl:** NetSyncBattle overwrites it every tick (:394/:402).
 
+> **2026-11-06, superseded in part by `S168-DESIGN.md` decision 3** (the v15 registry in `memoria-patches/README.md`):
+> type 8 is the SHARED ring of every feature, still bidirectional with one latest slot per direction, but its entries are
+> variable-length with an epoch u16 + seq u16 and a kind per feature, each kind gated on its own cap bit (comms = b2). The
+> guest menu (s169) takes kind 1, guest to host only; comms' ping, chat and emote take kinds 2+ and the host-to-guest slot
+> when comms is designed. The 16-byte fixed entry below no longer holds; "v15, after F3.3" below is also superseded: v15
+> shipped in s166, and comms is an additive v15 feature behind b2, with no bump.
+
 **Recommendation: type 8, bidirectional, sent as a latest-slot that carries a ring**, the C3 WIRE-1
 pattern. Re-sending every tick survives relay and bridge drops; the receiver dedups by `(epoch, seq)`. It
 needs a slot pair in `NetSyncFrames` plus set/get on both transports (the type-4/5 precedent). A sketch:

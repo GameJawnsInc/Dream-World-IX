@@ -694,6 +694,16 @@ v15 = dict(pdoc, netsync=dict(nsdoc, wire_peer=dict(BW.WIRE_PEER_SENTINELS)))
 green(wf.judge_probe(State(v15), pl))
 mid = dict(pdoc, netsync={**{k: nsdoc[k] for k in ("world", "swap", "saveguard")}, "wire_peer": {}, "host": nsdoc["host"]})
 red(wf.judge_probe(State(mid), pl))
+# [ff9mapkit netsync s168] an s168 engine: `guestmenu` after `wire_peer`, netsync's LAST key -- green; before wire_peer, or with the s166
+# tail read as if it were s168's (wire_peer last after an s168 key), red: the re-key BY STAGE never weakens the prefix law
+v168 = dict(pdoc, netsync=dict(nsdoc, wire_peer=dict(BW.WIRE_PEER_SENTINELS), guestmenu={"lever": {}}))
+green(wf.judge_probe(State(v168), pl))
+gm_mid = dict(pdoc, netsync=dict(nsdoc, guestmenu={"lever": {}}, wire_peer=dict(BW.WIRE_PEER_SENTINELS)))
+red(wf.judge_probe(State(gm_mid), pl))
+gm_early = dict(pdoc, netsync={**{k: nsdoc[k] for k in ("world", "swap", "saveguard")}, "guestmenu": {}, "host": nsdoc["host"],
+                               "wire_peer": dict(BW.WIRE_PEER_SENTINELS)})
+red(wf.judge_probe(State(gm_early), pl))
+assert BW.NETSYNC_TOP_KEYS_S168 == ("guestmenu",)
 red(wf.judge_probe(State({"frame": 1, "ui_state": "FieldHUD", "netsync": {"world": {"freeze": {}}}}), pl), "absent")   # s164
 # the T2 seam bracket on the tape clock
 rows = [{"t": t, "b6": True, "pose": {"x": TILE[0], "z": TILE[1]}} for t in (40.0, 40.5, 41.0)]

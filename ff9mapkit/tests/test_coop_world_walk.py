@@ -2218,6 +2218,8 @@ def test_s166b_the_pure_pair_judges_go_red_on_each_wrong_shape():
     assert not sm({"refused": 1, "would_save": 0, "last_why": "mirroring the host's story"})      # chord_gate_open: R4 reached
     assert not sm(opened=True)
     assert not sm(now="off") and not sm(now="open") and not sm(now=None) and not sm(now="dialog")
+    # [ff9mapkit netsync s168] decision 32's re-key BY STAGE: `guest` (an s168 guest's open) green only when the probe shows netsync.guestmenu
+    assert not sm(now="guest") and sm(now="guest", gm=True) and sm(gm=True) and not sm(now="open", gm=True)
     assert not sm(mirroring=False) and not sm(mirroring=None)
     assert not sm(ui="FieldHUD") and not sm(world=9010) and not sm(lever="act")
     assert not sm(froms=()) and not sm(froms=("FieldHUD",)) and not sm(froms=("WorldHUD", "WorldHUD"))   # the verb ran once, there
@@ -2649,6 +2651,20 @@ def test_s166a_the_pure_round_a_judges_go_red_on_each_wrong_shape():
     assert not ww.judge_a_proof(st, [f"[NetSync] {BW.PROOF_WORLD_WALK}OK (84 rows, 13 mutants)"], None)[0]
     assert not ww.judge_a_proof(st, lines + [f"[NetSync] {BW.PROOF_WORLD_WALK}FAIL x"], (323, 110))[0]
     assert not ww.judge_a_proof(_smp(1), lines, (323, 110))[0]                       # no lane / ghost: absent
+    # [ff9mapkit netsync s168] THE STAGE of the proof's source (S166-A-PROOF and S167-W-PROOF, decision 32's re-key): s168 by its key
+    # (`netsync.guestmenu`, null included), s167 by round B's walk, else s166 -- never s167's tallies on an s168 build
+    s166 = _smp(1, lane={"tx": {}}, ghost={"want": False})
+    s167 = _smp(1, lane={"tx": {}}, ghost={"want": False})
+    s167.raw["netsync"]["world"]["walk"] = {"free": False}
+    s168 = _smp(1, lane={"tx": {}}, ghost={"want": False})
+    s168.raw["netsync"]["world"]["walk"] = {"free": False}
+    s168.raw["netsync"]["guestmenu"] = None
+    assert [ww.proof_stage(s) for s in (s166, s167, s168, None)] == [166, 167, 168, 166]
+    assert ww.GM_PROBE == "netsync.guestmenu"
+    # an s168 build prints the s168 source's tallies: s167's are RED there, its own GREEN (the re-key never weakens A-PROOF)
+    l168 = [f"[NetSync] {BW.PROOF_WORLD_WALK}OK ({BW.WORLD_WALK_PROOF_S168[0]} rows, {BW.WORLD_WALK_PROOF_S168[1]} mutants)"]
+    assert ww.judge_a_proof(s168, l168, BW.world_walk_proof_by_stage(ww.proof_stage(s168)), "s168")[0]
+    assert not ww.judge_a_proof(s168, l168, BW.world_walk_proof_by_stage(167), "s167")[0]
     # A-TX
     tx = {"place": 4, "world": 9011, "x": 68.2, "z": -444.1, "field": 0, "kind": "fmt1", "len": 94}
     land = [_smp(0, lane={"tx": dict(tx, place=p)}) for p in (1, 2, 3)]
@@ -2832,3 +2848,17 @@ def test_s167_the_pair_leg_pulls_round_bs_set_before_the_replay_and_reads_s166()
     assert [s for s in r["sent"] if s in want] == want and "worldwalk clear" in r["sent"], r["sent"]
     assert "round B's s166 lever set" in r["detail"]["T2-PEER"] and "NOT read back" not in r["detail"]["T2-PEER"]
     assert old["red"] == [] and not any(s in want for s in old["sent"]), old["sent"]
+
+
+def test_s168_proof_want_without_a_source_wants_the_w1_tallies_and_s167s_are_red(monkeypatch):
+    """[ff9mapkit netsync s168] RK-2: with no s168 source reachable (no $FF9_S168_CLONE -- s168 MODIFIES s166's NetSyncWorldWalk.cs, so no
+    s168 patch can ever supply it) proof_want(168) falls back to the W1 build's 534 / 198, never to a floor s167's own tallies pass."""
+    for k in [k for k in os.environ if k.startswith("FF9_S16")]:
+        monkeypatch.delenv(k)
+    ww = _load_ww()
+    want, where = ww.proof_want(168)
+    assert want == tuple(BW.WORLD_WALK_PROOF_S168), where
+    ov = f"[NetSync] {BW.PROOF_OVERLAY_TEXT}OK ({BW.overlay_text_selftest_rows(167)} rows)"
+    ln = lambda n, m: f"[NetSync] {BW.PROOF_WORLD_WALK}OK ({n} rows, {m} mutants)"          # noqa: E731
+    assert ww.judge_b_proof([ln(534, 198), ov], want, where)[0]
+    assert not ww.judge_b_proof([ln(532, 196), ov], want, where)[0]

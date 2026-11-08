@@ -118,13 +118,69 @@ def test_netsync_markers_are_unique_to_their_patch():
         pytest.skip("memoria-patches/ not beside this checkout")
     texts = {int(m.group(1)): p.read_text(encoding="utf-8", errors="replace")
              for p in stack.glob("s*.patch") if (m := re.match(r"s(\d+)-", p.name))}
-    for gen, marker, _what in health.NETSYNC_GENERATIONS:
+    for gen, marker, _what in health.NETSYNC_GENERATIONS + health.NETSYNC_PENDING_GENERATIONS:
         name = re.escape(marker.decode())
         decl = re.compile(rf"^\+.*(\b(class|struct)\s+{name}\b"
                           rf"|\b(static|public|private|internal)\b[^=;(]*\b{name}\s*\()", re.M)
         declared = sorted(n for n, t in texts.items() if decl.search(t))
+        if int(gen[1:]) not in texts and gen in PENDING_GENERATIONS:
+            # [ff9mapkit netsync s168] its patch is not on the stack yet (built in the clone, emitted later): no EARLIER patch may
+            # declare the marker (that would date the engine wrong today); the clone pin below proves its own patch's file declares it.
+            # Once the patch lands, the full rule above applies to it unchanged.
+            assert not declared, f"{marker!r} already declared by s{declared[0]} -- {gen}'s marker must be new in {gen}"
+            continue
         assert declared and declared[0] == int(gen[1:]), \
             f"{marker!r} first declared by s{declared[0] if declared else '?'}, not {gen}"
+
+
+#: [ff9mapkit netsync s168] the generations whose patch is not on memoria-patches/ yet, each with the engine FILE that declares its marker
+#: (a NEW file of that round, carrying the round's tag) -- read off the clone named by FF9_S168_CLONE until the patch lands
+PENDING_GENERATIONS = {"s168": ("NetSyncGuestMenu.cs", "[ff9mapkit netsync s168]", "FF9_S168_CLONE")}
+
+
+def _pending_source(gen: str):
+    """The pending generation's declaring file: an s<N> patch on the stack creating it (its added lines), else the clone named by its env
+    var carrying the round's tag; None when neither is reachable (the test skips)."""
+    import re
+    from pathlib import Path
+    fname, tag, env = PENDING_GENERATIONS[gen]
+    stack = Path(__file__).resolve().parents[2] / "memoria-patches"
+    for p in sorted(stack.glob(f"{gen}-*.patch")) if stack.is_dir() else ():
+        for sec in re.split(r"(?m)^diff --git ", p.read_bytes().decode("utf-8", "replace").replace("\r\n", "\n")):
+            if sec.split("\n", 1)[0].rstrip().endswith(fname):
+                return "\n".join(ln[1:] for ln in sec.split("\n") if ln.startswith("+") and not ln.startswith("+++"))
+    raw = os.environ.get(env, "").strip()
+    if raw:
+        hits = sorted(Path(raw).rglob(fname))
+        if hits:
+            text = hits[0].read_text(encoding="utf-8-sig", errors="replace")
+            if tag in text:
+                return text
+    return None
+
+
+def test_a_pending_generations_marker_is_declared_by_its_own_rounds_new_file():
+    """[ff9mapkit netsync s168] The s168 row's marker is the type its round's NEW file declares (`internal static class NetSyncGuestMenu`
+    in NetSyncGuestMenu.cs): a type name lands in Assembly-CSharp's metadata, so the s168 DLL carries it and no s145-s167 DLL can. Read
+    off the s168 patch once it is on the stack, else the clone FF9_S168_CLONE names (carrying the s168 tag); else skipped, never green by
+    default. The marker is no substring of an older marker, nor one of it (a byte search would date an engine wrong)."""
+    import re
+    every = health.NETSYNC_GENERATIONS + health.NETSYNC_PENDING_GENERATIONS
+    for gen, (fname, _tag, env) in PENDING_GENERATIONS.items():
+        row = next(g for g in every if g[0] == gen)
+        marker = row[1].decode()
+        assert fname == marker + ".cs"
+        for other in every:
+            if other[0] != gen:
+                assert other[1] not in row[1] and row[1] not in other[1], (gen, other[0])
+        src = _pending_source(gen)
+        if src is None:
+            pytest.skip(f"no {gen} source reachable (no memoria-patches/{gen}-*.patch, no ${env})")
+        assert re.search(rf"^\s*internal\s+static\s+class\s+{marker}\b", src, re.M), f"{fname} declares no class {marker}"
+    # HELD until the s168 bundle ships (RK-3): the pending row is in no current table, so today's installs keep reading current; the
+    # ship commit moves it into NETSYNC_GENERATIONS deliberately (and this pin with it)
+    assert {g[0] for g in health.NETSYNC_PENDING_GENERATIONS}.isdisjoint(g[0] for g in health.NETSYNC_GENERATIONS)
+    assert set(PENDING_GENERATIONS) <= {g[0] for g in every}
 
 
 def test_health_report_has_co_op_engine_row_from_shared_source(tmp_path, monkeypatch):

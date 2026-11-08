@@ -207,13 +207,20 @@ def has(x, dotted: str) -> bool:
 #: The guest-side capability ladder these benches read, by the KEY each patch added (protocol 5, additive).
 #: [ff9mapkit netsync s131] `netsync.battle.peer.expired`: the guest that refuses the transport's repeats of its expired seq.
 PEER_EXPIRED_KEY = "netsync.battle.peer.expired"
-STAGE_KEYS = ((131, PEER_EXPIRED_KEY), (121, "netsync.menu_refusal"), (120, "netsync.session"),
+#: [ff9mapkit netsync s168] `netsync.guestmenu` (S168-DESIGN.md decision 32: netsync's LAST key): the guest whose Menu press opens the host's
+#: party, view only -- an s168 guest's `menu_refusal.now` reads `guest` for a guest open and `audible` for a refused guest press, so a bench
+#: that keys a Menu press on the stage must know it (decision 32's re-key list)
+GUEST_MENU_KEY = "netsync.guestmenu"
+STAGE_KEYS = ((168, GUEST_MENU_KEY), (131, PEER_EXPIRED_KEY), (121, "netsync.menu_refusal"), (120, "netsync.session"),
               (119, "netsync.diorama.hold"), (117, "netsync.battle.end.follow_msg"))
 
 
 def engine_stage(x) -> int:
     """The newest of s117/s119/s120/s121/s131 whose key this doc carries (0 = older than s117, or no netsync block). s118
-    is host-side and adds nothing a guest bench reads; s122-s130 are group 2's reservation (none captured)."""
+    is host-side and adds nothing a guest bench reads; s122-s130 are group 2's reservation (none captured). [ff9mapkit netsync s168]
+    ...and s168 (`netsync.guestmenu`): every comparison here is `>=` a lower stage, so an s168 guest reads as an s131 one did -- EXCEPT
+    span_why's s145 law (stage >= 145), which an s168 guest now reaches: coop_cut_hold's world-victory span (s120-world) wants host_world
+    on s168 (s168 carries s145's b6 over-signal); s145-s167 guests still read 131 there (the ladder has no s145 key)."""
     for stage, key in STAGE_KEYS:
         if has(x, key):
             return stage
@@ -2232,6 +2239,250 @@ def synthetic_world_walk_tape(cp, *, field_s: float = 25.0, load_s: float = 4.4,
     return recs
 
 
+# ======================================================================================== [ff9mapkit netsync s168] THE GUEST-MENU TAPE
+#: [ff9mapkit netsync s168] COOP_TAPE_GUEST_MENU (studies/field-coop/S168-DESIGN.md "The bench", Tapes; the Order's step 4): a b3 HOST's
+#: tape -- an s168 host recorded by coop_tape_record.py's GUEST-MENU variant (OWNER-GATED: the owner's go, the owner's bridge down) while
+#: serve-guest FOLLOWS as an s168 guest (its `--caps auto` adopts the host's 0x000B), so every state frame from the guest's first trailer on
+#: carries section 12 (GmSectionSendRule: b3 on both words, I follow, the link live). Its route is ONE plan (GM_TAPE_PLAN): the recorder
+#: WALKS it, gm_tape_facts JUDGES it, and coop_guest_menu_duo.py's T `tape` leg times its presses off the facts' anchors. Its own home and
+#: pointer, never another leg's.
+GUEST_MENU_POINTER = "latest-guest-menu.json"
+GM_TAPE_FIELD = BENCH_FIELD                  # 250: the pairing, the key path, the stall, the leave and the battle
+GM_TAPE_AWAY = 30602                         # LOCKT2 (the -msgs folder): the host's `warp` out and back (GM0-LEAVE)
+GM_TAPE_TALK_FIELD = 30801                   # the journal dashboard: the scribe (a plain window) west -- a host talk (GM0-SCENE / DIALOG-PATH)
+GM_TAPE_TALK_AT = (-210.0, -837.0)
+GM_TAPE_CHEST_FIELD = 200                    # coop_chest_relay's ChestA recipe (scenario 2000, entrance 0): a host chest (GM0-SCENE)
+GM_TAPE_WORLD_FIELD = WORLD_TAPE_FIELD       # 6603 FARSHORE: the walk out to world 9011 and the world_warp back in
+#: THE PLAN, in order -- (op, field | scene, seconds): "stand" on the field the host is on; "warp" to a field, then stand; "battle" `battle
+#: 67 -1 rand` on the current field, fought (Defend) that long, then won and the result screen confirmed through; "talk" warp to the
+#: journal field, walk beside the scribe and Confirm, the line confirmed through, then stand; "chest" the chest recipe's warp, the press in
+#: its push range, then stand; "world" warp to 6603, walk out (coop_world_wait.walk_out), stand on the world map that long, world_warp
+#: back to 6603
+GM_TAPE_PLAN = (("stand", GM_TAPE_FIELD, 45.0), ("warp", GM_TAPE_AWAY, 15.0), ("warp", GM_TAPE_FIELD, 25.0),
+                ("battle", BENCH_SCENE, 25.0), ("stand", GM_TAPE_FIELD, 15.0), ("talk", GM_TAPE_TALK_FIELD, 12.0),
+                ("chest", GM_TAPE_CHEST_FIELD, 12.0), ("world", GM_TAPE_WORLD_FIELD, 30.0), ("stand", GM_TAPE_WORLD_FIELD, 12.0))
+#: the facts' floors (tape seconds): the room on 250 before the first warp (the replay's dial and pairing, the mirror's arm, the T leg's
+#: key path, its 3 s stall and the recovery), each stay around the leave, the battle's live stretch (pb.tape_facts' F4), the world stay
+GM_PAIR_NEED_S = 35.0
+GM_AWAY_NEED_S = 8.0
+GM_BACK_NEED_S = 15.0
+GM_WORLD_NEED_S = 20.0
+#: section 12 on at least this share of the host's state frames from the guest's first frame on (the host learns the follower's caps from
+#: its trailer: before that the send rule is off by construction)
+GM_SEC12_SHARE = 0.9
+GM_TAPE_FACT_NAMES = {"gm1": "PAIR   the host on 250 >= GM_PAIR_NEED_S before its first warp, no battle there",
+                      "gm2": "STORY  type-5 story frames from the first seconds, the marker in them",
+                      "gm3": "SEC12  section 12 on >= 90% of the state frames from the guest's first frame, each readable, 11 < 12 < 7",
+                      "gm4": "LEAVE  250 -> 30602 (held >= 8 s) -> 250 (held >= 15 s)",
+                      "gm5": "BATTLE scene 67 after the leave's return: boot, live, end (pb.tape_facts F3-F5)",
+                      "gm6": "TALK   a host line (section 7 b2) while the host stands on 30801",
+                      "gm7": "CHEST  a chest start (section 9) while the host stands on 200",
+                      "gm8": "WORLD  off 6603 onto the world >= 20 s, then a real field again"}
+
+
+def guest_menu_tape_dir() -> Path:
+    """[ff9mapkit netsync s168] COOP_TAPE_DIR, else <the MAIN repo>/.harness-runs/coop-tapes/guest-menu -- the b3 tape's own home."""
+    env = os.environ.get("COOP_TAPE_DIR", "").strip()
+    return Path(env).expanduser().resolve() if env else main_repo() / ".harness-runs" / "coop-tapes" / "guest-menu"
+
+
+def latest_guest_menu_tape() -> Path | None:
+    """[ff9mapkit netsync s168] COOP_TAPE_GUEST_MENU (absolute), else the guest-menu dir's pointer, else its newest ``*-guest-menu-*.f9tape``;
+    None when none was ever recorded (the owner-gated recording: until then the T rows' duo twins run them)."""
+    env = os.environ.get("COOP_TAPE_GUEST_MENU", "").strip()
+    if env:
+        return Path(env).expanduser().resolve()
+    d = guest_menu_tape_dir()
+    try:
+        p = Path(json.loads((d / GUEST_MENU_POINTER).read_text(encoding="utf-8"))["tape"])
+        if p.exists():
+            return p
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    tapes = sorted(d.glob("*-guest-menu-*.f9tape"), key=lambda p: p.stat().st_mtime) if d.is_dir() else []
+    return tapes[-1] if tapes else None
+
+
+def gm_stays(lane, field: int, after: float) -> list:
+    """[ff9mapkit netsync s168] (PURE) The stays on ``field`` at or after ``after``: [(start, end)] off a position lane [(t, field)] (an
+    open stay ends at the lane's last stamp)."""
+    out, cur = [], None
+    for t, f in lane:
+        if t < after:
+            continue
+        if f == field and cur is None:
+            cur = t
+        elif f != field and cur is not None:
+            out.append((cur, t))
+            cur = None
+    if cur is not None and lane:
+        out.append((cur, lane[-1][0]))
+    return out
+
+
+def gm_tape_facts(records, cp, *, marker=(MARKER_BYTE, MARKER_VALUE)) -> dict:
+    """[ff9mapkit netsync s168] THE GUEST-MENU TAPE's eight facts (each ``gmN`` = {ok, why}: GM_TAPE_FACT_NAMES) and the T leg's anchors
+    (tape seconds): ``start`` / ``end`` (the first / last host frame), ``away`` / ``back`` (the warp to 30602 and back on 250), ``battle``
+    ({start, end}), ``talk`` (the first section-7 line on 30801), ``chest`` (the first section 9 on 200), ``exit`` / ``rein`` (off 6603 onto
+    the world, and the first real field after it), plus ``sec12`` (coop_peer.tape_menu_sections without its block) and ``caps`` (the host
+    trailers' caps words). PURE over the records."""
+    import harness.battlewire as BW              # noqa: E402 -- tools/ on sys.path (coop_peer_module put it there)
+    frames = cp.host_frames(records)
+    out = {"records": len(records), "host_frames": len(frames), "start": None, "end": None, "away": None, "back": None, "battle": None,
+           "talk": None, "chest": None, "exit": None, "rein": None, "sec12": None, "caps": []}
+    lane = [(r.t, cp.parse_pos_payload(p)) for r, w, p in frames if w == cp.TYPE_POS]
+    lane = [(t, d["field"]) for t, d in lane if d is not None]
+    if not frames or not lane:
+        for k in GM_TAPE_FACT_NAMES:
+            out[k] = {"ok": False, "why": "the tape holds no host position frame"}
+        return out
+    t0, f0 = lane[0]
+    out.update(start=round(frames[0][0].t, 3), end=round(frames[-1][0].t, 3))
+    trailers = [cp.parse_world_trailer(p) for _r, w, p in frames if w == cp.TYPE_POS]
+    out["caps"] = sorted({int(tr["caps"]) for tr in trailers if tr})
+    base = tape_facts(records, cp, field=GM_TAPE_FIELD, marker=marker)
+    b = base.get("battle")
+    # gm1 PAIR
+    first_warp = next((t for t, f in lane if t > t0 and f != f0), None)
+    pre = (first_warp - t0) if first_warp is not None else None
+    early = b is not None and first_warp is not None and b["start"] < first_warp
+    ok1 = f0 == GM_TAPE_FIELD and pre is not None and pre >= GM_PAIR_NEED_S and not early
+    out["gm1"] = {"ok": ok1, "why": (f"the host's first field is {f0}, not {GM_TAPE_FIELD}" if f0 != GM_TAPE_FIELD else
+                                     "the host never leaves its first field" if pre is None else
+                                     f"a battle runs on {f0} before the first warp" if early else
+                                     f"only {pre:.1f} s on {f0} before the first warp (needs >= {GM_PAIR_NEED_S:g})" if not ok1 else
+                                     f"on {f0} from tape {t0:.2f} s for {pre:.1f} s before the first warp")}
+    out["gm2"] = {"ok": bool(base["f2"]["ok"]), "why": base["f2"]["why"]}
+    # gm3 SEC12 -- from the guest's first frame on
+    guest_t = next((r.t for r in records if r.dir != 0), None)
+    sec = cp.tape_menu_sections([r for r in records if guest_t is not None and r.t >= guest_t])
+    out["sec12"] = {k: v for k, v in sec.items() if k != "first"}
+    share = (sec["with12"] / sec["frames"]) if sec["frames"] else 0.0
+    first = sec["first"]
+    ok3 = (guest_t is not None and sec["frames"] > 0 and share >= GM_SEC12_SHARE and sec["readable"] == sec["with12"]
+           and sec["order_ok"] == sec["with12"] and first is not None and len(first["members"]) >= 1)
+    out["gm3"] = {"ok": ok3, "why": ("no guest frame on the tape: the host never learned a follower's caps (serve-guest never answered)"
+                                     if guest_t is None else
+                                     f"section 12 on {sec['with12']} of {sec['frames']} state frame(s) ({share:.0%}; needs >= "
+                                     f"{GM_SEC12_SHARE:.0%}), {sec['readable']} readable, {sec['order_ok']} in the order law"
+                                     + ("" if ok3 else " -- an older host (no b3), a guest that does not follow, or `guestmenu caps off`")
+                                     + (f"; the first block: gil {first['gil']}, {len(first['members'])} member(s)" if first else ""))}
+    # gm4 LEAVE
+    away = gm_stays(lane, GM_TAPE_AWAY, t0)
+    a = away[0] if away else None
+    backs = gm_stays(lane, GM_TAPE_FIELD, a[1]) if a else []
+    bk = backs[0] if backs else None
+    ok4 = a is not None and a[1] - a[0] >= GM_AWAY_NEED_S and bk is not None and bk[1] - bk[0] >= GM_BACK_NEED_S
+    out["away"], out["back"] = (round(a[0], 3) if a else None), (round(bk[0], 3) if bk else None)
+    out["gm4"] = {"ok": ok4, "why": (f"no stay on {GM_TAPE_AWAY}" if a is None else
+                                     f"{GM_TAPE_AWAY} held only {a[1] - a[0]:.1f} s" if a[1] - a[0] < GM_AWAY_NEED_S else
+                                     f"never back on {GM_TAPE_FIELD} after {GM_TAPE_AWAY}" if bk is None else
+                                     f"back on {GM_TAPE_FIELD} only {bk[1] - bk[0]:.1f} s" if not ok4 else
+                                     f"{GM_TAPE_AWAY} from tape {a[0]:.2f} s ({a[1] - a[0]:.1f} s), back on {GM_TAPE_FIELD} at "
+                                     f"{bk[0]:.2f} s ({bk[1] - bk[0]:.1f} s)")}
+    # gm5 BATTLE
+    ok5 = b is not None and bk is not None and b["start"] > bk[0] and all(base[k]["ok"] for k in ("f3", "f4", "f5"))
+    out["battle"] = {"start": round(b["start"], 3), "end": round(b.get("end") or b["start"], 3)} if b else None
+    out["gm5"] = {"ok": ok5, "why": ("no battle on the tape" if b is None else
+                                     "the battle is not after the leave's return" if bk is None or b["start"] <= bk[0] else
+                                     "; ".join(f"{k}: {base[k]['why']}" for k in ("f3", "f4", "f5")))}
+    # gm6 TALK / gm7 CHEST -- the state frames while the lane stands on the field
+
+    def field_at(t):
+        return next((f for tt, f in reversed(lane) if tt <= t), None)
+    talk = chest = None
+    for r, w, p in frames:
+        if w != cp.TYPE_STATE or (talk is not None and chest is not None):
+            continue
+        here = field_at(r.t)
+        if talk is None and here == GM_TAPE_TALK_FIELD:
+            body = BW.old_try_read_section(p, BW.SECTION_DIALOG)
+            v = BW.parse_dialog_section(body) if body is not None else None
+            if v and v["flags"] & BW.HF_LINE:
+                talk = r.t
+        if chest is None and here == GM_TAPE_CHEST_FIELD and BW.old_try_read_section(p, BW.SECTION_CHEST) is not None:
+            chest = r.t
+    out["talk"], out["chest"] = (round(talk, 3) if talk is not None else None), (round(chest, 3) if chest is not None else None)
+    out["gm6"] = {"ok": talk is not None, "why": f"a host line on {GM_TAPE_TALK_FIELD} at tape {talk:.2f} s" if talk is not None else
+                  f"no section-7 line (b2) while the host stands on {GM_TAPE_TALK_FIELD}"}
+    out["gm7"] = {"ok": chest is not None, "why": f"a chest start (section 9) on {GM_TAPE_CHEST_FIELD} at tape {chest:.2f} s"
+                  if chest is not None else f"no section 9 while the host stands on {GM_TAPE_CHEST_FIELD}"}
+    # gm8 WORLD -- off 6603 (the lane's 0), then a real field again
+    exit_t = next((t for t, f in lane if f == 0 and field_at(t - 0.05) == GM_TAPE_WORLD_FIELD), None)
+    rein = next((t for t, f in lane if exit_t is not None and t > exit_t and 0 < f < 65535), None)
+    world_s = ((rein if rein is not None else lane[-1][0]) - exit_t) if exit_t is not None else 0.0
+    out["exit"], out["rein"] = (round(exit_t, 3) if exit_t is not None else None), (round(rein, 3) if rein is not None else None)
+    ok8 = exit_t is not None and rein is not None and world_s >= GM_WORLD_NEED_S
+    out["gm8"] = {"ok": ok8, "why": (f"no world exit from {GM_TAPE_WORLD_FIELD} on the tape" if exit_t is None else
+                                     "never back on a real field after the world" if rein is None else
+                                     f"off-field only {world_s:.1f} s (needs >= {GM_WORLD_NEED_S:g})" if not ok8 else
+                                     f"out at tape {exit_t:.2f} s, {world_s:.1f} s on the world, back in at {rein:.2f} s")}
+    return out
+
+
+def gm_tape_ok(facts: dict) -> tuple:
+    """[ff9mapkit netsync s168] (all eight facts hold, ['gmN: why' for each that fails])."""
+    bad = [f"{k}: {(facts.get(k) or {}).get('why')}" for k in GM_TAPE_FACT_NAMES if not (facts.get(k) or {}).get("ok")]
+    return not bad, bad
+
+
+def synthetic_guest_menu_tape(cp, *, sec12: bool = True, battle: bool = True, talk: bool = True, chest: bool = True,
+                              world: bool = True, guest: bool = True, pair_s: float = 45.0, gil: int = 4321) -> list:
+    """[ff9mapkit netsync s168] An in-memory GUEST-MENU host tape shaped like GM_TAPE_PLAN (10 Hz): 250 (``pair_s``), 30602, 250, a battle on
+    250 (pb.synthetic_tape's, shifted in), 250, the scribe's line on 30801, a chest start on 200, 6603, the world, 6603 -- every host state
+    frame carrying section 12 (``sec12`` False: an s167 host) between the story and section 7, and ONE guest frame at the start (``guest``
+    False: the host never learned a follower). Each flag drops its own segment's fact."""
+    import harness.battlewire as BW              # noqa: E402
+    R = cp.Record
+    story = bytearray(2048)
+    story[MARKER_BYTE] = MARKER_VALUE
+    story = bytes(story)
+    block = cp.menu_section_bytes(gil, used=(9,), members=[BW.gm_member(0, 0, 0, 4242, 0, [25, 0])]) if sec12 else b""
+    hb = [0]
+
+    def state(fld, flags, extra=b""):
+        hb[0] = (hb[0] + 1) & 0xFFFF
+        sec = BW.append_section(b"", BW.SECTION_STORY, story) + extra + block
+        return cp.build_frame(cp.TYPE_STATE, BW.append_section(sec, BW.SECTION_DIALOG, BW.dialog_section(0x0165, hb[0], flags, 0, fld)))
+
+    recs, t = [], 1.0
+    if guest:
+        recs.append(R(0.9, 1, cp.build_pos_frame(GM_TAPE_FIELD, model=1, pos=(0.0, 0.0, 0.0))))
+    on = BW.HF_ON_FIELD | BW.HF_CONTROL
+
+    def seg(fld, span, flags=on, extra=b"", lane_field=None):
+        nonlocal t
+        end = t + span
+        while t < end:
+            recs.append(R(t, 0, cp.build_pos_frame(fld if lane_field is None else lane_field, model=1, pos=(0.0, 0.0, 0.0))))
+            recs.append(R(t, 0, state(fld, flags, extra)))
+            t = round(t + 0.1, 3)
+    seg(GM_TAPE_FIELD, pair_s)
+    seg(GM_TAPE_AWAY, 15.0)
+    seg(GM_TAPE_FIELD, 25.0)
+    if battle:
+        shift = t
+        for r in synthetic_tape(cp, pre_s=1.0, fight_s=25.0, post_s=1.0, field=GM_TAPE_FIELD):
+            p = r.payload
+            got = cp.parse_frame(p)
+            if got is not None and got[0] == cp.TYPE_STATE and sec12:
+                p = cp.build_frame(cp.TYPE_STATE, bytes(got[1]) + block)        # (no section 7 on these: 12 rides last)
+            recs.append(R(round(shift + r.t, 3), r.dir, p))
+        t = round(max(x.t for x in recs) + 0.1, 3)
+    seg(GM_TAPE_FIELD, 15.0)
+    seg(GM_TAPE_TALK_FIELD, 3.0)
+    seg(GM_TAPE_TALK_FIELD, 4.0, flags=(on | BW.HF_LINE) if talk else on)
+    seg(GM_TAPE_TALK_FIELD, 3.0)
+    seg(GM_TAPE_CHEST_FIELD, 3.0)
+    seg(GM_TAPE_CHEST_FIELD, 3.0, extra=BW.append_section(b"", BW.SECTION_CHEST, bytes(8)) if chest else b"")
+    seg(GM_TAPE_CHEST_FIELD, 3.0)
+    seg(GM_TAPE_WORLD_FIELD, 8.0)
+    if world:
+        seg(0, 30.0, flags=BW.HF_WORLD | BW.HF_MENU | BW.HF_CONTROL)
+    seg(GM_TAPE_WORLD_FIELD, 12.0)
+    recs.sort(key=lambda r: r.t)
+    return recs
+
 # ======================================================================================== the self-check (no game)
 def synthetic_tape(cp, *, pre_s: float = 70.0, fight_s: float = 40.0, post_s: float = 30.0, field: int = BENCH_FIELD,
                    nonce: int = 3, scene: int = BENCH_SCENE, resend: int = 1, sec7: bool = False) -> list:
@@ -2476,6 +2727,9 @@ def _self_rows() -> list:
     row(engine_stage({"netsync": {"menu_refusal": {}, "session": {}}}) == 121 and engine_stage(
         {"netsync": {"diorama": {"hold": {}}}}) == 119 and engine_stage({"netsync": {"battle": {"end": {"follow_msg": None}}}})
         == 117 and engine_stage({}) == 0, "engine_stage: the key ladder (a null value is still a key)")
+    row(engine_stage({"netsync": {"menu_refusal": {}, "battle": {"peer": {"expired": {}}}, "guestmenu": {"lever": {}}}}) == 168
+        and engine_stage({"netsync": {"guestmenu": None}}) == 168,
+        "engine_stage: s168 = netsync.guestmenu (the newest key wins; a null value is still a key)")
     flags = {str(b): (MARKER_VALUE >> (b - MARKER_BYTE * 8)) & 1 == 1 for b in range(MARKER_BYTE * 8, MARKER_BYTE * 8 + 8)}
     row(marker_value({"flags": flags}) == MARKER_VALUE and marker_value({"flags": {}}) is None
         and len(MARKER_BITS) == 4, "marker: the watched bits read 0xA5; unwatched reads None")

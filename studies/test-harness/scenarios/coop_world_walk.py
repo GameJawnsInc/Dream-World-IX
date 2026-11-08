@@ -226,7 +226,8 @@ follow-out (B_WALK_SETUP, its instrument both hosts on the wire). THE PRE-INIT S
 op's own publish dropped), LIVE VERDICT vs LAST DRAWN (the full-map dot judged only where placed agrees). A visit is decision 20's (a world
 load after a field or the title): a fresh visit is a FIELD ROUND TRIP (`world_warp 6603` + s165's follow-out), never a warm battle return.
   setup   S167-INI, S167-OR (s165's route; with `entry` the deployed WORLD11's kit and the 6603 trigger tiles), S167-S0, S167-P0 (`netsync.
-          world` ends `walk`, `fp`, each at its contract's keys in order, the lane's s167 keys, caps.own 3), S167-W-PROOF (A-PROOF's s167
+          world` ends `walk`, `fp`, each at its contract's keys in order, the lane's s167 keys, caps.own 3 -- [s168] 0x000B on an s168
+          build, by stage), S167-W-PROOF ([s168] on an s168 build the s168 source's tallies, $FF9_S168_CLONE: proof_stage; else A-PROOF's s167
           counts: 'world walk selftest: OK (N rows, M mutants)' N / M the s167 source's -- $FF9_S167_CLONE or the s167 patch -- else above
           s166's 323 / 110, none FAIL; 'overlay text selftest: OK (58 rows)'), S167-P1 (`bench 1`, round B's levers at rest), final S167-R.
   free    W-FREE `hold up` on 9011: moved >= WALK_U, `walk.free`, `freeze.on` still true, one FREE line, the trailer's b1 and why 0.
@@ -1310,12 +1311,16 @@ def judge_pair_savemenu(sg0: dict, sg1: dict, files0, files1, hud_back: bool, *,
     dr = (sg1.get("refused") or 0) - (sg0.get("refused") or 0)
     dw = (sg1.get("would_save") or 0) - (sg0.get("would_save") or 0)
     same = files0 is not None and files0 == files1
-    at = (press.get("ui") == "WorldHUD" and press.get("world") == world and press.get("now") == "audible"
+    # [ff9mapkit netsync s168] re-keyed BY STAGE (S168-DESIGN.md decision 32), never weakened: an s168 guest (the probe shows
+    # `netsync.guestmenu`: ``press['gm']``) reads `guest` for a Menu press its guest menu would open -- still the scene branch with menu
+    # control on and the mirror up, what the row reads 'audible' for on s167; on s167 'guest' stays red
+    now_ok = ("audible", "guest") if press.get("gm") else ("audible",)
+    at = (press.get("ui") == "WorldHUD" and press.get("world") == world and press.get("now") in now_ok
           and press.get("mirroring") is True and press.get("lever") == "old")
     ran = list(froms) == ["WorldHUD"]
     ok = at and ran and not opened and dr == 0 and dw == 0 and same and hud_back
     return ok, (f"at the press ui {press.get('ui')!r} world {press.get('world')} (want WorldHUD {world}), menu_refusal.now "
-                f"{press.get('now')!r} (want 'audible': menu control on, the mirror refuses), mirroring {press.get('mirroring')!r}, lever "
+                f"{press.get('now')!r} (want {now_ok}: menu control on, the mirror up), mirroring {press.get('mirroring')!r}, lever "
                 f"{press.get('lever')!r} (want 'old'); `savemenu` events {list(froms)} (want ['WorldHUD']); the save menu opened {opened} "
                 f"(want False); refused +{dr} / would_save +{dw} (want +0 / +0: R4 never reached), last_why {sg1.get('last_why')!r}; the "
                 "sandbox's files " + ("UNCHANGED" if same else ("UNREAD" if files0 is None else "CHANGED")) + f"; back on the HUD {hud_back}")
@@ -1636,7 +1641,8 @@ def _pair_savemenu(g, record) -> None:
             return
         st0, st1, back, opened, froms = _pair_pick(g)
         press = {"ui": st0.ui_state, "world": st0.world_id, "now": cb.path(st0, "netsync.menu_refusal.now"),
-                 "mirroring": cb.path(st0, "netsync.session.mirroring"), "lever": (st0.saveguard_block or {}).get("lever")}
+                 "mirroring": cb.path(st0, "netsync.session.mirroring"), "lever": (st0.saveguard_block or {}).get("lever"),
+                 "gm": cb.has(st0, "netsync.guestmenu")}                 # [ff9mapkit netsync s168] the stage (decision 32's re-key)
         record(*judge_pair_savemenu(dict(st0.saveguard_block or {}), dict(st1.saveguard_block or {}), files0,
                                     wf.save_files(g.state), back, press=press, opened=opened, froms=froms))
     except HarnessError as err:
@@ -1962,7 +1968,8 @@ A_SETUP = {
     "S166-S0": SOLO_SETUP["S166-S0"],
     "S166-P0": SOLO_SETUP["S166-P0"],
     "S166-A-PROOF": "A-PROOF: 'world walk selftest: OK (N rows, M mutants)' on a field, none FAIL, carrying round A's tables -- N / M the "
-                    "s166 source's (memoria-patches s166, else $FF9_S166_CLONE), else above A0b's 84 / 13",
+                    "s166 source's (memoria-patches s166, else $FF9_S166_CLONE), else above A0b's 84 / 13 [s168] on an s168 build "
+                    "(netsync.guestmenu published: proof_stage) the s168 source's tallies ($FF9_S168_CLONE, else the W1 build's 534 / 198)",
 }
 A_ROWS = {
     "S166-A-TX": "A-TX: my own trailer on 9011 from the selftest slot -- place 4, world 9011, x / z within TX_TOL of `world.x / z`, Field "
@@ -2119,17 +2126,40 @@ def proof_tallies(lines) -> list:
 
 #: A0b's tallies (the deployed 9e4365349fab02b1: no A1 -- its proof is A0 / A0b's own rows; fakegame.FAKE_WORLD_WALK_SELFTEST_ROWS / MUTANTS)
 A0B_PROOF = (84, 13)
+#: [ff9mapkit netsync s168] the guest menu's key (S168-DESIGN.md decision 32: netsync's LAST key) -- its presence is the s168 stage
+GM_PROBE = "netsync.guestmenu"
+
+
+def proof_stage(st) -> int:
+    """(PURE) [ff9mapkit netsync s168] The stage whose SOURCE the world walk proof's tallies come from, by the keys the engine publishes
+    (THE STAGE LAW, never one answer for every build): 168 when `netsync.guestmenu` is published (the s168 source prints 534 / 198 as built:
+    decision 32's two caps rows and two mutants), 167 when `netsync.world.walk` is (532 / 196), else 166 -- so round A's S166-A-PROOF and
+    round B's S167-W-PROOF never want s167's tallies on an s168 build (a re-key BY STAGE, never a weakened row)."""
+    if st is not None and cb.has(st, GM_PROBE):
+        return 168
+    if st is not None and cb.has(st, "netsync.world.walk"):
+        return 167
+    return 166
 
 
 def proof_want(stage: int = 166):
     """(rows, mutants) the s166 source's proof prints -- the same reader the stand-in uses (fakegame.world_walk_engine_source: $FF9_S166_CLONE
     carrying the tag, else the s166 patch on THIS branch's memoria-patches/), counted by battlewire.world_walk_proof_counts -- and where it
     came from; (None, why) when no source is reachable. [ff9mapkit netsync s167] ``stage`` 167 (an engine publishing `netsync.world.walk`):
-    the s167 source's ($FF9_S167_CLONE carrying the s167 tag, else the s167 patch's post-image) -- never round A's numbers there."""
-    name = "s167" if int(stage) >= 167 else "s166"
+    the s167 source's ($FF9_S167_CLONE carrying the s167 tag, else the s167 patch's post-image) -- never round A's numbers there.
+    [ff9mapkit netsync s168] ``stage`` 168 (an engine publishing `netsync.guestmenu`): the s168 source's ($FF9_S168_CLONE carrying the s168
+    tag), else the W1 build's 534 / 198 (BW.WORLD_WALK_PROOF_S168, the fallback fakegame.world_walk_proof_tallies_s168 and
+    coop_guest_menu.proof_wants use: s168 MODIFIES s166's file, so no s168 patch can supply it) -- its two caps rows and two mutants move
+    the tallies, never s167's."""
+    name = "s168" if int(stage) >= 168 else "s167" if int(stage) >= 167 else "s166"
     try:
         from harness import fakegame as FG                   # the driver puts tools/ on sys.path
-        src = FG.world_walk_engine_source(stage=int(stage)) if int(stage) >= 167 else FG.world_walk_engine_source()
+        if int(stage) >= 168:
+            src = FG.s168_engine_source("NetSyncWorldWalk.cs")
+            if not src:                                      # s168 MODIFIES s166's file: no s168 patch can supply it
+                return tuple(BW.WORLD_WALK_PROOF_S168), "the W1 build's tallies (534 / 198: no s168 source reachable)"
+        else:
+            src = FG.world_walk_engine_source(stage=int(stage)) if int(stage) >= 167 else FG.world_walk_engine_source()
     except Exception as err:                                 # noqa: BLE001 - an unreadable source is a named None
         return None, f"the {name} source unreadable ({type(err).__name__}: {str(err)[:120]})"
     if not src:
@@ -2724,7 +2754,7 @@ def _round_a(g, led: cb.Ledger, ctx: dict) -> None:
            f"{cb.has(st, DOT_SRC_PROBE)} ({cb.stage_note(st)})")
     lines = cb.log_lines(g)
     led.check("S166-P0", *judge_probe(st, lines))
-    pstage = 167 if cb.has(st, WALK_PROBE) else 166         # [ff9mapkit netsync s167] BY STAGE: an s167 build prints round B's tallies
+    pstage = proof_stage(st)        # [ff9mapkit netsync s167] BY STAGE: an s167 build prints round B's tallies [s168] and an s168 build its own
     want, where = proof_want(pstage)
     g.note(f"A-PROOF's tallies: {want} ({where})")
     led.check("S166-A-PROOF", *judge_a_proof(st, lines, want, f"s{pstage}"))
@@ -3226,9 +3256,11 @@ B_SETUP = {
     "S167-S0": SOLO_SETUP["S166-S0"],
     "S167-P0": "`netsync.world` ends `walk`, `fp` (s166's keys unmoved before them), each at its contract's keys in order (walk.map, "
                "fp.host_section, fp.lines), the lane's s167 keys (tx / rx why_name, world_tps lever / held / effective / mismatch / lines) "
-               "and lane.caps.own 3",
+               "and lane.caps.own 3 ([s168] by stage: 0x000B on an s168 build, 3 under `guestmenu caps off`)",
     "S167-W-PROOF": "A-PROOF's s167 counts: 'world walk selftest: OK (N rows, M mutants)' on a field, none FAIL, N / M the s167 source's "
-                    "($FF9_S167_CLONE, else the s167 patch) -- else above s166's 323 / 110; and 'overlay text selftest: OK (58 rows)'",
+                    "($FF9_S167_CLONE, else the s167 patch) -- else above s166's 323 / 110; and 'overlay text selftest: OK (58 rows)' "
+                    "[s168] on an s168 build (netsync.guestmenu published: proof_stage) the s168 source's tallies ($FF9_S168_CLONE, else "
+                    "the W1 build's 534 / 198)",
 }
 B_ROWS = {
     "S167-W-FREE": "W-FREE: both bench hosts on 9011, `hold up` -- moved >= WALK_U, `walk.free`, `freeze.on` still true, one FREE line, "
@@ -3371,7 +3403,8 @@ def judge_b_rest(st, want: dict) -> tuple:
 
 def judge_b_probe(st) -> tuple:
     """S167-P0 (PURE): `netsync.world` = s166's blocks then `walk`, `fp` (THE PREFIX LAW), each block's keys the contract's in order, the
-    lane grown in place by its s167 keys, my caps word 0x0003."""
+    lane grown in place by its s167 keys, my caps word 0x0003 ([ff9mapkit netsync s168] by stage: 0x000B on an s168 engine, 0x0003 under
+    `guestmenu caps off`: BW.ww_own_caps_want)."""
     missing = [k for k in B_PROBES if not cb.has(st, k)]
     if missing:
         return False, f"absent: no {missing} -- an engine before s167"
@@ -3392,8 +3425,11 @@ def judge_b_probe(st) -> tuple:
             list(tps) != list(BW.WORLD_SENTINELS_S167["lane"]["world_tps"]):
         why.append(f"lane tx ..{list(tx)[-1:]}, rx ..{list(rx)[-1:]}, world_tps {list(tps)} (want why_name last; the s167 tps keys)")
     own = (ln.get("caps") or {}).get("own")
-    if own != BW.WW_OWN_CAPS_WALK:
-        why.append(f"lane.caps.own {own!r} (want {BW.WW_OWN_CAPS_WALK}: b0 + b1)")
+    # [ff9mapkit netsync s168] re-keyed BY STAGE (S168-DESIGN.md decision 32), never weakened: s167's 0x0003 (b0 + b1); on an s168 stage
+    # (`netsync.guestmenu` published) 0x000B (+ b3), 0x0003 under `guestmenu caps off` -- the game's own levers as it publishes them
+    want_own = BW.ww_own_caps_want(cb.path(st, "netsync"))
+    if own != want_own:
+        why.append(f"lane.caps.own {own!r} (want {want_own}: b0 + b1" + (" + b3" if want_own & BW.WW_CAP_GUEST_MENU else "") + ")")
     return not why, ("; ".join(why) or f"world {got[-3:]}, walk / fp / walk.map at the contract's keys, the lane's s167 keys, caps own {own}")
 
 
@@ -4083,7 +4119,7 @@ def _round_b(g, led: cb.Ledger, ctx: dict) -> None:
     g.note(f"engine stage: s{ctx['stage']}; walk {cb.has(st, WALK_PROBE)}, fp {cb.has(st, FP_PROBE)}, walk.map {cb.has(st, MAP_PROBE)} "
            f"({cb.stage_note(st)})")
     led.check("S167-P0", *judge_b_probe(st))
-    want, where = proof_want(167)
+    want, where = proof_want(max(167, proof_stage(st)))   # [ff9mapkit netsync s168] by stage, never s167's on s168
     g.note(f"S167-W-PROOF's tallies: {want} ({where})")
     led.check("S167-W-PROOF", *judge_b_proof(cb.log_lines(g), want, where))
     _b_p1(g, led, ctx)

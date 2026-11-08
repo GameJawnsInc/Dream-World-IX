@@ -16824,9 +16824,12 @@ WW_CAPS_BOOK_MAX = 16
 WW_CAPS_NAMES = ("world pose", "world fingerprint", "comms", "guest menu", "v2 command frame")
 
 
-def ww_own_caps_rule(fp_off: bool) -> int:
-    """NetSyncWorldWalk.OwnCapsRule: `fp off` speaks s166's OwnCaps (0x0001), else 0x0003."""
-    return WW_OWN_CAPS if fp_off else WW_OWN_CAPS_WALK
+def ww_own_caps_rule(fp_off: bool, menu_off: bool) -> int:
+    """NetSyncWorldWalk.OwnCapsRule: `fp off` speaks s166's OwnCaps (0x0001), else 0x0003. [ff9mapkit netsync s168] W1d: TWO arguments
+    (S168-DESIGN.md decision 2): `fp off` stays s166's 0x0001 whatever the menu lever says; else s167's 0x0003 plus b3 (0x000B) unless
+    ``menu_off`` -- `guestmenu caps off`, and EVERY s167 engine (which never speaks b3): re-keyed BY STAGE, s167's word = ``menu_off`` True
+    (ww_own_caps_by_stage)."""
+    return WW_OWN_CAPS if fp_off else (WW_OWN_CAPS_WALK | (0 if menu_off else WW_CAP_GUEST_MENU))
 
 
 def ww_caps_line_step(said: list, own_caps: int, peer_caps: int) -> bool:
@@ -17264,3 +17267,1460 @@ OVERLAY_TEXT_SELFTEST_ROWS_S167 = 58
 def overlay_text_selftest_rows(stage: int) -> int:
     """The overlay text selftest's row count by engine stage (``stage`` 166 or older: 50; 167: 58)."""
     return OVERLAY_TEXT_SELFTEST_ROWS_S167 if int(stage) >= 167 else OVERLAY_TEXT_SELFTEST_ROWS
+
+
+# ======================================================================================================================================
+# [ff9mapkit netsync s168] THE GUEST'S MAIN MENU, RUNG 0 -- VIEW ONLY (studies/field-coop/S168-DESIGN.md decisions 1-21 and 31-36; the
+# engine's NetSyncGuestMenu.cs, NetSyncField.cs's gate seam, NetSyncWorldWalk.OwnCapsRule's two arguments and HarnessAgent.AppendGuestMenu,
+# read off the W1 clone with the W1 review's four fixes: "guest menu selftest: OK (420 rows, 249 mutants caught)", "seat bracket selftest: OK
+# (19 rows, 7 mutants caught)", "world walk selftest: OK (534 rows, 198 mutants)"). Every rule below is the ENGINE's, term for term and
+# constant for constant: the stand-in (fakegame's opt-in `guestmenu` rung) spends them, and tests/test_coop_guest_menu.py pins each twin to
+# the engine source BY STAGE (an s168 patch on the stack, or a clone named by FF9_S168_CLONE carrying the s168 tag) and EVALUATES the proof's
+# own single-expression rows against them, so a drift on either side goes red. Protocol 5, wire v15 (no bump), caps b3; no ini knob.
+# The s167 engine's caps rule is the two-argument rule with menu_off True (s167 never speaks b3): ww_own_caps_rule(fp_off, menu_off).
+import struct as _gm_struct                                          # noqa: E402 -- section 12's little-endian codec
+
+# ---- THE CAPS (decision 2): b3 the guest menu; s168 speaks 0x000B, `guestmenu caps off` s167's 0x0003, `worldwalk fp off` s166's 0x0001
+WW_OWN_CAPS_MENU = WW_OWN_CAPS_WALK | WW_CAP_GUEST_MENU          # 0x000B: what an s168 build speaks
+CAPS_S166, CAPS_S167, CAPS_S168 = WW_OWN_CAPS, WW_OWN_CAPS_WALK, WW_OWN_CAPS_MENU
+
+
+def ww_own_caps_by_stage(stage: int, fp_off: bool = False, menu_off: bool = False) -> int:
+    """[ff9mapkit netsync s168] The caps word an engine of ``stage`` speaks under its levers (the re-key BY STAGE, never a bare constant):
+    s166 0x0001; s167 0x0003 (0x0001 under `fp off`); s168 0x000B (0x0003 under `guestmenu caps off`, 0x0001 under `fp off`)."""
+    s = int(stage)
+    if s <= 166:
+        return WW_OWN_CAPS
+    return ww_own_caps_rule(fp_off, menu_off or s < 168)
+
+
+def ww_own_caps_want(netsync) -> int:
+    """[ff9mapkit netsync s168] The caps word a probe-keyed row WANTS a game's own `netsync` block to speak, BY STAGE (decision 32's re-key of
+    S167-P0's `lane.caps.own` and the round-B duo's CAPS_S167, never a weakening): no `world.walk` (s166) 0x0001; s167 (`world.walk`, no
+    `guestmenu`) 0x0003; s168 (`netsync.guestmenu`) 0x000B, or 0x0003 under `guestmenu caps off` (the one lever the re-key names). A
+    `worldwalk fp off` left on is NOT re-keyed: its 0x0001 stays a red, as on s167."""
+    ns = netsync if isinstance(netsync, dict) else {}
+    world = ns.get("world") if isinstance(ns.get("world"), dict) else {}
+    if "walk" not in world:
+        return WW_OWN_CAPS
+    gm = ns.get("guestmenu")
+    if not isinstance(gm, dict):
+        return ww_own_caps_rule(False, True)
+    return ww_own_caps_rule(False, ((gm.get("lever") or {}).get("caps")) == "off")
+
+
+#: the caps line's words an s168 build logs against an s167 partner (the proof's `caps.line_text_s168`)
+CAPS_LINE_S168_VS_S167 = ("the partner's co-op build lacks my guest menu (its caps 0x0003, mine 0x000B) -- off for this pair: the older "
+                          "behaviour")
+
+# ---- THE WHYS (decision 8's closed set of 19, AllWhys' order: `door_refused`'s keys)
+(GM_WHY_LEVER, GM_WHY_NOT_MIRRORING, GM_WHY_SESSION, GM_WHY_OLDER, GM_WHY_LINK, GM_WHY_HOST_BUSY, GM_WHY_HOST_BATTLE, GM_WHY_NO_DATA,
+ GM_WHY_DATA_DIFFERS, GM_WHY_CONTROL, GM_WHY_BUSY, GM_WHY_LEAVING, GM_WHY_SCENE, GM_WHY_UI, GM_WHY_HOST_ELSEWHERE, GM_WHY_WORLD_BUSY,
+ GM_WHY_RIDING, GM_WHY_MOVE, GM_WHY_FAULT) = GM_ALL_WHYS = (
+    "lever", "not_mirroring", "session", "older", "link", "host_busy", "host_battle", "no_data", "data_differs", "control", "busy", "leaving",
+    "scene", "ui", "host_elsewhere", "world_busy", "riding", "move", "fault")
+
+# ---- THE KEY STEP (decision 6): NetSyncField's MenuKey* 0-4, the guest press's two (both `guest` on `menu_refusal.now`)
+GM_KEY_NONE, MENU_KEY_GUEST_OPEN, MENU_KEY_GUEST_QUIET = -1, 5, 6
+MENU_KEY_NAMES_S168 = {**MENU_KEY_NAMES, MENU_KEY_GUEST_OPEN: "guest", MENU_KEY_GUEST_QUIET: "guest"}
+CS_FIELD_CONSTANTS_S168 = dict(CS_FIELD_CONSTANTS, MenuKeyGuestOpen=MENU_KEY_GUEST_OPEN, MenuKeyGuestQuiet=MENU_KEY_GUEST_QUIET)
+GM_HUD_STATES = ("FieldHUD", "WorldHUD")
+#: UIManager.IsUIStateMenu: MainMenu .. Tutorial, QuadMist, Chocograph, Folklore, Journal (UIState's declaration order)
+GM_MENU_STATES = frozenset(("MainMenu", "Item", "Ability", "Equip", "Status", "Card", "Config", "Serialize", "Cloud", "Shop", "NameSetting",
+                            "PartySetting", "BattleResult", "Tutorial", "QuadMist", "Chocograph", "Folklore", "Journal"))
+
+
+def menu_key_name_s168(verdict: int):
+    """NetSyncField.MenuKeyName on the s168 engine: s121's five, and "guest" for GuestOpen / GuestQuiet."""
+    return MENU_KEY_NAMES_S168.get(int(verdict))
+
+
+def gm_is_menu_state(state) -> bool:
+    """UIManager.IsUIStateMenu (``state`` a UIState name)."""
+    return str(state) in GM_MENU_STATES
+
+
+def _gm_call(x):
+    return x() if callable(x) else x
+
+
+def gm_guest_session_rule(session_held: bool, mirroring: bool, bench: bool, live_followed: bool) -> bool:
+    """NetSyncGuestMenu.GuestSessionRule: WorldSessionHeld || IsMirroringStory || (IsSelfTestRole && BenchGates). ``live_followed`` is read
+    by NO term (it flips at the 2 s stall cliff: GM0-STALL-WHO)."""
+    return bool(session_held or mirroring or bench)
+
+
+def gm_pair_on_rule(old: bool, own_caps: int, latest: dict) -> bool:
+    """NetSyncGuestMenu.PairOnRule (the W1 review's W1): the lever act and b3 on my caps word and on the peer's latest trailer."""
+    return (not old) and ww_feature_on(own_caps, ww_peer_caps_of(latest), WW_CAP_GUEST_MENU)
+
+
+def gm_key_step(enable: bool, old: bool, guest_session, mirroring: bool, loading, pair_on, state: str, why_not) -> tuple:
+    """NetSyncGuestMenu.GuestMenuKeyStep -> ``(verdict, why)``. ``guest_session`` / ``loading`` / ``pair_on`` / ``why_not`` are LAZY (a
+    callable, or a value): read only where the engine reads them, a raise where it catches -- a fault reading guestSession takes s121's
+    MenuKeyStep (never a refusal), one inside the guest press refuses `fault`. GuestQuiet is a feature-ON pair's only (``pair_on``)."""
+    if not enable:
+        return MENU_KEY_STOCK_OFF, None
+    if old:
+        return menu_key_step(enable, mirroring, state), None
+    try:
+        session = bool(_gm_call(guest_session))
+    except Exception:                                                   # noqa: BLE001 -- the engine's bare catch
+        return menu_key_step(enable, mirroring, state), None
+    if not session:
+        return MENU_KEY_OPEN, None
+    if state not in GM_HUD_STATES:
+        return menu_key_step(enable, mirroring, state), None
+    try:
+        if _gm_call(loading) and _gm_call(pair_on):
+            return MENU_KEY_GUEST_QUIET, None
+        why = _gm_call(why_not)
+        return (MENU_KEY_GUEST_OPEN, None) if why is None else (MENU_KEY_REFUSE_AUDIBLE, why)
+    except Exception:                                                   # noqa: BLE001
+        return MENU_KEY_REFUSE_AUDIBLE, GM_WHY_FAULT
+
+
+GM_EFF_BUZZ, GM_EFF_COUNT, GM_EFF_LINE, GM_EFF_SILENT = 0x01, 0x02, 0x04, 0x08
+
+
+def gm_refuse_effect_rule(verdict: int, enable: bool, mirroring: bool, state: str) -> int:
+    """NetSyncGuestMenu.RefuseEffectRule: the verdict AS GIVEN (enable / mirroring / state read by no branch)."""
+    v = int(verdict)
+    if v == MENU_KEY_REFUSE_AUDIBLE:
+        return GM_EFF_BUZZ | GM_EFF_COUNT | GM_EFF_LINE
+    if v == MENU_KEY_REFUSE_SILENT:
+        return GM_EFF_SILENT
+    return 0
+
+
+def gm_guest_key_name(verdict: int):
+    """NetSyncGuestMenu.GuestKeyName: "guest" for the two guest verdicts, else None."""
+    return "guest" if int(verdict) in (MENU_KEY_GUEST_OPEN, MENU_KEY_GUEST_QUIET) else None
+
+
+GM_PA_STOCK, GM_PA_DEADLINE, GM_PA_REFUSE_GIVEN, GM_PA_REFUSE_S121 = 0x01, 0x02, 0x04, 0x08
+
+
+def gm_press_act_rule(verdict: int, why) -> int:
+    """NetSyncGuestMenu.PressActRule: what the scene-branch Menu arm does with the verdict."""
+    v = int(verdict)
+    if v == MENU_KEY_OPEN:
+        return GM_PA_STOCK
+    if v == MENU_KEY_GUEST_OPEN:
+        return GM_PA_STOCK | GM_PA_DEADLINE
+    if v == MENU_KEY_GUEST_QUIET:
+        return GM_PA_STOCK
+    if v == MENU_KEY_REFUSE_AUDIBLE:
+        return GM_PA_REFUSE_GIVEN if why is not None else GM_PA_REFUSE_S121
+    if v == MENU_KEY_REFUSE_SILENT:
+        return GM_PA_REFUSE_S121
+    return 0
+
+
+# ---- THE CLOSE TRIGGERS (decision 18's Id column; `closes.<id>`, `last_close.cause`, `fireclose <id>`)
+GM_CAUSE_NONE, GM_CAUSE_LEAVE, GM_CAUSE_OUT, GM_CAUSE_REJOIN, GM_CAUSE_WORLD, GM_CAUSE_CUT, GM_CAUSE_ENDING, GM_CAUSE_TITLE, GM_CAUSE_SCENE = \
+    range(9)
+GM_CAUSE_NAMES = (None, "leave", "out", "rejoin", "world", "cut", "ending", "title", "scene")
+GM_CLOSE_IDS = GM_CAUSE_NAMES[1:]
+FLDSCRPT_EVTNO_ENDING = 16000                                        # FF9Define: the ending's pseudo-field (never followed)
+
+
+def gm_cause_name(cause: int):
+    """NetSyncGuestMenu.CauseName (None for none or an unknown cause)."""
+    c = int(cause)
+    return GM_CAUSE_NAMES[c] if GM_CAUSE_NONE < c <= GM_CAUSE_SCENE else None
+
+
+def gm_cause_index_rule(name) -> int:
+    """NetSyncGuestMenu.CauseIndexRule: `fireclose <id>`'s word read back (GM_CAUSE_NONE for an unknown word)."""
+    for k in range(GM_CAUSE_LEAVE, GM_CAUSE_SCENE + 1):
+        if GM_CAUSE_NAMES[k] == name:
+            return k
+    return GM_CAUSE_NONE
+
+
+def gm_close_facts(**kw) -> dict:
+    """A GmCloseFacts (decision 18's signals, each filled where its site reads it)."""
+    c = {"leave_intent": False, "serial_due": False, "host_world_out": False, "rejoin_due": False, "client_role": False, "battle_nonce": -1,
+         "closed_nonce": -1, "ramp_pending": False, "host_dlg_flags": -1, "talk_here": False, "ate_here": False, "scene_here": False}
+    unknown = set(kw) - set(c)
+    if unknown:
+        raise KeyError(f"gm_close_facts: no field {sorted(unknown)}")
+    c.update(kw)
+    return c
+
+
+def gm_trigger_fires(cause: int, c, latest: dict, my_world: int) -> bool:
+    """NetSyncGuestMenu.TriggerFires: does ``cause``'s trigger fire on these facts (``latest`` / ``my_world`` serve `world` only)?"""
+    if c is None:
+        return False
+    k = int(cause)
+    if k == GM_CAUSE_LEAVE:
+        return bool(c["leave_intent"] or c["serial_due"])
+    if k == GM_CAUSE_OUT:
+        return bool(c["host_world_out"])
+    if k == GM_CAUSE_REJOIN:
+        return bool(c["rejoin_due"])
+    if k == GM_CAUSE_WORLD:
+        return bool(c["client_role"] and ww_block_valid(latest) and int(latest["world"]) != int(my_world))
+    if k == GM_CAUSE_CUT:
+        return int(c["battle_nonce"]) >= 0 and int(c["battle_nonce"]) != int(c["closed_nonce"])
+    if k == GM_CAUSE_ENDING:
+        return bool(c["ramp_pending"])
+    if k == GM_CAUSE_TITLE:
+        return int(c["host_dlg_flags"]) >= 0 and (int(c["host_dlg_flags"]) & HF_TITLE) != 0
+    if k == GM_CAUSE_SCENE:
+        return bool(c["talk_here"] or c["ate_here"] or c["scene_here"])
+    return False
+
+
+def gm_close_cause_rule(c, latest: dict, my_world: int) -> int:
+    """NetSyncGuestMenu.CloseCauseRule: the first firing trigger in the table's order (GM_CAUSE_NONE if none)."""
+    for cause in range(GM_CAUSE_LEAVE, GM_CAUSE_SCENE + 1):
+        if gm_trigger_fires(cause, c, latest, my_world):
+            return cause
+    return GM_CAUSE_NONE
+
+
+def gm_open_mirror_why(cause: int):
+    """NetSyncGuestMenu.OpenMirrorWhy: term 11's why for a cause."""
+    return {GM_CAUSE_LEAVE: GM_WHY_LEAVING, GM_CAUSE_OUT: GM_WHY_LEAVING, GM_CAUSE_REJOIN: GM_WHY_LEAVING, GM_CAUSE_WORLD: GM_WHY_LEAVING,
+            GM_CAUSE_SCENE: GM_WHY_SCENE, GM_CAUSE_CUT: GM_WHY_HOST_BATTLE, GM_CAUSE_ENDING: GM_WHY_SESSION,
+            GM_CAUSE_TITLE: GM_WHY_HOST_BUSY}.get(int(cause))
+
+
+def gm_close_request_rule(seated: bool, close_old: bool, cause: int, state: str) -> bool:
+    """NetSyncGuestMenu.CloseRequestRule: keyed on the SEAT alone (``state`` read by no branch: Pause is never closed)."""
+    return bool(seated) and not close_old and int(cause) != GM_CAUSE_NONE
+
+
+def gm_cut_memory_rule(closed: int, live_nonce: int, boundary: bool) -> int:
+    """NetSyncGuestMenu.CutMemoryRule (the W1 review's LC1): a boundary forgets the memory; a DIFFERENT live nonce spends it; the same nonce,
+    or no live nonce (staleness is no battle boundary), keeps it."""
+    if boundary:
+        return -1
+    if int(live_nonce) >= 0 and int(closed) >= 0 and int(live_nonce) != int(closed):
+        return -1
+    return int(closed)
+
+
+# ---- THE PREDICATE (decision 8): GmFacts as a dict, the 23 terms in the table's order (cheapest first, one why each, null = open)
+def gm_facts(**kw) -> dict:
+    """A GmFacts with the engine's defaults (every field a plain value; ``latest`` a ww_trailer, ``close`` a gm_close_facts)."""
+    f = {"old": False, "mirroring": False, "session_held": False, "bench": False, "own_caps": 0, "latest": ww_trailer(), "live": False,
+         "host_dlg_flags": -1, "peer_battle_live": False, "menu_data": False, "witness_ok": False, "control": False, "busy_why": None,
+         "return_in_flight": False, "diorama_armed": False, "local_in_flight": False, "step_out": False, "world_out_committed": -1,
+         "close": gm_close_facts(), "etb_line": False, "suppress_input": False, "loading": False, "dialogs_visible": False, "world": False,
+         "my_field": -1, "my_world": 0, "last_host_field": -1, "intent_unseen": False, "intent_dest": 0, "host_scene_why": None,
+         "gl_scene_field": -1, "gl_host_holds_input": False, "on_world_now": False, "block_ready": False, "ui_world_hud": False,
+         "hud_plain": False, "char_state_index": 0, "event_world": False, "navi_mode": 0, "world_transition_why": None,
+         "world_out_pending": -1, "host_field": 0}
+    unknown = set(kw) - set(f)
+    if unknown:
+        raise KeyError(f"gm_facts: no field {sorted(unknown)}")
+    f.update(kw)
+    return f
+
+
+def gm_intent_away_rule(unseen: bool, dest: int, my_field: int) -> bool:
+    """NetSyncGuestMenu.IntentAwayRule (F2): an unseen intent naming a real field other than mine (never the ending's pseudo-field)."""
+    return bool(unseen) and int(dest) > 0 and int(dest) != int(my_field) and int(dest) != FLDSCRPT_EVTNO_ENDING
+
+
+def gm_fill_intent_facts(f: dict, unseen: bool, dest: int, world: bool, my_field: int, host_field: int) -> None:
+    """NetSyncGuestMenu.FillIntentFacts: F2 and term 11's leave / rejoin from ONE read of section 4."""
+    f["intent_unseen"], f["intent_dest"] = bool(unseen), int(dest)
+    away = gm_intent_away_rule(unseen, dest, -1 if world else my_field)
+    f["close"]["leave_intent"] = (not world) and away
+    f["close"]["rejoin_due"] = bool(world) and (away or int(host_field) > 0)
+
+
+def gm_fill_scene_facts(f: dict, world: bool, host_scene_why, talk_here: bool, ate_here: bool, scene_here: bool, gl_scene_field: int,
+                        gl_host_holds_input: bool) -> None:
+    """NetSyncGuestMenu.FillSceneFacts: F3, F4 and term 11's `scene` from the same scene reads (a field's terms only)."""
+    f["host_scene_why"] = None if world else host_scene_why
+    f["gl_scene_field"], f["gl_host_holds_input"] = int(gl_scene_field), bool(gl_host_holds_input)
+    f["close"]["talk_here"] = (not world) and bool(talk_here)
+    f["close"]["ate_here"] = (not world) and bool(ate_here)
+    f["close"]["scene_here"] = (not world) and bool(scene_here)
+
+
+def _gm_t_lever(f):
+    return GM_WHY_LEVER if f["old"] else None
+
+
+def _gm_t_who(f):                       # who sits BEFORE caps: guest-local (an older partner never reopens the s38 hole)
+    return None if f["bench"] else (GM_WHY_NOT_MIRRORING if not f["mirroring"] else GM_WHY_SESSION if not f["session_held"] else None)
+
+
+def _gm_t_caps(f):
+    return None if ww_feature_on(f["own_caps"], ww_peer_caps_of(f["latest"]), WW_CAP_GUEST_MENU) else GM_WHY_OLDER
+
+
+def _gm_t_live(f):
+    return None if f["live"] else GM_WHY_LINK
+
+
+def _gm_t_host_place(f):
+    t = f["latest"]
+    return None if t["has"] and int(t["place"]) in (WW_PLACE_FIELD, WW_PLACE_WORLD) else GM_WHY_HOST_BUSY
+
+
+def _gm_t_host_battle(f):
+    return GM_WHY_HOST_BATTLE if (f["host_dlg_flags"] >= 0 and (f["host_dlg_flags"] & HF_BATTLE) != 0) or f["peer_battle_live"] else None
+
+
+def _gm_t_menu_data(f):
+    return None if f["menu_data"] else GM_WHY_NO_DATA
+
+
+def _gm_t_witness(f):
+    return None if f["witness_ok"] else GM_WHY_DATA_DIFFERS
+
+
+def _gm_t_control(f):
+    return None if f["control"] else GM_WHY_CONTROL
+
+
+def _gm_t_busy(f):
+    return GM_WHY_BUSY if (f["busy_why"] is not None or f["return_in_flight"] or f["diorama_armed"] or f["local_in_flight"] or f["step_out"]
+                           or f["world_out_committed"] >= 0) else None
+
+
+def _gm_t_open_mirror(f):               # THE OPEN MIRROR: never open what a close trigger would close at once
+    return gm_open_mirror_why(gm_close_cause_rule(f["close"], f["latest"], f["my_world"]))
+
+
+def _gm_t_ui_quiet(f):                  # never Dialogs.Visible
+    return GM_WHY_UI if f["etb_line"] or f["suppress_input"] or f["loading"] else None
+
+
+def _gm_t_host_here(f):
+    return GM_WHY_HOST_ELSEWHERE if not f["world"] and f["last_host_field"] != f["my_field"] else None
+
+
+def _gm_t_intent_away(f):
+    return GM_WHY_LEAVING if not f["world"] and gm_intent_away_rule(f["intent_unseen"], f["intent_dest"], f["my_field"]) else None
+
+
+def _gm_t_host_scene(f):
+    return GM_WHY_SCENE if not f["world"] and f["host_scene_why"] is not None else None
+
+
+def _gm_t_beat(f):
+    return GM_WHY_SCENE if not f["world"] and f["gl_scene_field"] == f["my_field"] and f["gl_host_holds_input"] else None
+
+
+def _gm_t_my_world(f):
+    return GM_WHY_WORLD_BUSY if f["world"] and not (f["on_world_now"] and f["block_ready"] and f["ui_world_hud"]) else None
+
+
+def _gm_t_hud_state(f):
+    return GM_WHY_WORLD_BUSY if f["world"] and not f["hud_plain"] else None
+
+
+def _gm_t_on_foot(f):
+    return GM_WHY_RIDING if f["world"] and f["char_state_index"] != 0 else None
+
+
+def _gm_t_event_world(f):
+    return GM_WHY_WORLD_BUSY if f["world"] and (f["event_world"] or f["navi_mode"] == 2) else None
+
+
+def _gm_t_world_move(f):
+    return GM_WHY_MOVE if f["world"] and (f["world_transition_why"] is not None or f["world_out_pending"] >= 0) else None
+
+
+def _gm_t_host_world(f):
+    t = f["latest"]
+    return GM_WHY_LEAVING if f["world"] and (f["host_field"] > 0 or not ww_block_valid(t) or int(t["world"]) != int(f["my_world"])) else None
+
+
+def _gm_t_world_scene(f):
+    return GM_WHY_SCENE if f["world"] and (int(f["latest"]["state"]) & WW_ST_SCENE) != 0 else None
+
+
+#: decision 8's terms in the table's order (TLever .. TWt7), each a one-entry deletion target for a mutant
+GM_TERMS = (("lever", _gm_t_lever), ("who", _gm_t_who), ("caps", _gm_t_caps), ("live", _gm_t_live), ("host_place", _gm_t_host_place),
+            ("host_battle", _gm_t_host_battle), ("menu_data", _gm_t_menu_data), ("witness", _gm_t_witness), ("control", _gm_t_control),
+            ("busy", _gm_t_busy), ("open_mirror", _gm_t_open_mirror), ("ui_quiet", _gm_t_ui_quiet), ("f1", _gm_t_host_here),
+            ("f2", _gm_t_intent_away), ("f3", _gm_t_host_scene), ("f4", _gm_t_beat), ("wt1", _gm_t_my_world), ("wt2", _gm_t_hud_state),
+            ("wt3", _gm_t_on_foot), ("wt4", _gm_t_event_world), ("wt5", _gm_t_world_move), ("wt6", _gm_t_host_world),
+            ("wt7", _gm_t_world_scene))
+GM_TERM_NAMES = tuple(n for n, _fn in GM_TERMS)
+
+
+def gm_why_not(f: dict, terms=None):
+    """NetSyncGuestMenu.GuestMenuWhyNot: null = open, else the first refusing term's why (``terms`` a GM_TERMS-shaped table: a mutant)."""
+    for _name, fn in (GM_TERMS if terms is None else terms):
+        why = fn(f)
+        if why is not None:
+            return why
+    return None
+
+
+# ---- THE CLOSE ORDER (decision 21) AND ITS WATCHDOG, THE PRESS DEADLINE (decision 9), THE RAMP'S SETTLE, THE CUT (decision 19)
+GM_CLOSE_CAP_MS = 1500
+(GM_CS_WAIT_QUIT, GM_CS_WAIT_LOADING, GM_CS_PANEL_OFF, GM_CS_HIDE_ROOT, GM_CS_HIDE_SUB, GM_CS_WAIT_HIDE, GM_CS_WAIT_SHOW, GM_CS_DONE,
+ GM_CS_END) = range(1, 10)
+#: `close_step`'s words (and `close fault <step>`'s, CsWaitQuit..CsWaitShow)
+GM_CLOSE_STEP_NAMES = (None, "quit", "loading", "panel", "root", "sub", "hide", "show", "done", "end")
+GM_CLOSE_FAULT_STEPS = GM_CLOSE_STEP_NAMES[GM_CS_WAIT_QUIT:GM_CS_WAIT_SHOW + 1]
+GM_WD_WAIT, GM_WD_SWEEP, GM_WD_HUD_SHOW, GM_WD_END, GM_WD_DONE = range(5)
+GM_CA_WAIT, GM_CA_PANEL_OFF, GM_CA_HIDE_ROOT, GM_CA_HIDE_SUB, GM_CA_DONE, GM_CA_END, GM_CA_WD_SWEEP, GM_CA_WD_HUD_SHOW, GM_CA_WD_END, \
+    GM_CA_SCENE_END = range(10)
+GM_RQ_NONE, GM_RQ_NEW, GM_RQ_HELD = range(3)
+#: `last_close.end`'s words (CloseEndNames; 0 = none)
+GM_CE_DONE, GM_CE_NOTHING, GM_CE_WATCHDOG, GM_CE_SCENE, GM_CE_CLEAR_POINT, GM_CE_FAULT = range(1, 7)
+GM_CLOSE_END_NAMES = (None, "done", "nothing", "watchdog", "scene", "clear_point", "fault")
+GM_CLOSE_END_WORDS = {GM_CE_DONE: "done: the HUD's Show turned events back on", GM_CE_NOTHING: "ended with nothing to hide",
+                      GM_CE_WATCHDOG: "ended by THE WATCHDOG at its deadline",
+                      GM_CE_SCENE: "ended: the scene changed (a load ended it first; never swept over the new scene)",
+                      GM_CE_CLEAR_POINT: "ended at a clear point", GM_CE_FAULT: "ended by its fault path"}
+
+
+def gm_close_step_name(step: int):
+    """NetSyncGuestMenu.CloseStepName (None outside CsWaitQuit..CsEnd)."""
+    s = int(step)
+    return GM_CLOSE_STEP_NAMES[s] if 0 < s < len(GM_CLOSE_STEP_NAMES) else None
+
+
+def gm_close_fault_step_rule(name) -> int:
+    """NetSyncGuestMenu.CloseFaultStepRule: the step `close fault <step>` names (CsWaitQuit..CsWaitShow), -1 for any other word."""
+    for k in range(GM_CS_WAIT_QUIT, GM_CS_WAIT_SHOW + 1):
+        if GM_CLOSE_STEP_NAMES[k] == name:
+            return k
+    return -1
+
+
+def gm_close_step_rule(quit_shown: bool, loading: bool, panel_shown: bool, state: str, hide_issued: bool, events_on: bool) -> int:
+    """NetSyncGuestMenu.CloseStepRule: THE CLOSE ORDER LAW as a state step (only a menu-family scene is ever hidden)."""
+    if quit_shown:
+        return GM_CS_WAIT_QUIT
+    menu, hud = gm_is_menu_state(state), state in GM_HUD_STATES
+    if hide_issued:
+        if menu:
+            return GM_CS_WAIT_HIDE
+        if hud:
+            return GM_CS_DONE if events_on else GM_CS_WAIT_SHOW
+        return GM_CS_END
+    if loading:
+        return GM_CS_WAIT_LOADING
+    if not menu:
+        return GM_CS_END
+    if panel_shown:
+        return GM_CS_PANEL_OFF
+    return GM_CS_HIDE_ROOT if state == "MainMenu" else GM_CS_HIDE_SUB
+
+
+def gm_close_clock_runs(step: int) -> bool:
+    """NetSyncGuestMenu.CloseClockRuns: every step but stock's own two waits (the quit prompt, a foreign fade)."""
+    return int(step) not in (GM_CS_WAIT_QUIT, GM_CS_WAIT_LOADING)
+
+
+def _gm_f32(x: float) -> float:
+    """A C# Single: ``x`` rounded to float32."""
+    return _gm_struct.unpack("<f", _gm_struct.pack("<f", float(x)))[0]
+
+
+def gm_fade_ms_rule(fade_seconds: float, fast_forward: bool, factor: int) -> int:
+    """NetSyncGuestMenu.FadeMsRule: FadeDuration (a Single) clamped 0-5 s, divided by FastForwardFactor under IsFastForward (a factor <= 0
+    unscaled), to the nearest ms (Math.Round's banker's rounding over the Single widened to a double: a Single's 0.3 reads 300)."""
+    s = _gm_f32(min(max(float(fade_seconds), 0.0), 5.0))
+    if fast_forward and int(factor) > 0:
+        s = _gm_f32(s / int(factor))
+    return int(round(s * 1000.0))
+
+
+def gm_close_deadline_rule(fade_ms: int, world: bool) -> int:
+    """NetSyncGuestMenu.CloseDeadlineRule: CloseCapMs plus two fades on a field, one on the world."""
+    return GM_CLOSE_CAP_MS + (1 if world else 2) * int(fade_ms)
+
+
+def gm_watchdog_clock_rule(elapsed_ms: int, dt_ms: int, step: int) -> int:
+    """NetSyncGuestMenu.WatchdogClockRule."""
+    return int(elapsed_ms) + int(dt_ms) if gm_close_clock_runs(step) and int(dt_ms) > 0 else int(elapsed_ms)
+
+
+def gm_watchdog_act_rule(elapsed_ms: int, deadline_ms: int, state: str, same_scene: bool, events_on: bool) -> int:
+    """NetSyncGuestMenu.WatchdogActRule: past its deadline a close acts by the state it finds."""
+    if int(elapsed_ms) < int(deadline_ms):
+        return GM_WD_WAIT
+    if gm_is_menu_state(state):
+        return GM_WD_SWEEP if same_scene else GM_WD_END
+    if state in GM_HUD_STATES:
+        return GM_WD_DONE if events_on else GM_WD_HUD_SHOW
+    return GM_WD_END
+
+
+def gm_press_deadline_rule(press_ms: int, fade_ms: int) -> int:
+    """NetSyncGuestMenu.PressDeadlineRule: the press + CloseCapMs + one live scaled fade (unchecked Int32)."""
+    return _ww_i32(int(press_ms) + GM_CLOSE_CAP_MS + int(fade_ms))
+
+
+def gm_press_holds_rule(armed: bool, deadline_ms: int, now_ms: int) -> bool:
+    """NetSyncGuestMenu.PressHoldsRule: a stamped deadline still in the future (tick-wrap safe)."""
+    return bool(armed) and _ww_i32(int(deadline_ms) - int(now_ms)) > 0
+
+
+def gm_ramp_settle_rule(settled: bool, world: bool, seated: bool, world_hud: bool, press_holds: bool) -> bool:
+    """NetSyncGuestMenu.RampSettleRule: the exit ramp's `settled` with the seat's world UI term and the press term."""
+    if not settled or press_holds:
+        return False
+    return not (world and seated and not world_hud)
+
+
+def gm_cut_ui_free_rule(ui_free: bool, close_for_nonce: bool, quit_shown: bool) -> bool:
+    """NetSyncGuestMenu.CutUiFreeRule (decision 19): BOOTING while a close is in flight for the live nonce, never under the quit prompt."""
+    return bool(ui_free or (close_for_nonce and not quit_shown))
+
+
+def gm_close_record() -> dict:
+    """A cleared GmCloseRecord."""
+    return {"held": False, "cause": GM_CAUSE_NONE, "cut_nonce": -1, "from": -1, "scene": -1, "world": False, "req_tick": 0, "last_tick": 0,
+            "elapsed": 0, "deadline": 0, "hide_issued": False, "step": 0, "line_armed": False}
+
+
+def gm_request_close_over(rec: dict, seated: bool, close_old: bool, cause: int, nonce: int, from_state, scene: int, world: bool, fade_ms: int,
+                          now_ms: int) -> int:
+    """NetSyncGuestMenu.RequestCloseOver (pure over ``rec``): CloseRequestRule's gate, then idempotent (a cut's nonce merges in), else a new
+    record with the watchdog's deadline stamped now. ``from_state`` is what the record keeps (the engine stamps the UIState's int; here its
+    name)."""
+    if rec is None or not gm_close_request_rule(seated, close_old, cause, from_state):
+        return GM_RQ_NONE
+    if rec["held"]:
+        if int(cause) == GM_CAUSE_CUT and int(nonce) >= 0:
+            rec["cut_nonce"] = int(nonce)
+        return GM_RQ_HELD
+    rec.update(gm_close_record())
+    rec.update(held=True, cause=int(cause), cut_nonce=int(nonce) if int(cause) == GM_CAUSE_CUT else -1, scene=int(scene), world=bool(world),
+               req_tick=int(now_ms), last_tick=int(now_ms), deadline=gm_close_deadline_rule(fade_ms, world))
+    rec["from"] = from_state
+    return GM_RQ_NEW
+
+
+def gm_close_drive_rule(rec: dict, quit_shown: bool, loading: bool, panel_shown: bool, state: str, events_on: bool, same_scene: bool,
+                        now_ms: int) -> int:
+    """NetSyncGuestMenu.CloseDriveRule (pure over ``rec``; GmCloseTick's fields as arguments): ONE tick of the close order law."""
+    if rec is None or not rec["held"]:
+        return GM_CA_WAIT
+    if not same_scene:
+        return GM_CA_SCENE_END
+    step = gm_close_step_rule(quit_shown, loading, panel_shown, state, rec["hide_issued"], events_on)
+    rec["elapsed"] = gm_watchdog_clock_rule(rec["elapsed"], _ww_i32(int(now_ms) - int(rec["last_tick"])), step)
+    rec["last_tick"], rec["step"] = int(now_ms), step
+    if not gm_close_clock_runs(step):
+        return GM_CA_WAIT
+    if step == GM_CS_DONE:
+        return GM_CA_DONE
+    if step == GM_CS_END:
+        return GM_CA_END
+    wd = gm_watchdog_act_rule(rec["elapsed"], rec["deadline"], state, True, events_on)
+    if wd != GM_WD_WAIT:
+        return {GM_WD_SWEEP: GM_CA_WD_SWEEP, GM_WD_HUD_SHOW: GM_CA_WD_HUD_SHOW, GM_WD_END: GM_CA_WD_END, GM_WD_DONE: GM_CA_DONE}[wd]
+    return {GM_CS_PANEL_OFF: GM_CA_PANEL_OFF, GM_CS_HIDE_ROOT: GM_CA_HIDE_ROOT, GM_CS_HIDE_SUB: GM_CA_HIDE_SUB}.get(step, GM_CA_WAIT)
+
+
+def gm_held_bits_rule(confirm: bool, cancel: bool, special: bool, menu: bool, mask_confirm: int, mask_cancel: int, mask_special: int,
+                      mask_menu: int) -> int:
+    """NetSyncGuestMenu.HeldBitsRule: exactly the buttons held now, each its key mask."""
+    return ((int(mask_confirm) if confirm else 0) | (int(mask_cancel) if cancel else 0) | (int(mask_special) if special else 0)
+            | (int(mask_menu) if menu else 0)) & 0xFFFFFFFF
+
+
+def gm_held_watch_step(watch: int, stale: int, held_now: int, key_on: int) -> tuple:
+    """NetSyncGuestMenu.HeldWatchStep -> ``(watch, stale_next, edges)``: a released bit leaves the watch; a KeyOn of a bit held since the write
+    is a FALSE edge, counted once; a KeyOn already standing at the write is not counted until ETb processed a frame without it."""
+    still = int(watch) & int(held_now)
+    standing = int(stale) & int(key_on) & still
+    hit = still & int(key_on) & ~standing
+    return (still & ~hit) & 0xFFFFFFFF, standing & 0xFFFFFFFF, bin(hit & 0xFFFFFFFF).count("1")
+
+
+# ---- THE DOORS (decisions 9 and 16), THE RESTORE IDENTITY, THE SITES
+GM_DOOR_HALF_NONE, GM_DOOR_HALF_OPEN, GM_DOOR_HALF_RESTORE = -1, 0, 1
+GM_DF_STOCK, GM_DF_REFUSE, GM_DF_KEEP_STOCK = 0, 1, 2
+GM_DO_STOCK, GM_DO_REFUSE, GM_DO_SEAT = 0, 1, 2
+GM_RV_NONE, GM_RV_RESTORE, GM_RV_DROP = 0, 1, 2
+GM_RE_CLEAR, GM_RE_SUB_MENUS, GM_RE_ALARM, GM_RE_DROP_LINE = 0x01, 0x02, 0x04, 0x08
+(GM_SITE_DOOR, GM_SITE_SEAT_FAULT, GM_SITE_REPLACE, GM_SITE_REPLACE_TITLE, GM_SITE_RAMP_FIRE, GM_SITE_RAMP_QUIT, GM_SITE_LOAD_ENTRY,
+ GM_SITE_LEVEL_LOADED, GM_SITE_TITLE, GM_SITE_SCENE, GM_SITE_CONFIG_EDGE, GM_SITE_RAMP_ARM, GM_SITE_TRANSPORT_STOP) = range(1, 14)
+GM_SITE_NAMES = (None, "the door", "the seat's rollback", "SceneDirector.Replace", "the title (Replace)", "the exit ramp's fire",
+                 "the exit ramp's fire (the quit prompt held the close)", "the load entry (Alt+F9)", "a scene load", "the title",
+                 "a UnityScene change", "a config edge", "the exit ramp's arm", "a transport stop")
+GM_BL_PLAIN, GM_BL_QUIET, GM_BL_ALARM = 0, 1, 2
+GM_SV_OK, GM_SV_SHORT, GM_SV_BAG, GM_SV_FAULT = 0, 1, 2, 3
+GM_BS_REFUSED, GM_BS_WATCHING = 0x01, 0x02
+#: decision 14's EnabledSubMenus while seated (Order, Party, Card and Config greyed: stock buzzes 102 on them)
+GM_SEAT_SUB_MENUS = ("Item", "Ability", "Equip", "Status", "Folklore")
+GM_GREYED_SUB_MENUS = ("Order", "Party", "Card", "Config")
+
+
+def gm_open_door_rule(state: str, prev_state: str, new_state: str, guest_session: bool, old: bool, press_verdict: int) -> bool:
+    """NetSyncGuestMenu.OpenDoorRule: a FieldHUD/WorldHUD -> MainMenu entry inside a guest session, `old` off (prevState and the press verdict
+    read by no branch)."""
+    return state in GM_HUD_STATES and new_state == "MainMenu" and bool(guest_session) and not old
+
+
+def gm_door_verdict_rule(record_held: bool, retry_ok: bool, why):
+    """NetSyncGuestMenu.DoorVerdictRule: a held record whose retry failed refuses `fault`; else the predicate's why."""
+    return GM_WHY_FAULT if record_held and not retry_ok else why
+
+
+def gm_door_seats_rule(door_runs: bool, door_why, press_verdict: int) -> bool:
+    """NetSyncGuestMenu.DoorSeatsRule: the seat is taken AT THE DOOR only (the press verdict read by no branch)."""
+    return bool(door_runs) and door_why is None
+
+
+def gm_door_reshow_rule(state: str, prev_state: str) -> str:
+    """NetSyncGuestMenu.DoorReshowRule: the HUD state's OWN scene, never the `prevState` field."""
+    return state
+
+
+def gm_door_fault_rule(half: int, guest_session_known: bool) -> int:
+    """NetSyncGuestMenu.DoorFaultRule: an open-half fault before guestSession is known is stock; after, the refusal; a restore-half fault
+    keeps the record."""
+    if int(half) == GM_DOOR_HALF_RESTORE:
+        return GM_DF_KEEP_STOCK
+    return GM_DF_REFUSE if guest_session_known else GM_DF_STOCK
+
+
+def gm_restore_door_rule(state: str, prev_state: str, new_state: str) -> bool:
+    """NetSyncGuestMenu.RestoreDoorRule: from a menu-family CURRENT state to a non-menu state (prevState read by no branch)."""
+    return new_state != state and gm_is_menu_state(state) and not gm_is_menu_state(new_state)
+
+
+def gm_door_half_rule(state: str, prev_state: str, new_state: str, seat_held: bool, guest_session: bool, old: bool) -> int:
+    """NetSyncGuestMenu.DoorHalfRule: the restore half for a held seat leaving the menu family; the open half on a HUD -> MainMenu entry
+    inside a guest session (or with a record still held); else none."""
+    if seat_held and gm_restore_door_rule(state, prev_state, new_state):
+        return GM_DOOR_HALF_RESTORE
+    hud_to_menu = state in GM_HUD_STATES and new_state == "MainMenu"
+    if hud_to_menu and (seat_held or gm_open_door_rule(state, prev_state, new_state, guest_session, old, GM_KEY_NONE)):
+        return GM_DOOR_HALF_OPEN
+    return GM_DOOR_HALF_NONE
+
+
+def gm_door_open_step(held: bool, retry_ok: bool, session: bool, old: bool, why_not) -> tuple:
+    """NetSyncGuestMenu.DoorOpenStep -> ``(verdict, why)``; ``why_not`` lazy (read only for a guest open), and may raise (the caller's fault
+    path decides)."""
+    guest = bool(session) and not old
+    if held and not retry_ok:
+        if not guest:
+            return GM_DO_STOCK, None
+        return GM_DO_REFUSE, gm_door_verdict_rule(True, False, None)
+    if not guest:
+        return GM_DO_STOCK, None
+    why = gm_door_verdict_rule(held, retry_ok, _gm_call(why_not))
+    return (GM_DO_SEAT, None) if why is None else (GM_DO_REFUSE, why)
+
+
+def gm_restore_identity_rule(have_record: bool, same_state: bool, seat_epoch: int, epoch_now: int) -> int:
+    """NetSyncGuestMenu.RestoreIdentityRule: restore only into the state seated, with no deserialization since."""
+    if not have_record:
+        return GM_RV_NONE
+    return GM_RV_RESTORE if same_state and int(seat_epoch) == int(epoch_now) else GM_RV_DROP
+
+
+def gm_restore_end_rule(verdict: int, failed_families: int) -> int:
+    """NetSyncGuestMenu.RestoreEndRule."""
+    if int(verdict) == GM_RV_DROP:
+        return GM_RE_CLEAR | GM_RE_SUB_MENUS | GM_RE_DROP_LINE
+    if int(verdict) == GM_RV_RESTORE:
+        return GM_RE_SUB_MENUS | GM_RE_ALARM if int(failed_families) > 0 else GM_RE_CLEAR | GM_RE_SUB_MENUS
+    return 0
+
+
+def gm_site_name(site: int) -> str:
+    """NetSyncGuestMenu.SiteName ("site N" off the table)."""
+    s = int(site)
+    return GM_SITE_NAMES[s] if 0 < s < len(GM_SITE_NAMES) else f"site {s}"
+
+
+def gm_session_ends_rule(site: int) -> bool:
+    """NetSyncGuestMenu.SessionEndsRule: the door .. a UnityScene change; never a config edge, the ramp's arm or a transport stop."""
+    return GM_SITE_DOOR <= int(site) <= GM_SITE_SCENE
+
+
+def gm_backstop_line_rule(site: int) -> int:
+    """NetSyncGuestMenu.BackstopLineRule: Replace("Title") and a quit-held ramp fire are quiet; every other backstop the alarm."""
+    s = int(site)
+    if s in (GM_SITE_REPLACE_TITLE, GM_SITE_RAMP_QUIT):
+        return GM_BL_QUIET
+    if s in (GM_SITE_REPLACE, GM_SITE_RAMP_FIRE, GM_SITE_LOAD_ENTRY, GM_SITE_LEVEL_LOADED, GM_SITE_TITLE, GM_SITE_SCENE):
+        return GM_BL_ALARM
+    return GM_BL_PLAIN
+
+
+def gm_close_ends_at_rule(site: int) -> bool:
+    """NetSyncGuestMenu.CloseEndsAtRule: the clear points that end a forced close's record early."""
+    return int(site) in (GM_SITE_LEVEL_LOADED, GM_SITE_TITLE, GM_SITE_SCENE, GM_SITE_RAMP_FIRE, GM_SITE_RAMP_QUIT)
+
+
+def gm_boot_seat_rule(may_boot: bool, seated: bool) -> int:
+    """NetSyncGuestMenu.BootSeatRule: a held seat refuses in Boot's OWN refusal, never in MayBoot."""
+    return (GM_BS_REFUSED if (not may_boot or seated) else 0) | (GM_BS_WATCHING if may_boot else 0)
+
+
+def gm_autosave_ladder_rule(stock_refused: bool, suppress: bool, mirroring: bool, booted: bool, seated: bool) -> bool:
+    """NetSyncGuestMenu.AutosaveLadderRule: the seat its OWN term."""
+    return bool(stock_refused or suppress or mirroring or booted or seated)
+
+
+# ---- THE MENU BLOCK, SECTION 12 (decision 5): [fmt u8 = 1][policy u8][applyMask u8][gil u32][usedN u16][used u16 x usedN][memberN u8 <= 4]
+# then per member [charId u8][presetId u8][category u8][exp u32][basisCapa u32][paN u8][pa u16 x paN] -- little-endian, keyed by CharacterId
+SECTION_GUEST_MENU = 12                                              # NetSyncState.SectionGuestMenu (decision 3's registry)
+SECTION_GUEST_ANSWERS = 13                                           # reserved in s168 (s169's answers)
+GM_MENU_FMT, GM_POLICY_S168, GM_APPLY_MASK_S168 = 1, 0, 0
+GM_MENU_FIXED_LEN, GM_MEMBER_FIXED_LEN, GM_MEMBER_CAP, GM_PA_CLAMP, GM_PRESET_WIRE_MAX = 10, 12, 4, 65535, 255
+#: the type-5 section order with section 12 (decision 3): 8 stays right after 7 and last
+GM_SECTION_ORDER_S168 = (0, 1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 7, 8)
+
+
+def gm_member(char: int, preset: int, category: int, exp: int, basis_capa: int, pa=()) -> dict:
+    """One section-12 member (GmMember)."""
+    return {"char": int(char), "preset": int(preset), "category": int(category), "exp": int(exp), "basis_capa": int(basis_capa),
+            "pa": [int(v) for v in (pa or ())]}
+
+
+def _gm_pa_wire(v: int) -> int:
+    return 0 if int(v) < 0 else GM_PA_CLAMP if int(v) > GM_PA_CLAMP else int(v)
+
+
+def gm_write_menu_block(policy: int, apply_mask: int, gil: int, used, members) -> bytes:
+    """NetSyncGuestMenu.WriteMenuBlock (fmt 1): at most MemberCap members (a None skipped), at most 255 pa each clamped into 0..65535, a used
+    id outside 0..65535 skipped (at most 65535 kept)."""
+    b = bytearray((GM_MENU_FMT, int(policy) & 0xFF, int(apply_mask) & 0xFF))
+    b += _gm_struct.pack("<I", int(gil) & 0xFFFFFFFF)
+    ids = []
+    for v in (used or ()):
+        if int(v) < 0 or int(v) > 0xFFFF or len(ids) >= 0xFFFF:
+            continue
+        ids.append(int(v))
+    b += _gm_struct.pack("<H", len(ids)) + b"".join(_gm_struct.pack("<H", v) for v in ids)
+    ms = [m for m in (members or ()) if m is not None][:GM_MEMBER_CAP]
+    b.append(len(ms))
+    for m in ms:
+        pa = list(m.get("pa") or ())[:255]
+        b += bytes((int(m["char"]) & 0xFF, int(m["preset"]) & 0xFF, int(m["category"]) & 0xFF))
+        b += _gm_struct.pack("<II", int(m["exp"]) & 0xFFFFFFFF, int(m["basis_capa"]) & 0xFFFFFFFF)
+        b.append(len(pa))
+        b += b"".join(_gm_struct.pack("<H", _gm_pa_wire(v)) for v in pa)
+    return bytes(b)
+
+
+def gm_try_read_menu_block(body):
+    """NetSyncGuestMenu.TryReadMenuBlock: None on a short body, an unknown fmt, memberN above MemberCap or any truncation; bytes after the last
+    member skipped. -> ``{fmt, policy, apply_mask, gil, used, members}``."""
+    d = bytes(body) if body is not None else None
+    if d is None or len(d) < GM_MENU_FIXED_LEN or d[0] != GM_MENU_FMT:
+        return None
+    off = 3
+    gil = _gm_struct.unpack_from("<I", d, off)[0]
+    off += 4
+    used_n = _gm_struct.unpack_from("<H", d, off)[0]
+    off += 2
+    if off + 2 * used_n + 1 > len(d):
+        return None
+    used = [_gm_struct.unpack_from("<H", d, off + 2 * k)[0] for k in range(used_n)]
+    off += 2 * used_n
+    member_n = d[off]
+    off += 1
+    if member_n > GM_MEMBER_CAP:
+        return None
+    members = []
+    for _i in range(member_n):
+        if off + GM_MEMBER_FIXED_LEN > len(d):
+            return None
+        char, preset, cat = d[off], d[off + 1], d[off + 2]
+        exp, capa = _gm_struct.unpack_from("<II", d, off + 3)
+        pa_n = d[off + 11]
+        off += GM_MEMBER_FIXED_LEN
+        if off + 2 * pa_n > len(d):
+            return None
+        pa = [_gm_struct.unpack_from("<H", d, off + 2 * k)[0] for k in range(pa_n)]
+        off += 2 * pa_n
+        members.append(gm_member(char, preset, cat, exp, capa, pa))
+    return {"fmt": d[0], "policy": d[1], "apply_mask": d[2], "gil": gil, "used": used, "members": members}
+
+
+def gm_menu_block_len(used_n: int, pa_counts) -> int:
+    """Section 12's body length on paper (decision 5's cost): 10 + 2 x usedN + the sum over members of 12 + 2 x paN."""
+    return GM_MENU_FIXED_LEN + 2 * int(used_n) + sum(GM_MEMBER_FIXED_LEN + 2 * int(n) for n in pa_counts)
+
+
+def gm_try_read_key_items(payload):
+    """NetSyncGuestMenu.TryReadKeyItems: section 2's ids IN THE HOST'S ORDER ([n u16][id u16 x n]); None when absent or truncated."""
+    body = old_try_read_section(payload, SECTION_KEY_ITEMS)
+    if body is None or len(body) < 2:
+        return None
+    n = body[0] | (body[1] << 8)
+    if 2 + 2 * n > len(body):
+        return None
+    return [body[2 + 2 * k] | (body[3 + 2 * k] << 8) for k in range(n)]
+
+
+def gm_try_read_bag(payload):
+    """NetSyncGuestMenu.TryReadBag: section 3's rows IN THE HOST'S ORDER ([n u16][(id u16, count u16) x n]) -> ``[(id, count)]``."""
+    body = old_try_read_section(payload, SECTION_BAG)
+    if body is None or len(body) < 2:
+        return None
+    n = body[0] | (body[1] << 8)
+    if 2 + 4 * n > len(body):
+        return None
+    return [(body[2 + 4 * k] | (body[3 + 4 * k] << 8), body[4 + 4 * k] | (body[5 + 4 * k] << 8)) for k in range(n)]
+
+
+def gm_block_matches_party_rule(present_chars, block) -> bool:
+    """NetSyncGuestMenu.BlockMatchesPartyRule over section 1's PRESENT members' CharacterIds (slot order; None = an empty slot): every present
+    member named exactly once, and no one else."""
+    if present_chars is None or block is None or block.get("members") is None:
+        return False
+    members = block["members"]
+    present = 0
+    for c in list(present_chars)[:4]:
+        if c is None:
+            continue
+        present += 1
+        if sum(1 for m in members if m is not None and int(m["char"]) == int(c)) != 1:
+            return False
+    return present == len(members)
+
+
+def gm_member_index_rule(block, party_chars, slot: int) -> int:
+    """NetSyncGuestMenu.MemberIndexRule: the section-12 entry for party slot ``slot`` KEYED BY CharacterId (-1 = none)."""
+    if block is None or block.get("members") is None or party_chars is None or not 0 <= int(slot) < len(party_chars):
+        return -1
+    c = party_chars[int(slot)]
+    if c is None:
+        return -1
+    for k, m in enumerate(block["members"]):
+        if m is not None and int(m["char"]) == int(c):
+            return k
+    return -1
+
+
+# ---- THE CONTENT WITNESS (decision 13): its components (`frame witness <c>`'s words, BenchWitnessNames' order)
+GM_COMP_CHAR, GM_COMP_PRESET, GM_COMP_PA, GM_COMP_EQUIP, GM_COMP_SA, GM_COMP_BAG, GM_COMP_KEY_ITEM = (
+    "char", "preset", "pa", "equip", "sa", "bag", "keyitem")
+GM_BENCH_WITNESS_NAMES = (GM_COMP_PRESET, GM_COMP_PA, GM_COMP_EQUIP, GM_COMP_SA, GM_COMP_CHAR, GM_COMP_BAG, GM_COMP_KEY_ITEM)
+GM_BENCH_FRAME_MARKER, GM_BENCH_FRAME_WITNESS, GM_BENCH_FRAME_INTENT = 1, 2, 3
+
+
+GM_NO_ITEM = 255                                                     # RegularItem.NoItem: an empty equipment slot (never refused)
+
+
+def gm_member_label(slot: dict) -> str:
+    """NetSyncGuestMenu.MemberLabel: section 1's name, else "character <id>"."""
+    return slot.get("name") or f"character {int(slot['char'])}"
+
+
+def gm_witness_rule(party, block, bag, inst: dict) -> tuple:
+    """NetSyncGuestMenu.WitnessRule (decision 13, THE CONTENT WITNESS) over one read frame -> ``(ok, member, component)``: members in slot
+    order (``party``: section 1's four slots, None = empty; each {char, name, equip, sa}), each char -> preset -> pa (both off the member's
+    section-12 entry, keyed by CharacterId) -> equip (NoItem skipped) -> sa (a negative id skipped); then the bag (member "bag"). Key
+    items never refuse. ``inst``: {char_known, preset_known, pa_len_of, item_known, sa_known} callables (GmInstall)."""
+    chars = [s["char"] if s is not None else None for s in party]
+    for i, s in enumerate(list(party)[:4]):
+        if s is None:
+            continue
+        who = gm_member_label(s)
+        if not inst["char_known"](int(s["char"])):
+            return False, who, GM_COMP_CHAR
+        k = gm_member_index_rule(block, chars, i)
+        m = block["members"][k] if k >= 0 else None
+        if m is None or not inst["preset_known"](int(m["preset"])):
+            return False, who, GM_COMP_PRESET
+        if m.get("pa") is None or len(m["pa"]) != inst["pa_len_of"](int(m["preset"])):
+            return False, who, GM_COMP_PA
+        if any(int(e) != GM_NO_ITEM and not inst["item_known"](int(e)) for e in (s.get("equip") or ())):
+            return False, who, GM_COMP_EQUIP
+        if any(int(a) >= 0 and not inst["sa_known"](int(a)) for a in (s.get("sa") or ())):
+            return False, who, GM_COMP_SA
+    if any(not inst["item_known"](int(r[0])) for r in (bag or ())):
+        return False, GM_COMP_BAG, GM_COMP_BAG
+    return True, None, None
+
+
+def gm_short_seat_rule(seated: int, member_n: int) -> bool:
+    """NetSyncGuestMenu.ShortSeatRule: fewer seated than memberN refuses `data_differs`."""
+    return int(seated) < int(member_n)
+
+
+def gm_unknown_key_items_rule(ids, known, into=None) -> int:
+    """NetSyncGuestMenu.UnknownKeyItemsRule: the key items this install does not know, in the host's order (seated anyway)."""
+    if ids is None or known is None:
+        return 0
+    n = 0
+    for v in ids:
+        if known(v):
+            continue
+        if into is not None:
+            into.append(v)
+        n += 1
+    return n
+
+
+# ---- THE FRAME-CAP GUARD (decision 5) AND THE SENDER
+GM_TRAIL_RESERVE = 430
+WIRE_MAX_PAYLOAD = 8192                                              # NetSyncWire.MaxPayload
+GM_TX_WINDOW_MS = 1000
+
+
+def gm_trail_reserve_of(header_len: int = DIALOG_HEADER_LEN, open_len: int = 6, open_cap: int = 4, event_len: int = 12, ring_cap: int = 32,
+                        dress_body_len: int = DRESS_BODY_LEN) -> int:
+    """NetSyncGuestMenu.TrailReserveOf: section 7 at its codec maximum with its header (3 + HeaderLen + OpenLen x OpenCap + the count byte +
+    EventLen x RingCap) plus section 8 (3 + DressBodyLen)."""
+    return 3 + int(header_len) + int(open_len) * int(open_cap) + 1 + int(event_len) * int(ring_cap) + 3 + int(dress_body_len)
+
+
+def gm_sec12_fits_rule(frame_len: int, body_len: int, reserve: int = GM_TRAIL_RESERVE) -> bool:
+    """NetSyncGuestMenu.Sec12FitsRule: the frame so far + the 3-byte header + the body + ``reserve`` fits MaxPayload."""
+    return int(frame_len) + 3 + int(body_len) + int(reserve) <= WIRE_MAX_PAYLOAD
+
+
+def gm_section_send_rule(host_role: bool, own_caps: int, peer_caps: int, peer_follows: bool, peer_live: bool) -> bool:
+    """NetSyncGuestMenu.GmSectionSendRule: the host role, b3 on BOTH words, the guest follows (flags b0), the peer live."""
+    return bool(host_role) and ww_feature_on(own_caps, peer_caps, WW_CAP_GUEST_MENU) and bool(peer_follows) and bool(peer_live)
+
+
+def gm_tx_bps_step(book: dict, sends: int, now: int, payload_len: int) -> int:
+    """NetSyncGuestMenu.TxBpsStep over ``book`` ({base_sends, base_tick, last}): the first read (or a restarted counter) opens a window and
+    reads -1; inside TxWindowMs the last value; past it (sends - base) x payloadLen x 1000 / elapsed, the window restarting."""
+    base = int(book.get("base_sends", -1))
+    if base < 0 or int(sends) < base:
+        book.update(base_sends=int(sends), base_tick=int(now), last=-1)
+        return -1
+    elapsed = _ww_i32(int(now) - int(book.get("base_tick", 0)))
+    if elapsed < GM_TX_WINDOW_MS:
+        return int(book.get("last", -1))
+    bps = (int(sends) - base) * max(int(payload_len), 0) * 1000 // elapsed
+    book.update(base_sends=int(sends), base_tick=int(now), last=min(bps, 0x7FFFFFFF))
+    return book["last"]
+
+
+# ---- THE WORDS (decision 10; the owner-visible seeds) AND THE LINES' RULES
+GM_LINE_PREFIX = "FF9 co-op: "
+GM_CLOSE_LINE_PREFIX = "FF9 co-op: menu closed -- "
+GM_CHIP_VIEW_ONLY = "View only: your partner's game makes the changes."
+GM_WORDS_AGAIN = "Try the menu again in a moment."
+GM_WORDS_FOLLOW = "You're about to follow your partner."
+GM_REFUSAL_WORDS = {GM_WHY_NOT_MIRRORING: "You'll get the menu once you've followed your partner into a location.",
+                    GM_WHY_OLDER: "Your partner's co-op build is older: the shared menu stays closed.",
+                    GM_WHY_LINK: "Waiting for your partner's game: try the menu again in a moment.",
+                    GM_WHY_NO_DATA: "The menu data did not arrive. Try again in a moment.",
+                    GM_WHY_HOST_BATTLE: "Your partner is in a battle.",
+                    GM_WHY_HOST_BUSY: GM_WORDS_AGAIN, GM_WHY_BUSY: GM_WORDS_AGAIN, GM_WHY_UI: GM_WORDS_AGAIN, GM_WHY_WORLD_BUSY: GM_WORDS_AGAIN,
+                    GM_WHY_CONTROL: GM_WORDS_AGAIN,
+                    GM_WHY_SCENE: "Your partner is in a scene. Try again when it ends.",
+                    GM_WHY_LEAVING: GM_WORDS_FOLLOW, GM_WHY_MOVE: GM_WORDS_FOLLOW, GM_WHY_HOST_ELSEWHERE: GM_WORDS_FOLLOW,
+                    GM_WHY_RIDING: "The menu opens on foot.", GM_WHY_FAULT: "The menu couldn't open.",
+                    GM_WHY_SESSION: "The co-op session is ending."}
+GM_CLOSE_WORDS = {GM_CAUSE_LEAVE: "following your partner.", GM_CAUSE_OUT: "following your partner.",
+                  GM_CAUSE_REJOIN: "following your partner.", GM_CAUSE_WORLD: "following your partner.",
+                  GM_CAUSE_CUT: "your partner's battle.", GM_CAUSE_SCENE: "your partner's scene.",
+                  GM_CAUSE_ENDING: "the co-op session is ending.", GM_CAUSE_TITLE: "your partner is at the title screen."}
+GM_GUEST_LINE_MS = 4000
+OVL_GUEST_MENU = 29                                                  # decision 3's registry: the refusal line's overlay state
+OVERLAY_NAME_GUEST_MENU = "guest_menu"                               # NetSyncClient.OverlayName(29)
+SESSION_OVERLAY_S168 = (OVERLAY_NAME_GUEST_MENU,)
+
+
+def gm_refusal_line_rule(why, member=None):
+    """NetSyncGuestMenu.RefusalLineRule: "FF9 co-op: " + the why's words (``member`` fills data_differs); None for `lever` and an unknown
+    why."""
+    if why == GM_WHY_DATA_DIFFERS:
+        # C#'s "(" + member + ")" concatenates a null member as empty: "()", never "(None)"
+        return f"{GM_LINE_PREFIX}Your game data differs from your partner's ({'' if member is None else member})."
+    w = GM_REFUSAL_WORDS.get(why)
+    return None if w is None else GM_LINE_PREFIX + w
+
+
+def gm_close_line_rule(cause: int):
+    """NetSyncGuestMenu.CloseLineRule: the forced-close line for a cause (None for none)."""
+    w = GM_CLOSE_WORDS.get(int(cause))
+    return None if w is None else GM_CLOSE_LINE_PREFIX + w
+
+
+def gm_refusal_line_live_rule(is_set: bool, age_ms: int, arm_mode: int, mode_now: int) -> bool:
+    """NetSyncGuestMenu.RefusalLineLiveRule: GuestLineMs from its arm, only in the game mode it was armed in."""
+    return bool(is_set) and 0 <= int(age_ms) < GM_GUEST_LINE_MS and int(arm_mode) == int(mode_now)
+
+
+def gm_close_line_live_rule(is_set: bool, age_ms: int) -> bool:
+    """NetSyncGuestMenu.CloseLineLiveRule: its OWN timer only."""
+    return bool(is_set) and 0 <= int(age_ms) < GM_GUEST_LINE_MS
+
+
+def gm_not_paired_line_rule(line_live: bool, peer_lost: bool) -> bool:
+    """NetSyncGuestMenu.NotPairedLineRule (the W1 review's CR-2): the not-paired chain's state-29 arm yields to the peer-lost connecting line."""
+    return bool(line_live) and not peer_lost
+
+
+def gm_line_words_rule(effect: int, why, member=None):
+    """NetSyncGuestMenu.LineWordsRule: the why's line only for an audible refusal (EffLine)."""
+    return gm_refusal_line_rule(why, member) if int(effect) & GM_EFF_LINE else None
+
+
+def gm_chip_shown_rule(seated: bool, chip_off: bool) -> bool:
+    """NetSyncGuestMenu.ChipShownRule: while seated, unless `guestmenu chip off`."""
+    return bool(seated) and not chip_off
+
+
+def gm_decline_class_rule(why):
+    """NetSyncGuestMenu.DeclineClassRule: "main menu (<why>)"; None for `older`, `lever` and an unknown why (s121's own class and line)."""
+    if why not in GM_ALL_WHYS or why in (GM_WHY_OLDER, GM_WHY_LEVER):
+        return None
+    return f"main menu ({why})"
+
+
+# ---- THE RUNG-0 CONFIRM CENSUS (decision 17)
+GM_CENSUS_NAMES = ("E1", "E2", "E3", "A1", "A2", "A3", "I1", "I2")
+GM_CENSUS_E1, GM_CENSUS_E2, GM_CENSUS_E3, GM_CENSUS_A1, GM_CENSUS_A2, GM_CENSUS_A3, GM_CENSUS_I1, GM_CENSUS_I2 = range(8)
+GM_CENSUS_SITES = 8
+GM_CV_STOCK, GM_CV_REFUSE, GM_CV_PASS = 0, 1, 2
+#: AbilityUI.AbilityType (NoDraw .. Max): A1 / A2 write only on Enable (it adds) and Selected (it removes)
+GM_ABILITY_TYPE_ENABLE, GM_ABILITY_TYPE_SELECTED = 4, 5
+
+
+def gm_census_name(site: int):
+    """NetSyncGuestMenu.CensusName ("E1".."I2"; None outside the set)."""
+    s = int(site)
+    return GM_CENSUS_NAMES[s] if 0 <= s < GM_CENSUS_SITES else None
+
+
+def gm_census_changes_rule(site: int, detail: int) -> bool:
+    """NetSyncGuestMenu.CensusChangesRule: A1 / A2 write only on Enable or Selected; every other site writes."""
+    if int(site) in (GM_CENSUS_A1, GM_CENSUS_A2):
+        return int(detail) in (GM_ABILITY_TYPE_ENABLE, GM_ABILITY_TYPE_SELECTED)
+    return True
+
+
+def gm_census_rule(site: int, seated: bool, capture_off: bool, changes: bool, mirroring: bool) -> int:
+    """NetSyncGuestMenu.CensusRule: keyed on the seat ALONE (``mirroring`` read by no branch); an unknown site refuses."""
+    if not seated:
+        return GM_CV_STOCK
+    if not 0 <= int(site) < GM_CENSUS_SITES:
+        return GM_CV_REFUSE
+    if not changes:
+        return GM_CV_STOCK
+    return GM_CV_PASS if capture_off else GM_CV_REFUSE
+
+
+# ---- THE MENU FINGERPRINT (decision 33; FNV-1a 64's basis and prime, ONE step per value) AND THE OUTSIDE FOLD (decision 17)
+GM_FP_COMP_NAMES = ("players", "party", "bag", "gil", "keyitems")
+GM_FP_PLAYERS, GM_FP_PARTY, GM_FP_BAG, GM_FP_GIL, GM_FP_KEY_ITEMS = range(5)
+GM_FP_COMPS = 5
+GM_FP_SEED = 14695981039346656037
+GM_FP_PRIME = 1099511628211
+GM_FV_NONE, GM_FV_EQUAL, GM_FV_DIFFERS = 0, 1, 2
+GM_OUT_COMP_NAMES = ("events", "eventstate", "achievement", "cards", "hintmap")
+GM_OUT_COMPS = 5
+GM_OUT_MASK_LO, GM_OUT_MASK_HI = 2032, 2041                          # NetSyncState's MaskLo / MaskHi: the co-op window the fold skips
+GM_OUT_COUNTERS = 11
+GM_OUT_VALUE_SALT = 0x7E0                                            # OutValueRule's Mix(GmFpSeed, 0x7E0)
+_GM_U64 = 0xFFFFFFFFFFFFFFFF
+
+
+def gm_mix_u(h: int, v: int) -> int:
+    """NetSyncGuestMenu.MixU: unchecked((h ^ v) * GmFpPrime) over UInt64."""
+    return ((int(h) ^ (int(v) & _GM_U64)) * GM_FP_PRIME) & _GM_U64
+
+
+def gm_mix(h: int, v: int) -> int:
+    """NetSyncGuestMenu.Mix: MixU over the Int64 value's unchecked UInt64."""
+    return gm_mix_u(h, int(v) & _GM_U64)
+
+
+def gm_fp_hex(v: int) -> str:
+    """NetSyncGuestMenu.FpHex: "0x" + 16 upper-case hex digits."""
+    return f"0x{int(v) & _GM_U64:016X}"
+
+
+def gm_fp_comp_name(comp: int):
+    """NetSyncGuestMenu.FpCompName (None outside 0..4)."""
+    c = int(comp)
+    return GM_FP_COMP_NAMES[c] if 0 <= c < GM_FP_COMPS else None
+
+
+def gm_fp_comp_index(name) -> int:
+    """NetSyncGuestMenu.FpCompIndex (`restore skip` / `seat fault`'s parser; -1 = none)."""
+    return GM_FP_COMP_NAMES.index(name) if name in GM_FP_COMP_NAMES else -1
+
+
+def gm_fp_value_rule(comp) -> int:
+    """NetSyncGuestMenu.FpValueRule: MixU over the components in their order."""
+    h = GM_FP_SEED
+    for k in range(GM_FP_COMPS):
+        h = gm_mix_u(h, comp[k])
+    return h
+
+
+def gm_fp_named_rule(before, after) -> int:
+    """NetSyncGuestMenu.FpNamedRule: the first component that differs (-1 = none)."""
+    for k in range(GM_FP_COMPS):
+        if int(before[k]) != int(after[k]):
+            return k
+    return -1
+
+
+def gm_fp_verdict_rule(before_set: bool, after_set: bool, seated: bool, before: int, after: int) -> int:
+    """NetSyncGuestMenu.FpVerdictRule: both stamps of one session and no seat held, else FvNone (never read while seated)."""
+    if not before_set or not after_set or seated:
+        return GM_FV_NONE
+    return GM_FV_EQUAL if int(before) == int(after) else GM_FV_DIFFERS
+
+
+def gm_out_comp_name(comp: int):
+    """NetSyncGuestMenu.OutCompName (None outside 0..4)."""
+    c = int(comp)
+    return GM_OUT_COMP_NAMES[c] if 0 <= c < GM_OUT_COMPS else None
+
+
+def gm_out_value_rule(comp) -> int:
+    """NetSyncGuestMenu.OutValueRule: MixU over the outside components, salted with Mix(GmFpSeed, 0x7E0)."""
+    h = gm_mix(GM_FP_SEED, GM_OUT_VALUE_SALT)
+    for k in range(GM_OUT_COMPS):
+        h = gm_mix_u(h, comp[k])
+    return h
+
+
+def gm_out_named_rule(before, after) -> int:
+    """NetSyncGuestMenu.OutNamedRule: the first outside component that differs (-1 = none)."""
+    for k in range(GM_OUT_COMPS):
+        if int(before[k]) != int(after[k]):
+            return k
+    return -1
+
+
+GM_SE_NONE, GM_SE_WAIT, GM_SE_SAW, GM_SE_STAMP = range(4)
+
+
+def gm_settle_step_rule(armed: bool, saw_on: bool, hud_events_on: bool) -> int:
+    """NetSyncGuestMenu.SettleStepRule (the W1 review's CR-3): never the frame that FIRST reads the HUD with events on."""
+    if not armed:
+        return GM_SE_NONE
+    if not hud_events_on:
+        return GM_SE_WAIT
+    return GM_SE_STAMP if saw_on else GM_SE_SAW
+
+
+def gm_vars_digest_rule(buffer, frm: int, to: int):
+    """NetSyncGuestMenu.VarsDigestRule (`uid0_vars`): FpHex over Mix(seed, length) then each byte of buffer[frm, to); None for no buffer or a
+    span outside it."""
+    if buffer is None or frm < 0 or to < frm or to > len(buffer):
+        return None
+    h = gm_mix(GM_FP_SEED, int(to) - int(frm))
+    for i in range(int(frm), int(to)):
+        h = gm_mix(h, buffer[i])
+    return gm_fp_hex(h)
+
+
+GM_POKE_BYTE, GM_POKE_BIT = 2047, 0x01
+
+
+def gm_poke_rule(events, at: int) -> bool:
+    """NetSyncGuestMenu.PokeRule (pure over the array GIVEN: a bytearray): events[at] ^= PokeBit; False, nothing written, for None or an
+    index outside it."""
+    if events is None or not 0 <= int(at) < len(events):
+        return False
+    events[int(at)] ^= GM_POKE_BIT
+    return True
+
+
+# ---- THE HARNESS (decisions 31-32): the sub-verb `netsync guestmenu <op>`, its refusals, acks and release; the key `netsync.guestmenu`
+NETSYNC_SUBVERB_S168 = "guestmenu"                                  # appended LAST in the agent's unknown-sub-verb literal
+NETSYNC_TOP_KEYS_S168 = ("guestmenu",)                               # netsync's LAST key (after s166's `wire_peer`)
+GUESTMENU_OPS = ("old", "act", "clear", "caps", "chip", "frame", "host", "seat", "restore", "door", "capture", "close", "fireclose",
+                 "events", "poke")
+GUESTMENU_ANY_ROLE_OPS = ("old", "act", "caps", "capture", "close", "clear")
+GUESTMENU_USAGE = ("netsync guestmenu: expected old|act, caps off|on, capture off|on, close old|act or clear (any role), or chip off|on, "
+                   "frame <marker>|witness <component>|intent <field>, host elsewhere|here, seat skip party|off, seat fault <component>|off, "
+                   "restore skip <component>|off, door fault open|restore|off, close fault <step>|off, fireclose <id>, events on|off, poke "
+                   "[off] (the selftest bench)")
+GUESTMENU_OFF_REFUSAL = "netsync guestmenu: co-op is off -- no role to act on"
+GUESTMENU_BENCH_REFUSAL = "netsync guestmenu: needs the selftest role with the bench on (netsync selftest 1, netsync bench 1)"
+GUESTMENU_FRAME_SEATED = ("netsync guestmenu frame: the guest menu is seated -- a bench frame is built BEFORE the seat (one built while "
+                          "seated would serialize the copy); close the menu first")
+GUESTMENU_FRAME_INTENT_NO_BASE = "netsync guestmenu frame intent: no bench frame yet (guestmenu frame <marker> first)"
+
+
+def guestmenu_fault_refusal(msg: str) -> str:
+    """HarnessLever's catch: "netsync guestmenu: the lever faulted (<msg>)"."""
+    return f"netsync guestmenu: the lever faulted ({msg})"
+
+
+def guestmenu_frame_intent_mine(field: int) -> str:
+    return f"netsync guestmenu frame intent: field {int(field)} is mine -- F2 refuses only an intent AWAY"
+
+
+LOG_GUESTMENU_CLEAR = "[NetSync] harness: guestmenu clear -- the guest menu acts"
+LOG_GUESTMENU_RELEASED = "[NetSync] harness: guestmenu levers released (with the harness)"
+#: (op, word) -> the engine's whole ack (HarnessLever's fixed lines; `seat fault`, `restore skip`, `close fault`, `frame`, `host` and
+#: `fireclose` splice a value: their builders below)
+GUESTMENU_ACKS = {
+    ("old", None): ("[NetSync] harness: guestmenu old -- CALIBRATION: s121 exactly, a following guest's Menu press is refused as in s167 and "
+                    "an unmirrored guest's own menu opens (no seat, no line, no chip; released with the harness)"),
+    ("act", None): "[NetSync] harness: guestmenu act",
+    ("caps", "off"): ("[NetSync] harness: guestmenu caps off -- CALIBRATION: my caps word speaks s167's 0x0003 exactly (no guest menu for this "
+                      "pair: a host sends no section 12, a guest's Menu press reads older; released with the harness)"),
+    ("caps", "on"): "[NetSync] harness: guestmenu caps on",
+    ("capture", "off"): ("[NetSync] harness: guestmenu capture off -- LEVER: the seated menu's changing confirms (E1-E3, A1-A3, I1, I2) run "
+                         "their stock bodies into the SEATED copy (never refused; the restore discards them; released with the harness)"),
+    ("capture", "on"): "[NetSync] harness: guestmenu capture on",
+    ("chip", "off"): ("[NetSync] harness: guestmenu chip off -- MUTANT: seated with no \"View only\" chip (the selftest role only; released "
+                      "with the harness)"),
+    ("chip", "on"): "[NetSync] harness: guestmenu chip on",
+    ("seat skip", "party"): ("[NetSync] harness: guestmenu seat skip party -- MUTANT: the seat installs no member (the guest's own party is "
+                             "drawn beside the host's bag and gil; the selftest role only; released with the harness)"),
+    ("seat skip", "off"): "[NetSync] harness: guestmenu seat skip off",
+    ("seat fault", "off"): "[NetSync] harness: guestmenu seat fault off",
+    ("restore skip", "off"): "[NetSync] harness: guestmenu restore skip off",
+    ("door fault", "open"): ("[NetSync] harness: guestmenu door fault open -- the next HUD -> MainMenu door throws once guestSession is known: "
+                             "its fault path refuses `fault` (the HUD's own Show, the buzz, nothing seated; one shot; the selftest role only; "
+                             "released with the harness)"),
+    ("door fault", "restore"): ("[NetSync] harness: guestmenu door fault restore -- the next restore door throws: the record and the seat stay "
+                                "held (the alarm line), EnabledSubMenus goes back and the stock body runs; the next door or backstop retries "
+                                "element-wise (one shot; the selftest role only; released with the harness)"),
+    ("door fault", "off"): "[NetSync] harness: guestmenu door fault off",
+    ("close", "old"): ("[NetSync] harness: guestmenu close old -- CALIBRATION: no forced close for any trigger (each waiting site defers as in "
+                       "s167; the menu stays seated until the guest's own Cancel; released with the harness)"),
+    ("close", "act"): "[NetSync] harness: guestmenu close act",
+    ("close fault", "off"): "[NetSync] harness: guestmenu close fault off",
+    ("events", "on"): ("[NetSync] harness: guestmenu events on -- MUTANT: the seat turns the field's events back on (SetEventEnable(true) "
+                       "while seated: event_enable reads true while the menu is open; the selftest role only; released with the harness)"),
+    ("events", "off"): "[NetSync] harness: guestmenu events off",
+    ("poke", None): (f"[NetSync] harness: guestmenu poke -- MUTANT: the next seat flips gEventGlobal[{GM_POKE_BYTE}] bit 0 after fp_before's "
+                     "outside stamp (the restore's fp.outside_equal reads false and names events; one shot; the selftest role only; released "
+                     "with the harness)"),
+    ("poke", "off"): "[NetSync] harness: guestmenu poke off",
+}
+
+
+def guestmenu_ack(op: str, word=None) -> str:
+    """A fixed `guestmenu` ack (``op`` two words for seat / restore / door / close's sub-ops: "seat skip", "door fault")."""
+    return GUESTMENU_ACKS[(op, word)]
+
+
+def log_guestmenu_seat_fault(comp: str) -> str:
+    return (f"[NetSync] harness: guestmenu seat fault {comp} -- the next seat throws at its {comp} install, outside the builder's per-slot "
+            "catch: every family rolls back and the door refuses `fault` (one shot; the selftest role only; released with the harness)")
+
+
+def log_guestmenu_restore_skip(comp: str) -> str:
+    return (f"[NetSync] harness: guestmenu restore skip {comp} -- MUTANT: every restore leaves the {comp} family as seated (fp_after names "
+            "it; the selftest role only; released with the harness)")
+
+
+def log_guestmenu_close_fault(step: str) -> str:
+    return (f"[NetSync] harness: guestmenu close fault {step} -- the next forced close's service tick throws at its {step} step: closes.faults "
+            "+1 and its guarded fault end (a live HUD, events on; the seat, if a restore keeps it, stays for the next backstop or door) (one "
+            "shot; the selftest role only; released with the harness)")
+
+
+GUESTMENU_FIRECLOSE_WORDS = {GM_RQ_NEW: "the forced close requested without its trigger: the close order runs",
+                             GM_RQ_HELD: "a forced close is already in flight (idempotent)",
+                             "no_seat": "no seat: nothing to close (decision 16)",
+                             "old": "`close old` (or a fault): no forced close"}
+
+
+def log_guestmenu_fireclose(cause: int, outcome) -> str:
+    """NetSyncClient.HarnessGuestMenuFireClose's ack (``outcome`` GM_RQ_NEW | GM_RQ_HELD | "no_seat" | "old")."""
+    return f"[NetSync] harness: guestmenu fireclose {gm_cause_name(cause)} -- {GUESTMENU_FIRECLOSE_WORDS[outcome]}"
+
+
+def log_guestmenu_host(elsewhere: bool, host: int, mine: int) -> str:
+    """NetSyncClient.HarnessGuestMenuHost's ack."""
+    if elsewhere:
+        return (f"[NetSync] harness: guestmenu host elsewhere -- the bench host stands on field {int(host)} (not mine: F1 refuses "
+                "host_elsewhere; released with the harness)")
+    return f"[NetSync] harness: guestmenu host here -- the bench host stands on my field {int(mine)}"
+
+
+def guestmenu_host_elsewhere_field(mine: int) -> int:
+    """`host elsewhere`'s field: mine + 1 (1 at 65535)."""
+    return 1 if int(mine) >= 65535 else int(mine) + 1
+
+
+LOG_GUESTMENU_FRAME = "[NetSync] harness: guestmenu frame "
+LOG_GUESTMENU_FRAME_INTENT = "[NetSync] harness: guestmenu frame intent "
+
+
+def log_guestmenu_frame_intent(field: int, nonce: int) -> str:
+    return (f"{LOG_GUESTMENU_FRAME_INTENT}{int(field)} -- a section 4 naming field {int(field)} (nonce {int(nonce)}, unseen) rides the bench "
+            "frame: F2 refuses `leaving` (released with the harness)")
+
+
+#: the bench frame's markers (NetSyncClient.HarnessGuestMenuFrame): gil 7000000 + marker (+1 if that is mine), each member's exp
+#: 9000000 + marker x 10 + slot (+5 if that is its own), slot 0's impostor "BENCH<marker>" at level 99, one bag row 1 + marker % 98
+GM_BENCH_GIL_BASE, GM_BENCH_EXP_BASE, GM_BENCH_LEVEL = 7000000, 9000000, 99
+
+
+def gm_bench_gil(marker: int, mine: int) -> int:
+    g = GM_BENCH_GIL_BASE + int(marker)
+    return g + 1 if g == int(mine) else g
+
+
+def gm_bench_exp(marker: int, slot: int, own: int) -> int:
+    e = GM_BENCH_EXP_BASE + int(marker) * 10 + int(slot)
+    return e + 5 if e == int(own) else e
+
+
+def gm_bench_name(marker: int) -> str:
+    return f"BENCH{int(marker)}"
+
+
+#: `netsync.guestmenu.lever`: the twelve s168 levers in the key's order, each at its DEFAULT (the release's target), and each one's words
+GUEST_MENU_LEVER_DEFAULTS = {"menu": "act", "caps": "on", "chip": "on", "seat_skip": "off", "restore_skip": "off", "seat_fault": "off",
+                             "door_fault": "off", "capture": "on", "close": "act", "close_fault": "off", "events": "off", "poke": "off"}
+GUEST_MENU_LEVER_WORDS = {"menu": ("act", "old"), "caps": ("on", "off"), "chip": ("on", "off"), "seat_skip": ("off", "party"),
+                          "restore_skip": ("off",) + GM_FP_COMP_NAMES, "seat_fault": ("off",) + GM_FP_COMP_NAMES,
+                          "door_fault": ("off", "open", "restore"), "capture": ("on", "off"), "close": ("act", "old"),
+                          "close_fault": ("off",) + GM_CLOSE_FAULT_STEPS, "events": ("off", "on"), "poke": ("off", "armed")}
+#: ...and the twelve ops that set each OFF its default (GM0-RELEASE's driver: one per lever field, the selftest bench)
+GUEST_MENU_RELEASE_SET = {"menu": ("old",), "caps": ("caps", "off"), "chip": ("chip", "off"), "seat_skip": ("seat", "skip", "party"),
+                          "restore_skip": ("restore", "skip", "party"), "seat_fault": ("seat", "fault", "bag"),
+                          "door_fault": ("door", "fault", "open"), "capture": ("capture", "off"), "close": ("close", "old"),
+                          "close_fault": ("close", "fault", "root"), "events": ("events", "on"), "poke": ("poke",)}
+GUEST_MENU_LEVER_SENTINELS = dict.fromkeys(GUEST_MENU_LEVER_DEFAULTS)
+_GM_FP_KEY = {"before": None, "after": None, "equal": False, "named": None, "components": None, "outside_equal": False, "outside_named": None}
+#: `netsync.guestmenu` at the catch literal's sentinels, IN THE AGENT'S ORDER (decision 32 as built: W1i + the W1 review's CR-3 tail)
+GUEST_MENU_SENTINELS = {
+    "lever": dict(GUEST_MENU_LEVER_SENTINELS), "caps": {"own": -1, "peer": -1, "on": False}, "why": None, "open": False, "session": False,
+    "seated": False, "opens": 0, "closes": dict(dict.fromkeys(GM_CLOSE_IDS, 0), faults=0),
+    "refused": {"count": 0, "last_site": None, "last_screen": None}, "captures": 0, "passes": 0, "fp": dict(_GM_FP_KEY),
+    "seat_fp": {"value": None, "components": None},
+    "frame": {"type5_len": -1, "type5_max": -1, "tx_bps": -1, "sec12_len": -1, "dropped": 0, "faults": 0},
+    "host_fp": {"value": None, "components": None}, "line": {"text": None, "age": -1}, "close_line": {"text": None, "age": -1}, "chip": None,
+    "seat": {"src": None, "frame_age_ms": -1, "marker": -1}, "door_refused": dict.fromkeys(GM_ALL_WHYS, 0),
+    "restore": {"doors": 0, "drops": 0, "backstops": {"replace": 0, "ramp": 0, "ramp_quit": 0, "load": 0, "scene": 0}},
+    "master_skipped": 0, "ach_held": 0, "event_enable": False, "bench": {"marker": -1, "witness": None, "intent": -1, "host_field": -1},
+    "impactful": -1, "close_pending": False, "close_step": None, "last_close": {"cause": None, "from": None, "ms": -1, "end": None},
+    "held": {"bits": 0, "keyon": 0}, "outside_settled": {"set": False, "equal": False, "named": None}, "uid0_vars": None, "sysvar192": -1}
+GUEST_MENU_KEYS = tuple(GUEST_MENU_SENTINELS)
+#: `seat.src`'s words (NoteSeatSource)
+GM_SEAT_SRC_BENCH, GM_SEAT_SRC_WIRE = "bench", "wire"
+
+# ---- THE LOG LINES (the engine's text; a bench greps each prefix)
+LOG_GM_SEATED = "[NetSync] guest menu: seated the host's party from "
+LOG_GM_RESTORED = "[NetSync] guest menu: restored at "
+LOG_GM_DROPPED = "[NetSync] guest menu: the seat's record DROPPED without writing at "
+LOG_GM_FORCED_CLOSE = "[NetSync] guest menu: forced close ("
+LOG_GM_SEC12_DROPPED = "[NetSync] guest menu: section 12 dropped -- "
+LOG_GM_UNKNOWN_KEYS = "[NetSync] guest menu: "
+LOG_GM_CENSUS = "[NetSync] guest menu: "
+LOG_GM_EVENTS_ON = ("[NetSync] guest menu: `guestmenu events on` -- MUTANT: the field's events turned back on under the seated menu "
+                    "(event_enable reads true while it is open)")
+LOG_GM_POKE = (f"[NetSync] guest menu: `guestmenu poke` -- MUTANT: gEventGlobal[{GM_POKE_BYTE}] bit 0 flipped after fp_before (the "
+               "restore's fp.outside_equal reads false and names events; spent)")
+LOG_GM_POKE_NOTHING = "[NetSync] guest menu: `guestmenu poke` -- no gEventGlobal to write (spent, nothing written)"
+
+
+def log_gm_seated(bench_marker, members: int, bag: int, keys: int, gil: int, skip_party: bool = False) -> str:
+    """GuestMenuSeatNow's line (``bench_marker`` None = the wire's "the host's latest state frame")."""
+    src = f"the bench frame (marker {int(bench_marker)})" if bench_marker is not None else "the host's latest state frame"
+    return (f"{LOG_GM_SEATED}{src} -- {int(members)} member(s), {int(bag)} bag row(s), {int(keys)} key item(s), gil {int(gil)}"
+            + (" (`seat skip party`: NO member seated -- the guest's own party is drawn)" if skip_party else "")
+            + "; the session begins (view only)")
+
+
+def log_gm_restored(site: int, detail=None, skip: int = -1) -> str:
+    """GuestMenuEndAt's clean-restore line (the alarm sites say "with the guest menu still seated ... (should never happen)")."""
+    where = gm_site_name(site) + (f" ({detail})" if detail is not None else "")
+    what = (" -- every family back by reference" + (f" but {gm_fp_comp_name(skip)} (`restore skip`)" if int(skip) >= 0 else "")
+            + "; the session ends")
+    if gm_backstop_line_rule(site) == GM_BL_ALARM:
+        return f"{LOG_GM_RESTORED}{where} with the guest menu still seated{what} (should never happen)"
+    return f"{LOG_GM_RESTORED}{where}{what}"
+
+
+def log_gm_seat_refused(faulted: bool, member, component, kept: bool = False) -> str:
+    """GuestMenuSeatNow's W line for a seat that did not stand."""
+    head = (f"the seat faulted at its {component or '?'} install" if faulted
+            else f"the seat refused ({member or '?'}, component {component or '?'})")
+    tail = ("its rollback faulted too: the record and the seat stay held; the next backstop or door retries (should never happen)" if kept
+            else "every family back from the record; the menu stays closed")
+    return f"[NetSync] guest menu: {head} -- {tail}"
+
+
+def log_gm_forced_close(cause: int, from_state: str, how: int, ms: int, detail=None) -> str:
+    """EndCloseNow's one line per close."""
+    return (f"{LOG_GM_FORCED_CLOSE}{gm_cause_name(cause)}) from {from_state} {GM_CLOSE_END_WORDS[int(how)]} after {int(ms)} ms"
+            + (f" ({detail})" if detail is not None else ""))
+
+
+def log_gm_refusal(why, place_words: str) -> str:
+    """The press's DeclineOnce line: "main menu (<why>) suppressed (following guest) on <field N | world map W>" -- `older` and `lever`
+    write s121's own "main menu ..." line."""
+    cls = gm_decline_class_rule(why)
+    return f"[NetSync] {cls or 'main menu'} suppressed (following guest) on {place_words}"
+
+
+def log_gm_census(site: int, screen: str) -> str:
+    """CensusRefuses' line, once per site per seat."""
+    return (f"{LOG_GM_CENSUS}{gm_census_name(site)} confirm refused on {screen} -- view only: the seated copy is never written, the screen's "
+            "own buzz (logged once per site per seat)")
+
+
+# ---- THE PROOF (decision 34): three lines at the selftest block's end, in this order; MenuRefusalSelfTest stays 14
+PROOF_SEAT_BRACKET = "seat bracket selftest: "
+PROOF_GUEST_MENU = "guest menu selftest: "
+#: the proofs' tallies on the s168 engine -- a FALLBACK only: the stand-in and the bench DERIVE them from the engine's source
+#: (selftest_proof_counts); the W1 review moved the guest menu proof 408 / 241 -> 420 / 249
+GUEST_MENU_PROOF_S168 = (420, 249)
+SEAT_BRACKET_PROOF_S168 = (19, 7)
+WORLD_WALK_PROOF_S168 = (534, 198)
+GUEST_MENU_PROOF_RE = r"guest menu selftest: OK \((\d+) rows, (\d+) mutants caught\)"
+SEAT_BRACKET_PROOF_RE = r"seat bracket selftest: OK \((\d+) rows, (\d+) mutants caught\)"
+#: the block's last three lines' order on the s168 engine (decision 34)
+PROOF_ORDER_S168 = (PROOF_WORLD_WALK, PROOF_SEAT_BRACKET, PROOF_GUEST_MENU)
+
+
+def world_walk_proof_by_stage(stage: int) -> tuple:
+    """The world walk proof's FALLBACK tallies by engine stage (s166 323 / 110, s167 532 / 196, s168 534 / 198) -- the bench derives them
+    from the source (world_walk_proof_counts) whenever a source is reachable."""
+    s = int(stage)
+    return WORLD_WALK_PROOF_S168 if s >= 168 else WORLD_WALK_PROOF_S167 if s >= 167 else WORLD_WALK_PROOF_S166
+
+
+def selftest_proof_counts(text: str):
+    """(rows, mutants) a `row(`-helper selftest prints for this C# source (NetSyncGuestMenu.SelfTest, NetSyncSeatBracket.SelfTest): every
+    `row(` call site between its Rows( method and its Mutant( method, and every name in MutantNames; None when the text has no proof."""
+    src = str(text or "").replace("\r\n", "\n")
+    a = re.search(r"private static \w+ Rows\(", src)
+    b = re.search(r"private static \w+ Mutant\(", src)
+    m_names = re.search(r"MutantNames = \{(.*?)\};", src, re.S)
+    if not a or not b or b.start() < a.start() or not m_names:
+        return None
+    body = re.sub(r"//[^\n]*", "", re.sub(r'"(?:[^"\\]|\\.)*"', '""', src[a.start():b.start()]))
+    return (len(re.findall(r"(?<![\w.])row\(", body)),
+            len(re.findall(r'"[^"]+"', re.sub(r"//[^\n]*", "", m_names.group(1)))))
+
+
+def guest_menu_proof_line(rows: int, mutants: int) -> str:
+    return f"[NetSync] {PROOF_GUEST_MENU}OK ({int(rows)} rows, {int(mutants)} mutants caught)"
+
+
+def seat_bracket_proof_line(rows: int, mutants: int) -> str:
+    return f"[NetSync] {PROOF_SEAT_BRACKET}OK ({int(rows)} rows, {int(mutants)} mutants caught)"
+
+
+# ---- THE WIRE REGISTRY (decision 3; GM0-REGISTRY): every caps bit, trailer flag, section id and frame type assigned ONCE
+GM_REGISTRY = {"caps": {0x01: "world pose", 0x02: "world fingerprint", 0x04: "comms", 0x08: "the guest menu", 0x10: "v2 command frame"},
+               "trailer_flags": {0x01: "I follow"},
+               "sections": {0: "story", 1: "party", 2: "key items", 3: "bag", 4: "intent", 5: "event", 6: "talk", 7: "dialogue", 8: "dress",
+                            9: "chest", 10: "speed", 11: "world fingerprint", 12: "the guest-menu block", 13: "the menu answers"},
+               "frame_types": {0: "pos", 1: "battle", 2: "command", 3: "control", 4: "end", 5: "state", 6: "action", 7: "retired",
+                               8: "the shared ring"},
+               "type8_kinds": {1: "SA_SET"}, "overlay_states": {29: "guest_menu", 30: "the host's menu line"}}
+
+
+def gm_registry_clashes(claims) -> list:
+    """GM0-REGISTRY (PURE): every (space, id) claimed by more than one feature in ``claims`` ([(space, id, feature)]) -> the clashes."""
+    seen, out = {}, []
+    for space, ident, feature in claims:
+        key = (space, int(ident))
+        if key in seen and seen[key] != feature:
+            out.append((space, int(ident), seen[key], feature))
+        seen.setdefault(key, feature)
+    return out
