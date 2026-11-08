@@ -1,16 +1,18 @@
 # The guest's main menu: view-only, then support abilities (s168-s169)
 
-**Status: s168's engine, kit and bench are built, 2026-11-07; nothing is deployed.** W1a-W1i and the W1 review's four
-fixes sit in the shared clone's working tree (uncommitted by design), compiled with `tools/build_memoria.py --no-deploy`
-and proven offline. W2 built the kit twins, the fakegame `guestmenu` rung, `coop_peer`'s b3 side, the three-harness
-bench and its runners, then ran a five-lens critic whose 24 confirmed findings are fixed; the co-op domain tests are
-green. No bench leg has run in game. "As built (s168 W1)" (below the Departures) lists every engine deviation kept,
-the final proof counts, the pinned W1a/b artifact and what is owed; "As built (s168 W2)" is the kit's ledger. The
-decisions are corrected in place to match the build.
-s168 (rung 0, the view-only menu) is deployed and benched in game only AFTER the owner's s167 two-PC look; if that look
-needs an s167 engine fix, the fix lands first and s168 rebases onto it. s169 (rung 1, support abilities) is designed
-here and built only after s168 is green. Each round is built, deployed and benched alone (one change per in-game test).
-s168 takes the clone under a TAKING THE CLONE line in the round queue when its engine edits start.
+**Status: s168 is DEPLOYED (`4b106fd0ca87afb6`, both arches, 2026-11-07), benched in game and frozen as
+`memoria-patches/s168-netsync-guest-menu.patch`; the owner's two-PC look at s167 and s168 together is next**
+(`TWO-PC-CHECKS-S168.md`; the laptop package `FF9Coop-laptop-update-20261108-s168`). OLD on the live s167 calibrated every
+leg (35 of 35 CAL green). NEW ran 38 legs, and its verified triage found 0 engine reds (18 kit drive, 6 kit judge, 1 design,
+2 configuration: "Bench decisions after the first NEW run" below); the kit fixes are committed and their legs re-run after
+the gate window. s167's whole regression set on s168 is clean (62 launches, 58 green, the 4 reds standing by design: the
+owner-gated ROAM tapes and S9-C4L). "As built (s168 W1)" lists every engine deviation kept and the proof counts; "As built
+(s168 W2)" is the kit's ledger. The decisions are corrected in place to match the build.
+By the owner's call (2026-11-08) s168 was deployed before the s167 two-PC look, and both are looked at in one session: Part A
+is s167 with the menu never opened, Part B is s168; a Part A failure bisects on the laptop's `dlls-s167`. s169 (rung 1,
+support abilities) is designed here and built only after s168 is green. Each round is built, deployed and benched alone (one
+change per in-game test).
+The shared clone's working tree still holds s168's engine edits (uncommitted), byte-equal to the frozen patch.
 
 This is rung 0 and rung 1 of `GUEST-MENU.md`'s Option A: the stock main menu on the guest, over a copy of the host's
 party, every changing confirm caught; from rung 1 the support-ability confirm is forwarded and the host does the write.
