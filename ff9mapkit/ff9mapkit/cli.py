@@ -5769,6 +5769,62 @@ def _parse_block_rect(spec: str) -> list:
     return [(x, y) for x in rng(xs) for y in rng(ys)]
 
 
+def _cmd_world_prefab(args: argparse.Namespace) -> int:
+    """Place a landmass PREFAB from world/data/prefabs.toml (rung P1, studies/overworld-editor/PREFABS.md): a frozen
+    island + carried-relief composition, stamped on an anchor block by whole blocks with the prefab frame on, so the
+    land written is the land its catalog entry names (the fingerprint). Refuses before writing on a busy window or a
+    broken identity."""
+    import json
+    from pathlib import Path
+    from .world import prefab as PF
+    from .world import recipe as R
+    try:
+        if args.list or not args.name:
+            for p in PF.load_catalog():
+                tables = " + ".join(r["table"] for r in p["rows"])
+                print(f"{p['name']:24s} {p['status']:10s} {len(p.get('footprint') or ()):2d} blocks  {tables}")
+                if p.get("note"):
+                    print(f"{'':24s} {p['note']}")
+            return 0
+        if not args.cell:
+            print("give --cell BX,BY: the anchor block the prefab is placed on", file=sys.stderr)
+            return 2
+        cell = tuple(int(v) for v in args.cell.split(","))
+        prefab = PF.get(args.name)
+        if args.recipe_out:
+            Path(args.recipe_out).write_text(R.dumps(PF.expand(prefab, cell)), encoding="utf-8")
+            print(f"wrote the placed recipe: {args.recipe_out} (compose it with world-fuse)")
+        if args.fingerprint:
+            PF.check_rows_on_map(prefab, cell)
+            st = PF.stage(prefab, cell, game=args.game)
+            print(f"fingerprint = \"{st['fingerprint']}\"")
+            print("footprint = [" + ", ".join(f"[{a}, {b}]" for a, b in st["footprint"]) + "]")
+            if prefab.get("fingerprint"):
+                same = st["fingerprint"] == prefab["fingerprint"]
+                print("the catalog entry: " + ("IDENTICAL" if same else "DIFFERENT -- the catalog names other land"))
+                return 0 if same else 1
+            return 0
+        if not args.mod_folder:
+            print("give --mod-folder (or --fingerprint / --recipe-out alone)", file=sys.stderr)
+            return 2 if not args.recipe_out else 0
+        rep = PF.place(args.name, cell, args.mod_folder, game=args.game, dry_run=args.dry_run,
+                       skip_mirror=args.skip_mirror)
+    except PF.PrefabRefused as e:
+        print(f"REFUSED: {e}", file=sys.stderr)
+        if args.report_json:
+            Path(args.report_json).write_text(json.dumps({"ok": False, "refused": str(e), "where": e.where}),
+                                              encoding="utf-8")
+        return 1
+    except ValueError as e:
+        print(f"world-prefab: {e}", file=sys.stderr)
+        return 2
+    if args.report_json:
+        Path(args.report_json).write_text(json.dumps({"ok": True, **rep}, indent=1), encoding="utf-8")
+    if args.dry_run:
+        print("dry run: nothing written")
+    return 0
+
+
 def _cmd_world_donors(args: argparse.Namespace) -> int:
     """Print the read-only qualified-donor catalog (audit rec 13: the verdicts reach the
     invocable surface). The geometry modules keep their frozen literals; the drift test in
@@ -11037,6 +11093,27 @@ def build_parser() -> argparse.ArgumentParser:
                           "removed), and the bridge, where the party lands (what the Workspace's World tab reads). "
                           "The printed text is unchanged.")
     wrv.set_defaults(func=_cmd_world_river)
+
+    wpf = sub.add_parser("world-prefab",
+                         help="place a landmass PREFAB (world/data/prefabs.toml): a frozen island + carried-relief "
+                              "composition stamped on an anchor block by whole blocks, the prefab frame on, refused "
+                              "unless the staged land is the land its catalog fingerprint names "
+                              "(studies/overworld-editor/PREFABS.md). --list shows the catalog.")
+    wpf.add_argument("name", nargs="?", help="the prefab's catalog name")
+    wpf.add_argument("--list", action="store_true", help="list the catalog (name, status, blocks, rows)")
+    wpf.add_argument("--cell", metavar="BX,BY", help="the anchor block: the prefab's frame origin is its corner")
+    wpf.add_argument("--mod-folder", help="the FolderNames mod folder to place into (the World tab's draft, or a "
+                                          "live folder)")
+    wpf.add_argument("--dry-run", action="store_true",
+                     help="run the window check and the staged identity, write nothing into the folder")
+    wpf.add_argument("--fingerprint", action="store_true",
+                     help="stage the prefab at --cell and print its fingerprint + footprint (to author or re-check "
+                          "a catalog entry); writes nothing into any mod folder")
+    wpf.add_argument("--recipe-out", metavar="PATH",
+                     help="also write the placed rows as a world-fuse recipe TOML")
+    wpf.add_argument("--skip-mirror", action="store_true", help="don't auto-mirror the written overrides to Disc4")
+    wpf.add_argument("--report-json", metavar="PATH", help="write the verdict as JSON")
+    wpf.set_defaults(func=_cmd_world_prefab)
 
     wdn = sub.add_parser("world-donors",
                          help="print the read-only qualified-donor catalog for the world carry verbs "

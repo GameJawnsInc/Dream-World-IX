@@ -1,0 +1,58 @@
+# Landmass PREFABS (studies/overworld-editor/PREFABS.md, rung P1) -- read by ff9mapkit/world/prefab.py.
+#
+# A prefab is a world-fuse recipe written RELATIVE to an anchor block: one [[island]] mint (first, with its seed)
+# plus carried relief ([[mountain]] / [[forest]] / [[hill]]). Every `center = [dx, dz]` is an offset from the anchor
+# block's frame origin -- its corner at the lowest x and z, (64*bx, -64*(by+1)). Placement shifts the rows by whole
+# blocks and turns the prefab frame on for the island and the mountain; never write prefab_frame, step or near here.
+#
+# `fingerprint` + `footprint` are taken by the tool, never typed:  ff9mapkit world-prefab NAME --fingerprint --cell BX,BY
+# A placement refuses unless the staged land matches them, so a fingerprint names the bytes that were walked.
+#
+# status: "candidate" until the owner walks it in game (rim, every carry), then "qualified" with the walk noted.
+# Each prefab is a composition the verbs' own gates passed whole; the walk, not the gates, is the verdict
+# (A GREEN GATE SUITE IS A REGRESSION HARNESS, NOT AN ORACLE).
+
+[[prefab]]
+name = "desert-peak-isle"
+status = "candidate"
+ground = "desert"
+note = "A r60 desert island with the desert peak (19,3) on its home ground, turned 90 deg: 139 rock tris, peak 14.5u."
+fingerprint = "732af2c5e7a973a7591b6935f7f583795a117c4794bcaf5c900152c831f0f338"
+footprint = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 0], [0, 1], [1, -1], [1, 0], [1, 1]]
+
+[[prefab.rows]]
+table = "island"
+center = [32.0, 32.0]
+radius = 60.0
+seed = 5.0
+ground = "desert"
+
+[[prefab.rows]]
+table = "mountain"
+center = [24.0, 36.0]
+rot = 90.0
+donor = "19,3"
+ground = "desert"
+
+[[prefab]]
+name = "meadow-grove-isle"
+status = "candidate"
+ground = "grass"
+note = "A r60 meadow island (verbatim meadow stamps) with the clean canopy blob (15,15) and a r14 grass hill beside it."
+fingerprint = "78196ce1e7e11c6b8aafc58efd0aa65cbb6f68a55eb2e5d31d80cf3e94a1ada7"
+footprint = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 0], [0, 1], [1, -1], [1, 0], [1, 1]]
+
+[[prefab.rows]]
+table = "island"
+center = [32.0, 32.0]
+radius = 60.0
+seed = 5.0
+
+[[prefab.rows]]
+table = "forest"
+center = [52.0, 20.0]
+
+[[prefab.rows]]
+table = "hill"
+center = [4.0, 24.0]
+radius = 14.0

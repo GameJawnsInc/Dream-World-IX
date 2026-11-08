@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — landmass prefabs: a whole island in one command
+- **`world-prefab NAME --cell BX,BY --mod-folder F`** places a landmass from the new catalog
+  (`world/data/prefabs.toml`): an island plus the mountain, forest or hill carried onto it, as one unit, on the
+  block you name. It builds the prefab in a staging folder first and refuses, writing nothing, unless that land
+  is the land the catalog's fingerprint names. It also refuses when your folder already holds land it would cover
+  or read, or when another installed folder has land in its footprint. `--list` shows the catalog, `--dry-run`
+  checks without writing, `--recipe-out` saves the placed rows as a `world-fuse` recipe, and `--fingerprint`
+  takes a new entry's fingerprint.
+- **Two prefabs to start, both `candidate` (not yet walked in game):** `desert-peak-isle` (a desert island with
+  the desert peak on its home ground) and `meadow-grove-isle` (a meadow island with a forest and a hill).
+
 ### Added — the prefab frame: the same island wherever you place it
 - **`--prefab-frame`** on `world-island` and `world-mountain`, and `prefab_frame = true` on their `world-fuse`
   rows: an island and its carried relief, moved by whole 64u blocks, write the same bytes at the new site, so one

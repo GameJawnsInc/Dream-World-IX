@@ -93,13 +93,26 @@ stable across runs, so today's behaviour IS reproducible at a fixed site. It jus
   dropping it) turns it red. `test_world_handles` covers the new handle. The overworld domain is green: 653 tests.
   Comparator law: compare at **float32** (what the `.ff9mesh` stores). In float64 the wall UVs carry 1e-15
   noise from absolute positions, which reads as "different land" that is not there.
-- **P1 — `world-prefab place NAME --cell BX,BY`.** It expands a relative recipe
-  (`world/data/prefabs.toml`: rows + anchor + footprint + ground + status + a fingerprint of the qualified
-  bytes) into an absolute `world-fuse` job. Placement refuses unless the written bytes match the
-  fingerprint, so an identity break is caught at the call site.
-- **P2 — seed the catalog from compositions already built here:** desert-peak isle (this note), a grass
-  isle with a forest, the snow-ridge isle (comp9: `--ground snow --radius 88 --lobes 2`), the desert-scrub
-  isle (comp26). Each one is walked once, then `qualified`.
+- **P1 — `world-prefab NAME --cell BX,BY --mod-folder F`: BUILT (2026-11-08), offline-proven.**
+  `world/prefab.py` + `world/data/prefabs.toml`. Rows relative to the anchor block's frame origin
+  `(64*bx, -64*(by+1))`. Placement: rows on the map, then the CLEAR WINDOW (the target holds nothing in the
+  footprint or any relief row's read window; no other FolderNames folder holds anything in the footprint),
+  then a STAGING compose whose fingerprint must equal the catalog's, and only then the compose into the target
+  (the verbs' own gates; never a copy of staged files) and a fingerprint of what it wrote.
+  **THE FINGERPRINT HASHES TRIANGLES, NOT FILES** (measured): the framed mint alone writes the same triangles
+  at every site but not in the same vertex order. Each triangle is taken at float32 with its normal rounded to
+  1e-6 and rotated to its smallest corner, so the winding is kept.
+  Measured: both prefabs fingerprint identically at (1,14) and (1,16); placed for real on (21,1) and (2,17),
+  the written land is the catalog's; a second placement on the same block refuses.
+  **ROOM, MEASURED: no stock open-ocean 3x3 window is free in the live FolderNames stack today.**
+  `FF9CustomMap-world` holds 128 disc-1 override blocks, 4-9 of them in each of the 30 windows. A prefab on the
+  live disc-1 map needs room made first (a sink or a move), a smaller footprint, or another world (Path D:
+  the frame under `--target-disc` is unmeasured). Fence: `tests/test_world_prefab.py` (24 tests; the two
+  real-bytes ones are install-gated); 10 mutations of `prefab.py` each turn it red.
+- **P2 — seed the catalog from compositions already built here:** desert-peak isle and the meadow isle
+  (forest + hill) are in as candidates (P1). Still to add: the snow-ridge isle (comp9:
+  `--ground snow --radius 88 --lobes 2`) and the desert-scrub isle (comp26). Each one is walked once, then
+  `qualified`.
 - **P3 — the World tab "Add a prefab" card**: ghost the whole footprint, snap to blocks, one Check, and an
   Accept that lands as ONE undo step (a grouped step in `draft.py`'s history).
 - **P4 — the arrangement search ("synth")**: enumerate seed/radius x home-matched donors x offsets, keep
