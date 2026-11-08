@@ -34,20 +34,29 @@ DESIGN = REPO / "studies" / "field-coop" / "S168-DESIGN.md"
 _CLEAR = ("FF9_S166_CLONE", "FF9_S167_CLONE", "FF9_S168_CLONE")
 
 #: the rows the stand-in cannot model (fakegame's `guestmenu` rung, as the kit core built it) -> the words its red detail carries: a known
-#: gap of the STAND-IN, pinned so a row there can never pass for the wrong reason (and so a stand-in that learns one shows up here)
+#: gap of the STAND-IN, pinned so a row there can never pass for the wrong reason (and so a stand-in that learns one shows up here).
+#: GM0-WHY-BUSY is NOT here: DESIGN D1 keeps term 9 (control) ahead of term 10 (busy), the row wants `control` with the follow landing on
+#: ALT_FIELD, and the stand-in's `swap intent` follow turns control off for its fade as StartFollowWarp does (C3(c)) -- green offline.
 STANDIN_UNMODELLED = {
     "GM0-WHY-SCENE": "the press: seated",                 # no host scene feeds the predicate's F3 (gm_host_scene is a knob, not `hostscene`)
     "GM0-WHY-HOSTCTL": "the press: seated",               # no F4 (the host holding input) from `swap hostctl off`
-    "GM0-WHY-BUSY": "want busy",                          # no busy term from a follow in flight (gm_busy is a knob)
-    "GM0-DOOR-889": "no window up at the press",          # no scribe to talk to
+    "GM0-DOOR-889": "no window up at the press",          # no scribe to talk to (and no persistent strip on the strip field)
     "GM0-HELDKEY": "never opened a window",               # no scribe; and no held-bit write
     "GM0-MASTER": "master_skipped +0",                    # no SetMasterSkill
     "GM0-DIORAMA-BOOT": "BOOTED over the seat",           # the stand-in's boot ignores the seat (BootSeatRule)
     "GM0-SOFTRESET": "backstops.replace +0",              # no Replace backstop
-    "GM0-RAMP-CFG": "closes.ending +0",                   # no ApplyConfigChange close
-    "GM0-REFUSE-E2": "not reached", "GM0-REFUSE-E3": "not reached", "GM0-REFUSE-A3": "not reached",   # one confirm per screen, no labels
+    "GM0-RAMP-CFG": "not an edge",                        # no LoadConfigIfChanged: a Role edit is never an edge (no ApplyConfigChange)
+    # C3(a): no census on a key -- the stand-in has no screen shapes (no groups, no bars, no list rows), so every census plan stops short
+    # (and the GMBAG bag seeder is not registered on the stand-in's install) until fakegame models the screens
+    "GM0-REFUSE-I1": "not reached", "GM0-REFUSE-E1": "not reached", "GM0-REFUSE-A1": "not reached", "GM0-REFUSE-A2": "not reached",
+    "GM0-REFUSE-E2": "not reached", "GM0-REFUSE-E3": "not reached", "GM0-REFUSE-A3": "not reached",
     "GM0-REFUSE-I2": "not reached", "GM0-LOCAL": "not reached",
 }
+#: the (leg, lever) calibrations the stand-in cannot run to a green S168-CAL, each for its named gap: the refuse leg's census rows read
+#: "not reached" under every lever (C3(a): `capture off` has no census to pass; `poke` meets them as unpredicted reds), and a Role edit is
+#: never an edge on the stand-in (no LoadConfigIfChanged), so `close old` has no `ending` close to hold. Pinned in
+#: test_the_levers_the_stand_in_cannot_calibrate_read_their_gap; each is calibrated in game (round_gm_rerun.sh, the plan's F5)
+STANDIN_UNCALIBRATED = {("refuse", "capture"), ("refuse", "poke"), ("cfg", "closeold")}
 
 # ------------------------------------------------------------------------------------------------ the child
 _CHILD = r'''
@@ -90,6 +99,10 @@ def fake_for(t, run, cw):
     f.world_kit = dict(FG.FAKE_WORLD_KIT)
     f.world_block_load_frames = 6
     f.swap_qpc = None
+    # GM0-WHY-BUSY presses INSIDE the `swap intent` follow's fade (C3(c): control off for the fade -> `control`): at 600 frames a second
+    # the default 12-frame fade ends before the driver's next request (its ack poll sleeps 20 ms); 120 frames span several polls and the
+    # landing still comes well inside the press's CLOSE_S settle
+    f.swap_follow_fade_frames = 120
     if run.get("tag4"):
         f.gm_tag4_event = tuple(run["tag4"])
     real_ns = f._netsync
@@ -271,12 +284,16 @@ def test_the_chain_is_green_on_the_s168_stand_in_where_it_models_the_engine(gm):
         assert STANDIN_UNMODELLED[row] in r["detail"][row], (row, r["detail"][row])
     d = r["detail"]
     assert "TWO MARKERS" in d["GM0-SEAT"] and "'players': True, 'party': True, 'gil': True" in d["GM0-SEAT"]
-    assert all("census lines 1" in d[f"GM0-REFUSE-{s}"] and f"last '{s}'" in d[f"GM0-REFUSE-{s}"] for s in gm.REFUSE_SITES)
+    # C3(a): no census fires on a stand-in key -- the refuse rows read "not reached" (pinned above), never a census counted
+    assert all("census lines 1" not in d[f"GM0-REFUSE-{s}"] for s in gm.REFUSE_SITES)
     assert "outside_settled {'set': True, 'equal': True, 'named': None}" in d["GM0-OUTSIDE"]
     assert "THE ROLLBACK" in d["GM0-SEATFAULT-BAG"] and "'component bag' lines 1" in d["GM0-WITNESS-BAG"]
     assert all("'end': 'done'" in d[f"GM0-DEPTH-{x.upper()}"] and "(watchdog 0)" in d[f"GM0-DEPTH-{x.upper()}"] for x in gm.DEPTHS)
     assert "each of ['leave', 'out', 'rejoin', 'world', 'cut', 'ending', 'title', 'scene'] closed" in d["GM0-CLOSE-IDS"]
+    # GM0-QUIT: green because the leg waits for close_pending False (C3(b): the stand-in ends the close one tick after events turn on)
     assert "watchdog lines 0" in d["GM0-QUIT"] and "marker 8 (want 8)" in d["GM0-RELEASE"]
+    # GM0-WHY-BUSY: the follow-in-flight press reads term 9's `control` (DESIGN D1), green on the stand-in
+    assert "why 'control'" in d["GM0-WHY-BUSY"]
     # every guestmenu op the chain sent is one the agent takes
     assert r["sent"] and all(s.split()[1] in BW.GUESTMENU_OPS for s in r["sent"])
 
@@ -328,7 +345,8 @@ def _lever_cases():
         spec.loader.exec_module(m)
     finally:
         os.environ.update(old)
-    return sorted(k for k in m.LEVER_PREDICTED if k[0] != "deep")             # deep's rows are unreachable on the stand-in (in game only)
+    # deep's rows are unreachable on the stand-in (in game only); STANDIN_UNCALIBRATED's cases are pinned to their gap below
+    return sorted(k for k in m.LEVER_PREDICTED if k[0] != "deep" and k not in STANDIN_UNCALIBRATED)
 
 
 @pytest.mark.parametrize("leg,lever", _lever_cases())
@@ -338,6 +356,33 @@ def test_each_lever_calibrates_exactly_and_measures_its_shape(gm, leg, lever):
     assert r["red"] == want, (r["red"], r["detail"].get("S168-CAL"))
     assert "rows whose shape was NOT measured: none" in r["detail"]["S168-CAL"]
     assert "guestmenu " + " ".join(gm.LEVER_OPS[lever]) in r["sent"], r["sent"]
+
+
+def test_the_levers_the_stand_in_cannot_calibrate_read_their_gap(gm):
+    """STANDIN_UNCALIBRATED: each lever still SENT and its predicted rows red, the S168-CAL red naming exactly the stand-in's gap -- the
+    census rows as unpredicted reds (`poke`) or unmeasured (`capture`), the Role edit's `ending` close unmeasured (`close old`)."""
+    assert STANDIN_UNCALIBRATED <= set(gm.LEVER_PREDICTED)
+    rs = _runs(**{f"{leg}:{lever}": dict(legs=leg, cal=True, lever=lever) for leg, lever in sorted(STANDIN_UNCALIBRATED)})
+    census = sorted(f"GM0-REFUSE-{s}" for s in gm.REFUSE_SITES)
+    for leg, lever in sorted(STANDIN_UNCALIBRATED):
+        r = rs[f"{leg}:{lever}"]
+        pred = set(gm.LEVER_PREDICTED[(leg, lever)])
+        cal = r["detail"]["S168-CAL"]
+        assert "guestmenu " + " ".join(gm.LEVER_OPS[lever]) in r["sent"], (leg, lever, r["sent"])
+        assert pred <= set(r["red"]) and "S168-CAL" in r["red"], (leg, lever, r["red"])
+        assert "predicted reds that stayed GREEN: none" in cal, (leg, lever, cal)
+        for row in set(r["red"]) - pred - {"S168-CAL"}:
+            assert STANDIN_UNMODELLED.get(row) and STANDIN_UNMODELLED[row] in r["detail"][row], (leg, lever, row, r["detail"][row])
+    poke = rs["refuse:poke"]
+    assert sorted(set(poke["red"]) - {"S168-CAL"}) == sorted(set(census) | {"GM0-OUTSIDE"}), poke["red"]
+    assert f"unpredicted reds: {census}" in poke["detail"]["S168-CAL"] and "NOT measured: none" in poke["detail"]["S168-CAL"]
+    cap = rs["refuse:capture"]
+    assert sorted(set(cap["red"]) - {"S168-CAL"}) == census, cap["red"]
+    assert "unpredicted reds: none" in cap["detail"]["S168-CAL"] and f"NOT measured: {census}" in cap["detail"]["S168-CAL"]
+    cfg = rs["cfg:closeold"]
+    assert sorted(cfg["red"]) == ["GM0-RAMP-CFG", "S168-CAL"], cfg["red"]
+    assert "unpredicted reds: none" in cfg["detail"]["S168-CAL"] and "NOT measured: ['GM0-RAMP-CFG']" in cfg["detail"]["S168-CAL"]
+    assert STANDIN_UNMODELLED["GM0-RAMP-CFG"] in cfg["detail"]["GM0-RAMP-CFG"]
 
 
 # ================================================================================================ GM0-OFFLINE: each fault, exactly its rows
@@ -474,10 +519,17 @@ def test_the_restore_site_grey_outside_and_local_judges(gm):
     poked = _s(seated=False, fp={"outside_equal": False, "outside_named": "events"}, outside_settled={"set": True, "equal": False,
                                                                                                      "named": "events"})
     assert not gm.judge_outside(poked)[0] and gm.poke_measured(poked) and not gm.poke_measured(good)
-    steps = [{"what": "sort", "reached": True, "before": _s("Item", seated=True), "after": _s("Item", seated=True)}]
+    # DESIGN D5: the sort judged on its MEASURED manual swap (l0 / l2 read, the cursor's row after it reads l0), the key read on a
+    # description opened and closed
+    steps = [{"what": "sort", "reached": True, "before": _s("Item", seated=True), "after": _s("Item", seated=True), "l0": "Potion",
+              "l2": "Remedy", "swapped": "Potion", "row0": "Item 0", "row2": "Item 2", "swapped_row": "Item 2"},
+             {"what": "key items", "reached": True, "before": _s("Item", seated=True), "after": _s("Item", seated=True), "opened": True,
+              "closed": True}]
     assert gm.judge_local(steps, good)[0]
-    assert not gm.judge_local([dict(steps[0], after=_s("Item", seated=True, refused={"count": 1}))], good)[0]
-    assert not gm.judge_local([dict(steps[0], reached=False, why="no Arrange")], good)[0]
+    assert not gm.judge_local([dict(steps[0], after=_s("Item", seated=True, refused={"count": 1})), steps[1]], good)[0]
+    assert not gm.judge_local([dict(steps[0], reached=False, why="no Arrange"), steps[1]], good)[0]
+    assert not gm.judge_local([dict(steps[0], swapped="Remedy"), steps[1]], good)[0]          # no order change measured
+    assert not gm.judge_local(steps[:1], good)[0]                                             # no key read
 
 
 def test_the_why_witness_seatfault_and_door_judges(gm):

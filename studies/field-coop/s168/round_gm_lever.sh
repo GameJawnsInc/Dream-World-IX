@@ -52,11 +52,11 @@ if softreset_ok; then
 else
   skip_leg "LEVER solo softreset old" "the install lacks [Control] SoftReset 1 / [Cheats] Enabled 1 (GM0-SOFTRESET's precondition)"
 fi
+duo rampquit old   # first: the first in-game WM_CLOSE runs alone, ahead of the cut leg's fallback
 for l in leave out rejoin cut title scene chest ramp; do
   duo $l old
   duo $l closeold
 done
-duo rampquit old
 duo stall old
 solo world old
 solo world poke

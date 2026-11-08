@@ -15,6 +15,9 @@
     fault turns ITS row red.
   * COOP_PEER: serve-guest's auto caps adopt b3 from an s168 host (0x000B), `--caps 3` an s167-shaped guest; section 12 decoded in the dump,
     `where --pose` and a tape census; replay-host carries a v15 tape's section 12 as recorded.
+  * THE SOLO BENCH'S DRIVE (pure; the s168 in-game triage's kit fixes): the census plans on the measured screen shapes, the remembered
+    character walk, _pick's directions, the WHY rows' inputs and the line read at the verdict, the measured manual swap (against a model of
+    ItemUI's Manual arrange), the GMBAG seeder's named precondition, the cfg edge and DOOR-889's not-reached words.
 """
 import json
 import os
@@ -1008,8 +1011,9 @@ def test_gm0_release_every_lever_back_one_line_and_the_bench_frame_dropped():
 
 def test_gm0_seat_browse_refuse_and_restore_on_the_bench():
     """The S route: `frame 7` (two markers), the REAL Menu press -> `guest` -> the door seats the bench frame (slot 0 BENCH7 lv99, gil and
-    exp markers), the chip; Order / Party / Card / Config buzz; a confirm in Item is refused (I1, captures +1, impactful 0); the root Cancel
-    restores at the door: fp_after == fp_before, the settle stamped equal one frame after the HUD's Show."""
+    exp markers), the chip; Order / Party / Card / Config buzz; the I1 census in Item is refused (captures +1, impactful 0 -- fired through
+    the gm_confirm seam: since the kit-fix plan's C3(a) no stand-in KEY fires a census); the root Cancel restores at the door: fp_after ==
+    fp_before, the settle stamped equal one frame after the HUD's Show."""
     f = _fake()
     _bench(f, 7)
     assert f._menu_key_now() == "guest"
@@ -1026,7 +1030,9 @@ def test_gm0_seat_browse_refuse_and_restore_on_the_bench():
     f.menu_index = 0
     f._menu_step("confirm")
     assert f.ui_state == "Item"
-    f._menu_step("confirm")
+    f._menu_step("confirm")                                              # C3(a): a Confirm on a sub-screen fires NO census
+    assert _gm(f)["refused"]["count"] == 0 and _gm(f)["captures"] == 0
+    f.gm_confirm(BW.GM_CENSUS_I1)                                        # the seam: the I1 site confirmed on Item
     gm = _gm(f)
     assert gm["refused"] == {"count": 1, "last_site": "I1", "last_screen": "Item"} and gm["captures"] == 1 and gm["impactful"] == 0
     assert BW.log_gm_census(BW.GM_CENSUS_I1, "Item") in _log(f)
@@ -1427,3 +1433,317 @@ def test_replay_host_carries_a_v15_tapes_section_12_as_recorded():
     with12, without = _state_payload(), _state_payload(False)
     for sid in (BW.SECTION_FP, BW.SECTION_DIALOG, BW.SECTION_DRESS, BW.SECTION_PARTY):
         assert BW.old_try_read_section(with12, sid) == BW.old_try_read_section(without, sid), sid
+
+
+# ================================================================================================ THE SOLO BENCH'S DRIVE (pure)
+# studies/test-harness/scenarios/coop_guest_menu.py after the s168 in-game triage (the kit fix plan's section A): the census plans on the
+# measured screen shapes (every bar horizontal, Item opening ON its list, the Ability lists on their first lit row), the root's remembered
+# character, the WHY rows' inputs and the verdict's line, the measured manual swap, the bag seeder's named precondition, the cfg edge.
+# Loaded in-process with every COOP_* knob cleared (the scenario reads them at import); its moves run against _Stub, a scripted sample
+# stream -- never a game.
+SCENARIOS = REPO / "studies" / "test-harness" / "scenarios"
+
+
+def _load_solo():
+    import importlib.util
+    sys.path.insert(0, str(SCENARIOS))
+    spec = importlib.util.spec_from_file_location("coop_guest_menu_drive_pure", str(SCENARIOS / "coop_guest_menu.py"))
+    m = importlib.util.module_from_spec(spec)
+    old = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("COOP_")}
+    try:
+        spec.loader.exec_module(m)
+    finally:
+        os.environ.update(old)
+    return m
+
+
+@pytest.fixture(scope="module")
+def solo():
+    return _load_solo()
+
+
+def _st(ui=FLD, *, field=30801, control=True, group=None, label=None, dialog=False, gm=None, mr=None, selected=None):
+    """One published sample, as the bench's readers see it (raw netsync.guestmenu / netsync.menu_refusal + the State's attributes)."""
+    from types import SimpleNamespace
+    ns = {"guestmenu": dict(gm or {}), "menu_refusal": dict(mr or {})}
+    return SimpleNamespace(raw={"netsync": ns}, netsync=ns, ui_state=ui, field_id=field, control=control, menu_group=group,
+                           menu_label=label, menu_selected=selected, dialog_open=dialog, fading=False, frame=1, world_id=None)
+
+
+class _Stub:
+    """The few Session calls the bench's moves make, scripted: ``state`` the current sample; ``queue`` the samples that follow (wait_for walks
+    them until its predicate holds, else raises the harness's HarnessError like a timeout); ``on_press`` button -> the sample a press lands
+    on (a callable gets the stub). Records every press, pick and warp."""
+
+    def __init__(self, solo, state, queue=(), on_press=None, regs=None):
+        self.solo, self.state, self.queue, self.on_press = solo, state, list(queue), dict(on_press or {})
+        self.presses, self.picks, self.warps, self.notes = [], [], [], []
+        self.regs = regs
+
+    def press(self, button, *_a, **_k):
+        self.presses.append(button)
+        nxt = self.on_press.get(button)
+        if callable(nxt):
+            nxt(self)
+        elif nxt is not None:
+            self.state = nxt
+
+    def wait_frames(self, _n):
+        return None
+
+    def wait_for(self, pred, timeout=None, what=None):
+        while True:
+            if pred(self.state):
+                return self.state
+            if not self.queue:
+                raise self.solo.HarnessError(f"timed out: {what}")
+            self.state = self.queue.pop(0)
+
+    def menu_pick(self, label, *, direction="down", max_steps=30, confirm=True):
+        self.picks.append((label, direction, confirm))
+        return label
+
+    def registered_fields(self):
+        if self.regs is None:
+            raise OSError("no DictionaryPatch read")
+        return dict.fromkeys(self.regs, "X"), []
+
+    def warp(self, field):
+        self.warps.append(field)
+        self.state = _st(FLD, field=field)
+
+    def note(self, text):
+        self.notes.append(text)
+
+
+def test_solo_the_remembered_character_walk_and_the_reset_at_a_fresh_root(solo):
+    """MainMenuUI remembers the last character picked and its list wraps (:176-179, :681-692): goto_screen walks from the remembered slot,
+    and a fresh root (press_menu's MainMenu outcome) forgets it (:130-138)."""
+    assert [solo._char_downs(p, w) for p, w in ((0, 3), (3, 0), (2, 2), (1, 0), (0, 0))] == [3, 1, 0, 3, 0]
+    root = _st(MEN, group="MainMenu.SubMenu", label="Ability")
+    chars = _st(MEN, group="MainMenu.Character", label="Zidane")
+    screen = _st("Ability", group="Ability.SubMenu", label="Use")
+
+    class Root(_Stub):                                   # the root's pick moves to the character pick (MainMenuUI.cs:171-181)
+        def menu_pick(self, label, *, direction="down", max_steps=30, confirm=True):
+            self.picks.append((label, direction, confirm))
+            self.state = self.after_pick
+            return label
+
+    g = Root(solo, root, on_press={"confirm": screen})
+    g.after_pick = chars
+    solo._CHAR_AT[id(g)] = 3
+    state, why = solo.goto_screen(g, "Ability", char=2)
+    assert (state, why) == ("Ability", "") and g.presses == ["down"] * 3 + ["confirm"] and solo._CHAR_AT[id(g)] == 2
+    g.state, g.presses = root, []
+    assert solo.goto_screen(g, "Ability", char=2)[0] == "Ability" and g.presses == ["confirm"]   # already on slot 2: no down
+    # the root's Confirm swallowed (still on the sub-menu): no blind walk, a named why, and the remembered character unchanged
+    g.state, g.presses, g.after_pick = root, [], root
+    state, why = solo.goto_screen(g, "Ability", char=0)
+    assert state is None and "neither a screen nor the character pick" in why and g.presses == [] and solo._CHAR_AT[id(g)] == 2
+    # the character pick is ui MainMenu but NOT the root; the stand-in's root group ("MainMenu") still is
+    assert solo._on_root(root) and solo._on_root(_st(MEN, group="MainMenu")) and not solo._on_root(chars)
+    seated = _st(MEN, gm={"seated": True, "event_enable": False})
+    g2 = _Stub(solo, _st(gm={"event_enable": True}, mr={"count": 0}), queue=[seated])
+    solo._CHAR_AT[id(g2)] = 3
+    assert solo.press_menu(g2, {"new": True})[0] == "seated" and solo._CHAR_AT[id(g2)] == 0
+
+
+def test_solo_pick_walks_each_direction_and_records_why(solo):
+    """Every s168 bar is HORIZONTAL: _pick tries ('right', 'down') in turn, each menu_pick error (its `seen` list) kept in ``why``."""
+    class Bar(_Stub):
+        def menu_pick(self, label, *, direction="down", max_steps=30, confirm=True):
+            self.picks.append((label, direction, confirm))
+            if direction != "right":
+                raise self.solo.HarnessError(f"the menu highlight stopped moving on 'Use' while looking for {label!r}; seen so far: ['Use']")
+            return label
+    g, why = Bar(solo, _st("Ability")), []
+    assert solo._pick(g, "Equip", directions=("down", "right"), why=why) and [p[1] for p in g.picks] == ["down", "right"]
+    assert len(why) == 1 and "by down" in why[0] and "seen so far" in why[0]
+    g, why = Bar(solo, _st("Ability")), []
+    assert not solo._pick(g, "Equip", why=why) and len(why) == 1                       # the default walk is down only
+    assert solo._pick(Bar(solo, _st()), "Equip", directions=("right",), confirm=False)
+
+
+def test_solo_the_census_plans_read_the_measured_screens(solo):
+    """SITE_PLANS: no blind fallback Confirm anywhere; every list's group read before its press (A1 / A2 never press Special or Confirm
+    before the support list's expect; I1's first key after Item.Item's expect); E3 is the bar's own Confirm; each member's own lit names."""
+    plans = solo.SITE_PLANS
+    assert set(plans) == set(BW.GM_CENSUS_NAMES)
+    for site, tries in plans.items():
+        for screen, char, steps in tries:
+            assert screen in solo.SUB_SCREENS and 0 <= char <= 3, (site, screen, char)
+            for st in steps:
+                assert st[0] in ("bar", "expect", "group", "key", "shot", "pick"), (site, st)
+                assert st[0] != "pick" or st[2] is False, (site, st)                     # the blind fallback Confirm is gone
+                if st[0] in ("expect", "group"):
+                    assert st[1].startswith(screen + "."), (site, st)                   # a group of the try's own screen
+    for site, last in (("A1", "confirm"), ("A2", "special")):
+        lit = set()
+        for _screen, _char, steps in plans[site]:
+            i = next(i for i, st in enumerate(steps) if st[0] == "expect" and st[1] == "Ability.SupportAbility")
+            assert not any(st[0] == "key" and st[1] in ("special", "confirm") for st in steps[:i]), (site, steps)
+            assert steps[0] == ("bar", ("Equip",)) and steps[-1] == ("key", last)
+            lit.add(tuple(steps[i][2]))
+        assert len(lit) == len(plans[site]) == 2, site                                   # never one name list shared by both members
+    assert plans["E3"] == [("Equip", 0, (("bar", ("Optimize", "Ability")),))]
+    i1 = plans["I1"][0][2]
+    first_key = next(i for i, st in enumerate(i1) if st[0] == "key")
+    assert any(st == ("expect", "Item.Item", ("Potion",)) for st in i1[:first_key]) and ("group", "Item.Target") in i1
+    assert ("expect", "Equip.Inventory", ("Desert Boots",)) in plans["E1"][0][2]
+    assert plans["I2"][0][2][0] == ("expect", "Item.Item", ("Gysahl Greens",))
+    a3 = plans["A3"]
+    assert len(a3) == 1 and a3[0][1] == 2 and a3[0][2][:2] == (("bar", ("Use",)), ("shot", "s168-a3-garnet-use"))
+    assert set(solo.BAG_SITES) == {"E1", "I2"} and solo.BAG_FIELD == 30816 and solo.STRIP_FIELD == 30890
+
+
+def test_solo_a_bag_site_without_the_seeder_is_named_not_driven(solo):
+    """E1 / I2 on a run whose GMBAG never ran: not driven (no press, no pick), the named precondition as the not-reached why; a site that
+    needs no bag (I1) and the duo's ctx (no `bag_why`) are driven as before."""
+    why = solo.bag_unregistered_why()
+    assert "the bag seeder 30816 is not registered" in why and solo.BAG_TOML in why and "--id 30816" in why
+    g = _Stub(solo, _st(MEN))
+    rec = solo.drive_site(g, {"bag_why": why}, "E1")
+    assert rec["why"] == why and not rec["reached"] and rec["back"] and g.presses == [] and g.picks == []
+    ok, detail = solo.judge_site("E1", rec, {}, [])
+    assert not ok and detail == f"not reached: {why}"
+    g = _Stub(solo, _st(MEN))
+    rec = solo.drive_site(g, {}, "I1")                                                   # I1 needs no bag: the root's Item is picked
+    assert g.picks and g.picks[0][0] == "Item" and not rec["reached"] and "trail" in rec["why"]
+
+
+def test_solo_seed_bag_warps_through_gmbag_only_when_registered(solo):
+    g = _Stub(solo, _st(field=30604), regs={30604, 30816})
+    note = solo.seed_bag(g, back_to=30801)
+    assert note.startswith(solo._BAG_SEEDED) and g.warps == [30816, 30801]
+    g = _Stub(solo, _st(field=30816), regs={30816})
+    assert solo.seed_bag(g, back_to=30801).startswith(solo._BAG_SEEDED) and g.warps == [30801]   # already there: one warp home
+    g = _Stub(solo, _st(field=30801), regs={30604})
+    note = solo.seed_bag(g, back_to=30801)
+    assert g.warps == [] and solo.bag_unregistered_why() in note and not note.startswith(solo._BAG_SEEDED)
+    g = _Stub(solo, _st(field=30801), regs=None)
+    assert g.warps == [] and "could not be read" in solo.seed_bag(g)
+
+
+def test_solo_the_why_cases_their_inputs_and_the_verdicts_line(solo):
+    """SCENE / HOSTCTL under `netsync lock 1` (set first, undone last); BUSY accepts `control` only (term 9 precedes term 10, DESIGN D1);
+    the line read AT the verdict passes when the settled sample's is gone; a count +0 is red and its why marked stale."""
+    cases = {c[0]: c for c in solo.WHY_CASES}
+    for row in ("GM0-WHY-SCENE", "GM0-WHY-HOSTCTL"):
+        _row, whys, ops, undo = cases[row]
+        assert whys == (BW.GM_WHY_SCENE,) and ops[0] == ("lock", 1) and undo[-1] == ("lock", 0) and len(ops) == 2, row
+    assert cases["GM0-WHY-BUSY"][1] == (BW.GM_WHY_CONTROL,) and cases["GM0-WHY-BUSY"][2] == (("swap", "intent", "<alt>"),)
+    words = BW.gm_refusal_line_rule(BW.GM_WHY_CONTROL)
+    assert words and "Try the menu again in a moment." in words
+    base = {"gm": {"opens": 2, "seated": False}, "mr": {"count": 6}, "ui": FLD, "control": True}
+    s = {"gm": {"opens": 2, "seated": False, "why": BW.GM_WHY_CONTROL, "line": {"text": None}}, "mr": {"count": 7}, "ui": FLD,
+         "control": True, "field": 30602, "verdict_line": words}
+    ok, detail = solo.judge_why((BW.GM_WHY_CONTROL,), base, s)
+    assert ok and "want control" in detail
+    assert not solo.judge_why((BW.GM_WHY_BUSY,), base, s)[0]                              # `busy` is no longer this row's why
+    ok, detail = solo.judge_why((BW.GM_WHY_CONTROL,), base, dict(s, mr={"count": 6}))
+    assert not ok and "stale" in detail
+    assert not solo.judge_why((BW.GM_WHY_CONTROL,), base, dict(s, verdict_line=None))[0]   # no line anywhere: not audible
+
+
+def test_solo_press_menu_keeps_the_line_read_at_the_verdict(solo):
+    """The refusal's line ends at the follow's field load: press_menu carries the verdict sample's line as `verdict_line` beside the settled
+    HUD sample (control back on ALT_FIELD) -- the WHY-BUSY shape, judged green."""
+    words = BW.gm_refusal_line_rule(BW.GM_WHY_CONTROL)
+    s0 = _st(gm={"event_enable": True, "opens": 2, "seated": False}, mr={"count": 6})
+    verdict = _st(control=False, gm={"event_enable": True, "opens": 2, "seated": False, "why": "control", "line": {"text": words}},
+                  mr={"count": 7})
+    landed = _st(field=30602, gm={"event_enable": True, "opens": 2, "seated": False, "why": "control", "line": {"text": None}},
+                 mr={"count": 7})
+    g = _Stub(solo, s0, queue=[verdict, landed])
+    base = solo.snap(g.state)
+    out, s = solo.press_menu(g, {"new": True})
+    assert out == "refused" and s["field"] == 30602 and s["verdict_line"] == words and g.presses == ["menu"]
+    assert solo.judge_why((BW.GM_WHY_CONTROL,), base, s)[0]
+
+
+class _ItemList(_Stub):
+    """ItemUI's Manual arrange, modelled: Item.Item (two columns: down / up move two rows) -> Confirm (Item.Arrange) -> a row -> Confirm:
+    the two swap and the cursor stays on the second (JumpToIndex, ItemUI.cs:463-474). ``swaps`` False: the second Confirm moves nothing.
+    ``arrange_moves`` False: a down / up in Item.Arrange never registers, so the second Confirm swaps the first row with itself. Each row
+    publishes its pool object's name as `menu_selected` ('Item <n>')."""
+
+    def __init__(self, solo, rows, *, swaps=True, arrange_moves=True):
+        super().__init__(solo, None)
+        self.rows, self.cursor, self.group, self.picked, self.swaps = list(rows), 0, "Item.Item", None, swaps
+        self.arrange_moves = arrange_moves
+        self._draw()
+
+    def _draw(self):
+        self.state = _st(ITM, group=self.group, label=self.rows[self.cursor], gm={"seated": True}, selected=f"Item {self.cursor}")
+
+    def press(self, button, *_a, **_k):
+        self.presses.append(button)
+        if button in ("down", "up") and self.group == "Item.Arrange" and not self.arrange_moves:
+            pass
+        elif button == "down":
+            self.cursor = min(self.cursor + 2, len(self.rows) - 1)
+        elif button == "up":
+            self.cursor = max(self.cursor - 2, 0)
+        elif button == "confirm" and self.group == "Item.Item":
+            self.group, self.picked = "Item.Arrange", self.cursor
+        elif button == "confirm" and self.group == "Item.Arrange":
+            if self.swaps:
+                self.rows[self.picked], self.rows[self.cursor] = self.rows[self.cursor], self.rows[self.picked]
+            self.group = "Item.Item"
+        self._draw()
+
+
+def test_solo_the_manual_swap_is_measured_and_its_mutant_is_not(solo):
+    """D5: the sort judged on a measured order change -- Arrange > Manual swaps rows 0 and 2, and the cursor's row then reads l0."""
+    bag = ["Potion", "Ether", "Remedy", "Tent", "Phoenix Down", "Hammer"]
+    g = _ItemList(solo, bag)
+    rec = {"what": "sort"}
+    assert solo._manual_swap(g, rec) is True
+    assert (rec["l0"], rec["l2"], rec["swapped"], rec["swap_why"]) == ("Potion", "Remedy", "Potion", "") and g.rows[:3] == ["Remedy",
+                                                                                                                             "Ether", "Potion"]
+    assert rec["trail"] and solo.swap_measured(rec)
+    g = _ItemList(solo, bag, swaps=False)
+    rec = {"what": "sort"}
+    assert solo._manual_swap(g, rec) is False and rec["swapped"] == "Remedy" and not solo.swap_measured(rec)
+    assert not solo.swap_measured({"l0": "Potion", "l2": "Potion", "swapped": "Potion"})   # nothing to swap: never measured
+    assert not solo.swap_measured({"l0": None, "l2": None, "swapped": None})
+    # the move's down never registered: row 0 swapped with itself, the cursor back on row 0 -- which ALSO reads l0; the row tells
+    g = _ItemList(solo, bag, arrange_moves=False)
+    rec = {"what": "sort"}
+    assert solo._manual_swap(g, rec) is False and rec["swapped"] == "Potion" and g.rows == bag
+    assert (rec["row0"], rec["row2"], rec["swapped_row"]) == ("Item 0", "Item 2", "Item 0") and not solo.swap_measured(rec)
+    good = {"l0": "Potion", "l2": "Remedy", "swapped": "Potion", "row0": "Item 0", "row2": "Item 2", "swapped_row": "Item 2"}
+    assert solo.swap_measured(good)
+    assert not solo.swap_measured(dict(good, row0=None, row2=None, swapped_row=None))    # no rows published: never measured
+
+
+def test_solo_judge_local_needs_the_measured_swap_and_the_key_description(solo):
+    def seat():
+        return {"gm": {"seated": True, "refused": {"count": 0}, "captures": 0}}
+    closed = {"gm": {"fp": {"equal": True}, "seated": False}}
+    sort = {"what": "sort", "reached": True, "before": seat(), "after": seat(), "l0": "Potion", "l2": "Remedy", "swapped": "Potion", "row0": "Item 0", "row2": "Item 2", "swapped_row": "Item 2",
+            "manual_label": "Manual", "trail": [("Item.Item", "Potion")]}
+    key = {"what": "key items", "reached": True, "before": seat(), "after": seat(), "key_label": "Moogle Suit", "opened": True,
+           "closed": True, "trail": [("Item.KeyItem", "Moogle Suit")]}
+    folk = {"what": "folklore", "reached": True, "before": seat(), "after": seat(), "trail": []}
+    ok, detail = solo.judge_local([sort, key, folk], closed)
+    assert ok and "measured True" in detail and "trail" in detail
+    assert not solo.judge_local([dict(sort, swapped="Remedy"), key, folk], closed)[0]      # the post-swap label is not l0
+    assert not solo.judge_local([dict(sort, l2="Potion"), key, folk], closed)[0]           # no second label: no order change measured
+    assert not solo.judge_local([sort, dict(key, closed=False), folk], closed)[0]          # the description never closed: no marker
+    assert not solo.judge_local([sort, dict(key, opened=False), folk], closed)[0]          # the placeholder's buzz: nothing described
+    assert not solo.judge_local([sort, folk], closed)[0]                                   # no key read at all
+    assert not solo.judge_local([sort, key, folk], {"gm": {"fp": {"equal": False}}})[0]
+    ok, detail = solo.judge_local([sort, dict(key, reached=False, why=solo.bag_unregistered_why()), folk], closed)
+    assert not ok and detail.startswith("not reached") and "is not registered" in detail
+
+
+def test_solo_the_cfg_edge_and_the_door_889_not_reached_words(solo):
+    ok, detail = solo.judge_cfg({}, {}, False)
+    assert not ok and "not an edge" in detail and "config change applied live" in detail
+    ending = {"gm": {"closes": {"ending": 1}, "close_line": {"text": BW.gm_close_line_rule(BW.GM_CAUSE_ENDING)}, "seated": False,
+                     "fp": {"equal": True}}, "ui": FLD, "control": True}
+    assert solo.judge_cfg({"gm": {"closes": {"ending": 0}}}, ending, True)[0]
+    ok, detail = solo.judge_door_889({}, {}, False)
+    assert not ok and "no window up at the press" in detail and "strip" in detail

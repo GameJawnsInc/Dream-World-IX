@@ -37,7 +37,10 @@ _CLEAR = ("FF9_S166_CLONE", "FF9_S167_CLONE", "FF9_S168_CLONE")
 #: stand-in that learns one shows up here)
 STANDIN_UNMODELLED = {
     "GM0-SEAT-D": "host None",                       # no host_fp on the stand-in host (it builds no section 12 of its own)
-    "GM0-LOCAL-D": "not reached",                    # no sort row on the stand-in's Item screen
+    # fakegame C3(a): no census on a stand-in key, and no screen shapes (no groups, no list rows) -- the I1 plan stops short at its
+    # Item.Item expect until fakegame models the screens
+    "GM0-REFUSE-I1-D": "not reached",
+    "GM0-LOCAL-D": "not reached",                    # no Item groups on the stand-in (no rail, no arrange dialog): the sort stops short
     "GM0-GHOST": "not reached",                      # no ghost dress on the stand-ins
     "GM0-CAPS-a": "caps lines naming 'guest menu' 0",   # no caps line logged by the stand-in's world walk book for this route
     "GM0-BW": "type5_len -1",                        # no frame book on a stand-in host
@@ -522,13 +525,28 @@ def test_the_pair_and_local_judges(md):
     assert not md.judge_d0(h, St(gm=bad), 250)[0]                                               # a lever off its default
     a, b = _s(refused={"count": 1}, captures=1, seated=True), _s(refused={"count": 1}, captures=1, seated=True)
     closed = _s(fp={"equal": True})
-    rec = {"reached": True, "what": "sort", "before": a, "after": b}
-    assert md.judge_local_d(rec, "0x1", "0x1", closed)[0]
+    # DESIGN D5: the GUEST's measured manual swap (coop_guest_menu._manual_swap's record: l0 / l2 read, the cursor's row after it reads l0)
+    swap = {"manual_label": "Manual", "l0": "Potion", "l2": "Phoenix Down", "swapped": "Potion", "swap_why": "", "row0": "Item 0",
+            "row2": "Item 2", "swapped_row": "Item 2"}
+    rec = {"reached": True, "what": "sort", "before": a, "after": b, **swap}
+    ok, why = md.judge_local_d(rec, "0x1", "0x1", closed)
+    assert ok and "'Potion' <-> 'Phoenix Down'" in why and "measured True" in why, why
+    assert md.swap_measured_d(rec) and not md.swap_measured_d({})
     assert not md.judge_local_d(rec, "0x1", "0x2", closed)[0]                                   # a sort forwarded to the host
     assert not md.judge_local_d(dict(rec, after=_s(refused={"count": 2}, captures=1, seated=True)), "0x1", "0x1", closed)[0]
     assert not md.judge_local_d(rec, "0x1", "0x1", _s(fp={"equal": False}))[0]
     assert not md.judge_local_d({"reached": False, "why": "no row"}, "0x1", "0x1", closed)[0]
     assert not md.judge_local_d(rec, None, None, closed)[0]                                     # no host_fp: never vacuous
+    # no measured swap: red even with the host's bag unchanged and nothing refused (an Auto on a sorted bag changes nothing)
+    bare = {"reached": True, "what": "sort", "before": a, "after": b}
+    ok, why = md.judge_local_d(bare, "0x1", "0x1", closed)
+    assert not ok and "measured False" in why, why
+    assert not md.judge_local_d(dict(rec, swapped="Phoenix Down"), "0x1", "0x1", closed)[0]     # the cursor's row is not l0: no swap
+    assert not md.judge_local_d(dict(rec, l2="Potion"), "0x1", "0x1", closed)[0]                # one label read twice: nothing to swap
+    assert not md.judge_local_d(dict(rec, l0=None, swapped=None), "0x1", "0x1", closed)[0]
+    ok, why = md.judge_local_d({"reached": False, "why": "no Item.SubMenu (the rail)", "trail": [("Item.Item", "Potion")]}, "0x1", "0x1",
+                               closed)
+    assert not ok and why.startswith("not reached: no Item.SubMenu") and "Item.Item" in why, why
 
 
 def test_the_caps_line_bw_and_world_judges(md):
@@ -591,6 +609,79 @@ def _base(ui="Equip"):
     return _s(ui, closes=closes, seated=True, restore={"doors": 0, "drops": 0, "backstops": {"ramp": 0, "ramp_quit": 0}})
 
 
+#: TONIGHT'S REAL GUEST LINES (the NEW run, .harness-runs/20261108-*-duo-coop_guest_menu_duo/guest/Memoria.log), verbatim: the close-ends
+#: verdicts' fixtures -- each judge passes on the engine's own order and goes red on each wrong shape cut from it
+_T = "08.11.2026 00:02:00 |M| [NetSync] "
+OUT_LINES = [                                                                  # 000054 (GM0-OUT), :71-:77
+    _T + "client lane hang over: the partner's game is updating again after 1854 ms (t 150626627 ms)",
+    _T + "world follow-out: waits: the field HUD is not up -- field 6603, the host on world map 9011 (t 150626628 ms)",
+    _T + "guest menu: restored at the door (MainMenu -> FieldHUD) -- every family back by reference; the session ends",
+    _T + "world follow-out: waits: the host has not been live on the world map for 1200 ms yet -- field 6603, the host on world map 9011 "
+         "(t 150626713 ms)",
+    _T + "guest menu: forced close (out) from MainMenu done: the HUD's Show turned events back on after 125 ms (FieldHUD)",
+    "08.11.2026 00:02:02 |M| [NetSync] follow fade: to world map 9011 -- fast: the screen reads visible (sub); fading to black in 12 ticks; "
+    "the commit waits for black (no later than 0.9 s) (t 150627828 ms)",
+    "08.11.2026 00:02:02 |M| [NetSync] world follow-out: start -- field 6603 follows the host out onto world map 9011 (the host on foot at x "
+    "68, z -444, entrance 35; live on the world map for 1203 ms) (t 150627828 ms)",
+]
+_TR = "08.11.2026 00:03:34 |M| [NetSync] "
+REJOIN_LINES = [                                                               # 000216 (GM0-REJOIN), :594-:600
+    _TR + "world rejoin to field 300 waits: the world HUD is not up",
+    _TR + "guest menu: restored at the door (MainMenu -> WorldHUD) -- every family back by reference; the session ends",
+    _TR + "guest menu: forced close (rejoin) from MainMenu done: the HUD's Show turned events back on after 172 ms (WorldHUD)",
+    _TR + "intent: rejoining the peer at field 300 from world map 9011 (parallel) -- the host's snapshot applies at the load",
+    _TR + "world follow-out: waits: a follow, the kick, a world follow-out or the world rejoin is already in flight -- field 6603, the host "
+          "on world map 9011 (t 150720467 ms)",
+    _TR + "world walk FROZEN (transition) on world map 9011: a world transition is in flight -- travel input held",
+    "08.11.2026 00:03:35 |M| [NetSync] world rejoin landed on field 300 after 813 ms",
+]
+_TC = "08.11.2026 00:04:44 |M| [NetSync] "
+CUT_LINES = [                                                                  # 000344 (GM0-CUT), :68-:81
+    _TC + "start hold report: host battle nonce 1 -> BUSY -- I am busy (a menu, a shop, a pause): the diorama waits on me, the host does not",
+    _TC + "start hold report: host battle nonce 1 -> BOOTING -- my diorama of it is booting or in its intro (the host holds its gauges)",
+    _TC + "guest menu: restored at the door (Item -> FieldHUD) -- every family back by reference; the session ends",
+    _TC + "diorama BOOT scene=67 pattern=0 start=BTL_START_FIRST_ATTACK intro=play(host) swirl=0 clamp=0",
+    _TC + "diorama wire boot stamped nonce=1",
+    _TC + "guest menu: forced close (cut) from Item ended at a clear point after 250 ms (a scene load)",
+    _TC + "diorama seated the host's party: 4 slot(s)",
+    "08.11.2026 00:04:52 |M| [NetSync] diorama LIVE 8421 ms after the boot (host battle nonce 1, booted from wire nonce 1) -- the start-hold "
+    "report for this battle now reads LIVE",
+]
+_TP = "08.11.2026 00:09:45 |M| [NetSync] "
+RAMP_CFG_LINES = [                                                             # 000847 (GM0-RAMP-CFG-D), :68-:75
+    _TP + "config enabled=False role=client field=0 ghostAs=auto followHost=1 relay=ws://127.0.0.1:49212 code=ff9-DUOFF21U",
+    _TP + "config change applied live (disabled)",
+    _TP + "guest menu: restored at the door (Item -> FieldHUD) -- every family back by reference; the session ends",
+    _TP + "guest menu: forced close (ending) from Item ended at a clear point after 31 ms (the exit ramp's fire)",
+    _TP + "session ended -> reloading own autosave (Continue)",
+]
+_TS = "08.11.2026 00:12:21 |M| [NetSync] "
+RAMP_FIELD_LINES = [                                                           # 001103 (GM0-RAMP-FIELD-D), :86-:91
+    _TS + "session: the host has been silent for 5016 ms, past the 5 s grace -- the session ended; the exit ramp reloads your own autosave "
+          "once you are free-standing; gaveup=1",
+    _TS + "guest menu: restored at the door (MainMenu -> FieldHUD) -- every family back by reference; the session ends",
+    _TS + "self-dress arm cleared (the exit ramp) -- a dressed body stays dressed until its next SetModel (the teardown law)",
+    _TS + "guest menu: forced close (ending) from MainMenu ended at a clear point after 63 ms (the exit ramp's fire)",
+    _TS + "session ended -> reloading own autosave (Continue)",
+]
+_TW = "08.11.2026 00:15:09 |M| [NetSync] "
+RAMP_WORLD_LINES = [                                                           # 001319 (GM0-RAMP-WORLD-D), :613-:618
+    _TW + "session: the host has been silent for 5016 ms, past the 5 s grace -- the session ended; the exit ramp reloads your own autosave "
+          "once you are free-standing; gaveup=1",
+    _TW + "guest menu: restored at the door (MainMenu -> WorldHUD) -- every family back by reference; the session ends",
+    _TW + "self-dress arm cleared (the exit ramp) -- a dressed body stays dressed until its next SetModel (the teardown law)",
+    _TW + "guest menu: forced close (ending) from MainMenu ended at a clear point after 172 ms (the exit ramp's fire)",
+    _TW + "session ended -> reloading own autosave (Continue)",
+]
+
+
+def _moved(lines, i: int, j: int) -> list:
+    """``lines`` with line ``i`` moved to index ``j`` (of the list without it)."""
+    out = list(lines)
+    out.insert(j, out.pop(i))
+    return out
+
+
 def test_the_close_judges_go_red_on_each_wrong_shape(md):
     b = _base()
     W = md.close_words_want                                                                      # noqa: N806 - the cause's words
@@ -612,22 +703,61 @@ def test_the_close_judges_go_red_on_each_wrong_shape(md):
         other = next(c for c in md.BW.GM_CLOSE_IDS if W(c) != W(cause))
         assert not md.judge_close(cause, b, _closed(cause), words=W(other))[0], cause
         assert not md.judge_close(cause, b, _closed(cause), words=None)[0], cause
+        # the default `ends` is ('done',): a clear point passes only where a judge opts in (and pins its form itself)
+        assert not md.judge_close(cause, b, _closed(cause, end="clear_point"), words=W(cause))[0], cause
+        assert md.judge_close(cause, b, _closed(cause, end="clear_point"), words=W(cause), ends=("done", "clear_point"))[0], cause
+        assert not md.judge_close(cause, b, _closed(cause, end="watchdog"), words=W(cause), ends=("done", "clear_point"))[0], cause
     assert md.close_old_measured("leave", b, _base()) and not md.close_old_measured("leave", b, _closed("leave"))
     cyc = [("Equip", b, _closed("leave"), 900, True), ("root", b, _closed("leave"), 1100, True)]
     assert md.judge_fade(cyc)[0] and not md.judge_fade(cyc[:1])[0]
     assert not md.judge_fade([cyc[0], ("root", b, _closed("leave"), 2700, True)])[0]
     assert md.judge_fade([cyc[0], ("root", b, _closed("leave"), md.PIN_MAX_AGE_MS, True)])[0]
-    start = "world follow-out: start from field 6603 to world map 9011 (host at (68.0, -444.0), 1450 ms host-alive)"
-    assert md.judge_out(b, _closed("out", frm=None), True, [start], words=W("out"))[0]
-    assert not md.judge_out(b, _closed("out", frm=None), True, [start])[0]                       # no words at the close
-    assert not md.judge_out(b, _closed("out"), True, [start.replace("1450", "900")], words=W("out"))[0]
-    assert not md.judge_out(b, _closed("out"), True, [start, BW.log_world_out_waits("the field HUD is not up")], words=W("out"))[0]
-    assert not md.judge_out(b, _closed("out"), True, [], words=W("out"))[0]                      # no start line
-    assert md.judge_rejoin(b, _closed("rejoin"), True, [], words=W("rejoin"))[0]
-    assert not md.judge_rejoin(b, _closed("rejoin"), True, [], words=W("cut"))[0]
-    assert not md.judge_rejoin(b, _closed("rejoin"), True, [BW.log_world_rejoin_waits(300, "the world HUD is not up")],
-                               words=W("rejoin"))[0]
+    # GM0-OUT on tonight's lines: [wait, door, end, start '; live on the world map for 1203 ms)'] (decision 18: the request frame's one
+    # wait before the close's end line; the start after the door)
+    out = _closed("out", frm="MainMenu")
+    wait, door, end, start = 1, 2, 4, 6                                                          # OUT_LINES' indices
+    assert md.judge_out(b, out, True, OUT_LINES, words=W("out"))[0], md.judge_out(b, out, True, OUT_LINES, words=W("out"))[1]
+    ok, why = md.judge_out(b, out, True, OUT_LINES, words=W("out"))
+    assert "waits 1 at [1]" in why and "host-alive ms 1203" in why, why
+    assert md.judge_out(b, out, True, [ln for i, ln in enumerate(OUT_LINES) if i != wait], words=W("out"))[0]   # no wait: fine too
+    old_twin = "[NetSync] " + BW.LOG_WORLD_OUT_START + " from field 6603 to world map 9011 (host at (68.0, -444.0), 1450 ms host-alive)"
+    assert md.judge_out(b, out, True, OUT_LINES[:start] + [old_twin], words=W("out"))[0]          # the kit twin's older tail parses
+    assert not md.judge_out(b, out, True, OUT_LINES)[0]                                           # no words at the close
+    assert not md.judge_out(b, out, True, OUT_LINES[:end] + [OUT_LINES[wait]] + OUT_LINES[end:], words=W("out"))[0]   # two waits
+    assert not md.judge_out(b, out, True, _moved(OUT_LINES, wait, end), words=W("out"))[0]        # a wait after the end line
+    assert not md.judge_out(b, out, True, _moved(OUT_LINES, start, door), words=W("out"))[0]      # the start before the door
+    assert not md.judge_out(b, out, True, [ln.replace("for 1203 ms", "for 900 ms") for ln in OUT_LINES], words=W("out"))[0]   # 900 ms
+    assert not md.judge_out(b, out, True, [ln for i, ln in enumerate(OUT_LINES) if i != door], words=W("out"))[0]   # no door
+    assert not md.judge_out(b, out, True, [ln for i, ln in enumerate(OUT_LINES) if i != end], words=W("out"))[0]    # no end line
+    assert not md.judge_out(b, out, True, OUT_LINES[:start], words=W("out"))[0]                    # no start line
+    assert not md.judge_out(b, out, False, OUT_LINES, words=W("out"))[0]                          # never landed
+    # GM0-REJOIN on tonight's lines: [wait, door, end, arm]
+    rj = _closed("rejoin", frm="MainMenu")
+    rwait, rdoor, rend, rarm = 0, 1, 2, 3
+    assert md.judge_rejoin(b, rj, True, REJOIN_LINES, words=W("rejoin"))[0], md.judge_rejoin(b, rj, True, REJOIN_LINES, words=W("rejoin"))
+    assert md.judge_rejoin(b, rj, True, REJOIN_LINES[1:], words=W("rejoin"))[0]                    # no wait: fine too
+    assert not md.judge_rejoin(b, rj, True, REJOIN_LINES, words=W("cut"))[0]
+    assert not md.judge_rejoin(b, rj, True, _moved(REJOIN_LINES, rarm, rdoor), words=W("rejoin"))[0]   # the arm before the door
+    assert not md.judge_rejoin(b, rj, True, _moved(REJOIN_LINES, rwait, rend), words=W("rejoin"))[0]   # a wait after the end line
+    assert not md.judge_rejoin(b, rj, True, [REJOIN_LINES[rwait]] + REJOIN_LINES, words=W("rejoin"))[0]   # two waits
+    assert not md.judge_rejoin(b, rj, True, [ln for i, ln in enumerate(REJOIN_LINES) if i != rdoor], words=W("rejoin"))[0]   # no door
+    assert not md.judge_rejoin(b, rj, True, [ln for i, ln in enumerate(REJOIN_LINES) if i != rarm], words=W("rejoin"))[0]    # no arm
+    # GM0-CUT: `done` (a world cut) with no lines; a field cut's `clear_point` at the boot's scene load, the door before 'diorama BOOT'
+    cdoor, cboot, cend = 2, 3, 5
     assert md.judge_cut(b, _closed("cut"), "booting", 1, True, words=W("cut"))[0]
+    assert md.judge_cut(b, _closed("cut"), "booting", 1, True, words=W("cut"), lines=())[0]
+    cp = _closed("cut", frm="Item", end="clear_point")
+    assert md.judge_cut(b, cp, "booting", 1, True, words=W("cut"), lines=CUT_LINES)[0], md.judge_cut(b, cp, "booting", 1, True,
+                                                                                                    words=W("cut"), lines=CUT_LINES)
+    assert not md.judge_cut(b, cp, "booting", 1, True, words=W("cut"))[0]                          # a clear point with no lines: unproven
+    assert not md.judge_cut(b, cp, "booting", 1, True, words=W("cut"), lines=_moved(CUT_LINES, cboot, cdoor))[0]   # boot before the door
+    assert not md.judge_cut(b, cp, "booting", 1, True, words=W("cut"),
+                            lines=[ln.replace(" (a scene load)", "") for ln in CUT_LINES])[0]      # no '(a scene load)'
+    assert not md.judge_cut(b, cp, "booting", 1, True, words=W("cut"),
+                            lines=[ln.replace("(a scene load)", "(the exit ramp's fire)") for ln in CUT_LINES])[0]   # another site
+    assert not md.judge_cut(b, cp, "booting", 0, True, words=W("cut"), lines=CUT_LINES)[0]         # never LIVE
+    assert not md.judge_cut(b, _closed("cut", end="watchdog"), "booting", 1, True, words=W("cut"), lines=CUT_LINES)[0]
+    assert not md.judge_cut(b, cp, "booting", 1, True, words=W("cut"), lines=[ln for i, ln in enumerate(CUT_LINES) if i != cend])[0]
     assert not md.judge_cut(b, _closed("cut"), "booting", 1, True, words=W("scene"))[0]
     assert not md.judge_cut(b, _closed("cut"), "busy", 1, True, words=W("cut"))[0]               # `close old`: BUSY
     assert not md.judge_cut(b, _closed("cut"), "booting", 0, True, words=W("cut"))[0]            # never LIVE
@@ -639,6 +769,13 @@ def test_the_close_judges_go_red_on_each_wrong_shape(md):
     assert md.judge_cut_quit(waiting, "busy", _closed("cut"), b)[0]
     assert not md.judge_cut_quit(waiting, "booting", _closed("cut"), b)[0]                        # BOOTING while the prompt holds it
     assert not md.judge_cut_quit([_s("Item", close_step="hide", seated=True)], "busy", _closed("cut"), b)[0]
+    # on this FIELD the released close ends at the boot's scene load, as GM0-CUT's (cut_end_ok): proven only by the lines
+    cq = _closed("cut", frm="Item", end="clear_point")
+    assert md.judge_cut_quit(waiting, "busy", cq, b, lines=CUT_LINES)[0], md.judge_cut_quit(waiting, "busy", cq, b, lines=CUT_LINES)
+    assert not md.judge_cut_quit(waiting, "busy", cq, b)[0]                                        # a clear point with no lines
+    assert not md.judge_cut_quit(waiting, "busy", cq, b, lines=_moved(CUT_LINES, 3, 2))[0]          # the boot before the door
+    assert not md.judge_cut_quit(waiting, "busy", _closed("cut", end="watchdog"), b, lines=CUT_LINES)[0]
+    assert md.cut_end_ok("done", ()) and md.cut_end_ok("clear_point", CUT_LINES) and not md.cut_end_ok("clear_point", ())
     assert md.judge_title(b, _closed("title"), 40, words=W("title"))[0]
     assert not md.judge_title(b, _closed("title"), 40, words=W("leave"))[0]                      # another cause's words
     assert not md.judge_title(b, _closed("title"), 40)[0]                                         # no words
@@ -661,17 +798,27 @@ def test_the_close_judges_go_red_on_each_wrong_shape(md):
 
 def test_the_ramp_stall_dialog_and_strip_judges(md):
     b = _base("Item")
-    ok_lines = ["[NetSync] guest menu: restored at the exit ramp -- every family back by reference; the session ends",
-                "[NetSync] session ended -> reloading own autosave (Continue)"]
-    s = _closed("ending", frm="Item")
     we = md.close_words_want("ending")
+    # decision 16 on tonight's lines: the ramp block runs ahead of the close tick, so the fire ends the record -- a clear point at the
+    # exit ramp's fire -- on the field (RAMP-CFG-D, RAMP-FIELD-D) and the world map (RAMP-WORLD-D) alike
+    for lines, frm in ((RAMP_CFG_LINES, "Item"), (RAMP_FIELD_LINES, "MainMenu"), (RAMP_WORLD_LINES, "MainMenu")):
+        cp = _closed("ending", frm=frm, end="clear_point")
+        ok, why = md.judge_ramp(b, cp, lines, ui_ok=True, words=we)
+        assert ok, why
+        other = [ln.replace("(the exit ramp's fire)", "(a scene load)") for ln in lines]
+        assert not md.judge_ramp(b, cp, other, ui_ok=True, words=we)[0]                           # another site's clear point
+        assert not md.judge_ramp(b, cp, [ln for ln in lines if "forced close (ending)" not in ln], ui_ok=True, words=we)[0]
+        assert md.judge_ramp(b, _closed("ending", frm=frm), lines, ui_ok=True, words=we)[0]       # `done` passes too (B16)
+        assert not md.judge_ramp(b, _closed("ending", frm=frm, end="watchdog"), lines, ui_ok=True, words=we)[0]
+    ok_lines = RAMP_CFG_LINES
+    s = _closed("ending", frm="Item", end="clear_point")
     assert md.judge_ramp(b, s, ok_lines, ui_ok=True, words=we)[0]
     assert not md.judge_ramp(b, s, ok_lines, ui_ok=True)[0]                                       # the ending line never drawn
     assert not md.judge_ramp(b, s, ok_lines, ui_ok=True, words=md.close_words_want("title"))[0]
     assert not md.judge_ramp(b, s, list(reversed(ok_lines)), ui_ok=True, words=we)[0]            # the ramp before the restore
     assert not md.judge_ramp(b, s, ok_lines + ["[NetSync] guest menu: restored at x ... (should never happen)"], ui_ok=True, words=we)[0]
     assert not md.judge_ramp(b, s, ok_lines, ui_ok=False, words=we)[0]
-    assert not md.judge_ramp(b, s, ok_lines[1:], ui_ok=True, words=we)[0]                         # no close: the backstop's restore only
+    assert not md.judge_ramp(b, s, [ln for ln in ok_lines if md.BW.LOG_GM_RESTORED not in ln], ui_ok=True, words=we)[0]   # no restore
     # `close old` on the ramp: measured only past the 2 s ini poll (a sample at the write's instant reads the same on any build)
     held = _base("Item")
     assert md.ramp_old_measured(b, held, md.RAMP_OLD_AFTER_S)
@@ -713,6 +860,124 @@ def test_the_ramp_stall_dialog_and_strip_judges(md):
     assert md.judge_hudstrip(pre, _s(mr={"count": 0, "silent": 0}, dialog=True), True)[0]
     assert not md.judge_hudstrip(pre, _s(mr={"count": 0, "silent": 0}, dialog=True), False)[0]
     assert not md.judge_hudstrip(pre, _s(mr={"count": 1, "silent": 0}, dialog=True), True)[0]
+
+
+_SELFTEST_REFUSAL = ("the game refused a step: netsync: netsync endbench: needs the selftest role (netsync selftest 1) -- the duo guest "
+                     "is role client")
+
+
+class _PromptGame:
+    """A guest for the quit-prompt drive: ``up`` = the stock quit prompt showing (the patched quit_prompt_up reads the state 'prompt')."""
+
+    def __init__(self, md, up: bool):
+        self.md, self.up, self.presses = md, up, []
+
+    @property
+    def state(self):
+        return "prompt" if self.up else "hud"
+
+    def wait_for(self, pred, timeout=None, what=None):
+        if pred(self.state):
+            return self.state
+        raise self.md.HarnessError(f"timed out: {what}")
+
+    def press(self, key, *a, **k):
+        self.presses.append(str(key))
+        if str(key) == "cancel":
+            self.up = False
+
+    def wait_frames(self, n):
+        pass
+
+
+def test_the_quit_prompt_falls_back_to_a_window_close_only_on_the_selftest_refusal(md, monkeypatch):
+    """GM0-QUIT-D / GM0-CUT-QUIT (B4): `endbench quit on` first; only its 'needs the selftest role' refusal posts a WM_CLOSE to the duo's
+    guest pid (never on another refusal, never without a pid -- the stub duo); a prompt that never came keeps the selftest words, so the
+    row stays the NAMED 'not run'; the prompt comes down by Cancel (never Confirm) or `endbench quit off`."""
+    sent, posted = [], []
+    verdict = {"v": (False, _SELFTEST_REFUSAL)}
+
+    def try_ns(g, *args, **k):
+        sent.append(" ".join(map(str, args)))
+        return verdict["v"] if args[:3] == ("endbench", "quit", "on") else (True, "")
+    monkeypatch.setattr(md.cb, "try_ns", try_ns)
+    monkeypatch.setattr(md.cb, "quit_prompt_up", lambda st: st == "prompt")
+
+    class _Inst:
+        def __init__(self, n):
+            self.n = n
+
+        def post_close(self, pid):
+            posted.append(pid)
+            return self.n
+
+    class _Duo:
+        def __init__(self, pid=4242, n=1, instances=True):
+            self.pids = {"guest": pid, "host": 1111}
+            self.instances = {"guest": _Inst(n), "host": _Inst(n)} if instances else {}
+
+    class _StubDuo:                                                   # the stand-in's duo: no pids, no instances
+        pass
+
+    # endbench answers: no fallback
+    verdict["v"] = (True, "")
+    assert md._raise_quit_prompt(_Duo(), _PromptGame(md, False)) == (True, "", "endbench") and posted == []
+    # another refusal: a plain red, no WM_CLOSE
+    verdict["v"] = (False, "the game refused a step: netsync endbench: no bench")
+    ok, why, how = md._raise_quit_prompt(_Duo(), _PromptGame(md, True))
+    assert not ok and how is None and "no bench" in why and posted == []
+    verdict["v"] = (False, _SELFTEST_REFUSAL)
+    # the stub duo (no pid): the refusal's own words, no post -- the named 'not run'
+    ok, why, how = md._raise_quit_prompt(_StubDuo(), _PromptGame(md, True))
+    assert (ok, why, how) == (False, _SELFTEST_REFUSAL, None) and posted == []
+    # a duo with the guest's pid: WM_CLOSE to the GUEST (never the host), the prompt up -> 'wm_close'
+    ok, why, how = md._raise_quit_prompt(_Duo(), _PromptGame(md, True))
+    assert ok and how == "wm_close" and posted == [4242] and "4242" in why
+    # posted, but no prompt came: the selftest words kept (-> _quit_unreachable's named 'not run')
+    posted.clear()
+    ok, why, how = md._raise_quit_prompt(_Duo(), _PromptGame(md, False))
+    assert not ok and how is None and posted == [4242] and "needs the selftest role" in why and "window close request" in why
+    rows, ctx = [], {"config_skip": set()}
+    md._quit_unreachable(lambda cid, okc, detail: rows.append((cid, okc, detail)), ctx, ("GM0-QUIT-D",), why)
+    assert rows[0][0] == "GM0-QUIT-D" and rows[0][1] is False and "not run (configuration)" in rows[0][2]
+    assert "no any-role quit-prompt verb" in rows[0][2] and ctx["config_skip"] == {"GM0-QUIT-D"}
+    # no visible window took it (0 posted): the refusal's own words, no prompt wait
+    posted.clear()
+    assert md._raise_quit_prompt(_Duo(n=0), _PromptGame(md, True)) == (False, _SELFTEST_REFUSAL, None) and posted == [4242]
+    # no Instance on the duo: the module's post_close (stubbed here: never a real WM_CLOSE from a test)
+    posted.clear()
+    monkeypatch.setattr(md, "_harness_instance", lambda: type("H", (), {"post_close": staticmethod(lambda pid: posted.append(pid) or 1)}))
+    ok, _why, how = md._raise_quit_prompt(_Duo(instances=False), _PromptGame(md, True))
+    assert ok and how == "wm_close" and posted == [4242]
+    # down again: the WM_CLOSE prompt by Cancel, never Confirm; the bench's by `endbench quit off`
+    g = _PromptGame(md, True)
+    md._lower_quit_prompt(g, "wm_close")
+    assert g.presses == ["cancel"] and not g.up
+    md._lower_quit_prompt(g, "wm_close")                              # already down: no press at all
+    assert g.presses == ["cancel"]
+    sent.clear()
+    md._lower_quit_prompt(_PromptGame(md, True), "endbench")
+    assert sent == ["endbench quit off"]
+
+
+def test_the_hole_gate_the_cut_quit_seat_and_the_door_read_the_published_session_keys(md):
+    """GM0-HOLE-T (B5): the press waits for the session ITSELF (session.state 'live'; guestmenu.session on s168) besides the live freeze
+    read -- THE PRE-INIT SAMPLE at the pairing edge. GM0-CUT-QUIT (B2): the second seat waits for the host's battle lane to go stale on the
+    guest (term 6). Each a plain `netsync.*` literal, so test_coop_guest_menu's path pin checks it against the catch literal. GM0-DOOR-D
+    (B6, DESIGN D1): `control` counts beside busy / leaving."""
+    import inspect
+    hole = inspect.getsource(md._t_hole)
+    assert '"netsync.world.freeze.on") is True' in hole and '"netsync.session.state") == "live"' in hole, hole
+    assert 'not ctx.gm["new"] or cb.path(s, "netsync.guestmenu.session") is True' in hole
+    assert hole.index('"netsync.guestmenu.session"') < hole.index("_t_press(g, world=True)")
+    cut = inspect.getsource(md._leg_cut)
+    wf = cut.index("wait_field(host, HOME, RETURN_S)")
+    stale = cut.index('"netsync.battle.peer.live") is False')
+    assert wf < stale < cut.index('_seat_at(guest, "Item")', wf), cut[wf:wf + 600]
+    assert "_raise_quit_prompt(d, guest)" in cut and "close_out(guest)" in cut[cut.index("_quit_unreachable("):]
+    assert set(md.DOOR_D_WHYS) == {BW.GM_WHY_BUSY, BW.GM_WHY_LEAVING, BW.GM_WHY_CONTROL}
+    assert "DOOR_D_WHYS" in inspect.getsource(md._leg_leave)
+    assert "_raise_quit_prompt(d, guest)" in inspect.getsource(md._leg_rampquit)
 
 
 def test_the_t_leg_judges(md):
@@ -846,7 +1111,9 @@ STANDIN_LEGS = ("key", "caps", "leave", "title", "stall", "out", "world")
 STANDIN_LEG_REASONS = ("dialog", "hudstrip", "cut", "scene", "chest", "ramp", "rampquit", "rejoin")
 #: each (leg, fault) -> the words each of its rows must show (an unmodelled row's red alone would not prove the fault reached it)
 FAULT_WORDS = {
-    ("key", "capture_leak"): {"GM0-REFUSE-I1-D": "refused +0"},
+    # C3(a): no census fires on a stand-in key, so `capture_leak` cannot reach its row offline (the row reads its pinned "not reached");
+    # the fault is the census's, proven where a census fires (the gm_confirm seam: test_coop_guest_menu.py) and in game
+    ("key", "capture_leak"): {"GM0-REFUSE-I1-D": "not reached"},
     ("key", "own_values"): {"GM0-SEAT-D": "TWO MARKERS (the host's players / party drawn, not the guest's own) False",
                             "GM0-BROWSE-D": "the seated party is the guest's own"},
     ("key", "restore_skip"): {"GM0-RESTORE-D": "named 'party'"},
@@ -872,7 +1139,7 @@ def test_the_stand_in_legs_are_green_but_their_unmodelled_rows(md):
     d = {k: v for leg in STANDIN_LEGS for k, v in rs[leg]["detail"].items()}
     assert "now 'guest' on the HUD" in d["GM0-KEY"] and "'src': 'wire'" in d["GM0-KEY"] and "'frame_age_ms': -1" in d["GM0-KEY"]
     assert "TWO MARKERS (the host's players / party drawn, not the guest's own) True" in d["GM0-SEAT-D"]
-    assert "census lines 1" in d["GM0-REFUSE-I1-D"] and "last 'I1'" in d["GM0-REFUSE-I1-D"]
+    assert "census lines 1" not in d["GM0-REFUSE-I1-D"]                  # C3(a): never a census counted on a stand-in key
     assert "why 'older'" in d["GM0-CAPS-a"] and "after `caps on` seated True" in d["GM0-CAPS-a"]
     assert "'guest_menu'" in d["GM0-PAIRED-LINE-F"] and "'guest_menu'" in d["GM0-PAIRED-LINE-W"]
     assert "'cause': 'leave'" in d["GM0-LEAVE"] and "'from': 'Equip'" in d["GM0-LEAVE"] and "landed True" in d["GM0-LEAVE"]
@@ -880,7 +1147,8 @@ def test_the_stand_in_legs_are_green_but_their_unmodelled_rows(md):
     assert f"close words {md.close_words_want('title')!r} at the close" in d["GM0-TITLE"] and "closes +0" in d["GM0-STALL-VIEW-D"]
     assert "read the link stale" in d["GM0-STALL-VIEW-D"] and "(0 read the link stale)" not in d["GM0-STALL-VIEW-D"]
     assert f"close words {md.close_words_want('out')!r} at the close" in d["GM0-OUT"]
-    assert "closes.out +1" in d["GM0-OUT"] and "'the field HUD is not up' waits 0" in d["GM0-OUT"]
+    # decision 18: the request frame's one wait is lawful (at most one, before the close's end line); the start after the door
+    assert "closes.out +1" in d["GM0-OUT"] and re.search(r"'the field HUD is not up' waits [01] at ", d["GM0-OUT"]), d["GM0-OUT"]
     # the any-role levers the legs sent: each a `guestmenu` op the agent takes, on the role the table names
     assert rs["caps"]["sent"] == ["host: guestmenu caps off", "host: guestmenu caps on", "host: guestmenu clear"]
     assert all(s.split()[2] in BW.GUESTMENU_ANY_ROLE_OPS for leg in STANDIN_LEGS for s in rs[leg]["sent"])
@@ -906,7 +1174,12 @@ def test_old_on_two_s167_stand_ins_is_exactly_its_rows_measured_and_no_guestmenu
     assert all("OLD: no `netsync.guestmenu`" in r["detail"][x] and "refusal measured" in r["detail"][x] for x in want), _show(r)
 
 
-@pytest.mark.parametrize("case", ["key/old", "key/capture", "caps/old", "leave/old", "leave/closeold", "title/old", "title/closeold",
+#: the duo (leg, lever) calibrations the stand-in cannot MEASURE: `capture off` needs a census to pass, and no census fires on a stand-in
+#: key (fakegame C3(a)) -- pinned to that gap in test_the_lever_the_stand_in_cannot_measure_reads_its_gap; calibrated in game
+STANDIN_UNCALIBRATED = {("key", "capture")}
+
+
+@pytest.mark.parametrize("case", ["key/old", "caps/old", "leave/old", "leave/closeold", "title/old", "title/closeold",
                                   "stall/old", "out/old", "out/closeold"])
 def test_each_lever_calibrates_exactly_and_measures_its_shape(md, case):
     leg, lever = case.split("/")
@@ -921,6 +1194,21 @@ def test_each_lever_calibrates_exactly_and_measures_its_shape(md, case):
     assert (f"unpredicted reds: {unpredicted}" if unpredicted else "unpredicted reds: none") in cal, cal
     assert ("S168D-CAL" in r["red"]) is bool(unpredicted)
     assert f"{md.LEVER_ROLE[lever]}: guestmenu " + " ".join(md.LEVER_OPS[lever]) in r["sent"], r["sent"]
+
+
+def test_the_lever_the_stand_in_cannot_measure_reads_its_gap(md):
+    """STANDIN_UNCALIBRATED: the lever is still SENT and its predicted rows red, and S168D-CAL is red naming exactly the stand-in's gap --
+    the census row's shape NOT measured (no census fires on a stand-in key, C3(a))."""
+    for leg, lever in sorted(STANDIN_UNCALIBRATED):
+        assert (leg, lever) in md.LEVER_PREDICTED
+        r = _runs(r=dict(leg=leg, cal=True, lever=lever))["r"]
+        pred = set(md.LEVER_PREDICTED[(leg, lever)])
+        cal = r["detail"]["S168D-CAL"]
+        assert set(r["red"]) - {"S168D-CAL"} == pred | _unmodelled(md, leg), (leg, lever, _show(r))
+        assert "S168D-CAL" in r["red"] and "predicted reds that stayed GREEN: none" in cal, cal
+        assert f"rows whose shape was NOT measured: {sorted(pred)}" in cal, cal
+        assert all(STANDIN_UNMODELLED[x] in r["detail"][x] for x in pred), _show(r, pred)
+        assert f"{md.LEVER_ROLE[lever]}: guestmenu " + " ".join(md.LEVER_OPS[lever]) in r["sent"], r["sent"]
 
 
 def test_an_old_launch_whose_press_measured_nothing_is_a_red_calibration(md):

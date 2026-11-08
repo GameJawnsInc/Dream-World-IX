@@ -6,6 +6,7 @@ over the sittings' own bridge + relay path minus the internet -- two-role co-op 
     py tools/harness/duo.py --smoke                      # pair on 250: config, relay, pairing, ghosts, mirror, story
     py tools/harness/duo.py <scenario.py>                # a scenario exposing run_duo(d), on a paired duo
     py tools/harness/duo.py <scenario.py> --topology relay --no-pair   # games dial the relay; the scenario pairs
+    py tools/harness/duo.py <scenario.py> --root-ini Interface.FadeDuration=300   # both roots carry the key for this duo
 
 A duo scenario is plain Python exposing ``run_duo(d)``; ``d`` is a :class:`Duo` with both games booted (and, unless
 ``--no-pair``, paired on the bench field -- ``d.pair(**PAIR)`` when the module defines a ``PAIR`` dict): ``d.host`` / ``d.guest`` are their :class:`~harness.session.Session` s, and the
@@ -186,6 +187,30 @@ def show(found, n: int = 2) -> str:
 
 
 # ------------------------------------------------------------------------------------------------ helpers
+def parse_root_ini(specs) -> dict:
+    """[ff9mapkit netsync s168] ``--root-ini SECTION.KEY=VALUE`` (repeatable) -> ``{section: {key: value}}``, the keys both
+    roots carry on top of their base overlay for this duo (:attr:`harness.instance.Instance.extra_overlay`; a later spec of
+    the same key wins). WHY A FLAG: a hand edit of a root's Memoria.ini is regenerated away by Instance.ensure at every duo
+    start, so ``--root-ini Interface.FadeDuration=300`` is how the FadeDuration-300 rows get their fade. Refused (a
+    HarnessError, before anything starts): the [Netsync] section (the duo's own: ROLE_VALUES + ``pair(role_extra=...)``),
+    a spec with no ``.`` or no ``=``, an empty section or key, a bracket in the section, a control character anywhere."""
+    out: dict = {}
+    for spec in specs or ():
+        s = str(spec)
+        lhs, eq, value = s.partition("=")
+        section, dot, key = lhs.partition(".")
+        section, key, value = section.strip(), key.strip(), value.strip()
+        if not eq or not dot or not section or not key:
+            raise HarnessError(f"--root-ini {s!r}: want SECTION.KEY=VALUE (e.g. Interface.FadeDuration=300)")
+        if any(ord(c) < 32 or ord(c) == 127 for c in s) or any(c in section for c in "[]"):
+            raise HarnessError(f"--root-ini {s!r}: a control character or a bracket -- refusing (an ini injection)")
+        if section.lower() == "netsync":
+            raise HarnessError(f"--root-ini {s!r}: the [Netsync] section is the duo's own (ROLE_VALUES, pair(role_extra=...)) "
+                               f"-- refusing")
+        out.setdefault(section, {})[key] = value
+    return out
+
+
 def fresh_code() -> str:
     """``ff9-DUO`` + 5 (GenerateSessionCode's ``ff9-`` + 8 shape): new per duo, never anyone's live code."""
     return "ff9-DUO" + "".join(random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(5))
@@ -330,9 +355,15 @@ class Duo:
                  field: int = BENCH_FIELD, window_size=WINDOW, run_dir=None, hang_dump: bool = False,
                  install=None, strict: bool = True, verbose: bool = True, procs: bool = True,
                  session_factory=None, instances: dict | None = None, boot_timeout: float = 240.0,
-                 config_wait: float = 6.0):
+                 config_wait: float = 6.0, root_ini: dict | None = None):
         if topology not in ("bridge", "relay"):
             raise ValueError(f"topology must be 'bridge' or 'relay', not {topology!r}")
+        #: [ff9mapkit netsync s168] ``--root-ini``'s ``{section: {key: value}}`` (:func:`parse_root_ini`): set as each root's
+        #: extra_overlay BEFORE the ensure loop, emptied before each restore_ini -- never [Netsync] (refused here too)
+        self.root_ini = {str(s): {str(k): str(v) for k, v in dict(kv).items()} for s, kv in (root_ini or {}).items()}
+        bad = sorted(s for s in self.root_ini if s.strip().lower() == "netsync")
+        if bad:
+            raise HarnessError(f"root_ini names {bad}: the [Netsync] section is the duo's own -- refusing")
         self.label = re.sub(r"[^A-Za-z0-9_.-]", "_", label)
         self.topology = topology
         self.relay_port = int(relay_port)
@@ -564,6 +595,12 @@ class Duo:
             up = self.relay.wait_for(r"relay listening on ws://127\.0\.0\.1:(\d+)", 15.0)
             self.check(up is not None, f"the local relay listens on {self.relay_port} (--tap relay.f9tape)",
                        up or f"no banner; tail {self.relay.tail()}", cid="C1-relay")
+        # [ff9mapkit netsync s168] --root-ini: each root's extra overlay BEFORE ensure (and the Session's own refresh at launch
+        # reads the same Instance), so the regenerated ini carries it; stop() empties it before restore_ini
+        for r in ROLES:
+            self.instances[r].extra_overlay = {s: dict(kv) for s, kv in self.root_ini.items()}
+        if self.root_ini:
+            self.log(f"both roots carry --root-ini {self.root_ini} on top of install + overlay for this duo")
         for r in ROLES:
             self.instances[r].ensure(label=f"{self.label}-{r}")
         for r in ROLES:
@@ -713,7 +750,8 @@ class Duo:
         rep.update({"label": self.label, "topology": self.topology, "code": self.code, "field": self.field,
                     "relay_port": self.relay_port, "bridge_ports": self.bridge_ports if self.topology == "bridge"
                     else None, "roots": {r: str(i.root) for r, i in self.instances.items()},
-                    "install": str(self.install), "pids": self.pids, "paired": self.paired})
+                    "install": str(self.install), "pids": self.pids, "paired": self.paired,
+                    "root_ini": self.root_ini})
         try:
             self._stack.close()
         except Exception as err:                                   # noqa: BLE001
@@ -722,6 +760,7 @@ class Duo:
         restored = {}
         for r, inst in self.instances.items():
             try:
+                inst.extra_overlay = {}                            # [s168] --root-ini off first: back to install + base
                 restored[r] = "rewritten to install + overlay" if inst.restore_ini() else "already install + overlay"
             except Exception as err:                               # noqa: BLE001
                 restored[r] = f"FAILED: {err} -- the next refresh() regenerates it"
@@ -789,10 +828,8 @@ def load_scenario(path: Path):
     return mod
 
 
-def main(argv=None) -> int:
-    for stream in (sys.stdout, sys.stderr):
-        with contextlib.suppress(AttributeError, ValueError):
-            stream.reconfigure(errors="backslashreplace")
+def build_parser() -> argparse.ArgumentParser:
+    """The duo CLI's parser (``main`` parses with it; the offline suite reads it without launching anything)."""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("scenario", nargs="?", help="a Python file exposing run_duo(d)")
     ap.add_argument("--smoke", action="store_true", help="pair on the bench field and prove the mirror (C0-C7)")
@@ -809,9 +846,26 @@ def main(argv=None) -> int:
     ap.add_argument("--keep-going", action="store_true", help="record a red and continue (default: stop at it)")
     ap.add_argument("--label", default=None)
     ap.add_argument("--timeout", type=float, default=240.0, help="seconds to wait for each agent")
+    ap.add_argument("--root-ini", action="append", default=[], metavar="SECTION.KEY=VALUE",
+                    help="repeatable: a Memoria.ini key BOTH roots carry for this duo on top of install + overlay (e.g. "
+                         "Interface.FadeDuration=300); a hand edit of a root is regenerated away at every duo start. "
+                         "Never [Netsync] (the duo's own); restored at the end")
+    return ap
+
+
+def main(argv=None) -> int:
+    for stream in (sys.stdout, sys.stderr):
+        with contextlib.suppress(AttributeError, ValueError):
+            stream.reconfigure(errors="backslashreplace")
+    ap = build_parser()
     a = ap.parse_args(argv)
     if not a.smoke and not a.scenario:
         ap.error("give a duo scenario file or --smoke")
+    try:
+        root_ini = parse_root_ini(a.root_ini)              # [s168] refused before the bench guard, a port or a root
+    except HarnessError as err:
+        print(f"!!! {err}", file=sys.stderr)
+        return 2
     # NEVER BENCH UNDER A RUNNING TEST SUITE (benchguard): before the scenario loads, a port binds or a root is claimed.
     refusals, notes = bench_blockers()
     for n in notes:
@@ -824,7 +878,7 @@ def main(argv=None) -> int:
     label = a.label or ("smoke" if a.smoke else Path(a.scenario).stem)
     d = Duo(label=label, host=a.host, guest=a.guest, topology=a.topology, relay_port=a.relay_port,
             bridge_ports={"host": bp[0], "guest": bp[1]}, field=a.field, hang_dump=a.hang_dump,
-            strict=not a.keep_going, boot_timeout=a.timeout)
+            strict=not a.keep_going, boot_timeout=a.timeout, root_ini=root_ini)
     try:
         with d:
             if not a.no_pair:

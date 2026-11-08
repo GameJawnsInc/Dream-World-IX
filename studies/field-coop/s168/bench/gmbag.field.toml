@@ -1,0 +1,49 @@
+# GMBAG -- the s168 guest-main-menu bench's BAG SEEDER (studies/field-coop/S168-DESIGN.md, N6).
+#
+# WHY IT EXISTS. The harness's `newgame()` leaves the New-Game bag (InitialItems.csv: Potion, Hi-Potion, Ether,
+# Phoenix Down, Remedy, Phoenix Pinion, Tent -- 7 rows, 0 key items). Three bench rows need more than that:
+#   * GM0-REFUSE-E1 needs a piece the SEATED member can wear. No New-Game row fits any of seated Freya's slots, so
+#     the candidate list holds only the NoItem placeholder, which buzzes above the E1 hook. Desert Boots (192) is
+#     wearable by every character in this install's Items.csv;
+#   * GM0-REFUSE-I2 needs Gysahl Greens (251) in the bag: the I2 site is the list confirm on that item;
+#   * GM0-LOCAL's key read needs a real key item whose description opens and closes (the read marker).
+# The guest-menu frame copies the guest's own count>0 bag rows and its key-item set, so seeding the guest's own
+# bag before the seat is enough. The bench warps here after COOPPARTY (cb.seed_party) and before its own bench
+# field (coop_guest_menu.seed_bag), when this id is registered.
+#
+# WHAT IT DOES. One [[on_entry]] hook gives Desert Boots x1, then Gysahl Greens x1, at field LOAD: AddItem (0x48)
+# only -- no window, no control lock, nothing for the bench to Confirm away. The hook is once-gated by a
+# save-persistent flag from the kit's own [[on_entry]] allocator (flags.AUTO_ONENTRY_BASE, inside the safe band),
+# so a second visit on the same save is a no-op. AddItem fills the first free bag row, so after a New Game:
+# rows 0-6 are the New-Game bag, Desert Boots is row 7 (right column, beside Tent) and Gysahl Greens is row 8
+# (left column, under Tent -- the down-walk's column).
+#
+# KNOWN GAP: THE KEY ITEM IS NOT GRANTED YET. The kit has no field.toml lane for a STOCK key item (important ids
+# 0-79). give_item and [[on_entry]] items resolve through ff9mapkit.items (regular ids 0-255), and give_folklore
+# band-checks 80-254 (the Folklore codex band); those are the kit's only two AddItem emitters. The intended grant
+# is Mini-Burmecia (key id 35) through the pool-encoded AddItem(256 + 35 = 291, 1), the encoding give_folklore
+# uses, once the kit grows a stock key-item lane. Until then GM0-LOCAL's key read has no key item on this bench.
+#
+# Deploy (a NEW id: the first deploy registers it -- one game RELAUNCH). 30816 was free in every live mod folder's
+# DictionaryPatch.txt on 2026-11-08; re-read them first. Always pass --id; never pin it in .ff9deploy.toml:
+#   py tools/deploy_field.py studies/field-coop/s168/bench/gmbag.field.toml --id 30816 --mod-folder FF9CustomMap
+# Offline check:  py -m ff9mapkit lint ../studies/field-coop/s168/bench/gmbag.field.toml   (from ff9mapkit/)
+
+[field]
+id = 30816
+name = "GMBAG"
+area = 11
+
+[camera]
+pitch = 40
+
+[walkmesh]
+quad = [[-1200, -100], [1200, -100], [1200, -2100], [-1200, -2100]]
+
+[player]
+spawn = [0, -1900]
+
+# Boots first, then the greens: the give order is the bag order (rows 7 and 8 after a New Game).
+[[on_entry]]
+items = [["Desert Boots", 1], ["Gysahl Greens", 1]]
+once = true

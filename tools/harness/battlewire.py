@@ -14096,8 +14096,10 @@ def worldfollow_role_refusal(op: str) -> str:
 # the kit's renderings of R1's lines past their exact prefixes (the engine's tails are the truth once its patch lands; a bench greps
 # the prefixes) and the levers' ack / release lines
 def log_world_out_start(field: int, world: int, x: float, z: float, debounce_ms: int) -> str:
-    return (f"{LOG_WORLD_OUT_START} from field {int(field)} to world map {int(world)} (host at ({float(x):.1f}, {float(z):.1f}), "
-            f"{int(debounce_ms)} ms host-alive)")
+    # [ff9mapkit netsync s168] the tail is the engine's own ('; live on the world map for N ms)', s165's NetSyncWorldFollow start
+    # line), so one judge regex reads the stand-in and the game alike (coop_guest_menu_duo._RX_HOST_ALIVE takes both tails)
+    return (f"{LOG_WORLD_OUT_START} from field {int(field)} to world map {int(world)} (host at ({float(x):.1f}, {float(z):.1f}); "
+            f"live on the world map for {int(debounce_ms)} ms)")
 
 
 def log_world_out_commit(world: int, field: int) -> str:

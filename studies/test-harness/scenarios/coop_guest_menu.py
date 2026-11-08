@@ -10,10 +10,11 @@ bench gates it on the probe itself), every leg row reads "not reached", and each
 on the HUD (`menu_refusal.now` 'open'; decision 6: the bench is not mirroring), and a Menu press (noted: on s167 it opens the bench's OWN
 menu; under `guestmenu old` on s168 that own, unseated open -- `open` true, `seated` false -- is required too).
 
-THE ROUTE (the s121 bench's field conventions, cb.setup): New Game -> the COOPPARTY seeder -> GM_FIELD (30801, the journal dashboard: the
-scribe -- a plain window -- west at (-210, -837), the keeper east; COOP_GM_FIELD moves it) -> encounters off -> the forced selftest role;
-P1 `netsync bench 1`. The `world` leg instead: 6603 FARSHORE -> world 9011 by s165's follow-out (coop_world_walk._a_land, imported, never
-copied). Every seat is `guestmenu frame <marker>` (two markers: slot 0 the impostor "BENCH<marker>" lv99, every exp, the gil and one bag row
+THE ROUTE (the s121 bench's field conventions, cb.setup): New Game -> the COOPPARTY seeder -> (the refuse / deep legs: the GMBAG bag
+seeder, BAG_FIELD 30816 -- Desert Boots, Gysahl Greens (no key item yet), granted on entry; the frame copies the guest's count>0 rows and rare
+sets) -> GM_FIELD (30801, the journal dashboard: the scribe -- a plain window -- west at (-210, -837), the keeper east; COOP_GM_FIELD moves
+it) -> encounters off -> the forced selftest role; P1 `netsync bench 1`. The `world` leg instead: 6603 FARSHORE -> world 9011 by s165's
+follow-out (coop_world_walk._a_land, imported, never copied). Every seat is `guestmenu frame <marker>` (two markers: slot 0 the impostor "BENCH<marker>" lv99, every exp, the gil and one bag row
 values the guest does not hold) then the REAL Menu key through the verdict (the bench is in `who`, decision 7).
 THE LAWS: THE PRE-INIT SAMPLE (a press only from the HUD with control on, no fade, no window -- the field's init done; on the world after
 `world.block_ready` and advancing ticks); THE ORDER SKEW (each op's own publish dropped: SKEW_FRAMES); LIVE VERDICT vs LAST DRAWN (`now` and
@@ -49,23 +50,29 @@ THE LEGS (OLD = the deployed s167; LEVER = what restores OLD or the row's mutant
           FieldHUD) on `frame witness keyitem` (`frame <m>` copies the guest's own key items, so only that frame swaps the key-item family
           and lets `restore skip keyitems` redden the row): each fp_after == fp_before, `named` null, restore.doors +1, seated false, outside_equal. LEVER `restore skip <c>` (once
           per component, COOP_GM_LEVER=restore:<c>): red, `named` == c.
-  refuse  GM0-REFUSE-I1 / -E1 / -A1 / -A2 one census confirm each (Item > Use > a target; Equip > Equip > a slot's candidate; Ability >
-          a support ability's Confirm, its Special): `refused.count` +1, `captures` +1, `passes` +0, `last_site` the site, `last_screen` the
-          screen, `impactful` 0, still seated, Cancel walks back to the root, ONE census line for the site, and at the close fp_after ==
+  refuse  GM0-REFUSE-I1 / -E1 / -A1 / -A2 one census confirm each (SITE_PLANS -- every bar is HORIZONTAL: Item opens ON its list, Potion
+          > a target; Equip's bar > the accessory slot > the seeded Desert Boots; Ability's bar Equip > the support list, which opens ON the
+          first lit SA: its Confirm, its Special), each list's group and label read before the press (the try's trail): `refused.count`
+          +1, `captures` +1, `passes` +0, `last_site` the site, `last_screen` the screen, `impactful` 0, still seated, Cancel walks back to the root, ONE census line for the site, and at the close fp_after ==
           fp_before. LEVER `capture off`: refused +0, passes +1, impactful > 0 (the seated copy written; the restore still discards it).
           GM0-REFUSE-GREY Order / Party / Card / Config: grey (no screen opens), refused +0, captures +0. GM0-OUTSIDE across the sweep:
           fp.outside_equal true, outside_named null, outside_settled equal. LEVER `poke`: outside_named 'events', red.
-  deep    (in-game paths; the stand-in models one confirm per screen) GM0-REFUSE-E2 (Equip > Remove), -E3 (Equip > Optimize), -A3
-          (Ability > Use > a field ability > a target, tried on each member), -I2 (Item > Use > Gysahl Greens: needs greens in the bag),
-          the same deltas; GM0-LOCAL Item > Arrange (a sort), Key Items, Folklore: refused +0, captures +0, seated, fp equal at the close.
-          LEVER `capture off` on the four sites.
+  deep    (in-game paths; the stand-in models one confirm per screen) GM0-REFUSE-E2 (Equip's bar Off > a slot), -E3 (the bar's Optimize:
+          its own Confirm), -A3 (Garnet -- member 2, the root's remembered character tracked -- Use > Cure > a target; a shot after the Use
+          pick), -I2 (Item > the seeded Gysahl Greens), the same deltas; GM0-LOCAL Item's rail > Arrange > Auto, then Arrange > Manual: rows
+          0 and 2 swap on the seated copy (MEASURED: row 2 reads row 0's label), the rail's Key > the seeded key item's description opened
+          and closed, Folklore: refused +0, captures +0, seated, fp equal at the close. LEVER `capture off` on the four sites. E1, I2 and
+          LOCAL's key read need GMBAG: unregistered, each reads "not reached: the bag seeder ... is not registered"; while GMBAG grants
+          no key item (BAG_KEY_ITEM None: the toml's KNOWN GAP) the key read reads "not reached: ... grants no key item yet".
   why     each a Menu press after one bench op (decision 8's terms; every case but NODATA after a `frame`), refused AUDIBLY at the press:
           not seated, opens +0, `why` the case's, `menu_refusal.count` +1, the line's words (`line.text`: the selftest role's book), the HUD
           with control. NODATA (no frame: `no_data` -- or `older` if no bench host trailer reaches the receiver cache: K1 reports which),
           OLDER (`guestmenu caps off`: both words s167's 0x0003), ELSEWHERE (`guestmenu host elsewhere`: host_elsewhere), LEAVING
           (`guestmenu frame intent <field>`: leaving), LINK (`netsync stale 1`: link), BATTLE (`netsync lock 1` + `netsync host battle 1`:
-          host_battle), SCENE (`netsync hostscene 1`: scene), HOSTCTL (`swap hostctl off`, the host holds input: scene, F4), BUSY (`swap
-          intent ALT_FIELD`, a follow in flight: busy -- last: the follow lands on ALT_FIELD, the leg warps home). LEVER `old`: the own menu
+          host_battle), SCENE (`netsync lock 1` + `netsync hostscene 1`: scene -- the scene inputs exist only while the bench dialogue
+          session holds), HOSTCTL (`netsync lock 1` + `swap hostctl off`: scene, F4), BUSY (`swap intent ALT_FIELD`, a follow in flight:
+          control -- StartFollowWarp turns control off as it arms, and term 9 precedes term 10; last: the follow lands on ALT_FIELD, the leg
+          warps home). The line is read at the verdict (`verdict_line`: a field load ends the refusal line). LEVER `old`: the own menu
           opens, every case red.
   witness GM0-WITNESS-<c> `frame witness preset|pa|equip|sa|char|bag` (each on a fresh place): refused data_differs, the decline line
           naming 'component <c>', the line 'Your game data differs from your partner's (...)', not seated; -KEYITEM: SEATED, the 'key
@@ -75,9 +82,10 @@ THE LEGS (OLD = the deployed s167; LEVER = what restores OLD or the row's mutant
   door    GM0-DOOR-FAULT-OPEN (after one clean open / close) `door fault open`: the DOOR refuses `fault` (door_refused.fault +1), FieldHUD,
           events and control on, nothing seated, the lever spent. GM0-DOOR-FAULT-RESTORE `door fault restore` + Cancel: the HUD with the
           record and the seat still held (restore.doors +0); the next press's door retries it first (doors +1) and seats again; its Cancel:
-          fp equal, nothing held. GM0-DOOR-889 (the dialogue path) the scribe's window up (a talk with `bench 0`), then `bench 1`, `frame`,
-          `host elsewhere`, Menu: no press verdict, the DOOR refuses host_elsewhere (door_refused +1), the window gone (a Known limit), the
-          HUD with events and control on, nothing seated.
+          fp equal, nothing held. GM0-DOOR-889 (the dialogue path) on STRIP_FIELD (30890: the roll-stream bench's persistent [NFOC] HUD
+          strip, GM0-HUDSTRIP's -- a window up with control and events on), `frame` (re-arms the bench host there), `host elsewhere`, Menu:
+          no press verdict, the DOOR refuses host_elsewhere (door_refused +1), the window gone (a Known limit: measured, never waited for),
+          the HUD with events and control on, nothing seated. No `bench 0` / `bench 1`: BenchGates survives the warp.
   close   GM0-DEPTH-<d> `fireclose leave` at the root, Item, Equip, Ability and Status: closes.leave +1, last_close {cause leave, from <d>,
           end done, ms within DEPTH_MS (150 at FadeDuration 40)}, ONE forced-close line (no watchdog), close_line 'menu closed -- following
           your partner.', FieldHUD with events and control on, fp equal. GM0-DEPTH-FAULT `close fault sub` at Item and `close fault root` at
@@ -106,9 +114,11 @@ THE LEGS (OLD = the deployed s167; LEVER = what restores OLD or the row's mutant
   softreset GM0-SOFTRESET (the combo is swallowed inside an open menu -- Session.soft_reset, measured: so the seat is held on a live HUD by
           `door fault restore`): the soft reset reaches the title, restore.backstops.replace +1, nothing seated, no 'should never happen'
           line, and the title takes input (New Game lands).
-  cfg     GM0-RAMP-CFG (S) seated, Memoria.ini [Netsync] Role = host written (IniGuard: backed up, restored byte-exact): ApplyConfigChange's
-          own `ending` close -- closes.ending +1, 'menu closed -- the co-op session is ending.', the HUD with control on, fp equal; no ramp
-          claim (the selftest role never mirrors). LEVER `close old`: the menu stays open, red.
+  cfg     GM0-RAMP-CFG (S) seated, a [Netsync] Role edit against the ini's own (Role = client on this HOST install; IniGuard: backed
+          up, restored byte-exact) -- an edge only when the engine logs 'config change applied live' (LoadConfigIfChanged compares the ini
+          with its own last read, never the forced role): ApplyConfigChange's own `ending` close -- closes.ending +1, 'menu closed -- the
+          co-op session is ending.', the HUD with control on, fp equal; no ramp claim (the selftest role never mirrors). The restore is a
+          second edge: after the close, `reset`, `selftest 1`, `bench 1` re-force the role. LEVER `close old`: the menu stays open, red.
   world   GM0-WORLDTAG4 (the S leg of a D row: CR-3's keys) on 9011: `uid0_vars` and `sysvar192` read on WorldHUD, then a seated open, one
           sub-screen round trip (Item), the close with no load: `outside_settled` {set, equal, named null}, fp equal, and `uid0_vars` /
           `sysvar192` read after the settle equal the ones before. LEVER `poke` (gEventGlobal[2047] bit 0 flipped after fp_before's outside
@@ -124,15 +134,18 @@ seat bracket line is GM0-PROOF's; GM0-DEPTH's character-pick / target-picker / c
 Pause read and the design's 'still buzzes and counts' (not judged: judge_silent reads now / ui / opens / open / seated only); GM0-DIORAMA's
 open refused while ARMED or RETURNING (no harness verb holds the diorama in either state; the BOOTED half is GM0-SILENT's press).
 IN-GAME UNKNOWNS each row reports rather than assumes: the menus' labels (the census plans name them; a wrong path reads "not reached",
-never a pass), whether a New-Game party holds a learned support ability (A1 / A2) or an equippable candidate (E1), Gysahl Greens (I2), the
-WHY-NODATA why (K1: the receiver cache on a field), which achievement report the menu makes (MASTER), FadeDuration (read from [Interface]).
+never a pass; each try's trail records the group and label every list really opened on), whether the support list opens on a lit SA (A1
+/ A2) and Garnet's Cure is lit on the seated copy (A3: the shot), the WHY-NODATA why (K1: the receiver cache on a field), which
+achievement report the menu makes (MASTER), FadeDuration (read from [Interface]).
 OFFLINE: tests/test_coop_guest_menu_bench.py runs every leg through the REAL Session on the stand-in (fakegame's opt-in `guestmenu` rung):
 green where the stand-in models the engine, OLD on the deployed-s167 stand-in, each lever exactly LEVER_PREDICTED, each GUEST_MENU_FAULTS
 fault exactly FAULT_REDS; the pure judges red on each wrong shape; and the O rows.
 
 PRECONDITIONS (THE OPERATOR'S): the s168 DLL deployed (nothing here deploys); controllers OFF, nobody at the keyboard, FF9 unfocused;
-GM_FIELD and ALT_FIELD (30602) registered; [Netsync] Enabled 0 + FollowHost 1 written BEFORE launch (solo_ini.py); [Control] SoftReset 1
-and [Cheats] Enabled 1 for `softreset`; never under a running test suite; close the game after a lab.
+GM_FIELD and ALT_FIELD (30602) registered; STRIP_FIELD (30890, `door`) registered; the GMBAG bag seeder (BAG_FIELD 30816,
+studies/field-coop/s168/bench/gmbag.field.toml, `refuse` / `deep`) registered -- E1 needs a candidate the seated member can wear, I2 the
+greens, LOCAL a key item; [Netsync] Enabled 0 + FollowHost 1 written BEFORE launch (solo_ini.py); [Control] SoftReset 1 and [Cheats]
+Enabled 1 for `softreset`; never under a running test suite; close the game after a lab.
 
     py <scratchpad>/solo_ini.py s168-gm -- COOP_GM_LEG=seat py tools/play.py studies/test-harness/scenarios/coop_guest_menu.py --field 30801
     COOP_CALIBRATE=1 COOP_GM_LEG=<leg> [COOP_GM_LEVER=<lever>]   (the same command: OLD on s167, LEVER on s168)
@@ -177,6 +190,19 @@ GM_FIELD = _env_int("COOP_GM_FIELD", 30801)          # the journal dashboard (th
 ALT_FIELD = _env_int("COOP_GM_ALT_FIELD", cb.FIELD)  # 30602 LOCKT2: THE DECLINE LATCH's second place, WHY-BUSY's follow target
 FARSHORE, WORLD = 6603, 9011
 SCRIBE_AT = (-210.0, -837.0)                         # beside the scribe (a plain window): coop_talk_relay.py's WEST
+#: GM0-DOOR-889's field: the roll-stream bench's persistent [NFOC] [[behavior.hud]] strip (GM0-HUDSTRIP's; round_gm_lib.sh exports it)
+STRIP_FIELD = _env_int("COOP_GMD_STRIP_FIELD", 30890)
+#: GMBAG, the bench bag seeder (D6): Desert Boots (192) first, then Gysahl Greens (251) (a stock key item: BAG_KEY_ITEM), on entry -- the
+#: frame copies the guest's count>0 rows and rare sets, so E1 has a candidate every member can wear, I2 the greens, LOCAL a key item
+BAG_FIELD = _env_int("COOP_GM_BAG_FIELD", 30816)
+BAG_TOML = "studies/field-coop/s168/bench/gmbag.field.toml"
+BAG_SITES = ("E1", "I2")                             # the census sites that need the seeded bag (and LOCAL's key read)
+BAG_LEGS = ("refuse", "deep")                        # the legs the seeder runs for (the other legs keep the New-Game bag)
+BAG_FRAMES = 45                                      # BAG_FIELD's entry grants run (cb.seed_party's COOPPARTY wait)
+#: the stock key item GMBAG grants (its key-item id), None while it grants none: gmbag.field.toml's KNOWN GAP -- the kit has no field.toml
+#: lane for a stock key item yet (give_item / [[on_entry]] items take 0-255, give_folklore 80-254), and the New-Game bag holds none. While
+#: None, LOCAL's key read is not driven: its why names the gap (set it -- Mini-Burmecia, 35, is the toml's pick -- once GMBAG grants one)
+BAG_KEY_ITEM = None
 MARKER = _env_int("COOP_GM_MARKER", 7, 1, 9998)
 MARKER2 = MARKER + 1                                 # GM0-RELEASE's next seat
 HUDS = BW.GM_HUD_STATES
@@ -193,6 +219,7 @@ TALK_S = 4.0
 HELD_FRAMES = 240         # GM0-HELDKEY: Confirm held this long (through the fireclose and the samples)
 SKEW_FRAMES = 2           # THE ORDER SKEW
 SETTLE_FRAMES = 20
+TWEEN_FRAMES = 30        # an NGUI sub-menu tween holds UIScene.Loading: a key pressed inside it is swallowed
 DEPTH_MS_AT_40 = 150      # GM0-DEPTH: FieldHUD within 150 ms at 40 ms fades (the design's)
 CONFIRM_MASK = 0x20000 | 0x4000   # EventInput.GetKeyMaskFromControl(Confirm) under New Game's identity mapping (logical | physical)
 DETAIL_W = 1400
@@ -219,9 +246,13 @@ WHY_CASES = (
     ("GM0-WHY-LEAVING", (BW.GM_WHY_LEAVING,), (("guestmenu", "frame", "intent", "<alt>"),), (("guestmenu", "frame", "<marker>"),)),
     ("GM0-WHY-LINK", (BW.GM_WHY_LINK,), (("stale", 1),), (("stale", 0),)),
     ("GM0-WHY-BATTLE", (BW.GM_WHY_HOST_BATTLE,), (("lock", 1), ("host", "battle", 1)), (("host", "battle", 0), ("lock", 0))),
-    ("GM0-WHY-SCENE", (BW.GM_WHY_SCENE,), (("hostscene", 1),), (("hostscene", 0),)),
-    ("GM0-WHY-HOSTCTL", (BW.GM_WHY_SCENE,), (("swap", "hostctl", "off"),), (("swap", "hostctl", "on"),)),
-    ("GM0-WHY-BUSY", (BW.GM_WHY_BUSY,), (("swap", "intent", "<alt>"),), ()),
+    # SCENE / HOSTCTL under `netsync lock 1`: _glSceneHere / _glHostHoldsInput are written, and BenchHostTick builds the bench host's
+    # state, only while the bench dialogue session holds (NetSyncClient.cs:13146, :13178-13179, :13387-13389) -- unlocked, the press opens
+    ("GM0-WHY-SCENE", (BW.GM_WHY_SCENE,), (("lock", 1), ("hostscene", 1)), (("hostscene", 0), ("lock", 0))),
+    ("GM0-WHY-HOSTCTL", (BW.GM_WHY_SCENE,), (("lock", 1), ("swap", "hostctl", "off")), (("swap", "hostctl", "on"), ("lock", 0))),
+    # a follow in flight: StartFollowWarp turns my control off in the same call that arms it (NetSyncClient.cs:6670 / :6674), and term 9
+    # (control) precedes term 10 (busy) -- so the press reads `control`, the follow landing on ALT_FIELD (DESIGN D1)
+    ("GM0-WHY-BUSY", (BW.GM_WHY_CONTROL,), (("swap", "intent", "<alt>"),), ()),
 )
 LEG_ROWS = {
     "proof": (),
@@ -246,7 +277,8 @@ LEG_ROWS = {
 SETUP = {
     "S168-INI": "the install's Memoria.ini, READ-ONLY: [Netsync] Enabled 0 or absent and FollowHost 1 (solo_ini.py, written BEFORE launch: "
                 "THE FORCED-ROLE PIN)",
-    "S168-S0": "newgame, the COOPPARTY seeder, the bench field, encounters off, `netsync selftest 1` forced",
+    "S168-S0": "newgame, the COOPPARTY seeder (then the GMBAG bag seeder for the refuse / deep legs), the bench field, encounters off, "
+               "`netsync selftest 1` forced",
     "S168-P0": "`netsync.guestmenu` is netsync's LAST key, at BW.GUEST_MENU_SENTINELS' keys in order (every nested block too), the twelve "
                "levers at their defaults, caps.own the stage's word (0x000B)",
     "GM0-PROOF": "the proof block's last three lines in order -- world walk (534 / 198), seat bracket (19 / 7), guest menu (420 / 249), each "
@@ -263,14 +295,17 @@ ROWS = {
     "GM0-RESTORE": "two cycles (the browse, a root-only open): fp_after == fp_before, named null, restore.doors +1, outside_equal, seated false",
     "GM0-REFUSE-GREY": "Order / Party / Card / Config greyed while seated: no screen opens, refused +0, captures +0",
     "GM0-OUTSIDE": "across the refusal sweep: fp.outside_equal true, outside_named null, outside_settled equal",
-    "GM0-LOCAL": "Arrange (a sort), Key Items, Folklore: refused +0, captures +0, seated; fp equal at the close",
+    "GM0-LOCAL": "Auto and manual sort (judged on a measured order change: Arrange, Manual -- rows 0 and 2 swap on the seated copy), the "
+                 "key-item read on a seeded key item (its description opened and closed), Folklore: refused +0, captures +0, seated; fp "
+                 "equal at the close",
     "GM0-WITNESS-KEYITEM": "`frame witness keyitem`: seated anyway, the 'key item(s) this install does not know' line; the Cancel restores",
     "GM0-DOOR-FAULT-OPEN": "after one clean open / close, `door fault open`: the DOOR refuses `fault` (door_refused.fault +1), the HUD with "
                            "events and control on, nothing seated, the lever spent",
     "GM0-DOOR-FAULT-RESTORE": "`door fault restore` + Cancel: the HUD with the record held (doors +0); the next door retries (doors +1) and "
                               "seats; its Cancel: fp equal, nothing held",
-    "GM0-DOOR-889": "the scribe's window up, `host elsewhere`, Menu: the dialogue path (no press verdict), the DOOR refuses host_elsewhere "
-                    "(door_refused +1), the window gone, the HUD with events and control on, nothing seated",
+    "GM0-DOOR-889": "on the strip field (a persistent [NFOC] strip up with control and events on), `frame`, `host elsewhere`, Menu: the "
+                    "dialogue path (no press verdict), the DOOR refuses host_elsewhere (door_refused +1), the window gone, the HUD with "
+                    "events and control on, nothing seated",
     "GM0-DEPTH-FAULT": "`close fault sub` at Item and `close fault root` at the root: closes.faults +1, end fault, a live HUD with events on, "
                        "one line each",
     "GM0-CLOSE-IDS": "`fireclose` each of the eight ids: closes.<id> +1, its words on close_line, end done",
@@ -288,7 +323,8 @@ ROWS = {
                    "release line; a bare `reset` says nothing; a NEW frame seats its marker with the frame's party",
     "GM0-SOFTRESET": "the seat held on a live HUD (`door fault restore`), the soft reset: the title, backstops.replace +1, nothing seated, no "
                      "'should never happen' line, New Game lands",
-    "GM0-RAMP-CFG": "seated, [Netsync] Role = host written: closes.ending +1, its words, the HUD with control on, fp equal",
+    "GM0-RAMP-CFG": "seated, a [Netsync] Role edit against the ini's own (Role = client on this HOST install), heard live ('config change "
+                    "applied live'): closes.ending +1, its words, the HUD with control on, fp equal",
     "GM0-WORLDTAG4": "on 9011: a seated open, Item and back, the close with no load: outside_settled {set, equal, named null}, fp equal, "
                      "uid0_vars and sysvar192 after the settle equal the ones before",
 }
@@ -298,6 +334,7 @@ for _s in REFUSE_SITES + DEEP_SITES:
 for _row, _whys, _ops, _undo in WHY_CASES:
     ROWS[_row] = (f"a Menu press after {' + '.join(' '.join(map(str, o)) for o in _ops) or 'no frame'}: refused audibly at the press "
                   f"(why {' or '.join(_whys)}), opens +0, not seated, menu_refusal.count +1, the line's words, the HUD with control")
+ROWS["GM0-WHY-BUSY"] += " (a follow in flight: the follow lands on ALT_FIELD)"
 for _c in WITNESS_COMPS:
     ROWS[f"GM0-WITNESS-{_c.upper()}"] = (f"`frame witness {_c}` on a fresh place: refused data_differs, the decline line naming 'component "
                                          f"{_c}', the line's words, not seated, opens +0")
@@ -431,12 +468,12 @@ def snap(st) -> dict:
     """The bench's view of one state: what every judge reads (the state's own objects copied: a later publish never edits it)."""
     if st is None:
         return {"frame": None, "ui": None, "field": None, "control": False, "dialog": False, "gm": {}, "mr": {}, "world": None,
-                "label": None, "booted": False, "fading": False, "save": None}
+                "label": None, "group": None, "booted": False, "fading": False, "save": None}
     return {"frame": getattr(st, "frame", None), "ui": getattr(st, "ui_state", None), "field": getattr(st, "field_id", None),
             "control": bool(getattr(st, "control", False)), "dialog": bool(getattr(st, "dialog_open", False)),
             "gm": copy.deepcopy(_gm(st)), "mr": dict(_mr(st)), "world": getattr(st, "world_id", None),
-            "label": getattr(st, "menu_label", None), "booted": bool(cb.dio(st).get("booted")), "fading": bool(getattr(st, "fading", False)),
-            "save": cb.raw(st).get("save_path")}
+            "label": getattr(st, "menu_label", None), "group": getattr(st, "menu_group", None),
+            "booted": bool(cb.dio(st).get("booted")), "fading": bool(getattr(st, "fading", False)), "save": cb.raw(st).get("save_path")}
 
 
 def _n(s: dict, *path, default=0):
@@ -707,24 +744,55 @@ def poke_measured(closed: dict) -> bool:
         (_n(closed, "outside_settled", default={}) or {}).get("named") == "events"
 
 
+def swap_measured(rec: dict) -> bool:
+    """(PURE) a manual swap MEASURED (_manual_swap's record): two different labels read -- l0 under the cursor on row0, l2 two rows on, on
+    row2 -- and, after the swap, the cursor sits on row2 (JumpToIndex: the move's target) and that row reads l0. The ROW is judged as well
+    as the label: a move whose down never registered swaps row 0 with itself and lands the cursor back on row 0, which also reads l0
+    (ItemUI.cs:468-474). Rows are the pool objects' names, `menu_selected` ('Item 0' / 'Item 2', RecycleListPopulator.cs:308)."""
+    l0, l2 = rec.get("l0"), rec.get("l2")
+    r0, r2 = rec.get("row0"), rec.get("row2")
+    return (bool(l0) and bool(l2) and l0 != l2 and rec.get("swapped") == l0
+            and bool(r0) and bool(r2) and r0 != r2 and rec.get("swapped_row") == r2)
+
+
 def judge_local(recs: list, closed: dict) -> tuple:
+    """GM0-LOCAL (PURE): every read reached, none refused / captured / unseated; the sort MEASURED (the `sort` rec's swap_measured); the
+    `key items` rec's description opened and closed; fp equal at the close. Every rec's trail rides the detail."""
+    trails = "; ".join(f"{r.get('what')} {r.get('trail')}" for r in recs if r.get("trail"))
+    tail = f" [trail: {trails[:500]}]" if trails else ""
+    sort = [r for r in recs if r.get("what") == "sort"]
+    swapped = bool(sort) and all(swap_measured(r) for r in sort)
+    s0 = (sort or [{}])[0]
+    swap_txt = (f"the manual swap {s0.get('l0')!r} <-> {s0.get('l2')!r} (rows {s0.get('row0')!r} / {s0.get('row2')!r}), the cursor "
+                f"after it {s0.get('swapped')!r} on {s0.get('swapped_row')!r}: measured {swapped}")
     if not recs or not all(r.get("reached") for r in recs):
-        return False, f"not reached: {[(r.get('what'), r.get('why')) for r in recs if not r.get('reached')] or 'no step'}"
+        return False, (f"not reached: {[(r.get('what'), r.get('why')) for r in recs if not r.get('reached')] or 'no step'}; "
+                       f"{swap_txt}{tail}")
     bad = [r["what"] for r in recs if _d(r["before"], r["after"], "refused", "count") or _d(r["before"], r["after"], "captures")
            or not _n(r["after"], "seated", default=False)]
+    keys = [r for r in recs if r.get("what") == "key items"]
+    described = bool(keys) and all(bool(r.get("opened")) and bool(r.get("closed")) for r in keys)
     fp_ok = bool((_n(closed, "fp", default={}) or {}).get("equal"))
-    return (not bad and fp_ok), f"{[r['what'] for r in recs]}: refused / captured / unseated on {bad or 'none'}; at the close fp equal {fp_ok}"
+    k0 = (keys or [{}])[0]
+    return (not bad and swapped and described and fp_ok), (
+        f"{[r['what'] for r in recs]}: refused / captured / unseated on {bad or 'none'}; {swap_txt} (Manual row "
+        f"{s0.get('manual_label')!r}); "
+        f"the key item {k0.get('key_label')!r}: description opened {k0.get('opened')!r}, closed {k0.get('closed')!r}; at the close fp "
+        f"equal {fp_ok}{tail}")
 
 
 def judge_why(whys: tuple, base: dict, s: dict) -> tuple:
-    """GM0-WHY-x (PURE): the press refused audibly with one of ``whys``."""
-    line = (_n(s, "line", default={}) or {}).get("text")
+    """GM0-WHY-x (PURE): the press refused audibly with one of ``whys``. The line is the settled sample's, else the one read AT the verdict
+    (press_menu's `verdict_line`: a field load ends the refusal line before the HUD settles). A count +0 marks the `why` stale: `why` is
+    the LAST refusal's book (NoteRefusal its only writer), so with no refusal this press it is an earlier press's."""
+    line = (_n(s, "line", default={}) or {}).get("text") or s.get("verdict_line")
     why = _n(s, "why", default=None)
     want_line = {BW.gm_refusal_line_rule(w) for w in whys}
     count = int(s.get("mr", {}).get("count", 0) or 0) - int(base.get("mr", {}).get("count", 0) or 0)
     ok = (why in whys and not _n(s, "seated", default=True) and _d(base, s, "opens") == 0 and count == 1 and line in want_line
           and s.get("ui") in HUDS and s.get("control"))
-    return ok, (f"why {why!r} (want {' or '.join(whys)}), seated {_n(s, 'seated', default=None)!r}, opens +{_d(base, s, 'opens')}, "
+    stale = " (stale: no refusal this press)" if count == 0 else ""
+    return ok, (f"why {why!r}{stale} (want {' or '.join(whys)}), seated {_n(s, 'seated', default=None)!r}, opens +{_d(base, s, 'opens')}, "
                 f"menu_refusal.count +{count}, line {line!r}, ui {s.get('ui')!r}, control {s.get('control')}")
 
 
@@ -781,7 +849,7 @@ def judge_door_restore(base: dict, held: dict, reseat: dict, closed: dict) -> tu
 
 def judge_door_889(base: dict, s: dict, window_before: bool) -> tuple:
     if not window_before:
-        return False, "not reached: no window up at the press (the scribe's talk never opened: the dialogue path untested)"
+        return False, "not reached: no window up at the press (no persistent strip on the strip field: the dialogue path untested)"
     ok = (_d(base, s, "door_refused", "host_elsewhere") == 1 and _n(s, "why", default=None) == BW.GM_WHY_HOST_ELSEWHERE
           and not _n(s, "seated", default=True) and _d(base, s, "opens") == 0 and not s.get("dialog") and s.get("ui") in HUDS
           and s.get("control") and _n(s, "event_enable", default=None) is True)
@@ -936,9 +1004,10 @@ def judge_softreset(held: dict, title: bool, base: dict, s: dict, lines, newgame
                 f"New Game landed {newgame_ok}")
 
 
-def judge_cfg(base: dict, s: dict, edited: bool) -> tuple:
-    if not edited:
-        return False, "not reached: the ini edit was not made"
+def judge_cfg(base: dict, s: dict, heard: bool) -> tuple:
+    """GM0-RAMP-CFG (PURE): ``heard`` the ini edit was an EDGE (the engine logged 'config change applied live' after it)."""
+    if not heard:
+        return False, "not reached: the ini edit was not an edge (no 'config change applied live')"
     cl = (_n(s, "close_line", default={}) or {}).get("text")
     fp = _n(s, "fp", default={}) or {}
     ok = (_d(base, s, "closes", "ending") == 1 and cl == BW.gm_close_line_rule(BW.GM_CAUSE_ENDING) and s.get("ui") in HUDS
@@ -1038,9 +1107,15 @@ def press_menu(g, ctx: dict, *, world: bool = False) -> tuple:
     if st.ui_state == "MainMenu":
         _skew(g)
         s = snap(g.state)
+        _CHAR_AT[id(g)] = 0                                  # a fresh root has no remembered character (MainMenuUI.cs:130-138)
         return ("seated" if _n(s, "seated", default=False) else "own"), s
+    # the refusal's line is read AT the verdict: a field load ends it (RefusalLineLiveRule + ClearGuestMenuLine, NetSyncGuestMenu.cs:1982-
+    # 1987), so a press whose follow lands before the HUD settles (WHY-BUSY) would read line None at the settled sample
+    at = snap(st)
     st = _ready(g, ctx, world=world, timeout=CLOSE_S) or g.state
-    return "refused", snap(st)
+    s = snap(st)
+    s["verdict_line"] = (_n(at, "line", default={}) or {}).get("text")
+    return "refused", s
 
 
 def cancel_out(g, ctx: dict, *, world: bool = False, presses: int = 8) -> dict:
@@ -1061,25 +1136,74 @@ def cancel_out(g, ctx: dict, *, world: bool = False, presses: int = 8) -> dict:
     return snap(st)
 
 
+#: MainMenuUI's two root groups (MainMenuUI.cs:903-904): the sub-menu rows and the character pick
+ROOT_GROUP, CHAR_GROUP = "MainMenu.SubMenu", "MainMenu.Character"
+
+
+def _on_root(st) -> bool:
+    """(PURE) on the root, not in its character pick: ui MainMenu with any group but CHAR_GROUP. The character pick is ui MainMenu too
+    (MainMenuUI.cs:171-181 sets CharacterGroupButton; ui_state never moves for it, HarnessAgent.cs:3790-3794) but is NOT the root. Keyed on
+    the one exception, so a publisher that names the root otherwise (the stand-in's "MainMenu") still reads as the root."""
+    return st.ui_state == "MainMenu" and getattr(st, "menu_group", None) != CHAR_GROUP
+
+
 def _back_to_root(g, presses: int = 5) -> bool:
     for _ in range(presses):
         st = g.state
-        if st.ui_state == "MainMenu":
+        if _on_root(st):
             return True
+        if st.ui_state == "MainMenu":                        # stranded in the character pick: Cancel goes back to SubMenu (:351-359)
+            g.press("cancel")
+            cb.poll(g, _on_root, SEL_S, "the root's sub-menu after the character pick's Cancel")
+            continue
         if st.ui_state not in BW.GM_MENU_STATES:
             return False
         g.press("cancel")
         cb.poll(g, lambda s, u=st.ui_state: s.ui_state != u, SEL_S, "the Cancel's next state")
-    return g.state.ui_state == "MainMenu"
+    return _on_root(g.state)
 
 
-def _pick(g, label: str, *, confirm: bool = True, max_steps: int = 14) -> bool:
-    """Move the highlight onto ``label`` and (``confirm``) press Confirm; False (nothing confirmed) when the menu has no such label."""
-    try:
-        g.menu_pick(label, max_steps=max_steps, confirm=confirm)
-        return True
-    except HarnessError:
-        return False
+def _pick(g, label: str, *, confirm: bool = True, max_steps: int = 14, directions=("down",), why: list | None = None) -> bool:
+    """Move the highlight onto ``label`` along each of ``directions`` in turn (every s168 bar is HORIZONTAL: ('right', 'down')) and
+    (``confirm``) press Confirm; False (nothing confirmed) when none reaches it, each direction's menu_pick error (its `seen` list)
+    appended to ``why``."""
+    for d in directions:
+        try:
+            g.menu_pick(label, direction=d, max_steps=max_steps, confirm=confirm)
+            return True
+        except HarnessError as err:
+            if why is not None:
+                why.append(f"{label!r} by {d}: {str(err)[:200]}")
+    return False
+
+
+def _group(g, group: str, what: str, timeout: float | None = None):
+    """Poll until NGUI's active button group (`menu_group`) is ``group``: the state, or None."""
+    return cb.poll(g, lambda s: getattr(s, "menu_group", None) == group, SEL_S if timeout is None else timeout, what)
+
+
+def _label(g):
+    return getattr(g.state, "menu_label", None)
+
+
+def _where(g) -> tuple:
+    """(menu_group, menu_label) right now: one entry of a try's trail."""
+    st = g.state
+    return getattr(st, "menu_group", None), getattr(st, "menu_label", None)
+
+
+def _trail_text(trail, limit: int = 600) -> str:
+    return f"; trail {trail}"[:limit] if trail else ""
+
+
+#: the root's remembered character, per session: MainMenuUI remembers the last character picked (:176-179, set at :259 / :270 / :281)
+#: and its list wraps (:681-692) -- cleared only at the root's final close (:339, :95-98 -> RemoveCursorMemorize :130-138)
+_CHAR_AT: dict = {}
+
+
+def _char_downs(prev, want) -> int:
+    """(PURE) the downs from the remembered character ``prev`` to party slot ``want`` on a four-row wrapping list."""
+    return (int(want) - int(prev)) % 4
 
 
 def root_labels(g) -> list:
@@ -1090,78 +1214,145 @@ def root_labels(g) -> list:
 
 
 def goto_screen(g, label: str, *, char: int = 0) -> tuple:
-    """From the root: ``label`` picked, then (when the root moved to the character pick: still MainMenu) member ``char`` confirmed:
-    (the screen's state or None, why)."""
+    """From the root: ``label`` picked, then (when the root moved to the character pick: still MainMenu) party slot ``char`` confirmed --
+    walked from the root's REMEMBERED character (_CHAR_AT), never from the top: (the screen's state or None, why). On a screen, the poll
+    waits for its own group (`<label>.`) and a non-empty label, so the first read after the pick is never the root's stale one."""
     if g.state.ui_state != "MainMenu":
         return None, f"not on the root ({g.state.ui_state!r})"
-    if not _pick(g, label):
-        return None, f"no {label!r} row on the root"
+    whys = []
+    if not _pick(g, label, why=whys):
+        return None, f"no {label!r} row on the root (read {_where(g)}; {'; '.join(whys)})"
     st = cb.poll(g, lambda s: s.ui_state != "MainMenu", SEL_S, f"{label}'s screen")
+    picked = False
     if st is None and g.state.ui_state == "MainMenu":
-        for _ in range(int(char)):
+        if getattr(g.state, "menu_group", None) == ROOT_GROUP:
+            # the root's Confirm was swallowed (a UIScene Loading frame): blind downs + Confirm here would land on the SUB-MENU
+            return None, f"{label}'s root confirm opened neither a screen nor the character pick (read {_where(g)})"
+        for _ in range(_char_downs(_CHAR_AT.get(id(g), 0), char)):
             g.press("down")
             g.wait_frames(6)
         g.press("confirm")
+        picked = True
         st = cb.poll(g, lambda s: s.ui_state != "MainMenu", SEL_S, f"{label}'s screen (after the character pick)")
     s = g.state.ui_state
-    return (s, "") if s not in ("MainMenu", None) and s not in HUDS else (None, f"{label} opened no screen (ui {s!r})")
+    if s in ("MainMenu", None) or s in HUDS:
+        return None, f"{label} opened no screen (ui {s!r}; read {_where(g)})"
+    if picked:
+        _CHAR_AT[id(g)] = int(char)                          # remembered only once the pick OPENED its screen (MainMenuUI.cs:259/:270/:281)
+    cb.poll(g, lambda x: str(getattr(x, "menu_group", None) or "").startswith(f"{label}.") and bool(getattr(x, "menu_label", None)),
+            SEL_S, f"{label}'s own group and a fresh label")
+    return s, ""
 
 
-#: THE CENSUS PLANS (in-game paths; the first in-game run is their measurement): site -> tries, each (screen, char, steps); a step is
-#: ("pick", (labels...), fallback_confirm) or ("key", button). Each step is one press, the census polled after it.
+#: THE CENSUS PLANS (the second in-game round's: the first run measured the screens -- every bar HORIZONTAL, Item opening ON its list, the
+#: Ability lists opening on their first lit row): site -> tries, each (screen, char, steps); char a PARTY SLOT (goto_screen walks it from
+#: the root's remembered character). A step is ("bar", (labels...)) a horizontal bar's pick (its Confirm); ("expect", group, (labels...))
+#: the list's group polled and its opening label read -- a seek only when it is none of ``labels``; ("group", group) a poll; ("key",
+#: button) one press; ("shot", name) a screenshot. The census is polled after each step that presses (bar, pick, key).
+#: each tried member's OWN lit support abilities (never one list shared by all: a NoDraw row's NameLabel is never rewritten, AbilityUI.cs:1140-
+#: 1145, so a reused cell can publish another member's lit name): slot 0 (the impostor drawn on Freya: Dragon Killer from the Javelin first),
+#: slot 3 (Steiner)
+_LIT_SAS = ((0, ("Dragon Killer", "Cover", "Antibody")), (3, ("Bird Killer", "Bug Killer", "Beast Killer")))
 SITE_PLANS = {
-    "I1": [("Item", 0, (("pick", ("Use",), True), ("key", "confirm"), ("key", "confirm"), ("key", "confirm")))],
-    "E1": [("Equip", 0, (("pick", ("Equip",), True),) + tuple(("key", k) for k in ["down"] * n + ["confirm", "confirm"]))
-           for n in range(5)],
-    "A1": [("Ability", c, (("pick", ("Equip", "Support"), True), ("key", "confirm"))) for c in range(4)],
-    # Special first on the screen itself (where the list already has the cursor), then through the support list: a confirm on the way
-    # in would be A1's census, never A2's
-    "A2": [("Ability", 0, (("key", "special"),))] + [("Ability", c, (("pick", ("Equip", "Support"), False), ("key", "special")))
-                                                    for c in range(4)],
-    "E2": [("Equip", 0, (("pick", ("Remove", "Off"), False),) + tuple(("key", k) for k in ["down"] * n + ["confirm"])) for n in range(1, 5)],
-    "E3": [("Equip", 0, (("pick", ("Optimize",), False), ("key", "confirm")))],
-    "A3": [("Ability", c, (("pick", ("Use",), False), ("key", "confirm"), ("key", "confirm"), ("key", "confirm"))) for c in range(4)],
-    "I2": [("Item", 0, (("pick", ("Use",), False), ("pick", ("Gysahl Greens",), False), ("key", "confirm"), ("key", "confirm")))],
+    # Item opens ON its list, the cursor on row 0 (Potion, usable): Confirm opens Item.Target, whose Confirm is I1 (ItemUI.cs:415)
+    "I1": [("Item", 0, (("expect", "Item.Item", ("Potion",)), ("key", "confirm"), ("group", "Item.Target"), ("key", "confirm")))],
+    # the bar's Equip, slot 4 (accessory), Confirm, the seeded Desert Boots (the only candidate: the list opens on row 0): E1 (EquipUI.cs:183)
+    "E1": [("Equip", 0, (("bar", ("Equip",)), ("key", "down"), ("key", "down"), ("key", "down"), ("key", "down"), ("key", "confirm"),
+                         ("expect", "Equip.Inventory", ("Desert Boots",)), ("key", "confirm")))],
+    # the bar's Equip opens the support list ON the first lit SA (AbilityUI.cs:1102-1124): Confirm there is A1 (:419)
+    "A1": [("Ability", c, (("bar", ("Equip",)), ("expect", "Ability.SupportAbility", lit), ("key", "confirm"))) for c, lit in _LIT_SAS],
+    # Special ON a lit SA row is A2 (:638); Special on Ability.SubMenu is stock's fast switch to the Equip SCREEN (:606-618), never a write
+    "A2": [("Ability", c, (("bar", ("Equip",)), ("expect", "Ability.SupportAbility", lit), ("key", "special"))) for c, lit in _LIT_SAS],
+    "E2": [("Equip", 0, (("bar", ("Off", "Remove")),) + tuple(("key", k) for k in ["down"] * n + ["confirm"])) for n in range(1, 5)],
+    "E3": [("Equip", 0, (("bar", ("Optimize", "Ability")),))],          # the bar pick's own Confirm is E3 (EquipUI.cs:329)
+    # char 2 IS Garnet only with the remembered character tracked: Cure is her first Enable AA by source; the expect records what the list
+    # really opens on, and the shot right after the Use pick shows whether Cure is lit on the seated copy (DESIGN D10)
+    "A3": [("Ability", 2, (("bar", ("Use",)), ("shot", "s168-a3-garnet-use"), ("expect", "Ability.ActionAbility", ("Cure", "Panacea")),
+                           ("key", "confirm"), ("group", "Ability.Target"), ("key", "confirm")))],
+    "I2": [("Item", 0, (("expect", "Item.Item", ("Gysahl Greens",)), ("key", "confirm")))],
 }
+_MOVES = ("up", "down", "left", "right")
 
 
 def drive_site(g, ctx: dict, site: str) -> dict:
-    """Each of the site's tries from the root until a census confirm is counted: {reached, why, before, after, back, reached_pass}."""
-    rec = {"reached": False, "why": "no try ran", "before": None, "after": None, "back": False, "reached_pass": False}
+    """Each of the site's tries from the root until a census confirm is counted: {reached, why, before, after, back, reached_pass, trail}.
+    No blind Confirm: a label not found ends the try with a why. After every Confirm (and Special) the (menu_group, menu_label) joins
+    ``trail``, and every not-reached why carries it. A site that needs the seeded bag (BAG_SITES) on a run whose seeder did not run
+    (ctx['bag_why']) is not driven: its why names the seeder."""
+    rec = {"reached": False, "why": "no try ran", "before": None, "after": None, "back": False, "reached_pass": False, "trail": []}
+    trail = rec["trail"]
+    if site in BAG_SITES and ctx.get("bag_why"):
+        rec["why"] = ctx["bag_why"]
+        rec["back"] = _back_to_root(g)
+        return rec
     for screen, char, steps in SITE_PLANS[site]:
         if not _back_to_root(g):
-            rec["why"] = f"not on the root ({g.state.ui_state!r})"
+            rec["why"] = f"not on the root ({g.state.ui_state!r})" + _trail_text(trail)
             return rec
         before = snap(g.state)
+        trail.append(f"{screen} c{char}")
         state, why = goto_screen(g, screen, char=char)
         if state is None:
-            rec["why"] = why
+            rec["why"] = why + _trail_text(trail)
             continue
+        trail.append(_where(g))
         r0, p0 = int(_n(before, "refused", "count")), int(_n(before, "passes"))
-        hit = None
+
+        def census(s, r0=r0, p0=p0):
+            return int((_gm(s).get("refused") or {}).get("count", 0)) > r0 or int(_gm(s).get("passes", 0)) > p0
+        hit, stop, whys = None, None, []
         for step in steps:
-            if step[0] == "pick":
-                found = any(_pick(g, lbl) for lbl in step[1])
-                if not found:
-                    if not step[2]:
-                        rec["why"] = f"{screen}: no {step[1]} row"
-                        break
-                    g.press("confirm")
+            kind = step[0]
+            if kind == "shot":
+                path, swhy = cb.shot(g, step[1])
+                trail.append(f"shot {path or 'FAILED: ' + swhy}")
+                if path:
+                    g.note(f"GM0-REFUSE-{site}: {path} (READ it: is the row under the cursor lit on the seated copy?)")
+                continue
+            if kind == "group":
+                if _group(g, step[1], f"{site}: {step[1]}") is None:
+                    stop = f"{screen}: never reached {step[1]} (read {_where(g)})"
+                    break
+                continue
+            if kind == "expect":
+                group, labels = step[1], tuple(step[2])
+                ok_group = _group(g, group, f"{site}: {group}") is not None
+                where = _where(g)
+                trail.append(where)
+                if not ok_group:
+                    stop = f"{screen}: never reached {group} (read {where})"
+                    break
+                if where[1] not in labels and not any(_pick(g, lb, confirm=False, directions=("down", "right"), why=whys) for lb in labels):
+                    stop = f"{screen}: {group} opened on {where[1]!r}, none of {labels} found ({'; '.join(whys)})"
+                    break
+                continue
+            if kind == "bar":
+                if not any(_pick(g, lb, directions=("right", "down"), why=whys) for lb in step[1]):
+                    stop = f"{screen}: no {step[1]} on the bar ({'; '.join(whys)})"
+                    break
+                confirmed = True
+            elif kind == "pick":                             # no blind fallback Confirm: a missing label ends the try
+                if not any(_pick(g, lb, why=whys) for lb in step[1]):
+                    stop = f"{screen}: no {step[1]} row ({'; '.join(whys)})"
+                    break
+                confirmed = True
             else:
                 g.press(step[1])
-            hit = cb.poll(g, lambda s: int((_gm(s).get("refused") or {}).get("count", 0)) > r0 or int(_gm(s).get("passes", 0)) > p0,
-                          STEP_S, f"{site}'s census")
+                confirmed = step[1] not in _MOVES
+            hit = cb.poll(g, census, STEP_S, f"{site}'s census")
+            if confirmed:
+                trail.append(_where(g))
             if hit is not None:
                 break
         if hit is None:
-            rec["why"] = rec["why"] if rec["why"] != "no try ran" else f"{screen}: no census confirm counted (refused +0, passes +0)"
+            rec["why"] = (stop or f"{screen}: no census confirm counted (refused +0, passes +0)") + _trail_text(trail)
             continue
         _skew(g)
         after = snap(g.state)
         last = (_n(after, "refused", default={}) or {}).get("last_site")
         passed = int(_n(after, "passes")) > p0
         if not passed and last != site:
-            rec.update(why=f"the path landed on {last!r}, not {site}", before=before, after=after)
+            rec.update(why=f"the path landed on {last!r}, not {site}" + _trail_text(trail), before=before, after=after)
             continue
         rec.update(reached=not passed, reached_pass=passed, why=f"the census PASSED the {site} confirm (`capture off`: passes +1)" if passed
                    else "", before=before, after=after, screen=state)
@@ -1210,6 +1401,84 @@ def old_shape(g, ctx: dict, *, world: bool = False) -> bool:
     g.note(f"OLD's shape: menu_refusal.now {now!r} on the HUD; the press: {out} (ui {s.get('ui')!r}, open {_n(s, 'open', default=None)!r}, "
            f"seated {_n(s, 'seated', default=None)!r})")
     return now == "open" and (not ctx.get("new") or (out == "own" and _n(s, "open", default=False) is True))
+
+
+# ------------------------------------------------------------------------------------------------ the bag seeder (GMBAG, DESIGN D6)
+_BAG_SEEDED = "bag seeder: warped"
+
+
+def bag_unregistered_why() -> str:
+    """The named precondition red when GMBAG is not registered (E1, I2 and LOCAL's key read carry it as their not-reached why)."""
+    return (f"the bag seeder {BAG_FIELD} is not registered (GMBAG -- deploy: py tools/deploy_field.py {BAG_TOML} --id {BAG_FIELD} "
+            "--mod-folder FF9CustomMap, then relaunch)")
+
+
+def _bag_registered(g):
+    """True / False from the live DictionaryPatch registrations (cb.seed_party's read), None when they could not be read."""
+    try:
+        return BAG_FIELD in g.registered_fields()[0]
+    except (HarnessError, AttributeError, OSError):
+        return None
+
+
+def seed_bag(g, *, back_to: int | None = None) -> str:
+    """Through GMBAG (BAG_FIELD) when it is registered -- its entry grants Desert Boots, Gysahl Greens (a key item only once BAG_KEY_ITEM
+    is set: the toml's KNOWN GAP) into the guest's
+    OWN bag, which the bench frame copies at the seat (count>0 rows and rare sets, NetSyncClient.cs:2688-2709) -- then to ``back_to`` (the
+    field the call began on by default). cb.seed_party's shape: a one-line note for the notes, starting "bag seeder: warped" only when the
+    seeder ran (a grant that speaks has its window closed with Confirm)."""
+    reg = _bag_registered(g)
+    if reg is None:
+        return "bag seeder: the registrations could not be read -- the New-Game bag stands"
+    if not reg:
+        return f"bag seeder: {bag_unregistered_why()}"
+    home = g.state.field_id if back_to is None else back_to
+    try:
+        if g.state.field_id != BAG_FIELD:
+            g.warp(BAG_FIELD)
+        g.wait_frames(BAG_FRAMES)                            # the entry grants run
+        window = bool(getattr(g.state, "dialog_open", False))
+        _close_window(g)
+        if home is not None and home != BAG_FIELD:
+            g.warp(home)
+    except HarnessError as err:
+        return f"bag seeder: the warp through {BAG_FIELD} failed ({str(err)[:160]}) -- the bag is not known seeded"
+    return (f"{_BAG_SEEDED} through {BAG_FIELD} (GMBAG: +Desert Boots +Gysahl Greens "
+            + (f"+key item {BAG_KEY_ITEM})" if BAG_KEY_ITEM is not None else "-- no key item: GMBAG's KNOWN GAP)")
+            + ("; its window closed with Confirm" if window else ""))
+
+
+def bag_key_why() -> str:
+    """LOCAL's key read, not driven while GMBAG grants no key item (BAG_KEY_ITEM None): the named reason."""
+    return (f"the bag seeder {BAG_FIELD} grants no key item yet (GMBAG's KNOWN GAP: the kit has no field.toml lane for a stock key item; "
+            "the New-Game bag holds none) -- the key-item read is untested")
+
+
+def _setup(g, field: int, *, label: str, bag: bool) -> tuple:
+    """cb.setup's own steps with the bag seeder between the party seeder and the bench field when ``bag``: newgame -> COOPPARTY -> GMBAG
+    -> ``field`` -> encounters off -> the forced selftest role. (selftest_ok, detail, bag_why: None when the bag was seeded or not asked
+    for, else the named reason E1 / I2 / LOCAL's key read carry)."""
+    if not bag:
+        ok, why = cb.setup(g, field, label=label)
+        return ok, why, None
+    cb.provenance(g)
+    g.note(label)
+    g.newgame()
+    g.note(cb.seed_party(g, back_to=BAG_FIELD if _bag_registered(g) else field))
+    note = seed_bag(g, back_to=field)
+    g.note(note)
+    if g.state.field_id != field:
+        g.warp(field)
+    try:
+        g.no_encounters(True)
+    except (HarnessError, AttributeError) as err:
+        g.note(f"noencounter refused ({str(err)[:120]}) -- a random battle may interrupt a leg")
+    g.wait_frames(45)
+    ok, why = cb.try_ns(g, "selftest", 1)
+    ns = g.state.netsync or {}
+    good = ok and bool(ns.get("selftest")) and bool(ns.get("forced"))
+    bag_why = None if note.startswith(_BAG_SEEDED) else note.split("bag seeder: ", 1)[-1]
+    return good, (why or f"selftest={ns.get('selftest')!r} forced={ns.get('forced')!r} role={ns.get('role')!r}"), bag_why
 
 
 # ------------------------------------------------------------------------------------------------ the legs
@@ -1297,7 +1566,7 @@ def _leg_refuse(g, led: cb.Ledger, ctx: dict, sites=REFUSE_SITES, *, deep: bool 
         led.unreached(rows, why)
         return
     recs = {site: drive_site(g, ctx, site) for site in sites}
-    local = _local_steps(g) if deep else []
+    local = _local_steps(g, ctx) if deep else []
     greys = [] if deep else [_grey(g, lb) for lb in BW.GM_GREYED_SUB_MENUS if lb in root_labels(g)]
     closed = cancel_out(g, ctx)
     lines = cb.new(g, at)
@@ -1312,22 +1581,171 @@ def _leg_refuse(g, led: cb.Ledger, ctx: dict, sites=REFUSE_SITES, *, deep: bool 
     _measure(ctx, "GM0-OUTSIDE", ctx["pulled"] == "poke" and poke_measured(closed))
 
 
-def _local_steps(g) -> list:
-    """GM0-LOCAL's reads (no census hook): Item > Arrange (a sort), Item > Key Items, the root's Folklore / Journal."""
+def _item_rail(g, rec: dict) -> bool:
+    """Item > the rail (Item.SubMenu, 'Use | Arrange | Key'): Item opens ON its list (ItemUI.cs:192-198), so one Cancel off Item.Item puts
+    the group on the rail; any other opening group is named, never Cancelled blind (a Cancel on the rail leaves the screen)."""
+    trail = rec.setdefault("trail", [])
+    state, why = goto_screen(g, "Item")
+    if state is None:
+        rec["why"] = why
+        return False
+    trail.append(_where(g))
+    if getattr(g.state, "menu_group", None) == "Item.Item":
+        g.press("cancel")
+    if _group(g, "Item.SubMenu", "the Item rail (a Cancel off the list)") is None:
+        rec["why"] = f"no Item.SubMenu (the rail) after the Item screen opened (read {_where(g)})"
+        return False
+    trail.append(_where(g))
+    return True
+
+
+def _arrange(g, rec: dict, whys: list) -> bool:
+    """The rail's Arrange (a HORIZONTAL bar): the arrange dialog (Item.ArrangeMenu) open and its TweenIn run out."""
+    if not _pick(g, "Arrange", directions=("right", "down"), why=whys):
+        rec["why"] = f"no 'Arrange' on the Item rail ({'; '.join(whys)})"
+        return False
+    if _group(g, "Item.ArrangeMenu", "the arrange dialog") is None:
+        rec["why"] = f"no Item.ArrangeMenu after the rail's Arrange (read {_where(g)})"
+        return False
+    g.wait_frames(TWEEN_FRAMES)                              # the dialog's tween holds Loading: a press inside it is swallowed (UIScene)
+    rec.setdefault("trail", []).append(_where(g))
+    return True
+
+
+def _sort_steps(g, rec: dict) -> bool:
+    """GM0-LOCAL's sort (D5): the rail's Arrange > Auto (pressed, never measured: a no-op on a bag already in Order; nothing asserted but
+    the seat), then Arrange > the SECOND row, Manual (ItemUI.cs:299-306: mode 2 = sibling index 1; its label recorded as manual_label),
+    then the MEASURED swap (_manual_swap). True when every step ran (``rec['why']`` names the first that did not)."""
+    whys = []
+    if not _item_rail(g, rec) or not _arrange(g, rec, whys):
+        return False
+    if not _pick(g, "Auto", directions=("down", "right"), why=whys):
+        rec["why"] = f"no 'Auto' in the arrange dialog ({'; '.join(whys)})"
+        return False
+    rec["auto_rail"] = _group(g, "Item.SubMenu", "the rail after Auto (ItemUI.cs:289-296)") is not None
+    g.wait_frames(TWEEN_FRAMES)
+    rec["auto_seated"] = bool(_gm(g.state).get("seated"))
+    rec["trail"].append(_where(g))
+    if not _arrange(g, rec, whys):
+        return False
+    if not _pick(g, "Auto", confirm=False, directions=("down", "up"), why=whys):   # the first row, wherever the dialog opened
+        rec["why"] = f"no 'Auto' row to start the second-row walk from ({'; '.join(whys)})"
+        return False
+    g.press("down")
+    st = cb.poll(g, lambda s: getattr(s, "menu_label", None) not in (None, "", "Auto"), SEL_S, "the arrange dialog's second row")
+    rec["manual_label"] = _label(g)
+    if st is None:
+        rec["why"] = f"the arrange dialog's second row never read (label {_label(g)!r})"
+        return False
+    g.press("confirm")
+    if not _manual_swap(g, rec):
+        rec["why"] = rec.get("swap_why") or (
+            f"the manual swap did not measure: l0 {rec.get('l0')!r} on {rec.get('row0')!r}, l2 {rec.get('l2')!r} on {rec.get('row2')!r}, "
+            f"the cursor after it {rec.get('swapped')!r} on {rec.get('swapped_row')!r}")
+        return False
+    return True
+
+
+def _manual_swap(g, rec: dict) -> bool:
+    """THE MEASURED SORT (GM0-LOCAL; the duo's GM0-LOCAL-D spends it too), called right after Arrange > Manual's Confirm: on Item.Item the
+    label under the cursor (l0) and the one two rows on (l2: the list has two columns -- read here, where labels publish, then back up),
+    then l0 Confirmed (Item.Arrange), one down, that row Confirmed: the two swap (ItemUI.cs:463-474) and the cursor stays on the second
+    row (JumpToIndex), which must now read l0 (``swapped``). Records l0 / l2 / l2_arrange (the Arrange group's own read) / swapped /
+    swap_why (empty when every step ran) and the trail in ``rec``; True when the swap is MEASURED (swap_measured)."""
+    rec.update(l0=None, l2=None, l2_arrange=None, swapped=None, swap_why="", row0=None, row2=None, swapped_row=None)
+    trail = rec.setdefault("trail", [])
+    skip = (None, "", "Auto", "Manual", rec.get("manual_label"))
+
+    def on_list(s, want=None):
+        lb = getattr(s, "menu_label", None)
+        return getattr(s, "menu_group", None) == "Item.Item" and (lb == want if want is not None else lb not in skip)
+    st = cb.poll(g, on_list, SEL_S, "the item list in Manual")
+    trail.append(_where(g))
+    if st is None:
+        rec["swap_why"] = f"no item list (Item.Item) after Manual (read {_where(g)})"
+        return False
+    g.wait_frames(TWEEN_FRAMES)                              # the arrange dialog's TweenOut holds Loading: a press inside it is swallowed
+    rec["l0"] = l0 = _label(g)
+    rec["row0"] = getattr(g.state, "menu_selected", None)
+    g.press("down")
+    cb.poll(g, lambda s: on_list(s) and getattr(s, "menu_label", None) != l0, SEL_S, "the row two on")
+    rec["l2"] = l2 = _label(g)
+    rec["row2"] = getattr(g.state, "menu_selected", None)
+    g.press("up")
+    back = cb.poll(g, lambda s: on_list(s, l0), SEL_S, "back on the first row") is not None
+    trail.append((l0, l2))
+    if not back or not l2 or l2 == l0:
+        rec["swap_why"] = f"no second row read two on from {l0!r} (read {l2!r}, back on {l0!r} {back})"
+        return False
+    g.press("confirm")
+    if _group(g, "Item.Arrange", "the manual move's first pick") is None:
+        trail.append(_where(g))
+        rec["swap_why"] = f"no Item.Arrange after Confirm on {l0!r} (read {_where(g)})"
+        return False
+    trail.append(_where(g))
+    g.press("down")
+    cb.poll(g, lambda s: getattr(s, "menu_label", None) not in (None, "", l0), SEL_S, "the move's target row")
+    rec["l2_arrange"] = _label(g)
+    g.press("confirm")
+    cb.poll(g, lambda s: on_list(s, l0), SEL_S, "the swap: the cursor's row reads l0")
+    rec["swapped"] = _label(g)
+    rec["swapped_row"] = getattr(g.state, "menu_selected", None)
+    trail.append(_where(g))
+    if getattr(g.state, "menu_group", None) != "Item.Item":
+        rec["swap_why"] = f"no item list (Item.Item) after the move's second Confirm (read {_where(g)})"
+    return swap_measured(rec)
+
+
+def _key_steps(g, rec: dict) -> bool:
+    """GM0-LOCAL's key-item read: the rail's Key (the rail label is 'Key'), Item.KeyItem, Confirm on the seeded key item -- its description
+    opens (DisplayKeyItemSkin: DisableAllGroup empties the group) -- then Cancel: it closes back onto Item.KeyItem, the local write (the
+    read marker, FF9Item_UseImportant, ItemUI.cs:865 via :492-496). Records key_label / opened / closed; True when every press ran."""
+    whys = []
+    if not _item_rail(g, rec):
+        return False
+    if not _pick(g, "Key", directions=("right", "down"), why=whys):
+        rec["why"] = f"no 'Key' on the Item rail ({'; '.join(whys)})"
+        return False
+    if _group(g, "Item.KeyItem", "the key-item list") is None:
+        rec["why"] = f"no Item.KeyItem after the rail's Key (read {_where(g)})"
+        return False
+    rec["key_label"] = _label(g)
+    rec["trail"].append(_where(g))
+    ui = g.state.ui_state
+    g.press("confirm")
+    rec["opened"] = cb.poll(g, lambda s: s.ui_state == ui and getattr(s, "menu_group", None) != "Item.KeyItem", SEL_S,
+                            "the key item's description (the group emptied)") is not None
+    rec["trail"].append(_where(g))
+    g.wait_frames(TWEEN_FRAMES)                              # the description's TweenIn holds Loading: a Cancel inside it is swallowed
+    g.press("cancel")
+    rec["closed"] = bool(rec["opened"]) and cb.poll(g, lambda s: getattr(s, "menu_group", None) == "Item.KeyItem", SEL_S,
+                                                    "the description closed (back on the key list)") is not None
+    rec["trail"].append(_where(g))
+    return True
+
+
+def _local_steps(g, ctx: dict | None = None) -> list:
+    """GM0-LOCAL's reads (no census hook): the sort (Arrange > Auto, Arrange > Manual: the MEASURED swap), the key-item read (needs GMBAG's
+    key item: ctx['bag_why'] names the seeder otherwise), the root's Folklore / Journal."""
     out = []
-    for what, screen, labels in (("sort", "Item", ("Arrange", "Sort")), ("key items", "Item", ("Key Items", "Important")),
-                                 ("folklore", None, OPTIONAL_SCREENS)):
+    for what in ("sort", "key items", "folklore"):
         _back_to_root(g)
-        before = snap(g.state)
-        if screen is None:
-            reached = any(goto_screen(g, lb)[0] is not None for lb in labels)
+        rec = {"what": what, "reached": False, "why": "", "before": snap(g.state), "trail": []}
+        if what == "sort":
+            rec["reached"] = _sort_steps(g, rec)
+        elif what == "key items":
+            if (ctx or {}).get("bag_why"):
+                rec["why"] = ctx["bag_why"]
+            elif BAG_KEY_ITEM is None:
+                rec["why"] = bag_key_why()
+            else:
+                rec["reached"] = _key_steps(g, rec)
         else:
-            reached = goto_screen(g, screen)[0] is not None and any(_pick(g, lb) for lb in labels)
-            if reached and what == "sort":
-                _pick(g, "Auto")
+            rec["reached"] = any(goto_screen(g, lb)[0] is not None for lb in OPTIONAL_SCREENS)
+            rec["why"] = "" if rec["reached"] else f"no {OPTIONAL_SCREENS} on the root"
         g.wait_frames(SETTLE_FRAMES)
-        out.append({"what": what, "reached": reached, "why": "" if reached else f"no {labels} on the path", "before": before,
-                    "after": snap(g.state)})
+        rec["after"] = snap(g.state)
+        out.append(rec)
         _back_to_root(g)
     return out
 
@@ -1354,7 +1772,11 @@ def _leg_why(g, led: cb.Ledger, ctx: dict) -> None:
         out, s = press_menu(g, ctx)
         if out in ("seated", "own"):
             cancel_out(g, ctx)
-        led.check(row, *(lambda v: (v[0], f"{'; '.join(sent) or 'no op'}; the press: {out}; {v[1]}"))(judge_why(whys, base, s)))
+        ok, detail = judge_why(whys, base, s)
+        if row == "GM0-WHY-BUSY":                            # the follow in flight is real: it lands on ALT_FIELD (DESIGN D1)
+            landed = s.get("field") == ALT_FIELD
+            ok, detail = ok and landed, f"{detail}; the follow landed on {s.get('field')!r} (want {ALT_FIELD}) {landed}"
+        led.check(row, ok, f"{'; '.join(sent) or 'no op'}; the press: {out}; {detail}")
         for op in undo:
             args = _why_args(op, ctx)
             if args[0] == "guestmenu":
@@ -1465,27 +1887,33 @@ def _leg_door(g, led: cb.Ledger, ctx: dict) -> None:
         out, reseat = press_menu(g, ctx)
         closed = cancel_out(g, ctx) if out in ("seated", "own") else snap(g.state)
         led.check("GM0-DOOR-FAULT-RESTORE", *judge_door_restore(base, held, reseat, closed))
-    # 889: the dialogue path -- the scribe's window up, then the press
-    window, why = _talk_open(g, ctx)
-    if not window:
+    # 889: the dialogue path, on STRIP_FIELD -- its persistent [NFOC] strip is the window up at the press (an NPC talk's UCOFF would clear
+    # menu control, and the press would take UIKeyTrigger.cs:896's return before OnKeyMenu: no door at all). [NFOC] sets FlagButtonInh, so
+    # term 12 (AnyEtbLine(false)) skips the strip and cannot refuse `ui` ahead of F1. No `bench 0` / `bench 1`: BenchGates survives the
+    # warp (NetSyncClient.cs:14997), and no _close_window: whether the strip stays closed is the Known limit the row MEASURES
+    _home(g, ctx, STRIP_FIELD)
+    st0 = cb.poll(g, lambda s: s.ui_state == "FieldHUD" and s.control and getattr(s, "dialog_open", False)
+                  and _gm(s).get("event_enable") is True, 5.0, "the strip up on FieldHUD with control and events on")
+    if st0 is None:
         led.check("GM0-DOOR-889", *judge_door_889({}, {}, False))
-        g.note(f"GM0-DOOR-889: {why}")
-        _close_window(g)
-        _ns(g, "bench", 1)
+        g.note(f"GM0-DOOR-889: no strip up on {STRIP_FIELD} (field {g.state.field_id}, ui {g.state.ui_state!r}, window "
+               f"{getattr(g.state, 'dialog_open', None)!r}, control {g.state.control})")
+        _home(g, ctx)
         return
-    _ns(g, "bench", 1)
-    _frame(g, ctx, ctx["marker"])
+    _frame(g, ctx, ctx["marker"])                            # re-arms the bench host on STRIP_FIELD, then `host elsewhere` moves it off
     _gmop(g, ctx, "host", "elsewhere")
     still = bool(getattr(g.state, "dialog_open", False))
     base = snap(g.state)
     g.press("menu")
     st = cb.poll(g, lambda s: _door_total(snap(s)) > _door_total(base) or s.ui_state == "MainMenu", OPEN_S, "the door's verdict")
-    s = snap((_ready(g, ctx) or g.state) if st is not None else g.state)
+    back = (cb.poll(g, lambda x: x.ui_state == "FieldHUD" and x.control and _gm(x).get("event_enable") is True, CLOSE_S,
+                    "the HUD back after the door (control and events on; a window NOT waited for)") or g.state) if st is not None else g.state
+    s = snap(back)
     if s.get("ui") == "MainMenu":
         s = cancel_out(g, ctx)
     _gmop(g, ctx, "host", "here")
-    _close_window(g)
     led.check("GM0-DOOR-889", *judge_door_889(base, s, still))
+    _home(g, ctx)
 
 
 def _talk_open(g, ctx: dict) -> tuple:
@@ -1619,7 +2047,8 @@ def _leg_quit(g, led: cb.Ledger, ctx: dict) -> None:
     waiting = [snap(st) for st in cb.hold_for(g, QUIT_WAIT_S)]
     wait_lines = cb.new(g, at)
     g.press("cancel")                                        # the prompt's Cancel by KEY (NEVER Confirm: its Yes quits)
-    cb.poll(g, lambda s: s.ui_state == "FieldHUD" and not _gm(s).get("seated"), CLOSE_S, "the close after the prompt's Cancel")
+    cb.poll(g, lambda s: s.ui_state == "FieldHUD" and _gm(s).get("close_pending") is False and not _gm(s).get("seated"), CLOSE_S,
+            "the close's end after the prompt's Cancel (last_close.end is stamped one service tick after the HUD's Show)")
     s = snap(_ready(g, ctx) or g.state)
     if ctx["pulled"] == "closeold":
         _measure(ctx, "GM0-QUIT", close_old_measured(base, s, cb.new(g, at)))
@@ -1817,13 +2246,20 @@ def _leg_cfg(g, led: cb.Ledger, ctx: dict) -> None:
         return
     base = snap(g.state)
     import _coop_peer_bench as pb
-    guard = pb.IniGuard(Path(g.game_path) / "Memoria.ini", {"Role": "host"}, label="s168-gm-cfg", run_dir=getattr(g, "run_dir", None))
-    edited = False
+    # a TRANSPORT-signature edge against the ini's OWN Role: LoadConfigIfChanged compares the ini with its own last committed read, never
+    # the forced role (NetSyncClient.cs:3154-3170), so neither Enabled=0 (solo_ini's) nor the install's own Role is an edge on this bench
+    cur = str(cb.ini_value(g, "Netsync", "Role") or "selftest").strip().lower()
+    role = "host" if cur == "client" else "client"
+    guard = pb.IniGuard(Path(g.game_path) / "Memoria.ini", {"Role": role}, label="s168-gm-cfg", run_dir=getattr(g, "run_dir", None))
+    edited = heard = False
+    at = cb.mark(g)
     try:
-        g.note(f"GM0-RAMP-CFG: {guard.apply()}")
-        edited = True
-        cb.poll(g, lambda s: _gm(s).get("seated") is False and s.ui_state == "FieldHUD", CFG_S, "the `ending` close")
-        s = snap(_ready(g, ctx) or g.state)
+        g.note(f"GM0-RAMP-CFG: the ini's own Role {cur!r} -> {role!r}: {guard.apply()}")
+        edited = bool(guard.changes)
+        if edited:
+            cb.poll(g, lambda s: _gm(s).get("seated") is False and s.ui_state == "FieldHUD", CFG_S, "the `ending` close")
+        s = snap((_ready(g, ctx) if edited else None) or g.state)
+        heard = edited and cb.count(cb.new(g, at), "[NetSync] config change applied live") >= 1
     except (OSError, RuntimeError) as err:
         g.note(f"GM0-RAMP-CFG: the ini edit failed: {err}")
         s = snap(g.state)
@@ -1831,10 +2267,15 @@ def _leg_cfg(g, led: cb.Ledger, ctx: dict) -> None:
         okr, detail = guard.restore()
         g.note(f"GM0-RAMP-CFG: the ini restore {'OK' if okr else 'FAILED'}: {detail}")
     if ctx["pulled"] == "closeold":
-        _measure(ctx, "GM0-RAMP-CFG", _n(s, "seated", default=False) and _d(base, s, "closes", "ending") == 0)
+        _measure(ctx, "GM0-RAMP-CFG", heard and _n(s, "seated", default=False) and _d(base, s, "closes", "ending") == 0)
     if _n(s, "seated", default=False) or s.get("ui") in BW.GM_MENU_STATES:
         cancel_out(g, ctx)
-    led.check("GM0-RAMP-CFG", *judge_cfg(base, s, edited))
+    if heard:   # the restore is an edge too: it commits the ini's own Enabled 0 / Role over the forced role (bench refused after it)
+        cb.poll(g, lambda st: cb.path(st, "netsync.role") == cur, CFG_S, "the restore re-read")
+        cb.release(g)                                        # reset FIRST: `selftest 1` is a no-op while the old override flag holds
+        cb.try_ns(g, "selftest", 1)
+        _ns(g, "bench", 1)
+    led.check("GM0-RAMP-CFG", *judge_cfg(base, s, heard))
 
 
 def _leg_world(g, led: cb.Ledger, ctx: dict) -> None:
@@ -1873,7 +2314,7 @@ def run(g, field: int | None = None):
     led = cb.Ledger(g, catalog(legs, lever, calibrate=calibrate), finals=("S168-R", "S168-CAL"), width=DETAIL_W)
     world = "world" in legs
     ctx = {"calibrate": calibrate, "legs": legs, "lever": lever, "pulled": None, "new": False, "measured": {}, "marker": MARKER,
-           "field": FARSHORE if world else GM_FIELD, "fade_ms": None, "stage": None, "own_seen": False, "exited": False}
+           "field": FARSHORE if world else GM_FIELD, "fade_ms": None, "stage": None, "own_seen": False, "exited": False, "bag_why": None}
     if not legs:
         led.check("S168-INI", False, f"COOP_GM_LEG={_RAW_LEG!r} names no leg: one of {LEGS} (or {CHAIN!r})")
         led.close("not launched: no leg named", final=True)
@@ -1924,6 +2365,8 @@ def _finish(g, led: cb.Ledger, ctx: dict, legs) -> None:
     pred = (old_predicted(legs) if not ctx["new"] else lever_predicted(legs[0], ctx["pulled"]) if ctx["pulled"] else ())
     pred = tuple(r for r in pred if r in led.catalog)
     needs = tuple(r for r in pred if r not in SETUP and r != "S168-P1")
+    if ctx["new"] and BAG_KEY_ITEM is None and "GM0-LOCAL" in led.catalog and "GM0-LOCAL" not in pred:
+        pred += ("GM0-LOCAL",)                               # GMBAG's KNOWN GAP: no key item, so the key read can never run (not in needs)
     _note(g, ctx, f"S168-CAL: {'s168' if ctx['new'] else 'OLD (s167)'}, legs {list(legs)}, lever {ctx['pulled']!r}: predicted reds "
                   f"{sorted(pred)}")
     led.check("S168-CAL", *judge_cal(led.failed() - {"S168-CAL"}, pred, ctx["measured"], needs))
@@ -1939,9 +2382,11 @@ def _round(g, led: cb.Ledger, ctx: dict) -> None:
         return
     fade = cb.ini_value(g, "Interface", "FadeDuration")
     ctx["fade_ms"] = int(fade) if fade is not None and str(fade).strip().isdigit() else None
-    ok, why = cb.setup(g, ctx["field"], label="s168: the guest's main menu, rung 0 (view only) -- the solo bench"
-                                              + (" -- CALIBRATION" if ctx["calibrate"] else ""))
-    led.check("S168-S0", ok and g.state.field_id == ctx["field"], why + f"; on field {g.state.field_id}")
+    bag = any(leg in BAG_LEGS for leg in ctx["legs"])
+    ok, why, ctx["bag_why"] = _setup(g, ctx["field"], label="s168: the guest's main menu, rung 0 (view only) -- the solo bench"
+                                     + (" -- CALIBRATION" if ctx["calibrate"] else ""), bag=bag)
+    led.check("S168-S0", ok and g.state.field_id == ctx["field"], why + f"; on field {g.state.field_id}"
+              + (f"; the bag seeder: {'seeded' if ctx['bag_why'] is None else ctx['bag_why']}" if bag else ""))
     if not ok:
         led.close(f"the selftest role never came up -- {why}")
         return
