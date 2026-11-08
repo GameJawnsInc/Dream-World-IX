@@ -516,7 +516,8 @@ before the first press (B24 tests the first second).
   - Gil is the host's gil, not the guest's own figure from step 0.
   - The chip is at the top centre, and no line shows top right.
   - Cancel: the chip goes, the guest stands on the field with control.
-  - Two quick presses: one open, no buzz, no line.
+  - Two quick presses: one open, no buzz, no line. (At the normal fade the second press lands inside the opening menu and is
+    dropped silently.)
   - Menu inside the open menu: nothing at all.
 - **Host screen:** nothing new.
 - **Guest log:** the seated line (as many members as the host's own menu shows, and the host's gil), then
@@ -536,9 +537,11 @@ before the first press (B24 tests the first second).
 
 **B2. Browse every screen.**
 - **Do:** Open each screen and Cancel back up each time:
-  - Items, then Key Items (from the Item screen);
-  - Abilities, for each member;
-  - Equip, for each member: scroll one slot's candidate list but do not confirm;
+  - Items (the list opens with the cursor on its first row; Cancel once for the bottom bar: Use, Arrange, Key), then Key (move
+    right along the bar);
+  - Abilities, for each member (the bottom bar Use / Equip moves left and right; Equip shows the support abilities);
+  - Equip, for each member (the bottom bar Equip / Optimize / Off moves left and right): Equip, a slot, then scroll its
+    candidate list but do not confirm;
   - Status, for each member;
   - the Folklore (or Journal) row.
 
@@ -572,14 +575,21 @@ before the first press (B24 tests the first second).
 
 **B4. Try to change things.** Do each one, Cancelling back to the top between them:
 - **Do:**
-  - **a.** Equip, a slot of the lead, a different piece, Confirm.
+  - **a.** Equip, a slot of the lead whose candidate list shows at least one real piece, that piece, Confirm. A list that holds
+    only the empty row buzzes by itself and writes no E1 line: that is the stock game, not a refusal. If no slot of the lead
+    lists a piece, use another member.
   - **b.** Equip, Remove (Off) on an equipped head, wrist, armor or accessory piece (not the weapon: the stock game never
     removes a weapon, so it buzzes there anyway and no E2 line is written).
   - **c.** Equip, Optimize.
-  - **d.** Abilities, a member's support abilities, Confirm on one (on or off). If you know your Special button, press it on a
-    support ability too.
+  - **d.** Abilities, then Equip on the bottom bar (move right): the member's support abilities open, and the cursor should
+    already sit on its first lit (white) one. Confirm there (on or off). If you know your Special button, press it on that lit
+    support ability too. Special pressed on the Use / Equip bar itself jumps to the Equip screen: that is stock, not a refusal.
+    A grey or blank row writes nothing and logs nothing, by design. Record where the cursor started.
   - **e.** Abilities, a field-usable ability (Dagger's Cure if she is in the party and has it), a target whose HP is not full
-    if there is one, Confirm. Skip e if no member has a field ability.
+    if there is one, Confirm. Skip e if no member has a field ability. Before you confirm, note which ability the cursor starts
+    on after Use, and whether Dagger's Cure is white on the guest's copy; the host compares with its own Abilities screen. A
+    Cure that is grey on the guest but white on the host is a copy fault, not a refusal: take a screenshot of both and send the
+    logs. Also compare her HP and MP numbers with the host's: different numbers are a red tell.
   - **f.** Items, a Potion, a target whose HP is not full, Confirm. If every member's HP is full, use any target: the stock
     game also refuses then, so judge by the Potion count and the guest log's `I1 confirm refused on Item` line.
 - **Guest screen:**
@@ -589,16 +599,20 @@ before the first press (B24 tests the first second).
   - The stock game also buzzes when an item would do nothing, so judge by the numbers, not the sound.
 - **Guest log:** once per kind of change per open, for example:
   `[NetSync] guest menu: E1 confirm refused on Equip -- view only: the seated copy is never written, the screen's own buzz (logged once per site per seat)`
-  The kinds are E1 to E3 on `Equip`, A1 to A3 on `Ability` and I1 on `Item`.
+  The kinds are E1 to E3 on `Equip`, A1 to A3 on `Ability` and I1 on `Item`. Only I1 has been seen in a game so far: each E1
+  to E3 and A1 to A3 line you see is the first anywhere, so write down which ones appeared.
 - **Red tells:** anything changes after the buzz; the item is used up; no buzz.
-- **Record:** for each of a to f, whether it buzzed and whether anything changed.
+- **Record:** for each of a to f, whether it buzzed, whether anything changed, and whether its `confirm refused` line appeared.
 
 **B5. What you may change on the copy.**
-- **Do:** Items, Sort: Auto, then one manual move if you know how. Open a Key Item's description. Cancel to the field, open the
-  menu again, and look at Items and Key Items.
+- **Do:** Items, then Cancel once to the bottom bar, Arrange, Auto. Then Arrange again, the second choice (Manual): Confirm on one
+  item, move to another, Confirm (the two swap). Then Key on the bottom bar: Confirm on a key item to open its description, and
+  Cancel to close it. Cancel to the field, open the menu again, and look at Items and Key Items.
 - **Guest screen:**
-  - The sort reorders your list, and after the reopen the list is back in the host's order.
-  - A key item's "new" mark (if the host has one) goes when you read it and is back after the reopen.
+  - Auto may move nothing (the host's list may already be in sort order); the manual swap always moves two rows. After the
+    reopen the list is back in the host's order.
+  - A key item's "new" mark (if the host has one) goes when its description closes, and is back after the reopen. With no key
+    items the Key list shows one empty row whose Confirm buzzes (stock).
 - **Host screen:** its own Items order never changes. The host checks after.
 - **Red tells:** the sort survives the reopen; the host's list is reordered.
 
@@ -681,6 +695,7 @@ Any one of these is right on each try:
 The log may show any refusal whose words are one of those two lines: `main menu (leaving)`, `main menu (host_elsewhere)`,
 `main menu (host_busy)`, `main menu (busy)`, `main menu (control)` or `main menu (ui)`.
 - **Red tells:** an open menu left behind on the old field; no follow; a field frozen after a refusal.
+- **Note:** at the normal fade a hand-timed press rarely lands inside the fade, so this mostly shows the refusals at the press.
 
 **B15. The quit prompt holds a close.**
 - **Before:** on a field by a door, the guest's menu open.
@@ -692,7 +707,8 @@ The log may show any refusal whose words are one of those two lines: `main menu 
 - **Guest log:** `forced close (leave) from MainMenu done: ... after N ms`, with N about the time you waited. No WATCHDOG line.
 - **If Yes is pressed by mistake:** the laptop's game quits. Nothing is ever saved while the menu is open. Copy its
   `Memoria.log` aside first (`Memoria-laptop-B15.log`: it holds the session so far), then restart and pair again.
-- **Optional battle version (run it on the world map, after B12):** the prompt is up over the open menu when the host's random
+- **Battle version (run it on the world map, after B12; please do not skip it this session: the bench cannot raise the guest's
+  quit prompt on a client, so this is the only check of it):** the prompt is up over the open menu when the host's random
   battle starts. What you should see:
   - The host's battle runs without waiting for the guest.
   - The guest's menu stays until it answers No, then *"FF9 co-op: menu closed -- your partner's battle."*
@@ -795,14 +811,18 @@ The log may show any refusal whose words are one of those two lines: `main menu 
   - Then the guest's view of the host's battle, as in A7.
   - Afterwards, back at its own spot on the world map.
 - **Host screen:** the battle starts with the guest on board, with no sign of a late join.
-- **Guest log:** `forced close (cut) from Item ...`. Either `done: ...` or `ended: the scene changed ...` is right. Then the
-  restored line and the battle lines as before.
+- **Guest log:** first `[NetSync] guest menu: restored at the door (Item -> WorldHUD) -- ...`, then
+  `forced close (cut) from Item done: ...` on the world map. In the optional field version: `restored at the door (Item ->
+  FieldHUD)`, then `diorama BOOT`, then `forced close (cut) from Item ended at a clear point after N ms (a scene load)`. Both are
+  right; `ended: the scene changed` cannot appear here. Then the battle lines as before.
 - **Red tells:**
   - the menu stays open;
   - the guest sits the battle out frozen, or joins it late;
   - the guest gets a battle of its own.
+- **Note:** for about 2 s after the host's battle ends, a guest Menu press is refused with *"FF9 co-op: Your partner is in a
+  battle."* (log `main menu (host_battle)`): the battle stays live for 2 s. Not a fault: press again.
 
-(B15's optional battle version goes here.)
+(B15's battle version goes here: please do not skip it.)
 
 **B11. The host enters a location from the world map.**
 - **Before:** both players on 9011, the guest on foot with its menu open on Items.
@@ -881,14 +901,15 @@ Then the host walks out onto 9011 again (the guest follows out).
 **B20 (optional). Before following.** This needs the laptop's world-map save from step 0, item 7.
 - **Do:** In the session, with the host standing on 9011: copy the laptop's `Memoria.log` aside
   (`Memoria-laptop-before-B20.log`), quit the laptop's game (Alt+F4, Yes), start it again and Load the world-map save from
-  step 0 item 7 (not Continue); it pairs there. Then the guest presses Menu. Once the pairing autosave line shows, take a new
-  save listing. From here the guest's own autosave is on that world map, and its own values are that save's.
+  step 0 item 7 (not Continue); it pairs there. Then, once the host's figure shows on the laptop's screen, the guest presses Menu
+  (a press before the pairing has finished opens the guest's own menu by design: wait for the host's figure). Once the pairing
+  autosave line shows, take a new save listing. From here the guest's own autosave is on that world map, and its own values are that save's.
 - **Guest screen:**
   - The buzz and *"FF9 co-op: You'll get the menu once you've followed your partner into a location."* for 4 s, covering
     s167's walk line, which then comes back.
   - After the host enters a location and the guest rejoins, Menu opens.
 - **Guest log:** `[NetSync] main menu (not_mirroring) suppressed (following guest) on world map W` (W = that save's world map).
-- **Red tell:** the guest's own menu opens, with its own party and gil. That would be s38's old hole back, and it is what this
+- **Red tell:** after the host's figure showed, the guest's own menu opens, with its own party and gil. That would be s38's old hole back, and it is what this
   step checks.
 
 ### Optional: routes the bench could not reach
@@ -910,7 +931,8 @@ Then the host walks out onto 9011 again (the guest follows out).
   - `[NetSync] guest menu: restored at the exit ramp's fire (the quit prompt held the close) (before reloading own autosave) -- every family back by reference; the session ends`
   - `[NetSync] session ended -> reloading own autosave (Continue)`
 
-  It must not show `(should never happen)`.
+  It must not show `(should never happen)`. No bench has shown these lines yet: treat what you see as a first read and send the
+  log either way.
 - **Recovery, if the prompt survives the load:** pressing its Cancel would leave the field frozen. Instead press Alt+F4, then
   Yes, copy its `Memoria.log` aside (`Memoria-laptop-B32.log`: it holds the session so far), and restart. Nothing was saved.
 - **Where to run it:** on a field. The world-map version of the fail-safe line wrongly says "event world map".
@@ -1177,6 +1199,8 @@ to change too: they were not answered either.
 - **One switch for all closes.** There is no in-game switch for one close trigger.
 - **Lines with co-op off.** A refusal after co-op is turned off draws no line.
 - **A world-map scene does not close the menu** (B29): only a host scene on your own field does.
+- **Right after a host battle.** For about 2 s after the host's battle ends, the menu is refused with "Your partner is in a
+  battle." (B12).
 
 ### New in s167 (carried)
 
