@@ -2084,7 +2084,10 @@ def world_walk_proof_tallies(pieces, source: str | None = None) -> tuple:
 #: default stand-in stays the deployed s167 engine and every patch-pinned ladder test reads as before. A test (and the s168 bench's
 #: stand-in legs) opts in with :func:`guest_menu_stand_in` (the "guestmenu" cap beside the s167 world-walk pieces: the s168 engine carries
 #: s167). It is NOT in NETSYNC_BATTLE_CAPS, so caps_through() and NETSYNC_SUBVERBS never take it in; when the s168 patch lands, a later
-#: round moves it onto the ladder.
+#: round moves it onto the ladder. [ff9mapkit netsync s168] FROZEN since (memoria-patches/s168-netsync-guest-menu.patch): the rung STAYS
+#: opt-in and off the ladder for now -- the default stand-in is still the s167 engine (the OLD stage every s167 bench measures), the
+#: older ladder pins reach the live rung through tests/test_harness_netsync.py's _live_rung / _live_caps and strip the one key with
+#: _unmenued, and the driver keeps sending `guestmenu` raw. Moving it onto the ladder is the next round's (s169) call.
 NETSYNC_S168_CAPS = frozenset(("guestmenu",))
 #: [ff9mapkit netsync s168] the rung's stand-in faults (decision 36's list, plus the as-built contract's), each the stand-in wrong in ONE
 #: place so ITS row goes red:

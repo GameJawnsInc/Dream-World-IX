@@ -1133,7 +1133,10 @@ def test_s166a_the_catch_line_carries_lane_line_and_guest_at_their_sentinels():
     assert json.dumps(world["lane"]) == json.dumps(BW.WORLD_SENTINELS_S167["lane"] if s167 else BW.WORLD_LANE_SENTINELS)
     assert json.dumps(world["line"]) == json.dumps(BW.WORLD_LINE_SENTINELS)
     assert json.dumps(ns["host"]) == json.dumps(BW.HOST_SENTINELS_S166)
-    assert list(ns)[-1] == "wire_peer"
+    # [ff9mapkit netsync s168] BY STAGE: `guestmenu` follows `wire_peer`, netsync's LAST key, once ITS patch is live
+    s168 = any(nm.startswith("s168-") and nm not in msr.DEAD for nm in msr.stack())
+    top = list(ns)
+    assert top[top.index("wire_peer"):] == ["wire_peer"] + (list(BW.NETSYNC_TOP_KEYS_S168) if s168 else []), top
 
 
 # ================================================================================================ A4's ENGINE PINS (by stage; the W2 reconcile)

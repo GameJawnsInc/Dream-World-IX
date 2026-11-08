@@ -218,6 +218,7 @@ def test_the_twins_constants_are_the_engines():
     # [ff9mapkit netsync s166] W2 reconcile: ...then A3's five world-line states (wire_mismatch .. host_scene) once ITS patch is live
     want_names = set(BW.OVERLAY_NAMES) | (set(BW.OVERLAY_NAMES_S166) if _s166_a3_live() else set())
     want_names |= set(BW.OVERLAY_NAMES_S167) if _live("s167-") else set()   # [ff9mapkit netsync s167] round B's six (entry_refused .. close_map)
+    want_names |= {BW.OVERLAY_NAME_GUEST_MENU} if _live("s168-") else set()   # [ff9mapkit netsync s168] OverlayName(29)
     assert set(names) == want_names and BW.OVERLAY_NAMES[-9:-4] == BW.OVERLAY_NAMES_S144
     assert BW.OVERLAY_NAMES[-4:] == BW.OVERLAY_NAMES_S165 and [BW.overlay_name(s) for s in range(14, 18)] == list(BW.OVERLAY_NAMES_S165)
     # WaitLineName's vocabulary, and the words (decision 7's sentences, verbatim)
@@ -819,7 +820,8 @@ def test_every_world_key_has_an_accessor_and_reads_its_sentinel():
     # [ff9mapkit netsync s165] ...and s165's `saveguard`, `host` after it, `world` its four after `dio`, once ITS patch is live
     live165 = any(n.startswith("s165-") and n not in msr.DEAD for n in msr.stack())
     want = ["world", "guestlocal", "ghostframe", "stepout", "chest", "ate", "speed"] + (["swap"] if live164 else []) + \
-        (list(BW.NETSYNC_TOP_KEYS_S165) if live165 else []) + (list(BW.NETSYNC_TOP_KEYS_S166) if _live("s166-") else [])   # [s166] wire_peer
+        (list(BW.NETSYNC_TOP_KEYS_S165) if live165 else []) + (list(BW.NETSYNC_TOP_KEYS_S166) if _live("s166-") else []) + \
+        (list(BW.NETSYNC_TOP_KEYS_S168) if _live("s168-") else [])   # [s166] wire_peer; [ff9mapkit netsync s168] guestmenu
     assert nothing["world"] == _live_world_sentinels() and list(nothing)[-len(want):] == want   # [ff9mapkit netsync s156] [ff9mapkit netsync s157] [s158] [s160] [s161] [s163] [s164] [s165] [s166] W2 reconcile: by stage
     if live164:
         assert nothing["swap"] == FG.NETSYNC_SWAP_SENTINELS
