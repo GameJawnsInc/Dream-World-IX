@@ -22,7 +22,8 @@ the leg's -- 250 with the HOST's party seeded through COOPPARTY, so the seat is 
            'wire', frame_age_ms -1), GM0-SEAT-D (for every wire-carried component seat_fp == the HOST's host_fp -- players, party, bag, gil;
            keyitems REPORTED: K1's HashSet order; TWO MARKERS: seat_fp's players / party differ from the guest's own fp_before), GM0-CHIP-D,
            GM0-BROWSE-D (the screens, the greyed rows, no Save row, Alt+F5 refused), GM0-REFUSE-I1-D (one census confirm, the S judge),
-           GM0-LOCAL-D (a sort on the Item screen: refused +0, captures +0, the HOST's host_fp bag unchanged, fp equal at the close),
+           GM0-LOCAL-D (a sort on the Item screen -- DESIGN D5: the bar's Arrange, Auto pressed and unmeasured, then Manual: rows 0 and 2
+           swap on the seated copy, L0 read back at row 2 -- refused +0, captures +0, the HOST's host_fp bag unchanged, fp equal),
            GM0-FREEZE-D (event_enable false on every seated sample, true after the close: GM0-FREEZE's duo half until the b3 tape),
            GM0-GHOST (GhostAs=auto on both: each game's ghost of the other keeps its model and rig for the whole open), GM0-RESTORE-D
            (every cycle fp_after == fp_before), GM0-KEY-DOUBLE (FadeDuration >= 300 only: two presses 100 ms apart -- one open,
@@ -39,40 +40,50 @@ the leg's -- 250 with the HOST's party seeded through COOPPARTY, so the seat is 
            judge on a seated open with an Item round trip: outside_settled, uid0_vars and sysvar192), GM0-STSCENE (MEASURING: the host's own
            main menu 2 s -- the guest's view of the host trailer and its walk why, REPORTED; a rise is a Known limit), GM0-WALKGHOST
            (MEASURING: the HOST's ghost of the seated guest, sampled, and a shot), GM0-RAMP-WORLD-D (LAST: seated on WorldHUD, the
-           duo's blackhole past the guest's SessionGraceMs -- 5000, PAIR's -- closes.ending before the fire, the restore line before
-           'reloading own autosave', no alarm line, fp equal: GM0-RAMP-WORLD's duo half until the b3 tape). LEVER `old`.
+           duo's blackhole past the guest's SessionGraceMs -- 5000, PAIR's -- closes.ending, its door before the fire: end done, or
+           clear_point at the exit ramp's fire; the restore line before 'reloading own autosave', no alarm line, fp equal:
+           GM0-RAMP-WORLD's duo half until the b3 tape). LEVER `old`.
   leave    GM0-LEAVE (the guest in Equip's candidates, the host `warp`s 30602: closes.leave +1, end done, the guest lands, the pin
            under 2500 ms, a guest shot within 4 s of the close -- READ it for the close line), GM0-FADE (a second follow close at the ROOT
            as the host warps back: both closes land, both pins fresh), GM0-TIMING (MEASURING: close-to-HUD ms, the pin's age, FadeDuration),
-           GM0-DOOR-D (FadeDuration >= 300 only: a press, then the host's warp inside the HUD fade: the DOOR refuses busy / leaving, nothing
-           seated, the follow lands). LEVERS `old`, `closeold` (`close old` on the guest + a Cancel 3.5 s after the warp: no close, the
-           follow DEFERRED to the manual close -- DP-AGED's shape).
-  out      pair on 6603: GM0-OUT (the guest seated, the host walks out: closes.out +1, the guest lands on 9011, no 'waits: the field HUD
-           is not up' line, the start line's host-alive ms >= 1200). LEVERS `old`, `closeold`.
+           GM0-DOOR-D (FadeDuration >= 300 only: a press, then the host's warp inside the HUD fade: the DOOR refuses control / busy /
+           leaving -- DESIGN D1: `control` once the follow has started, it turns control off as it arms -- nothing seated, the follow
+           lands). LEVERS `old`, `closeold` (`close old` on the guest + a Cancel 3.5 s after the warp: no close, the follow DEFERRED to the
+           manual close -- DP-AGED's shape).
+  out      pair on 6603: GM0-OUT (the guest seated, the host walks out: closes.out +1, the guest lands on 9011, at most one 'waits: the
+           field HUD is not up' -- the request frame's, decision 18 keeps deferring -- logged before the close's end line, the start
+           after the door, its 'live on the world map for N ms' >= 1200). LEVERS `old`, `closeold`.
   rejoin   pair on 6603, both out on 9011: GM0-REJOIN (the guest seated, the host Confirms into 300: closes.rejoin +1, then the rejoin
-           lands with no 'waits: the world HUD is not up' line). LEVERS `old`, `closeold`.
-  cut      GM0-CUT (the guest in Item, the host's `battle 67 -1`: closes.cut +1, end done, the HOST's start-hold report 'booting', the
-           guest's 'diorama LIVE', fp equal after the return, a shot), GM0-SILENT-D (the guest's diorama: `now` 'silent' on BattleHUD, a
-           press keeps BattleHUD, `bmenu mainmenu` refused), GM0-CUT-QUIT (a second battle with the guest's quit prompt up: the close
-           waits -- close_step 'quit' -- the report 'busy', never 'booting'; the prompt's Cancel lets the close end). LEVERS `old`,
-           `closeold`. COOP_GMD_BATTLE=0: the cut rows "not run (configuration)" (the stand-in duo models no diorama). THE QUIT PROMPT ON
-           A DUO: `endbench quit on` is a SELFTEST-ROLE lever (NetSyncEnd.HarnessEndBench) and no any-role verb or Alt+F4 injection exists,
-           so GM0-CUT-QUIT and GM0-QUIT-D read "not run" (named, out of the calibration) until one does -- an OPEN ITEM, not a pass.
+           lands; at most one 'waits: the world HUD is not up' -- the request frame's -- before the close's end line, the arm after the
+           door). LEVERS `old`, `closeold`.
+  cut      GM0-CUT (the guest in Item, the host's `battle 67 -1`: closes.cut +1 -- end done, or on a field clear_point at the boot's scene
+           load with the door before 'diorama BOOT' -- the HOST's start-hold report 'booting', the guest's 'diorama LIVE' (counted after
+           the fight: it lands at the command phase), fp equal after the return, a shot), GM0-SILENT-D (the guest's diorama: `now`
+           'silent' on BattleHUD, a press keeps BattleHUD, `bmenu mainmenu` refused), GM0-CUT-QUIT (once the host's battle lane is stale
+           on the guest -- term 6's PeerBattleLive holds StaleMs 2000 -- a second battle with the guest's quit prompt up: the close waits
+           -- close_step 'quit' -- the report 'busy', never 'booting'; the prompt's Cancel lets the close end). LEVERS `old`, `closeold`.
+           COOP_GMD_BATTLE=0: the cut rows "not run (configuration)" (the stand-in duo models no diorama). THE QUIT PROMPT ON A DUO:
+           `endbench quit on` is a SELFTEST-ROLE lever (NetSyncEnd.HarnessEndBench), so on its refusal the leg posts a WM_CLOSE to the
+           guest's window (instance.post_close: UIKeyTrigger.OnApplicationQuit cancels the quit and opens the stock prompt -- grounded in
+           source, UNPROVEN in game: run rampquit ALONE first; never Confirm under it); when that raises nothing GM0-CUT-QUIT and
+           GM0-QUIT-D read "not run" (named, out of the calibration) -- an OPEN ITEM, not a pass; its two-PC route is B32.
   title    GM0-TITLE (the host soft-resets: closes.title +1 within CloseCapMs + two fades, its words). LEVERS `old`, `closeold` (MEASURED:
            closes.title +0, still seated for TITLE_HOLD_S, then the guest's own Cancel restores at the door: doors +1, fp equal).
   scene    pair on 30801: GM0-SCENE (the host talks to the scribe while the guest's menu is open: closes.scene +1, the talk plays on the
            guest, no 'expired before my copy was free'). LEVERS `old`, `closeold` (the expired line, no window).
   chest    pair on 200 (the chest relay's recipe): GM0-SCENE-CHEST (the host opens ChestA: closes.scene +1, the guest's 'opening chest'
            line). LEVERS `old`, `closeold`.
-  ramp     GM0-RAMP-CFG-D (the guest seated at Item, its own [Netsync] Enabled=0 written live: closes.ending +1, the door's restore line
-           before 'reloading own autosave', the close words, fp equal, input live after). LEVERS `old`, `closeold`. The Role=host edit is
-           not a duo edit (duo.set_netsync owns Role): the S leg's.
-  rampquit GM0-QUIT-D (the guest's quit prompt up over its seated menu, then Enabled=0: the ramp's fire waits it out and restores
-           quietly -- restore.backstops.ramp_quit +1, ramp +0, no 'should never happen' line, no prompt after the Autoload).
+  ramp     GM0-RAMP-CFG-D (the guest seated at Item, its own [Netsync] Enabled=0 written live: closes.ending +1 -- end done, or
+           clear_point at the exit ramp's fire, which the ramp block runs ahead of the close tick -- the door's restore line before
+           'reloading own autosave', the close words, fp equal, input live after). LEVERS `old`, `closeold`. The Role edit is not a duo
+           edit (duo.set_netsync owns Role): the S leg's.
+  rampquit GM0-QUIT-D (the guest's quit prompt up over its seated menu -- `endbench quit on`, else the WM_CLOSE fallback -- then
+           Enabled=0: the ramp's fire waits it out and restores quietly -- restore.backstops.ramp_quit +1, ramp +0, no 'should never
+           happen' line, no prompt after the Autoload).
   stall    THE DUO'S BLACKHOLE (the host's bridge suspended: both directions silent, the TCP open): GM0-STALL-VIEW-D (seated through 3 s:
            still seated on every sample, closes +0), GM0-PAIRED-LINE-LOST (a press inside the blip hold: refused audibly, 'guest_menu' on
-           the overlay), GM0-RAMP-FIELD-D (seated, a blackhole past SessionGraceMs: closes.ending at the ramp's arm, the restore line
-           before 'reloading own autosave', no alarm line, fp equal). LEVER `old`.
+           the overlay), GM0-RAMP-FIELD-D (seated, a blackhole past SessionGraceMs: closes.ending at the ramp's arm -- end done, or
+           clear_point at the exit ramp's fire -- the restore line before 'reloading own autosave', no alarm line, fp equal). LEVER `old`.
   dialog   pair on 30801: GM0-DIALOG-PATH-A (the host's line LOCKED on the guest: a press -- the window stays, `netsync.suppress` true,
            count +0, silent +0, opens +0), GM0-DIALOG-PATH-B (`netsync unlock` on the guest, the host's line again: `now` 'dialog', the
            window stays, count +0, opens +0). OLD and NEW alike (s121's own: measured on both). No lever (its mutant is the stand-in's).
@@ -81,7 +92,8 @@ the leg's -- 250 with the HOST's party seeded through COOPPARTY, so the seat is 
 
 THE T LEGS (COOP_GMT_LEG, `py tools/play.py studies/test-harness/scenarios/coop_guest_menu_duo.py`; THE OWNER'S BRIDGE DOWN):
   hole      coop_world_walk_t2's stallhole route (the guest walks out ALONE, the ROAM host -- or its INSTRUMENT -- `--from` a world second
-            pairs it ON THE WORLD MAP, unmirrored): GM0-HOLE-T (a press: refused 'not_mirroring', audible, its words, never seated),
+            pairs it ON THE WORLD MAP, unmirrored): GM0-HOLE-T (a press once the session itself holds -- session.state 'live', and
+            guestmenu.session on s168: THE PRE-INIT SAMPLE at the pairing edge -- refused 'not_mirroring', audible, its words, never seated),
             GM0-STALL-WHO-T (a 3 s blackhole, the lane past StaleMs: still refused). OLD: its own menu opens (measured). LEVER `old`.
   older166  GM0-CAPS-b-166 / GM0-CAPS-b-167: an s166 (caps 0x0001) / s167 (0x0003) HOST replayed (the recorded tape named by
   older167  COOP_TAPE_GM_OLDER166 / 167, else THE INSTRUMENT of that caps word, named so): paired and mirroring on 6603, a press refused as
@@ -95,7 +107,7 @@ THE T LEGS (COOP_GMT_LEG, `py tools/play.py studies/test-harness/scenarios/coop_
   GM0-CAPS-c is coop_cut_hold.py's s121 leg on its v14 tape, unchanged (the regression set's fallback row): not a leg here.
 
 THE D HALVES CARRIED BY OTHER ROWS: GM0-WHY-x's -- the whys a duo reaches ride their own rows: older (GM0-CAPS-a), riding
-(GM0-WORLD), link (GM0-PAIRED-LINE-LOST), busy / leaving (GM0-DOOR-D); the rest are the S bench's bench ops. GM0-REFUSE-x's D spot check
+(GM0-WORLD), link (GM0-PAIRED-LINE-LOST), control / busy / leaving (GM0-DOOR-D); the rest are the S bench's bench ops. GM0-REFUSE-x's D spot check
 is GM0-REFUSE-I1-D; GM0-RESTORE's is GM0-RESTORE-D plus every close row's fp_after == fp_before (THE RESTORE FINGERPRINT AFTER EACH
 CLOSE); GM0-SEAT / GM0-CHIP / GM0-BROWSE / GM0-LOCAL / GM0-SILENT / GM0-RAMP-CFG / GM0-QUIT / GM0-PAIRED-LINE / GM0-WORLDTAG4 /
 GM0-STALL-VIEW / GM0-RAMP-FIELD / GM0-RAMP-WORLD / GM0-FREEZE carry a -D (or -F / -W / -LOST) row here; GM0-HOLE / GM0-STALL-WHO /
@@ -114,10 +126,11 @@ open item); GM0-PAIRED-LINE's past-grace press (the design's second peer-lost pr
 the ramp's fire, under the session's own line -- OvlReconnecting while SessionGrace holds, not the connecting line the design row names;
 the window is ~0 at this leg's SessionGraceMs 5000 against GhostGraceMs 5000; CR-2's precedence is proof-only, `line_over_connecting`,
 its in-game half an open item); GM0-DEATH (a kill and a relaunch: NO runner or leg launches it -- an open item); GM0-RAMP-WORLD's and
-GM0-RAMP-FIELD's D press legs (a FadeDuration above the 2 s config poll: no instance-root [Interface] writer exists -- an open item); the
-guest's quit prompt on a duo (GM0-CUT-QUIT, GM0-QUIT-D: no any-role verb -- an open item); the s169 rows. The FadeDuration-300 rows (GM0-KEY-DOUBLE,
-GM0-DOOR-D, GM0-FADE's 300 half) run only on a launch whose games read FadeDuration >= 300; GM0-OVERLAY's shots are the close shots the
-leave and cut legs take (READ them).
+GM0-RAMP-FIELD's D press legs (a FadeDuration above the 2 s config poll: no leg drives one yet -- an open item); the guest's quit
+prompt on a duo past the WM_CLOSE fallback (GM0-CUT-QUIT, GM0-QUIT-D: no any-role verb -- an open item, two-PC B32); the s169 rows. The
+FadeDuration-300 rows (GM0-KEY-DOUBLE, GM0-DOOR-D, GM0-FADE's 300 half) run only on a launch whose games read FadeDuration >= 300 (duo.py
+`--root-ini Interface.FadeDuration=300`, the runners' ROUND_GM_FADE=300: a hand edit of a root is regenerated away by Instance.ensure at
+every duo start); GM0-OVERLAY's shots are the close shots the leave and cut legs take (READ them).
 
 THE STAND-IN (ff9mapkit/tests/test_coop_guest_menu_duo.py): two fakegame stand-ins (the opt-in `guestmenu` rung) under a stub link -- the
 host's lane, flags, intent and caps word onto the guest, a stub blackhole -- run the legs it models: NEW green but STANDIN_UNMODELLED, OLD
@@ -179,6 +192,8 @@ DOUBLE_GAP_S = 0.1       # GM0-KEY-DOUBLE: the second press 100 ms after the fir
 FADE_LONG_MS = 300       # the FadeDuration the 300 rows need
 STSCENE_S = 2.0          # GM0-STSCENE: the host's own main menu held this long
 OUT_LIVE_MS = 1200       # GM0-OUT: the world-out starts at LiveMs >= this (the start line's host-alive ms)
+#: GM0-DOOR-D's door verdicts (DESIGN D1: term 9 `control` precedes term 10 `busy` -- a started follow turns control off as it arms)
+DOOR_D_WHYS = (BW.GM_WHY_BUSY, BW.GM_WHY_LEAVING, BW.GM_WHY_CONTROL)
 SKEW_FRAMES = gm.SKEW_FRAMES
 DETAIL_W = 1400
 D_BATTLE = os.environ.get("COOP_GMD_BATTLE", "1").strip() != "0"   # 0: the stand-in duo (no diorama model): the cut rows not run
@@ -238,7 +253,8 @@ DUO_CHECKS = {
                     "never opens Serialize; the host's party drawn",
     "GM0-REFUSE-I1-D": "one Item > Use > target confirm: refused +1, captures +1, passes +0, last_site I1, impactful 0, seated, back to the "
                        "root, one census line; fp equal at the close",
-    "GM0-LOCAL-D": "a sort on the Item screen: refused +0, captures +0, seated; the HOST's host_fp bag unchanged; fp equal at the close",
+    "GM0-LOCAL-D": "a sort on the Item screen (the bar's Arrange: Auto, then Manual -- rows 0 and 2 swap on the seated copy, L0 read back "
+                   "at row 2): refused +0, captures +0, seated; the HOST's host_fp bag unchanged; fp equal at the close",
     "GM0-GHOST": "GhostAs=auto: each game's ghost of the other keeps its model and rig on every sample of the open (and as before it)",
     "GM0-RESTORE-D": "every open / close cycle of the leg: fp_after == fp_before, named null, doors +1, nothing seated, the HUD",
     "GM0-KEY-DOUBLE": "FadeDuration >= 300: two presses 100 ms apart -> one open, menu_refusal.count +0, no refusal line",
@@ -254,35 +270,40 @@ DUO_CHECKS = {
                        "and sysvar192 after the settle equal the ones before",
     "GM0-STSCENE": "MEASURING: the host's own main menu 2 s on 9011 -- the guest's lane rx and walk why read on every sample (REPORTED)",
     "GM0-WALKGHOST": "MEASURING: the HOST's ghost of the seated guest sampled while the guest's world menu is open, and a host shot",
-    "GM0-RAMP-WORLD-D": "seated on WorldHUD, the duo's blackhole past SessionGraceMs: closes.ending (end done) before the fire, the restore "
-                        "line before 'reloading own autosave', no 'should never happen' line, fp equal, the HUD with control after",
+    "GM0-RAMP-WORLD-D": "seated on WorldHUD, the duo's blackhole past SessionGraceMs: closes.ending, its door before the fire (end done, or "
+                        "clear_point at the exit ramp's fire), the restore line before 'reloading own autosave', no 'should never happen' "
+                        "line, fp equal, the HUD with control after",
     "GM0-LEAVE": "the guest in Equip's candidates, the host `warp 30602`: closes.leave +1 (end done, from the sub-screen), the guest lands "
                  "on 30602 with the pin < 2500 ms, its close line, fp equal; a guest shot within 4 s",
     "GM0-FADE": "a second follow close at the ROOT (the host warps back to 250): it lands too, the pin < 2500 ms, fp equal",
     "GM0-TIMING": "MEASURING: close-to-HUD ms (last_close.ms), the pin ages, FadeDuration -- read on both closes",
-    "GM0-DOOR-D": "FadeDuration >= 300: Menu, then the host's warp inside the HUD fade: the DOOR refuses busy / leaving, nothing seated, "
-                  "events on, the follow lands",
-    "GM0-OUT": "the guest seated, the host walks out of 6603: closes.out +1 (end done), the guest lands on 9011, no 'waits: the field HUD "
-               "is not up', the start line's host-alive ms >= 1200",
-    "GM0-REJOIN": "both on 9011, the guest seated, the host Confirms into 300: closes.rejoin +1, the guest lands on 300 with no 'waits: the "
-                  "world HUD is not up'",
-    "GM0-CUT": "the guest in Item, the host's `battle 67 -1`: closes.cut +1 (end done), the host's start-hold report 'booting', the guest's "
-               "'diorama LIVE', back on 250 after the fight, fp equal; a guest shot within 4 s",
+    "GM0-DOOR-D": "FadeDuration >= 300: Menu, then the host's warp inside the HUD fade: the DOOR refuses control / busy / leaving (`control` "
+                  "once the follow has started: it turns control off as it arms), nothing seated, events on, the follow lands",
+    "GM0-OUT": "the guest seated, the host walks out of 6603: closes.out +1 (end done), the guest lands on 9011, at most one 'waits: the "
+               "field HUD is not up' (the request frame's), before the close's end line; the start after the door, its live ms >= 1200",
+    "GM0-REJOIN": "both on 9011, the guest seated, the host Confirms into 300: closes.rejoin +1, the guest lands on 300; at most one 'waits: "
+                  "the world HUD is not up' (the request frame's), before the close's end line; the arm after the door",
+    "GM0-CUT": "the guest in Item, the host's `battle 67 -1`: closes.cut +1 (end done, or clear_point at the boot's scene load after the "
+               "door), the host's start-hold report 'booting', the guest's 'diorama LIVE', back on 250 after the fight, fp equal; a guest "
+               "shot within 4 s",
     "GM0-SILENT-D": "the guest's diorama: `now` 'silent' on BattleHUD, a press keeps BattleHUD (opens +0), `bmenu mainmenu` refused",
-    "GM0-CUT-QUIT": "a second battle with the guest's quit prompt over its seated menu: the close waits (close_step 'quit'), the host's "
-                    "report 'busy' (never 'booting'); the prompt's Cancel lets the close end done",
+    "GM0-CUT-QUIT": "a second battle (once the host's battle lane is stale on the guest: term 6) with the guest's quit prompt over its "
+                    "seated menu (`endbench quit on`, else a WM_CLOSE to the guest's window): the close waits (close_step 'quit'), the "
+                    "host's report 'busy' (never 'booting'); the prompt's Cancel lets the close end (done, or clear_point at the boot's "
+                    "scene load after the door)",
     "GM0-TITLE": "the guest seated, the host soft-resets: closes.title +1 within CloseCapMs + two fades, end done, its words",
     "GM0-SCENE": "the guest seated, the host talks to the scribe: closes.scene +1 (end done), its words, the talk opens on the guest, no "
                  "'expired before my copy was free'",
     "GM0-SCENE-CHEST": "the guest seated, the host opens ChestA: closes.scene +1 (end done), the guest's 'opening chest' line",
-    "GM0-RAMP-CFG-D": "the guest seated at Item, its Enabled=0 written live: closes.ending +1 (end done), the restore line before "
-                      "'reloading own autosave', the close words, fp equal, the HUD with control after",
-    "GM0-QUIT-D": "the guest's quit prompt over its seated menu, then Enabled=0: the ramp's fire waits it out -- backstops.ramp_quit +1, "
-                  "ramp +0, no 'should never happen' line, no prompt and control on after the Autoload",
+    "GM0-RAMP-CFG-D": "the guest seated at Item, its Enabled=0 written live: closes.ending +1 (end done, or clear_point at the exit ramp's "
+                      "fire), the restore line before 'reloading own autosave', the close words, fp equal, the HUD with control after",
+    "GM0-QUIT-D": "the guest's quit prompt over its seated menu (`endbench quit on`, else a WM_CLOSE to the guest's window), then "
+                  "Enabled=0: the ramp's fire waits it out -- backstops.ramp_quit +1, ramp +0, no 'should never happen' line, no prompt "
+                  "and control on after the Autoload",
     "GM0-STALL-VIEW-D": "seated through the duo's 3 s blackhole: seated on every sample, closes +0; Cancel after: fp equal",
     "GM0-PAIRED-LINE-LOST": "a press inside a blackhole's blip hold: refused audibly (count +1), 'guest_menu' on the overlay while it lives",
-    "GM0-RAMP-FIELD-D": "seated, a blackhole past SessionGraceMs: closes.ending at the ramp's arm (end done), the restore line before "
-                        "'reloading own autosave', no 'should never happen' line, fp equal",
+    "GM0-RAMP-FIELD-D": "seated, a blackhole past SessionGraceMs: closes.ending at the ramp's arm (end done, or clear_point at the exit "
+                        "ramp's fire), the restore line before 'reloading own autosave', no 'should never happen' line, fp equal",
     "GM0-DIALOG-PATH-A": "the host's line LOCKED on the guest: a press -- the window stays, netsync.suppress true, count +0, silent +0, "
                          "opens +0",
     "GM0-DIALOG-PATH-B": "`netsync unlock` on the guest, the host's line again: `now` 'dialog', the press keeps the window, count +0, opens +0",
@@ -300,7 +321,8 @@ T_CHECKS = {
     "GM0-FREEZE-T": "event_enable false on every seated sample, true after the close",
     "GM0-STALL-VIEW-T": "seated through `--blackhole-at` 3 s: seated on every sample, closes +0; fp equal after",
     "GM0-LEAVE-T": "seated before the tape host's warp to 30602: closes.leave +1, the guest lands on 30602, fp equal",
-    "GM0-CUT-T": "seated before the tape's battle: closes.cut +1, the diorama boots, fp equal",
+    "GM0-CUT-T": "seated before the tape's battle: closes.cut +1 (end done, or clear_point at the boot's scene load after the door), "
+                 "the diorama boots, fp equal",
     "GM0-RAMP-T": "seated, `--stop-at` then the grace: closes.ending +1, the restore line before 'reloading own autosave', fp equal",
 }
 T_SETUP = {"T2-TAPE": "the leg's tape reads back and its facts hold (THE INSTRUMENT named when it stands in)",
@@ -419,7 +441,9 @@ def frame_book(st) -> dict:
     return dict(_gm(st).get("frame") or {})
 
 
-_RX_HOST_ALIVE = re.compile(r"world follow-out: start .*?, (\d+) ms host-alive\)")
+#: the world-out start line's live ms: the engine's '; live on the world map for N ms)' (NetSyncClient.cs:9068-9070), or the kit twin's
+#: older ', N ms host-alive)' (battlewire.log_world_out_start)
+_RX_HOST_ALIVE = re.compile(r"world follow-out: start .*?(?:, (\d+) ms host-alive\)|; live on the world map for (\d+) ms\))")
 
 
 # ================================================================================================ the pure judges
@@ -466,16 +490,35 @@ def judge_seat_d(s: dict, host_comps: dict) -> tuple:
                 f"players / party drawn, not the guest's own) {drawn}")
 
 
+def swap_measured_d(rec: dict) -> bool:
+    """(PURE) GM0-LOCAL-D's measured order change -- coop_guest_menu._manual_swap's record: two different labels read (l0 under the
+    cursor, l2 two rows on) and, after the swap, the cursor's row (JumpToIndex) reads l0 (``swapped``). The solo bench's own rule
+    (coop_guest_menu.swap_measured) when it has one, so S and D judge one shape."""
+    rule = getattr(gm, "swap_measured", None)
+    if callable(rule):
+        return bool(rule(rec))
+    l0, l2 = rec.get("l0"), rec.get("l2")
+    r0, r2 = rec.get("row0"), rec.get("row2")
+    return (bool(l0) and bool(l2) and l0 != l2 and rec.get("swapped") == l0
+            and bool(r0) and bool(r2) and r0 != r2 and rec.get("swapped_row") == r2)
+
+
 def judge_local_d(rec: dict, host_bag0, host_bag1, closed: dict) -> tuple:
-    """GM0-LOCAL-D (PURE): ``rec`` {reached, what, before, after}, the HOST's host_fp bag before / after the sort."""
+    """GM0-LOCAL-D (PURE): ``rec`` {reached, why, what, before, after, manual_label, l0, l2, swapped, trail} -- DESIGN D5: the GUEST's
+    MEASURED manual swap (rows 0 and 2 swap on the seated copy: swap_measured_d), refused +0, captures +0, still seated -- and the HOST's
+    host_fp bag before / after unchanged (the sort never forwarded), fp equal at the close."""
+    trail = f" [trail: {str(rec.get('trail'))[:400]}]" if rec.get("trail") else ""
     if not rec.get("reached"):
-        return False, f"not reached: {rec.get('why')}"
+        return False, f"not reached: {rec.get('why')}{trail}"
     a, b = rec["before"], rec["after"]
+    swapped = swap_measured_d(rec)
     fp_ok = bool((_n(closed, "fp", default={}) or {}).get("equal"))
     ok = (_d(a, b, "refused", "count") == 0 and _d(a, b, "captures") == 0 and bool(_n(b, "seated", default=False))
-          and host_bag0 is not None and host_bag0 == host_bag1 and fp_ok)
-    return ok, (f"{rec.get('what')}: refused +{_d(a, b, 'refused', 'count')} captures +{_d(a, b, 'captures')}, seated "
-                f"{_n(b, 'seated', default=None)!r}; the HOST's bag {host_bag0} -> {host_bag1}; at the close fp equal {fp_ok}")
+          and host_bag0 is not None and host_bag0 == host_bag1 and fp_ok and swapped)
+    return ok, (f"{rec.get('what')}: the manual swap {rec.get('l0')!r} <-> {rec.get('l2')!r} (Manual row {rec.get('manual_label')!r}), "
+                f"the cursor's row after it {rec.get('swapped')!r}: measured {swapped}; refused +{_d(a, b, 'refused', 'count')} captures "
+                f"+{_d(a, b, 'captures')}, seated {_n(b, 'seated', default=None)!r}; the HOST's bag {host_bag0} -> {host_bag1}; at the "
+                f"close fp equal {fp_ok}{trail}")
 
 
 def judge_ghost(before, samples) -> tuple:
@@ -578,14 +621,15 @@ def close_words_want(cause: str):
 
 
 def judge_close(cause: str, base: dict, s: dict, *, words=None, want_from=None, landed: bool = True, extra_ok: bool = True,
-                extra: str = "") -> tuple:
-    """A real trigger's forced close (PURE): closes.<cause> +1, last_close {cause, end done[, from]}, the close WORDS (``words``: the
-    close_line text stamped AT the close -- _CloseWatch; it lives GM_GUEST_LINE_MS, gone long before a follow lands -- equal to the
-    cause's CloseLineRule line), fp equal, nothing seated, the follow / the scene ``landed``."""
+                extra: str = "", ends=("done",)) -> tuple:
+    """A real trigger's forced close (PURE): closes.<cause> +1, last_close {cause, end in ``ends`` (done; a judge whose close can end at
+    a decision-16 clear point -- the boot's scene load, the exit ramp's fire -- also passes 'clear_point' and pins its form itself)[,
+    from]}, the close WORDS (``words``: the close_line text stamped AT the close -- _CloseWatch; it lives GM_GUEST_LINE_MS, gone long
+    before a follow lands -- equal to the cause's CloseLineRule line), fp equal, nothing seated, the follow / the scene ``landed``."""
     lc = _n(s, "last_close", default={}) or {}
     fp = _n(s, "fp", default={}) or {}
     want = close_words_want(cause)
-    ok = (_d(base, s, "closes", cause) == 1 and lc.get("cause") == cause and lc.get("end") == "done"
+    ok = (_d(base, s, "closes", cause) == 1 and lc.get("cause") == cause and lc.get("end") in tuple(ends)
           and (want_from is None or lc.get("from") == want_from) and bool(fp.get("equal")) and not _n(s, "seated", default=True)
           and words is not None and words == want and landed and extra_ok)
     return ok, (f"closes.{cause} +{_d(base, s, 'closes', cause)}, last_close {lc} (from want {want_from or 'any'}), close words {words!r} "
@@ -620,22 +664,60 @@ def judge_fade(cycles: list) -> tuple:
     return (len(cycles) >= 2 and not bad), f"{shown}; failed at {bad or 'none'}"
 
 
+def _at(lines, needle: str) -> list:
+    """(PURE) The indices of ``lines`` holding ``needle``."""
+    return [i for i, ln in enumerate(lines) if needle in ln]
+
+
 def judge_out(base: dict, s: dict, landed: bool, lines, words=None) -> tuple:
-    waits = sum(1 for ln in lines if BW.log_world_out_waits("the field HUD is not up") in ln)
-    alive = [int(m.group(1)) for m in (_RX_HOST_ALIVE.search(ln) for ln in lines) if m]
-    return judge_close("out", base, s, words=words, landed=landed, extra_ok=waits == 0 and bool(alive) and alive[0] >= OUT_LIVE_MS,
-                       extra=f"'the field HUD is not up' waits {waits}; the start's host-alive ms {alive or 'no start line'} (want >= "
-                             f"{OUT_LIVE_MS})")
+    """GM0-OUT (PURE), decision 18: WorldOutTick REQUESTS the `out` close, then WorldOutStep refuses at its FieldHud term in the same call
+    -- one 'the field HUD is not up' wait (latched once per host b6 visit and reason; two-PC B10), logged before the close's end line. The
+    start after the door's restore (no move lane passes its HUD term before it), its 'live on the world map for N ms' >= OUT_LIVE_MS."""
+    hud = _at(lines, BW.log_world_out_waits("the field HUD is not up"))
+    end = _at(lines, BW.LOG_GM_FORCED_CLOSE + "out)")
+    door = _at(lines, BW.LOG_GM_RESTORED + "the door")
+    starts = [(i, int(m.group(1) or m.group(2))) for i, m in ((i, _RX_HOST_ALIVE.search(ln)) for i, ln in enumerate(lines)) if m]
+    alive = starts[0][1] if starts else None
+    order = (bool(end) and bool(door) and bool(starts) and starts[0][0] > door[0] and len(hud) <= 1 and all(i < end[0] for i in hud))
+    return judge_close("out", base, s, words=words, landed=landed, extra_ok=order and alive is not None and alive >= OUT_LIVE_MS,
+                       extra=f"'the field HUD is not up' waits {len(hud)} at {hud[:2]} (want <= 1, before the close's end at {end[:1]}); "
+                             f"the start at {[i for i, _a in starts][:1]} (want after the door at {door[:1]}), host-alive ms "
+                             f"{alive if alive is not None else 'no start line'} (want >= {OUT_LIVE_MS})")
 
 
 def judge_rejoin(base: dict, s: dict, landed: bool, lines, words=None) -> tuple:
-    waits = sum(1 for ln in lines if "waits: the world HUD is not up" in ln)
-    return judge_close("rejoin", base, s, words=words, landed=landed, extra_ok=waits == 0, extra=f"'the world HUD is not up' waits {waits}")
+    """GM0-REJOIN (PURE), decision 18: WorldFollowFire requests the close, then WorldArmWhy refuses that call at its first gate (the world
+    HUD) -- one wait, logged before the close's end line (two-PC B11); the arm ('rejoining the peer at field') after the door's restore."""
+    hud = _at(lines, "waits: the world HUD is not up")
+    end = _at(lines, BW.LOG_GM_FORCED_CLOSE + "rejoin)")
+    door = _at(lines, BW.LOG_GM_RESTORED + "the door")
+    arm = _at(lines, "rejoining the peer at field")
+    order = bool(end) and bool(door) and bool(arm) and arm[0] > door[0] and len(hud) <= 1 and all(i < end[0] for i in hud)
+    return judge_close("rejoin", base, s, words=words, landed=landed, extra_ok=order,
+                       extra=f"'the world HUD is not up' waits {len(hud)} at {hud[:2]} (want <= 1, before the close's end at {end[:1]}); "
+                             f"the arm at {arm[:1]} (want after the door at {door[:1]})")
 
 
-def judge_cut(base: dict, s: dict, report, live_lines: int, landed: bool, words=None) -> tuple:
-    return judge_close("cut", base, s, words=words, landed=landed, extra_ok=report == BW.BOOT_NAMES[BW.BOOT_BOOTING] and live_lines >= 1,
-                       extra=f"the host's start-hold report {report!r} (want 'booting'), 'diorama LIVE' lines {live_lines}")
+def cut_end_ok(lc_end, lines) -> bool:
+    """(PURE) A cut close's end: `done`, or a `clear_point` whose end line says '(a scene load)' with the door's restore before 'diorama
+    BOOT' (the boot's scene load ends the record first: UIManager.OnLevelWasLoaded, before CeScene could)."""
+    endl = [ln for ln in lines if BW.LOG_GM_FORCED_CLOSE + "cut)" in ln]
+    door = _at(lines, BW.LOG_GM_RESTORED + "the door")
+    boot = _at(lines, "diorama BOOT")
+    return lc_end == "done" or (lc_end == "clear_point" and any("(a scene load)" in ln for ln in endl) and bool(door) and bool(boot)
+                                and door[0] < boot[0])
+
+
+def judge_cut(base: dict, s: dict, report, live_lines: int, landed: bool, words=None, lines=()) -> tuple:
+    """GM0-CUT (PURE), decision 18: the boot fires on its first HUD frame (DioramaTick's UI gate reads the state only), so a FIELD cut's
+    record ends at the boot's scene load (decision 16: `clear_point`, '(a scene load)' -- OnLevelWasLoaded ends it first, so CeScene can
+    never win at a load), with the door's restore BEFORE 'diorama BOOT'; a WORLD cut ends `done` (WorldHUD.Show turns events on at once)."""
+    lc_end = (_n(s, "last_close", default={}) or {}).get("end")
+    end_ok = cut_end_ok(lc_end, lines)
+    return judge_close("cut", base, s, words=words, landed=landed, ends=("done", "clear_point"),
+                       extra_ok=end_ok and report == BW.BOOT_NAMES[BW.BOOT_BOOTING] and live_lines >= 1,
+                       extra=f"end {lc_end!r} (done, or the boot's scene load after the door: {end_ok}); the host's start-hold report "
+                             f"{report!r} (want 'booting'), 'diorama LIVE' lines {live_lines}")
 
 
 def judge_silent(now, ui_after, opens_delta: int, bmenu_ok: bool, booted: bool) -> tuple:
@@ -645,12 +727,16 @@ def judge_silent(now, ui_after, opens_delta: int, bmenu_ok: bool, booted: bool) 
     return ok, f"now {now!r} on BattleHUD; after the press ui {ui_after!r}, opens +{opens_delta}; `bmenu mainmenu` accepted {bmenu_ok}"
 
 
-def judge_cut_quit(waiting: list, report, s_after: dict, base: dict) -> tuple:
+def judge_cut_quit(waiting: list, report, s_after: dict, base: dict, lines=()) -> tuple:
+    """GM0-CUT-QUIT (PURE): the prompt held the cut close (close_step 'quit', seated, the host's report 'busy'), then the prompt's Cancel
+    let it end -- `done`, or on this FIELD the boot's scene load (cut_end_ok, as GM0-CUT)."""
     held = bool(waiting) and all(_n(w, "close_step", default=None) == "quit" and _n(w, "seated", default=False) for w in waiting)
     lc = _n(s_after, "last_close", default={}) or {}
-    ok = held and report == BW.BOOT_NAMES[BW.BOOT_BUSY] and _d(base, s_after, "closes", "cut") == 1 and lc.get("end") == "done"
+    end_ok = cut_end_ok(lc.get("end"), lines)
+    ok = held and report == BW.BOOT_NAMES[BW.BOOT_BUSY] and _d(base, s_after, "closes", "cut") == 1 and end_ok
     return ok, (f"{len(waiting)} samples under the prompt, close_step quit and seated on all {held}; the host's report {report!r} (want "
-                f"'busy'); after the prompt's Cancel closes.cut +{_d(base, s_after, 'closes', 'cut')}, end {lc.get('end')!r}")
+                f"'busy'); after the prompt's Cancel closes.cut +{_d(base, s_after, 'closes', 'cut')}, end {lc.get('end')!r} (done, or the "
+                f"boot's scene load after the door: {end_ok})")
 
 
 def judge_title(base: dict, s: dict, fade_ms, words=None) -> tuple:
@@ -674,14 +760,21 @@ def judge_scene(base: dict, s: dict, played: bool, lines, *, chest: bool = False
 
 
 def judge_ramp(cause_base: dict, s: dict, lines, *, ui_ok: bool, words=None) -> tuple:
-    """GM0-RAMP-CFG-D / GM0-RAMP-FIELD-D / GM0-RAMP-T (PURE): the ending close, the restore line before the ramp's, no alarm."""
+    """GM0-RAMP-CFG-D / GM0-RAMP-FIELD-D / GM0-RAMP-WORLD-D / GM0-RAMP-T (PURE): the ending close, the restore line before the ramp's, no
+    alarm. Decision 16: the record ends `clear_point` at the ramp's fire -- the ramp block runs before the close tick (NetSyncClient.cs
+    :3421 before :3528), so the fire beats step 5 (the HUD's events) on a field and on the world map alike -- its end line 'ended at a
+    clear point ... (the exit ramp's fire)'; `done` passes too (B16)."""
     restored = [i for i, ln in enumerate(lines) if BW.LOG_GM_RESTORED in ln]
     ramp = [i for i, ln in enumerate(lines) if "session ended -> reloading own autosave" in ln]
     alarm = sum(1 for ln in lines if "(should never happen)" in ln and "guest menu" in ln)
     order = bool(restored) and bool(ramp) and restored[0] < ramp[0]
-    return judge_close("ending", cause_base, s, words=words, extra_ok=order and alarm == 0 and ui_ok,
+    lc_end = (_n(s, "last_close", default={}) or {}).get("end")
+    fire = [ln for ln in lines if BW.LOG_GM_FORCED_CLOSE + "ending)" in ln]
+    end_ok = lc_end == "done" or (lc_end == "clear_point" and any("ended at a clear point" in ln and "the exit ramp's fire" in ln
+                                                                  for ln in fire))
+    return judge_close("ending", cause_base, s, words=words, ends=("done", "clear_point"), extra_ok=order and alarm == 0 and ui_ok and end_ok,
                        extra=f"the restore line before the ramp's {order} (restore at {restored[:1]}, ramp at {ramp[:1]}), alarm lines {alarm}, "
-                             f"the HUD with control after {ui_ok}")
+                             f"the HUD with control after {ui_ok}, end {lc_end!r} (done, or a clear point at the exit ramp's fire: {end_ok})")
 
 
 def judge_quit_d(base: dict, s: dict, lines, prompt_after: bool) -> tuple:
@@ -964,9 +1057,15 @@ def blackhole(d, seconds: float):
 
 
 # ================================================================================================ the duo
-def _seed_host(g) -> str:
-    """PAIR's host_setup: the HOST's party seeded through COOPPARTY, so the seat is a SECOND MARKER the guest's own party is not."""
-    return cb.seed_party(g, back_to=g.state.field_id or HOME)
+def _seed_host_to(field: int):
+    """PAIR's host_setup for a leg paired on ``field``: the HOST's party seeded through COOPPARTY, so the seat is a SECOND MARKER the
+    guest's own party is not. duo.py runs host_setup RIGHT AFTER the host's New Game, while the game stands on field 70 (the New-Game
+    override, no player control), so the seeder must warp on to the LEG's field, never to ``g.state.field_id``: the OLD run of
+    2026-11-07 lost nine duo legs at setup to exactly that (the warp back to 70 waited 60 s for control that never comes)."""
+    def seed(g) -> str:
+        return cb.seed_party(g, back_to=field)
+    seed.field = field
+    return seed
 
 
 def _chest_setup(g) -> str:
@@ -979,17 +1078,17 @@ def _pair_of(leg) -> dict:
     extra_host = {"GhostAs": "auto"} if leg == "key" else {}
     extra_guest = {"GhostAs": "auto"} if leg == "key" else {"SessionGraceMs": str(GRACE_MS)} if leg in ("stall", "world") else {}
     if leg == "world":
-        return {"field": FARSHORE, "host_setup": _seed_host, "role_extra": {"host": {}, "guest": extra_guest}}
+        return {"field": FARSHORE, "host_setup": _seed_host_to(FARSHORE), "role_extra": {"host": {}, "guest": extra_guest}}
     if leg in ("out", "rejoin"):
-        return {"field": FARSHORE, "host_setup": _seed_host}
+        return {"field": FARSHORE, "host_setup": _seed_host_to(FARSHORE)}
     if leg in ("scene", "dialog"):
-        return {"field": SCRIBE_FIELD, "host_setup": _seed_host}
+        return {"field": SCRIBE_FIELD, "host_setup": _seed_host_to(SCRIBE_FIELD)}
     if leg == "hudstrip":
         return {"field": STRIP_FIELD}
     if leg == "chest":
         import coop_chest_relay as cr
         return {"field": cr.FIELD, "host_setup": _chest_setup, "guest_setup": _chest_setup}
-    pair = {"field": HOME, "host_setup": _seed_host}
+    pair = {"field": HOME, "host_setup": _seed_host_to(HOME)}
     if extra_host or extra_guest:
         pair["role_extra"] = {"host": extra_host, "guest": extra_guest}
     return pair
@@ -1066,14 +1165,77 @@ def _not_run(check, ctx: dict, rows, why: str) -> None:
 
 
 def _quit_unreachable(check, ctx: dict, rows, why: str) -> None:
-    """The guest's quit prompt is raised only by `endbench quit on`, a SELFTEST-ROLE lever (NetSyncEnd.HarnessEndBench refuses any other
-    role): THE DUO CANNOT PULL A SELFTEST-ROLE LEVER, and no any-role verb (nor an Alt+F4 key injection) exists -- the rows are recorded
-    unrun, out of the calibration, until an any-role quit-prompt verb exists (an open item); any OTHER refusal is a plain red."""
+    """The guest's quit prompt is raised by `endbench quit on`, a SELFTEST-ROLE lever (NetSyncEnd.HarnessEndBench refuses any other role):
+    THE DUO CANNOT PULL A SELFTEST-ROLE LEVER. Its fallback, a WM_CLOSE posted to the guest's window (_raise_quit_prompt), keeps the
+    'needs the selftest role' words when it too raised nothing -- the rows are then recorded unrun, out of the calibration, until an
+    any-role quit-prompt drive is proven (an open item; its two-PC route is B32); any OTHER refusal is a plain red."""
     if "needs the selftest role" in str(why):
         _not_run(check, ctx, rows, f"no any-role quit-prompt verb: `endbench quit on` is the selftest role's ({str(why)[:120]})")
         return
     for r in rows:
         check(r, False, f"not reached: `endbench quit on` refused ({str(why)[:160]})")
+
+
+def _harness_instance():
+    """tools/harness/instance.py (the driver puts tools/ on sys.path; a direct import adds it)."""
+    try:
+        from harness import instance as hinst
+    except ImportError:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools"))
+        from harness import instance as hinst
+    return hinst
+
+
+def _post_close(d, role: str = "guest") -> tuple:
+    """WM_CLOSE (0x0010) posted to ``role``'s game windows -- instance.post_close over the duo's own pid (no focus, no keys: THE UNATTENDED
+    LAW): -> (windows posted, how). 0 when the duo carries no pid for the role (the stub duo) or no post_close exists."""
+    pid = (getattr(d, "pids", None) or {}).get(role)
+    if not pid:
+        return 0, f"no {role} pid on this duo"
+    fn = getattr((getattr(d, "instances", None) or {}).get(role), "post_close", None)   # Instance.post_close: a method or a static
+    if fn is None:
+        try:
+            hinst = _harness_instance()
+        except ImportError as err:
+            return 0, f"no tools/harness/instance.py ({err})"
+        fn = getattr(hinst, "post_close", None) or getattr(getattr(hinst, "Instance", None), "post_close", None)
+    if fn is None:
+        return 0, "no instance.post_close (tools/harness/instance.py)"
+    try:
+        n = int(fn(int(pid)) or 0)
+    except (OSError, AttributeError, TypeError, ValueError) as err:
+        return 0, f"post_close({pid}) raised: {err}"
+    return n, f"WM_CLOSE posted to {n} window(s) of the {role}'s pid {pid}"
+
+
+def _raise_quit_prompt(d, g) -> tuple:
+    """The guest's stock quit prompt over its seated menu: `endbench quit on` (the selftest role's) -- else, on its 'needs the selftest
+    role' refusal (a duo guest is role client), a WM_CLOSE posted to the guest's own window: UIKeyTrigger.OnApplicationQuit cancels the
+    quit and opens the same stock prompt BenchQuitPrompt does (UIKeyTrigger.cs:412-418; Unity 5.2.3 honours CancelQuit). Grounded in
+    source, UNPROVEN in game: run its leg ALONE first. -> (ok, why, how): how 'endbench' | 'wm_close' | None. NEVER Confirm while the
+    prompt is up -- its Yes quits the game."""
+    okq, whyq = cb.try_ns(g, "endbench", "quit", "on")
+    if okq:
+        return True, "", "endbench"
+    if "needs the selftest role" not in str(whyq):
+        return False, whyq, None
+    n, how = _post_close(d, "guest")
+    if not n:
+        return False, whyq, None                          # the refusal's own words: the named 'not run' (no fallback on this duo)
+    up = poll(g, lambda s: cb.quit_prompt_up(s), 3.0, "the quit prompt (WM_CLOSE)") is not None
+    if up:
+        return True, how, "wm_close"
+    return False, (f"neither `endbench quit on` (needs the selftest role) nor a window close request ({how}) raised the prompt"), None
+
+
+def _lower_quit_prompt(g, how) -> None:
+    """Take the prompt down the way it went up: `endbench quit off`, or -- the WM_CLOSE prompt is the stock QuitUI -- a Cancel (never
+    Confirm). A no-op when the prompt is already gone."""
+    if how == "endbench":
+        cb.try_ns(g, "endbench", "quit", "off")
+    elif how == "wm_close" and cb.quit_prompt_up(g.state):
+        g.press("cancel")
+        g.wait_frames(SKEW_FRAMES)
 
 
 def _measure(ctx: dict, rows, shape: bool) -> None:
@@ -1127,6 +1289,74 @@ def _old_gate(d, check, rest, ctx: dict, *, world: bool = False) -> bool:
 
 
 # ---- key
+TWEEN_FRAMES = 30        # an NGUI sub-menu tween holds UIScene.Loading: a key pressed inside it is swallowed (the solo bench's)
+
+
+def _where(g) -> tuple:
+    """(menu_group, menu_label) right now: one entry of the sort's trail."""
+    st = g.state
+    return getattr(st, "menu_group", None), getattr(st, "menu_label", None)
+
+
+def _local_sort_d(g) -> dict:
+    """GM0-LOCAL-D's drive, from the Item screen (DESIGN D5: judged by the MANUAL swap -- Auto stays pressed and unmeasured, a no-op on a
+    bag already in order -- so no host-side seeder): Item opens ON its list (Item.Item), so one Cancel puts the group on the rail
+    (Item.SubMenu; any other group is named, never Cancelled blind: a Cancel on the rail leaves the screen); the rail's Arrange (every
+    s168 bar is HORIZONTAL: right, then down) into Item.ArrangeMenu, Auto; Arrange again, the dialog's SECOND row (Manual: ItemUI.cs
+    :299-306, mode 2 = sibling index 1; its label recorded), Confirm -- then coop_guest_menu._manual_swap, the solo bench's measured
+    sort: l0 and l2 read, rows 0 and 2 swapped on the seated copy, the cursor's row read back (``swapped``). -> the rec judge_local_d
+    reads; ``why`` names the first step that did not run (with every pick's `seen` list)."""
+    whys = []
+    rec = {"reached": False, "why": "", "what": "sort (Arrange: Auto, then Manual)", "before": snap(g.state), "trail": [_where(g)]}
+
+    def stop(why: str) -> dict:
+        rec["why"] = why + (f" ({'; '.join(whys)})" if whys else "")
+        rec["after"] = snap(g.state)
+        rec["trail"].append(_where(g))
+        return rec
+
+    def arrange(what: str) -> bool:
+        if not gm._pick(g, "Arrange", directions=("right", "down"), why=whys):
+            return False
+        if gm._group(g, "Item.ArrangeMenu", what) is None:
+            return False
+        g.wait_frames(TWEEN_FRAMES)
+        rec["trail"].append(_where(g))
+        return True
+    if gm._group(g, "Item.Item", "the Item screen's list (Item opens ON it)") is not None:
+        g.press("cancel")
+    if gm._group(g, "Item.SubMenu", "the Item rail (a Cancel off the list)") is None:
+        return stop(f"no Item.SubMenu (the rail) after the Item screen opened (read {_where(g)})")
+    rec["trail"].append(_where(g))
+    if not arrange("the arrange dialog"):
+        return stop(f"no Item.ArrangeMenu by the rail's Arrange (read {_where(g)})")
+    if not gm._pick(g, "Auto", directions=("down", "right"), why=whys):      # pressed, never measured: no census, still seated
+        return stop(f"no 'Auto' in the arrange dialog (read {_where(g)})")
+    rec["auto_rail"] = gm._group(g, "Item.SubMenu", "the rail after Auto (ItemUI.cs:289-296)") is not None
+    g.wait_frames(TWEEN_FRAMES)
+    rec["auto_seated"] = bool(_gm(g.state).get("seated"))
+    rec["trail"].append(_where(g))
+    if not arrange("the arrange dialog, again"):
+        return stop(f"no Item.ArrangeMenu by the rail's Arrange after Auto (read {_where(g)})")
+    if not gm._pick(g, "Auto", confirm=False, directions=("down", "up"), why=whys):   # the first row, wherever the dialog opened
+        return stop(f"no 'Auto' row to start the second-row walk from (read {_where(g)})")
+    g.press("down")
+    st = cb.poll(g, lambda s: getattr(s, "menu_label", None) not in (None, "", "Auto"), gm.SEL_S, "the arrange dialog's second row")
+    rec["manual_label"] = getattr(g.state, "menu_label", None)
+    if st is None:
+        return stop(f"the arrange dialog's second row never read (label {rec['manual_label']!r})")
+    g.press("confirm")
+    swap = getattr(gm, "_manual_swap", None)
+    if not callable(swap):
+        return stop("no coop_guest_menu._manual_swap (the solo bench's measured sort) to spend")
+    swap(g, rec)
+    g.wait_frames(SKEW_FRAMES)
+    rec["after"] = snap(g.state)
+    rec["reached"] = not rec.get("swap_why")
+    rec["why"] = rec.get("swap_why") or ""
+    return rec
+
+
 def _leg_key(d, check, rest, ctx: dict) -> None:
     host, guest = d.host, d.guest
     if not _old_gate(d, check, rest, ctx):
@@ -1168,13 +1398,9 @@ def _leg_key(d, check, rest, ctx: dict) -> None:
         hb0 = host_fp_comps(host.state).get("bag")
         gm._back_to_root(guest)
         state, _why = gm.goto_screen(guest, "Item")
-        lrec = {"reached": False, "why": "no Item screen", "what": "sort"}
+        lrec = {"reached": False, "why": f"no Item screen ({_why})", "what": "sort"}
         if state is not None:
-            b0 = snap(guest.state)
-            found = any(gm._pick(guest, lb) for lb in ("Arrange", "Sort", "Auto"))
-            guest.wait_frames(20)
-            lrec = {"reached": found, "why": "" if found else "no Arrange / Sort / Auto row on the Item screen", "what": "sort",
-                    "before": b0, "after": snap(guest.state)}
+            lrec = _local_sort_d(guest)
         hb1 = host_fp_comps(host.state).get("bag")
         closed2 = close_out(guest)
         cycles.append((pre2, closed2))
@@ -1443,10 +1669,12 @@ def _leg_leave(d, check, rest, ctx: dict) -> None:
     host.send(f"warp {AWAY} -1 -1", wait=False)
     landed = wait_field(guest, AWAY) is not None
     s = snap(guest.state)
-    dr = sum(_d(pre, s, "door_refused", w) for w in (BW.GM_WHY_BUSY, BW.GM_WHY_LEAVING))
+    # DESIGN D1: term 9 (control) precedes term 10 (busy), and a started follow turns control off in the call that arms it
+    # (StartFollowWarp) -- a door inside the follow's fade reads `control`; `busy` / `leaving` before it starts
+    dr = sum(_d(pre, s, "door_refused", w) for w in DOOR_D_WHYS)
     ok = dr == 1 and not _n(s, "seated", default=True) and landed and _n(s, "event_enable", default=None) is True
-    check("GM0-DOOR-D", ok, f"door_refused busy+leaving +{dr}, why {_n(s, 'why', default=None)!r}, seated {_n(s, 'seated', default=None)!r}, "
-                            f"the follow landed {landed}, event_enable {_n(s, 'event_enable', default=None)!r}")
+    check("GM0-DOOR-D", ok, f"door_refused control+busy+leaving +{dr}, why {_n(s, 'why', default=None)!r}, seated "
+                            f"{_n(s, 'seated', default=None)!r}, the follow landed {landed}, event_enable {_n(s, 'event_enable', default=None)!r}")
 
 
 def _leg_out(d, check, rest, ctx: dict) -> None:
@@ -1535,7 +1763,6 @@ def _leg_cut(d, check, rest, ctx: dict) -> None:
         _measure(ctx, _CLOSE_ROWS["cut"], close_old_measured("cut", base, s_close))
     booted = poll(guest, lambda s: s.ui_state == "BattleHUD" and bool(cb.dio(s).get("booted")), 30.0, "the guest's diorama") is not None
     words = wch.stop()
-    live = cb.count(cb.new(guest, at), "diorama LIVE")
     now = _mr(guest.state).get("now") if booted else None
     pre = snap(guest.state)
     if booted:
@@ -1547,22 +1774,32 @@ def _leg_cut(d, check, rest, ctx: dict) -> None:
     _fight_out(host)
     landed = wait_field(guest, HOME, RETURN_S) is not None
     s = snap(guest.state)
-    check("GM0-CUT", *judge_cut(base, s, report, live, landed, words=words))
+    # 'diorama LIVE' is logged at the command phase (~8 s after the boot), so it is counted only after the fight, never at the boot poll
+    lines = cb.new(guest, at)
+    live = cb.count(lines, "diorama LIVE")
+    check("GM0-CUT", *judge_cut(base, s, report, live, landed, words=words, lines=lines))
     # the quit-prompt leg: a second battle with the guest's prompt over its seated menu
     wait_field(host, HOME, RETURN_S)
+    # term 6 reads NetSyncBattle.PeerBattleLive, which holds StaleMs 2000 past the host's last battle view: a press inside it is refused
+    # 'host_battle' by design (decision 8), so the seat waits for the guest's battle lane to go stale first
+    poll(guest, lambda x: cb.path(x, "netsync.battle.peer.live") is False, 6.0,
+         "the host's battle lane stale on the guest (StaleMs 2000: term 6)")
     ok2, base2, why2 = _seat_at(guest, "Item")
     if not ok2:
         check("GM0-CUT-QUIT", False, f"not reached: {why2}")
         return
-    okq, whyq = cb.try_ns(guest, "endbench", "quit", "on")
+    okq, whyq, how = _raise_quit_prompt(d, guest)
     if not okq:
         _quit_unreachable(check, ctx, ("GM0-CUT-QUIT",), whyq)
+        close_out(guest)                                  # never end the leg seated (as _leg_rampquit)
         return
+    at2 = cb.mark(guest)
     try:
         host.start_battle(SCENE, group=GROUP)
     except HarnessError as err:
         check("GM0-CUT-QUIT", False, f"not reached: the second battle never started ({str(err)[:160]})")
-        cb.try_ns(guest, "endbench", "quit", "off")
+        _lower_quit_prompt(guest, how)
+        close_out(guest)
         return
     waiting, report2 = [], None
     end = time.time() + (BW.GM_CLOSE_CAP_MS + 1000) / 1000.0
@@ -1570,10 +1807,10 @@ def _leg_cut(d, check, rest, ctx: dict) -> None:
         waiting.append(snap(guest.state))
         report2 = boot_name(host.state) or report2
         time.sleep(0.2)
-    cb.try_ns(guest, "endbench", "quit", "off")
+    _lower_quit_prompt(guest, how)
     s2 = snap(poll(guest, lambda x: (_gm(x).get("last_close") or {}).get("cause") == "cut" and not _gm(x).get("close_pending"), CLOSE_S,
                    "the close ended") or guest.state)
-    check("GM0-CUT-QUIT", *judge_cut_quit(waiting, report2, s2, base2))
+    check("GM0-CUT-QUIT", *judge_cut_quit(waiting, report2, s2, base2, lines=cb.new(guest, at2)))
     _fight_out(host)
     wait_field(guest, HOME, RETURN_S)
 
@@ -1675,11 +1912,12 @@ def _leg_rampquit(d, check, rest, ctx: dict) -> None:
     if not ok:
         rest(why)
         return
-    okq, whyq = cb.try_ns(guest, "endbench", "quit", "on")
+    okq, whyq, how = _raise_quit_prompt(d, guest)         # `endbench quit on`, else (the selftest role's) a WM_CLOSE to the guest
     if not okq:
         _quit_unreachable(check, ctx, ("GM0-QUIT-D",), whyq)
         close_out(guest)
         return
+    d.note(f"GM0-QUIT-D: the quit prompt up by {how}{(' (' + whyq + ')') if whyq else ''}")
     at = cb.mark(guest)
     d.set_netsync("guest", {"Enabled": "0"}, timeout=1.0)   # (its echo wants enabled=True: never for an Enabled=0 edit -- do not wait 15 s)
     poll(guest, lambda s: cb.count(cb.new(guest, at), "session ended -> reloading own autosave") > 0, RAMP_S, "the ramp's reload")
@@ -1687,6 +1925,8 @@ def _leg_rampquit(d, check, rest, ctx: dict) -> None:
     s = snap(st or guest.state)
     prompt = cb.quit_prompt_up(guest.state)                 # the stock QuitUI's tell (no engine publishes a quit_open key)
     check("GM0-QUIT-D", *judge_quit_d(base, s, cb.new(guest, at), prompt))
+    if prompt:
+        _lower_quit_prompt(guest, how)                    # a prompt that survived the Autoload: down by Cancel / `quit off`, never Confirm
 
 
 def _leg_stall(d, check, rest, ctx: dict) -> None:
@@ -1899,8 +2139,12 @@ def _t_hole(g, led, ctx) -> None:
     if not t2._replay(g, led, ctx, args, want_send=None, tag="gm-hole"):
         led.unreached(rows, "the replay never started (T2-PEER)")
         return
+    # THE PRE-INIT SAMPLE at the pairing edge: `world.freeze.on` is a LIVE read (SpectatorField -> IsLiveFollowedSession) while decision
+    # 7's guestSession (WorldSessionHeld) is SessionTick's once-per-Update latch -- a sample between them reads `now` 'open' (s121's read)
+    # and the press one frame on is refused. Press only once the session itself holds (session.state on OLD too; guestmenu.session on s168).
     t2._wait(g, ctx, lambda s: s.ui_state == "WorldHUD" and t2.judged(s) and cb.path(s, "netsync.session.mirroring") is not True
-             and cb.path(s, "netsync.world.freeze.on") is True, t2.STALL_PAIR_S, kinds="bh")
+             and cb.path(s, "netsync.world.freeze.on") is True and cb.path(s, "netsync.session.state") == "live"
+             and (not ctx.gm["new"] or cb.path(s, "netsync.guestmenu.session") is True), t2.STALL_PAIR_S, kinds="bh")
     pre, s, _raw = _t_press(g, world=True)
     led.check("GM0-HOLE-T", *judge_refused((BW.GM_WHY_NOT_MIRRORING,), pre, s, world=True))
     _measure(ctx.gm, "GM0-HOLE-T", own_menu_measured(s))
@@ -2052,6 +2296,7 @@ def _t_tape(g, led, ctx) -> None:
             led.check(row, False, f"not reached: the press {outx}")
             _measure(ctx.gm, row, key_old_measured(prex, sx))
             continue
+        at = cb.mark(g) if cause == "cut" else None
         wch = close_watch(g, sx, cause, 40.0)
         if cause == "leave":
             landed = wait_field(g, dest, 30.0) is not None
@@ -2059,8 +2304,14 @@ def _t_tape(g, led, ctx) -> None:
             led.check(row, *judge_close("leave", sx, sl, words=wch.stop(), landed=landed))
         else:
             booted = poll(g, lambda x: bool(cb.dio(x).get("booted")), 30.0, "the diorama") is not None
-            sl = snap(g.state)
-            led.check(row, *judge_close("cut", sx, sl, words=wch.stop(), landed=booted, extra=f"the diorama booted {booted}"))
+            st = poll(g, lambda x: (_gm(x).get("last_close") or {}).get("cause") == "cut" and not _gm(x).get("close_pending"),
+                      CLOSE_S, "the cut's close record ended")
+            sl = snap(st or g.state)
+            lc_end = (_n(sl, "last_close", default={}) or {}).get("end")
+            end_ok = cut_end_ok(lc_end, cb.new(g, at))
+            led.check(row, *judge_close("cut", sx, sl, words=wch.stop(), landed=booted, ends=("done", "clear_point"), extra_ok=end_ok,
+                                        extra=f"the diorama booted {booted}; end {lc_end!r} (done, or the boot's scene load after the "
+                                              f"door: {end_ok})"))
     # RAMP
     if w.get("stop_at") is None:
         led.check("GM0-RAMP-T", False, "not reached: no --stop-at anchor")

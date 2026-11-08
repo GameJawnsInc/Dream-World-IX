@@ -1215,7 +1215,9 @@ def test_s166_the_engines_stock_last_table_is_battlewires():
 def test_s166_the_agent_speaks_the_contracts_verb_key_and_lines():
     agent = _s166_text("HarnessAgent.cs")
     m = re.search(r"netsync: unknown sub-verb[^\n]*\(([a-z0-9|-]+)\)", agent)
-    assert m and m.group(1).split("|")[-2:] == ["worldfollow", "worldwalk"], m and m.group(1)
+    verbs = m.group(1).split("|") if m else []
+    # s166 appends worldwalk right after s165's worldfollow; a later round may append its own after them (s168: guestmenu)
+    assert "worldfollow" in verbs and verbs[verbs.index("worldfollow") + 1:][:1] == ["worldwalk"], m and m.group(1)
     assert '\\"kitcell\\"' in agent or '"kitcell"' in agent
     text = "\n".join(ln for name in ("HarnessAgent.cs", "NetSyncClient.cs", "NetSyncField.cs", "NetSyncWorldWalk.cs", "NetSyncBattle.cs")
                      for ln in _s166_text(name).split("\n") if '"' in ln)

@@ -6,7 +6,8 @@ recipe end to end against a SIMULATED engine that answers each root's own ini in
 fetched with ONE same-field warp, the cross-instance helpers judge both games and record on both Sessions, a strict red
 stops the run and still restores both inis and writes duo.json, and the laws -- private ports, a fresh code, two distinct
 roots -- refuse before anything starts. The duo's engine-line matchers are pinned to the T2 bench's (whose self-check
-pins THEM to the engine's C#). The helper-process wrapper is exercised against a real ``coop_peer relay``.
+pins THEM to the engine's C#). The helper-process wrapper is exercised against a real ``coop_peer relay``. [s168] ``--root-ini``
+parses, refuses [Netsync], rides both roots from before their ensure and is emptied before each restore_ini.
 
 WHAT THEY ARE NOT. No FF9 runs, no engine pairs: ``py tools/harness/duo.py --smoke`` (and duo_p4.py) is that proof.
 """
@@ -221,6 +222,129 @@ def test_a_live_netsync_edit_rewrites_the_roles_ini_and_waits_for_the_engines_ec
         with pytest.raises(HarnessError, match="the duo owns those keys"):
             d.set_netsync("host", {key: "x"}, timeout=0.1)
     assert len(written) == n, "a refused edit writes nothing"
+
+
+# ------------------------------------------------------------------------------------------- [s168] --root-ini
+
+
+def test_root_ini_parses_repeatable_specs_and_refuses_the_netsync_section():
+    """[ff9mapkit netsync s168] ``--root-ini SECTION.KEY=VALUE`` (the FadeDuration-300 rows' writer: a hand edit of a root is regenerated
+    away at every duo start): repeatable, trimmed, a later spec of a key wins, a value may hold '='; the [Netsync] section (any spelling:
+    the duo's own), a malformed spec and an ini injection are refused before anything starts."""
+    assert D.parse_root_ini([]) == {} and D.parse_root_ini(None) == {}
+    got = D.parse_root_ini(["Interface.FadeDuration=300", " Control.SoftReset = 1 ", "Interface.FadeDuration=400", "Mod.Note=a=b"])
+    assert got == {"Interface": {"FadeDuration": "400"}, "Control": {"SoftReset": "1"}, "Mod": {"Note": "a=b"}}
+    for bad, why in (("Netsync.Enabled=1", "duo's own"), ("netsync.RelayUrl=ws://127.0.0.1:49201", "duo's own"),
+                     (" NETSYNC .Role=host", "duo's own"), ("Interface", "SECTION.KEY=VALUE"), ("FadeDuration=300", "SECTION.KEY=VALUE"),
+                     ("Interface.FadeDuration", "SECTION.KEY=VALUE"), (".FadeDuration=300", "SECTION.KEY=VALUE"),
+                     ("Interface.=300", "SECTION.KEY=VALUE"), ("Inter]face.X=1", "injection"), ("Interface.X=1\n[Netsync]", "injection")):
+        with pytest.raises(HarnessError, match=re.escape(why)):
+            D.parse_root_ini([bad])
+
+
+class _RecInst:
+    """An Instance stand-in recording the extra_overlay each lifecycle call sees -- no root, no junction, no game."""
+
+    def __init__(self, root, events, role):
+        self.root, self.install, self.events, self.role = pathlib.Path(root), pathlib.Path(root).parent / "no-install", events, role
+        self.extra_overlay = {"Stale": {"Left": "over"}}            # whatever an earlier run left: start() replaces it
+
+    def ensure(self, label=""):
+        self.events.append(("ensure", self.role, json.loads(json.dumps(self.extra_overlay))))
+        return []
+
+    def restore_ini(self):
+        self.events.append(("restore", self.role, json.loads(json.dumps(self.extra_overlay))))
+        return False
+
+    def pids(self):
+        return []
+
+    def verify(self):
+        return []
+
+
+def test_root_ini_is_set_before_ensure_and_cleared_before_restore_ini(tmp_path):
+    """Duo.start sets each root's extra_overlay BEFORE the ensure loop (so the regenerated ini -- and the Session's own refresh at launch
+    -- carries it), and stop() empties it BEFORE each restore_ini (the roots go back to install + base and the post-run verify holds),
+    whatever stopped the run; duo.json keeps what was asked. A Duo handed a [Netsync] root_ini refuses at construction."""
+    events = []
+
+    def factory(role, inst, run_dir, label):
+        events.append(("boot", role, json.loads(json.dumps(inst.extra_overlay))))
+        raise HarnessError("no game in this test")
+
+    want = {"Interface": {"FadeDuration": "300"}}
+    insts = {r: _RecInst(tmp_path / "inst" / r, events, r) for r in D.ROLES}
+    d = D.Duo(label="t", instances=insts, session_factory=factory, run_dir=tmp_path / "duo", procs=False, verbose=False,
+              root_ini={"Interface": {"FadeDuration": 300}})
+    with pytest.raises(HarnessError, match="no game in this test"):
+        with d:
+            pass
+    assert events == [("ensure", "host", want), ("ensure", "guest", want), ("boot", "host", want),
+                      ("restore", "host", {}), ("restore", "guest", {})], events
+    assert all(i.extra_overlay == {} for i in insts.values())
+    rep = json.loads((tmp_path / "duo" / "duo.json").read_text(encoding="utf-8"))
+    assert rep["root_ini"] == want and rep["ini_restored"] == {"host": "already install + overlay", "guest": "already install + overlay"}
+    # no --root-ini: the roots' extra is EMPTIED at start (a stale one never rides a later duo)
+    events.clear()
+    insts = {r: _RecInst(tmp_path / "inst2" / r, events, r) for r in D.ROLES}
+    with pytest.raises(HarnessError, match="no game in this test"):
+        with D.Duo(label="t", instances=insts, session_factory=factory, run_dir=tmp_path / "duo2", procs=False, verbose=False):
+            pass
+    assert [e for e in events if e[0] == "ensure"] == [("ensure", "host", {}), ("ensure", "guest", {})]
+    for bad in ({"Netsync": {"Enabled": "1"}}, {"netsync": {"RelayUrl": "ws://127.0.0.1:49201"}}):
+        with pytest.raises(HarnessError, match="the duo's own"):
+            D.Duo(label="t", instances=insts, procs=False, verbose=False, run_dir=tmp_path / "duo3", root_ini=bad)
+
+
+def test_the_cli_takes_repeatable_root_ini_and_refuses_netsync_before_anything_starts(monkeypatch, capsys):
+    """``--root-ini`` is repeatable on the CLI and reaches the Duo; a [Netsync] spec is refused (exit 2) before the bench guard runs and
+    before any Duo exists -- no port, no root, no game."""
+    a = D.build_parser().parse_args(["--smoke", "--root-ini", "Interface.FadeDuration=300", "--root-ini", "Control.SoftReset=1"])
+    assert D.parse_root_ini(a.root_ini) == {"Interface": {"FadeDuration": "300"}, "Control": {"SoftReset": "1"}}
+    assert D.build_parser().parse_args(["--smoke"]).root_ini == []
+    guards, built = [], []
+    monkeypatch.setattr(D, "bench_blockers", lambda: guards.append(1) or ([], []))
+
+    class FakeDuo:
+        def __init__(self, **kw):
+            built.append(kw)
+            self.checks, self.run_dir = [], "nowhere"
+
+        def __enter__(self):
+            raise HarnessError("no duo in this test")
+
+        def __exit__(self, *exc):
+            return False
+    monkeypatch.setattr(D, "Duo", FakeDuo)
+    assert D.main(["--smoke", "--root-ini", "Netsync.Enabled=1"]) == 2
+    assert not guards and not built, "refused before the bench guard and before a Duo"
+    assert "duo's own" in capsys.readouterr().err
+    assert D.main(["--smoke", "--root-ini", "Interface.FadeDuration=300"]) == 1      # the fake Duo's own refusal: a harness error
+    assert guards and built[-1]["root_ini"] == {"Interface": {"FadeDuration": "300"}}
+
+
+@needs_junctions
+def test_root_ini_rides_both_roots_while_the_duo_runs_and_is_gone_after(duo_env, monkeypatch):
+    """End to end on two real roots: while the duo runs, both roots' Memoria.ini carry [Interface] FadeDuration = 300 beside the parked
+    [Netsync] and still VERIFY (the Session's launch refresh read the same extra); after it, both are install + overlay again."""
+    from ff9mapkit.coop import read_ini_key
+    boot_fast(monkeypatch)
+    with duo_env["make"](code="ff9-DUOTEST5", strict=False, root_ini={"Interface": {"FadeDuration": "300"}}):
+        for r in D.ROLES:
+            text = (duo_env["roots"][r] / "Memoria.ini").read_text(encoding="utf-8")
+            assert read_ini_key(text, "Interface", "FadeDuration") == "300", r
+            assert read_ini_key(text, "Netsync", "Enabled") == "0", "the parked [Netsync] stays"
+            assert duo_env["insts"][r].verify() == [], r
+    rep = json.loads((duo_env["tmp"] / "duo" / "duo.json").read_text(encoding="utf-8"))
+    assert rep["root_ini"] == {"Interface": {"FadeDuration": "300"}}
+    assert rep["roots_verify_after"] == {"host": [], "guest": []}
+    assert rep["ini_restored"] == {"host": "rewritten to install + overlay", "guest": "rewritten to install + overlay"}
+    for r in D.ROLES:
+        assert duo_env["insts"][r].extra_overlay == {}
+        text = (duo_env["roots"][r] / "Memoria.ini").read_text(encoding="utf-8")
+        assert read_ini_key(text, "Interface", "FadeDuration") is None, r
 
 
 # ------------------------------------------------------------------------------------------- the laws refuse first

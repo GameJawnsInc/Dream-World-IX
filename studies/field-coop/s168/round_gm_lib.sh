@@ -36,11 +36,13 @@
 #                            round A's ROUND_A_DUO_PORTS are honoured when it is unset
 #   ROUND_GM_RELAY_PORT=P    the duo's relay port (duo.py --relay-port; default its 7787)
 #   ROUND_GM_PEER_PORT=P     the regression runner's coop_climb_anim_peer port (COOP_PEER_PORT; default 49257); ROUND_B_ / ROUND_A_ honoured
-#   ROUND_GM_ROOTS=<dir>     the duo's instance roots' home (default /c/gd/ff9-inst: host/, guest/) -- read only, for FadeDuration
+#   ROUND_GM_FADE=MS         every duo of this run carries [Interface] FadeDuration = MS on BOTH instance roots (duo.py --root-ini: a hand
+#                            edit of a root is regenerated away by Instance.ensure at every duo start); >= 300 is the FadeDuration-300 pass
+#                            (GM0-KEY-DOUBLE, GM0-DOOR-D, GM0-FADE's 300 half); unset, the roots' own fade (the install's 40 ms)
 #   ROUND_GM_REF=<file>      the s167 proof block (default .harness-runs/s168-round-gm/s167-proof-block.txt; OLD writes it)
 #   ROUND_GM_LOGS=<dir>      the run folder (default .harness-runs/s168-round-gm/<stamp>-<kind>)
 #   ROUND_GM_PLAN=1          THE PLAN: print every leg's [N], name, route and command and launch NOTHING -- no guard, no DLL read, no
-#                            install read (GM0-SOFTRESET's precondition assumed met, the roots at 40 ms, no b3 tape unless
+#                            install read (GM0-SOFTRESET's precondition assumed met, the fade ROUND_GM_FADE's, no b3 tape unless
 #                            ROUND_GM_PLAN_TAPE names one); the run folder a fresh temp dir unless ROUND_GM_LOGS names one. The offline
 #                            tests read the runners through it (tests/test_coop_guest_menu_runners.py)
 set -u
@@ -52,9 +54,8 @@ SOLO="py studies/world-coop/s166-handoff/solo_ini.py"
 DUO_PORTS="${ROUND_GM_DUO_PORTS:-${ROUND_B_DUO_PORTS:-${ROUND_A_DUO_PORTS:-}}}"
 PEER_PORT="${ROUND_GM_PEER_PORT:-${ROUND_B_PEER_PORT:-${ROUND_A_PEER_PORT:-}}}"
 RELAY_PORT="${ROUND_GM_RELAY_PORT:-}"
-DUO="py tools/harness/duo.py${DUO_PORTS:+ --bridge-ports $DUO_PORTS}${RELAY_PORT:+ --relay-port $RELAY_PORT}"
+DUO="py tools/harness/duo.py${DUO_PORTS:+ --bridge-ports $DUO_PORTS}${RELAY_PORT:+ --relay-port $RELAY_PORT}${ROUND_GM_FADE:+ --root-ini Interface.FadeDuration=$ROUND_GM_FADE}"
 GAME="${FF9_GAME:-/c/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX}"
-ROOTS="${ROUND_GM_ROOTS:-/c/gd/ff9-inst}"
 S167_DLL=12be3220520813a6
 W1AB_DLL=532486364ec05354
 NOT_AFTER="${ROUND_GM_NOT_AFTER:-0230}"
@@ -68,6 +69,12 @@ REF="${ROUND_GM_REF:-$RUNS/s167-proof-block.txt}"
 # 420 / 249 as built); the clone the build came from is named here (an explicit FF9_S168_CLONE wins). FF9_S167_CLONE stays as the caller
 # set it (unset = the s167 patch's post-image: 532 / 196) -- preflight refuses one that names the s168 clone.
 export FF9_S168_CLONE="${FF9_S168_CLONE:-C:/gd/FFIX/Memoria/Assembly-CSharp}"
+# GM0-HUDSTRIP's field (coop_guest_menu_duo.py COOP_GMD_STRIP_FIELD): a kit field whose persistent [NFOC] [[behavior.hud]] strip is up
+# from entry -- the roll-stream bench 30890 (studies/roll-stream/bench/roll0.field.toml, in-game proven). Unset, the scenario falls back to
+# its pairing field 30801, which has no strip: the OLD run of 2026-11-07 read GM0-HUDSTRIP 'not reached' there (an unpredicted red).
+export COOP_GMD_STRIP_FIELD="${COOP_GMD_STRIP_FIELD:-30890}"
+# The guest's bag seeder (coop_guest_menu.py BAG_FIELD): GMBAG, studies/field-coop/s168/bench/gmbag.field.toml, deployed with an explicit --id.
+export COOP_GM_BAG_FIELD="${COOP_GM_BAG_FIELD:-30816}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 PLAN="${ROUND_GM_PLAN:-0}"
 if [ "$PLAN" = 1 ]; then
@@ -144,6 +151,7 @@ preflight() {   # preflight <old|bracket|new> [t2] [duo] [peer] [regress] -- t2 
     case "$kind" in old|bracket|new) ;; *) refuse "preflight: no kind '$kind' (old, bracket, new)" ;; esac
     say "== PLAN (nothing launched, nothing checked): s168 round GM $ROUND_GM_KIND; preflight $kind t2=$t2 duo=$duo peer=$peer regress=$regress"
     say "   PLAN: the port check would probe: $(bench_ports $duo $t2 $peer $regress)"
+    say "   PLAN: $(fade_line)"
     return 0
   fi
   say "== s168 round GM $ROUND_GM_KIND -- $WT (branch $(git -C "$WT" rev-parse --abbrev-ref HEAD) $(git -C "$WT" rev-parse --short HEAD)); logs $RUN"
@@ -152,6 +160,7 @@ preflight() {   # preflight <old|bracket|new> [t2] [duo] [peer] [regress] -- t2 
   say "$src"
   [ "$rc" = 0 ] || refuse "FF9_S167_CLONE names the s168 clone (see above): unset it -- the s167 patch's post-image is the s167 source"
   say "   ports: duo ${DUO_PORTS:-49211,49212 (the duo.py default)}; relay ${RELAY_PORT:-7787 (the duo.py default)}; peer ${PEER_PORT:-49257 (the coop_climb_anim_peer default)}"
+  say "   $(fade_line)"
   guard_suite >>"$SUMMARY" 2>&1 || refuse "a test suite / the nightly gate is running (benchguard: see above)"
   $GUARD window "$(date +%H%M)" "$NOT_AFTER" "$NOT_BEFORE" >>"$SUMMARY" 2>&1 || refuse "inside the nightly gate's window (see above): start after ROUND_GM_NOT_BEFORE=$NOT_BEFORE"
   ff9_closed || refuse "FF9 is running -- close it first (a launch after a build must not race the install)"
@@ -179,6 +188,8 @@ summ() {   # name exit log
   grep -E "checks passed|-CAL|S168-INI|S168-GMT-GATE|S168T-LEG|S168D-LEG|REFUSED|restore (OK|FAILED)|T2H?-INI|refusing to start|SWIRL-HANG" \
        "$RUN/$3" | cut -c1-300 | tail -6 | tee -a "$SUMMARY"
   grep -E "^\s+FAIL  " "$RUN/$3" | cut -c1-260 | head -14 | tee -a "$SUMMARY"
+  # a duo row recorded 'not run (configuration)' (its FAIL above) is NAMED as unrun, never read as a red; a solo 'not reached' row stays FAIL
+  tr -d '\r' < "$RUN/$3" | sed -nE 's/^\[duo\] FAIL  (GM0-[A-Z0-9-]+) .*  \[(not run \(configuration\): .*)\]$/   NOT RUN  \1  [\2]/p' | cut -c1-260 | tee -a "$SUMMARY"
 }
 
 skip_leg() {   # skip_leg <name> <why>: a leg this run cannot launch, counted (the resume numbers stay stable) and NAMED, never hidden
@@ -206,12 +217,17 @@ leg() {   # leg <name> <kind: solo|t2|duo> <log> -- <command...> (env set by the
   fi
 }
 
-fade_ok() {   # 0 = both instance roots read [Interface] FadeDuration >= 300 (the FadeDuration-300 duo rows; READ-ONLY -- no writer exists)
-  [ "$PLAN" = 1 ] && return 1
-  local h g
-  h="$(ini_of "$ROOTS/host/Memoria.ini" Interface FadeDuration)"
-  g="$(ini_of "$ROOTS/guest/Memoria.ini" Interface FadeDuration)"
-  [ -n "$h" ] && [ -n "$g" ] && [ "${h//[!0-9]/}" = "$h" ] && [ "${g//[!0-9]/}" = "$g" ] && [ "$h" -ge 300 ] && [ "$g" -ge 300 ]
+fade_ok() {   # 0 = this run's duos carry [Interface] FadeDuration >= 300 (ROUND_GM_FADE: $DUO's --root-ini writes it on BOTH roots at every
+  local f="${ROUND_GM_FADE:-0}"   # duo start -- a hand edit of a root is regenerated away by Instance.ensure); a non-number reads as unset
+  [ -n "$f" ] && [ "${f//[!0-9]/}" = "$f" ] && [ "$f" -ge 300 ]
+}
+
+fade_line() {   # what every duo of this run carries for [Interface] FadeDuration (said by preflight)
+  if [ -n "${ROUND_GM_FADE:-}" ]; then
+    echo "fade: [Interface] FadeDuration = $ROUND_GM_FADE on BOTH roots for every duo (duo.py --root-ini)"
+  else
+    echo "fade: the roots' own (ROUND_GM_FADE unset: no --root-ini)"
+  fi
 }
 
 softreset_ok() {   # 0 = the install obeys [Control] SoftReset 1 and [Cheats] Enabled 1 (GM0-SOFTRESET's precondition; READ-ONLY)

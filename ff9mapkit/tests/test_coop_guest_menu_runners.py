@@ -7,7 +7,8 @@ listening on Any: the one socket test is a client against a loopback listener):
   * every runner: LF and ASCII (`*.sh text eol=lf`), sourcing round_gm_lib.sh and its preflight by kind (old / bracket / new);
   * the library: s167's guards (benchguard, FF9 closed, the owner's bridge DOWN for T2, solo_ini.py), the DLL pins (OLD on s167
     12be3220520813a6, BRACKET on the W1a/b pin 532486364ec05354, NEW neither; ROUND_GM_DLL), the gate window, the port check, the stage's
-    sources (FF9_S168_CLONE exported; FF9_S167_CLONE never defaulted), the proof block;
+    sources (FF9_S168_CLONE exported; FF9_S167_CLONE never defaulted), the proof block; ROUND_GM_FADE (every duo's --root-ini, fade_ok),
+    the bag seeder's field, and summ()'s NOT RUN line for a duo row recorded 'not run (configuration)';
   * THE PLAN (ROUND_GM_PLAN=1, the runners' own control flow, launching nothing): OLD calibrates every solo / T / duo leg the scenarios
     define (the b3 tape's leg excepted); NEW runs every leg once in the design's Order, GM0-QUIT-EXIT last, the tape legs only with a tape;
     LEVER runs every (leg, lever) the scenarios define, exactly; REGRESS carries s167's whole regression set, round B's own legs, the diorama
@@ -57,6 +58,7 @@ fw = {"expect": {"why": "stall_cap", "why_s145": "host_world", "after_field": 0}
 s168_doc = {"netsync": {"guestmenu": {}, "menu_refusal": {}, "battle": {"peer": {"expired": {}}}}}
 s131_doc = {"netsync": {"menu_refusal": {}, "battle": {"peer": {"expired": {}}}}}
 print(json.dumps({"legs": list(gm.LEGS), "levers": {k: list(v) for k, v in gm.LEG_LEVERS.items()}, "gm_field": gm.GM_FIELD,
+                  "bag_field": getattr(gm, "BAG_FIELD", None),
                   "duo_legs": list(gmd.DUO_LEGS), "t_legs": list(gmd.T_LEGS),
                   "duo_levers": {k: list(v) for k, v in gmd.LEG_LEVERS.items()},
                   "stage_keys": [list(x) for x in pb.STAGE_KEYS], "s121": [sorted(x) for x in ch._predicted("s121", 168)],
@@ -131,6 +133,23 @@ def _says(rows) -> str:
     return "\n".join(r[1] for r in rows if r[0] == "say")
 
 
+def _lib(tmp_path, script: str, **env_extra):
+    """round_gm_lib.sh SOURCED under ROUND_GM_PLAN=1 (nothing launched, nothing checked), then ``script`` run in that shell -> (the
+    CompletedProcess, the run folder). The library's own functions (summ, fade_ok, $DUO) read exactly as a runner would call them."""
+    bash = _bash()
+    if bash is None:
+        pytest.skip("no POSIX bash for the runners' library")
+    logs = tmp_path / "lib-run"
+    logs.mkdir(parents=True, exist_ok=True)
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("COOP_", "ROUND_GM_", "ROUND_B_", "ROUND_A_", "FF9_S16"))}
+    env.update(ROUND_GM_PLAN="1", ROUND_GM_LOGS=logs.as_posix(), **env_extra)
+    driver = tmp_path / "lib-driver.sh"                       # a file, LF: no quote or newline rides the Windows command line
+    driver.write_bytes(('. "$1"\n' + script.strip() + "\n").encode("ascii"))
+    out = subprocess.run([bash, driver.as_posix(), (RUNNERS / "round_gm_lib.sh").as_posix()], cwd=str(REPO), env=env,
+                         capture_output=True, text=True, timeout=120)
+    return out, logs
+
+
 # ================================================================================================ the files
 def test_every_runner_is_lf_ascii_and_sources_the_library():
     for name in NAMES:
@@ -157,7 +176,8 @@ def test_the_library_keeps_s167s_guards_and_the_s168_pins_and_knobs():
                  "ROUND_GM_NOT_AFTER", "ROUND_GM_NOT_BEFORE", "ROUND_GM_RELAY_PORT", "ROUND_GM_PLAN",
                  'DUO_PORTS="${ROUND_GM_DUO_PORTS:-${ROUND_B_DUO_PORTS:-${ROUND_A_DUO_PORTS:-}}}"',
                  'PEER_PORT="${ROUND_GM_PEER_PORT:-${ROUND_B_PEER_PORT:-${ROUND_A_PEER_PORT:-}}}"',
-                 'DUO="py tools/harness/duo.py${DUO_PORTS:+ --bridge-ports $DUO_PORTS}${RELAY_PORT:+ --relay-port $RELAY_PORT}"',
+                 'DUO="py tools/harness/duo.py${DUO_PORTS:+ --bridge-ports $DUO_PORTS}${RELAY_PORT:+ --relay-port $RELAY_PORT}'
+                 '${ROUND_GM_FADE:+ --root-ini Interface.FadeDuration=$ROUND_GM_FADE}"',
                  'export FF9_S168_CLONE="${FF9_S168_CLONE:-C:/gd/FFIX/Memoria/Assembly-CSharp}"', "/c/gd/Dream-World-IX/.harness-runs/s168-round-gm",
                  "round_gm_guard.py", "$GUARD sources", "$GUARD window", "$GUARD ports", "$GUARD proofs", "$GUARD proofdiff"):
         assert frag in lib, frag
@@ -178,6 +198,121 @@ def test_the_library_keeps_s167s_guards_and_the_s168_pins_and_knobs():
 
 
 # ================================================================================================ THE PLAN
+def test_the_hudstrip_legs_field_carries_a_persistent_hud_strip():
+    """GM0-HUDSTRIP measures the silent drop under a persistent kit strip, so the runners must hand the duo a field that HAS one: the
+    library exports COOP_GMD_STRIP_FIELD, and its default is a bench field whose toml carries a [[behavior.hud]] strip (the OLD run of
+    2026-11-07 fell back to 30801, which has none, and read the row 'not reached')."""
+    lib = (RUNNERS / "round_gm_lib.sh").read_text(encoding="ascii")
+    m = re.search(r'^export COOP_GMD_STRIP_FIELD="\$\{COOP_GMD_STRIP_FIELD:-(\d+)\}"$', lib, re.M)
+    assert m, "round_gm_lib.sh must export COOP_GMD_STRIP_FIELD with a default"
+    fid = int(m.group(1))
+    hits = []
+    for toml in (REPO / "studies").glob("*/bench/*.field.toml"):
+        text = toml.read_text(encoding="utf-8", errors="replace")
+        if re.search(rf"^\s*id\s*=\s*{fid}\b", text, re.M) and "[[behavior.hud]]" in text:
+            hits.append(toml)
+    assert hits, f"no studies/*/bench/*.field.toml with id = {fid} and a [[behavior.hud]] strip"
+
+
+def test_the_bag_seeders_field_is_exported_and_is_the_scenarios_and_the_benchs(tables):
+    """[s168 D6] E1, I2 and GM0-LOCAL's key read need a seeded guest bag: the library exports COOP_GM_BAG_FIELD, its default is the solo
+    bench's own BAG_FIELD default, and the GMBAG bench toml carries that id (deployed by hand with an explicit --id, never pinned)."""
+    lib = (RUNNERS / "round_gm_lib.sh").read_text(encoding="ascii")
+    m = re.search(r'^export COOP_GM_BAG_FIELD="\$\{COOP_GM_BAG_FIELD:-(\d+)\}"$', lib, re.M)
+    assert m, "round_gm_lib.sh must export COOP_GM_BAG_FIELD with a default"
+    fid = int(m.group(1))
+    assert tables["bag_field"] == fid, (tables["bag_field"], fid)
+    toml = RUNNERS / "bench" / "gmbag.field.toml"
+    text = toml.read_text(encoding="utf-8", errors="replace")
+    assert re.search(rf"^\s*id\s*=\s*{fid}\b", text, re.M) and re.search(r'^\s*name\s*=\s*"GMBAG"', text, re.M), toml
+    assert 30000 <= fid <= 32767, "a dev-scratch id (fldMapNo is Int16)"
+
+
+# Real lines of the NEW run of 2026-11-08 (new_duo_key.log, new_solo_refuse.log), CRLF as the runner's redirect wrote them: the duo's own
+# '[duo] FAIL' line, each Session's '[harness][...]' copy of it, and play.py's / duo.py's closing FAIL list.
+_DUO_LOG = [
+    "[duo] PASS  GM0-KEY GM0-KEY: the guest's Menu press opens its own main menu  [opens +1]",
+    "[duo] FAIL  GM0-LOCAL-D GM0-LOCAL-D: a sort on the Item screen: refused +0, captures +0, seated; the HOST's host_fp bag unchanged; "
+    "fp equal at the close  [not reached: no Arrange / Sort / Auto row on the Item screen]",
+    "[harness][coop_guest_menu_duo-host]   FAIL  [duo] GM0-LOCAL-D: a sort on the Item screen: refused +0, captures +0, seated  "
+    "[not reached: no Arrange / Sort / Auto row on the Item screen]",
+    "[duo] FAIL  GM0-KEY-DOUBLE GM0-KEY-DOUBLE: FadeDuration >= 300: two presses 100 ms apart -> one open, menu_refusal.count +0, no "
+    "refusal line  [not run (configuration): FadeDuration 40 < 300 (this launch's)]",
+    "[harness][coop_guest_menu_duo-guest]   FAIL  [duo] GM0-KEY-DOUBLE: FadeDuration >= 300: two presses 100 ms apart -> one open  "
+    "[not run (configuration): FadeDuration 40 < 300 (this launch's)]",
+    "",
+    "duo coop_guest_menu_duo: 21/23 checks passed",
+    "  FAIL  GM0-LOCAL-D GM0-LOCAL-D: a sort on the Item screen: refused +0, captures +0, seated",
+    "        not reached: no Arrange / Sort / Auto row on the Item screen",
+    "  FAIL  GM0-KEY-DOUBLE GM0-KEY-DOUBLE: FadeDuration >= 300: two presses 100 ms apart -> one open",
+    "        not run (configuration): FadeDuration 40 < 300 (this launch's)",
+]
+_SOLO_LOG = [
+    "[harness]   FAIL  GM0-REFUSE-I1: the I1 confirm while seated: refused +1, captures +1  [not reached: Item: no census confirm "
+    "counted (refused +0, passes +0)]",
+    "coop_guest_menu: 8/13 checks passed in 211s",
+    "  FAIL  GM0-REFUSE-I1: the I1 confirm while seated: refused +1, captures +1",
+    "        not reached: Item: no census confirm counted (refused +0, passes +0)",
+]
+
+
+def test_summ_names_a_duo_configuration_row_not_run_and_leaves_not_reached_rows_fail(tmp_path):
+    """summ() keeps its FAIL list and NAMES a duo row recorded 'not run (configuration)' as NOT RUN (once: from the duo's own '[duo]
+    FAIL' line, never a Session's copy); a 'not reached' row -- solo or duo -- stays a FAIL and never reads NOT RUN."""
+    logs = tmp_path / "lib-run"
+    logs.mkdir(parents=True)
+    (logs / "duo.log").write_bytes("\r\n".join(_DUO_LOG + [""]).encode("ascii"))
+    (logs / "solo.log").write_bytes("\r\n".join(_SOLO_LOG + [""]).encode("ascii"))
+    out, run = _lib(tmp_path, 'summ "[1] duo key" 1 duo.log\nsumm "[2] solo refuse" 1 solo.log')
+    assert out.returncode == 0, (out.stdout[-2000:], out.stderr[-2000:])
+    lines = out.stdout.splitlines()
+    not_run = [ln for ln in lines if ln.startswith("   NOT RUN  ")]
+    assert not_run == ["   NOT RUN  GM0-KEY-DOUBLE  [not run (configuration): FadeDuration 40 < 300 (this launch's)]"], not_run
+    assert all("\r" not in ln for ln in not_run)
+    for row in ("GM0-LOCAL-D", "GM0-KEY-DOUBLE", "GM0-REFUSE-I1"):
+        assert any(re.match(rf"^\s+FAIL  {row}[: ]", ln) for ln in lines), (row, lines)    # the FAIL list is kept
+    assert out.stdout.index("  FAIL  GM0-KEY-DOUBLE") < out.stdout.index("   NOT RUN  GM0-KEY-DOUBLE")
+    assert lines[0] == "== [1] duo key exit 1" and "== [2] solo refuse exit 1" in lines
+    summary = (run / "summary.log").read_text(encoding="ascii")
+    assert summary.count("   NOT RUN  ") == 1 and "NOT RUN  GM0-KEY-DOUBLE" in summary
+
+
+def test_fade_ok_follows_round_gm_fade(tmp_path):
+    """fade_ok reads ROUND_GM_FADE (what $DUO's --root-ini writes on both roots), never the roots: a hand edit is regenerated away by
+    Instance.ensure at every duo start. 300 and above is the FadeDuration-300 pass; unset, empty, below or not a number is not."""
+    script = ('for v in "" 40 299 300 1000 abc 30x; do ROUND_GM_FADE="$v"\n'
+              '  if fade_ok; then echo "fade [$v] ok"; else echo "fade [$v] no"; fi\n'
+              'done\nunset ROUND_GM_FADE\nif fade_ok; then echo "fade unset ok"; else echo "fade unset no"; fi')
+    out, _run = _lib(tmp_path, script)
+    assert out.returncode == 0, (out.stdout[-2000:], out.stderr[-2000:])
+    got = [ln for ln in out.stdout.splitlines() if ln.startswith("fade ")]
+    assert got == ["fade [] no", "fade [40] no", "fade [299] no", "fade [300] ok", "fade [1000] ok", "fade [abc] no", "fade [30x] no",
+                   "fade unset no"], got
+    assert "integer expression expected" not in out.stderr, out.stderr
+
+
+def test_duo_carries_root_ini_only_when_round_gm_fade_is_set(tmp_path):
+    """$DUO appends `--root-ini Interface.FadeDuration=<ms>` exactly when ROUND_GM_FADE is set, so every duo leg of the run (and none of
+    the solo / T2 legs) carries it; NEW's step 6b says which half ran, and the guest quit prompt rows are said as an OPEN ITEM."""
+    out, _run = _lib(tmp_path / "set", 'echo "DUO=[$DUO]"', ROUND_GM_FADE="300")
+    assert out.returncode == 0 and "DUO=[py tools/harness/duo.py --root-ini Interface.FadeDuration=300]" in out.stdout, out.stdout
+    out, _run = _lib(tmp_path / "unset", 'echo "DUO=[$DUO]"')
+    assert out.returncode == 0 and "DUO=[py tools/harness/duo.py]" in out.stdout, out.stdout
+    rows = _plan(tmp_path / "plan300", "round_gm_new.sh", ROUND_GM_FADE="300")
+    legs = _legs(rows)
+    duo = [c for _n, _nm, k, c in legs if k == "duo"]
+    assert duo and all(" py tools/harness/duo.py --root-ini Interface.FadeDuration=300 " in c for c in duo), duo
+    assert not any("--root-ini" in c for _n, _nm, k, c in legs if k != "duo")
+    says = _says(rows)
+    assert "PLAN: fade: [Interface] FadeDuration = 300 on BOTH roots" in says and "this run is the 300 pass" in says
+    rows40 = _plan(tmp_path / "plan40", "round_gm_new.sh")
+    assert not any("--root-ini" in c for *_, c in _legs(rows40))
+    says40 = _says(rows40)
+    assert "ROUND_GM_FADE unset: no --root-ini" in says40 and "The 300 pass: ROUND_GM_FADE=300 ROUND_GM_RERUN=" in says40
+    assert "FadeDuration = 300 on BOTH roots by hand" not in says40 and "no writer exists" not in _text("round_gm_new.sh")
+    assert "GM0-QUIT-D (and GM0-CUT-QUIT's prompt half)" in says40 and "an OPEN ITEM, never a pass" in says40 and "B32" in says40
+
+
 def test_old_calibrates_every_leg_on_s167_and_records_the_proof_reference(tables, tmp_path):
     rows = _plan(tmp_path, "round_gm_old.sh")
     legs = _legs(rows)

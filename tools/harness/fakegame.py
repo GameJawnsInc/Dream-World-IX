@@ -1784,6 +1784,11 @@ FAKE_DOT_CENSUS = {"sprite": "world_map_player_pointer", "atlas": "WorldMapAtlas
                    "color": "ffffffff", "w": 24, "h": 24, "scale": 1.0, "colliders": 0, "panel_clip": "None"}
 #: ...how long the stand-in's commit takes from the fade's end to the world's first frame (the field shutdown and the WorldMap load)
 FAKE_WORLD_OUT_LOAD_FRAMES = 6
+#: ...[ff9mapkit netsync s168] the 'waits:' line in the ENGINE's words (NetSyncWorldFollow.WhyText, NetSyncWorldFollow.cs:140) for the
+#: reasons a bench counts by their words: a seated guest menu's `out` request frame refuses at the FieldHUD term, and the duo's GM0-OUT
+#: counts "the field HUD is not up" (C3(d)). Every other reason still logs its token: the s165 WF-* harness rows pin the token form
+#: (test_world_coop_harness.py), a known gap of the stand-in, not the engine's
+FAKE_WORLD_OUT_WORDS = {"not_field_hud": "the field HUD is not up"}
 #: ...and its fault levers (``FakeGame.world_follow_faults``), each the stand-in wrong in ONE place so a bench row can be driven red:
 #:   "proof_fail"         the proof block's 'world follow selftest' reads FAIL
 #:   "never_starts"       the start gate never passes (the guest stays on its field: s164's behaviour)
@@ -2079,7 +2084,10 @@ def world_walk_proof_tallies(pieces, source: str | None = None) -> tuple:
 #: default stand-in stays the deployed s167 engine and every patch-pinned ladder test reads as before. A test (and the s168 bench's
 #: stand-in legs) opts in with :func:`guest_menu_stand_in` (the "guestmenu" cap beside the s167 world-walk pieces: the s168 engine carries
 #: s167). It is NOT in NETSYNC_BATTLE_CAPS, so caps_through() and NETSYNC_SUBVERBS never take it in; when the s168 patch lands, a later
-#: round moves it onto the ladder.
+#: round moves it onto the ladder. [ff9mapkit netsync s168] FROZEN since (memoria-patches/s168-netsync-guest-menu.patch): the rung STAYS
+#: opt-in and off the ladder for now -- the default stand-in is still the s167 engine (the OLD stage every s167 bench measures), the
+#: older ladder pins reach the live rung through tests/test_harness_netsync.py's _live_rung / _live_caps and strip the one key with
+#: _unmenued, and the driver keeps sending `guestmenu` raw. Moving it onto the ladder is the next round's (s169) call.
 NETSYNC_S168_CAPS = frozenset(("guestmenu",))
 #: [ff9mapkit netsync s168] the rung's stand-in faults (decision 36's list, plus the as-built contract's), each the stand-in wrong in ONE
 #: place so ITS row goes red:
@@ -2108,8 +2116,11 @@ GUEST_MENU_FAULTS = ("capture_leak", "restore_skip", "cut_ignored", "leave_ignor
                      "own_values", "release_skip", "settle_same_frame", "guest_menu_proof_fail")
 #: [ff9mapkit netsync s168] the stand-in's own menu facts (MODELLED shapes, not the game's tables): one UIScene fade (FadeDuration 40 ms),
 #: the main menu's rows (Order, Party, Card and Config greyed while seated), what this install knows (characters 0-11, presets 0-15,
-#: items 0-254 with NoItem 255, support abilities 0-63, key items below 30), the guest's own bag / key items / "new!" marks / gil, the
-#: confirm each sub-screen's census site reads, and the type-5 length the selftest role's own BuildStateFrame stamps
+#: items 0-254 with NoItem 255, support abilities 0-63, key items below 30), the guest's own bag / key items / "new!" marks / gil, and
+#: the type-5 length the selftest role's own BuildStateFrame stamps. NO CENSUS ON A KEY: the s168 kit-fix plan's C3(a) removed the old
+#: FAKE_GM_CENSUS (any Confirm on Item / Equip / Ability fired I1 / E1 / A1, any Special on Ability A2). The engine fires each site only
+#: at its real control in its real group (I1 the Item.Target confirm, A1 a lit support row...), and that any-confirm shortcut kept the
+#: offline bench green while every in-game census plan missed. Until the screens are modelled, only the ``gm_confirm`` seam fires a census.
 FAKE_GM_FADE_MS = 40
 FAKE_GM_MENU_ROWS = ("Item", "Ability", "Equip", "Status", "Order", "Party", "Card", "Config", "Folklore")
 FAKE_GM_SCREENS = {"Item": "Item", "Ability": "Ability", "Equip": "Equip", "Status": "Status", "Folklore": "Folklore", "Order": "Order",
@@ -2120,8 +2131,6 @@ FAKE_GM_BAG = ((1, 3), (2, 1), (236, 2))
 FAKE_GM_KEYS = (9, 14)
 FAKE_GM_USED = (9,)
 FAKE_GM_GIL = 1234
-FAKE_GM_CENSUS = {("Item", "confirm"): BW.GM_CENSUS_I1, ("Equip", "confirm"): BW.GM_CENSUS_E1, ("Ability", "confirm"): BW.GM_CENSUS_A1,
-                  ("Ability", "special"): BW.GM_CENSUS_A2}
 FAKE_GM_TYPE5_LEN = 2900
 #: the host's party the client route's host frame carries when ``FakeGame.gm_host_party`` names none (CharacterIds 0 / 2 / 3 at markers
 #: the guest never holds)
@@ -3058,6 +3067,11 @@ class FakeGame:
         #: field follow (StartFollowWarp: its fade, FIELD_FOLLOW_FADE_FRAMES) and lands it (a field load). The stand-in otherwise
         #: models no field follow's landing.
         self.coop_field_follow = False
+        #: [ff9mapkit netsync s168] the `swap intent` bench follow's fade in frames (StartFollowWarp's: FIELD_FOLLOW_FADE_FRAMES, every
+        #: earlier test reads as before). A bench whose press must land INSIDE the fade (GM0-WHY-BUSY, C3(c)) lengthens it: the loop turns
+        #: hundreds of frames a wall second while the driver's ack poll sleeps 20 ms, so 12 frames end before its next request arrives --
+        #: the engine's fade (its commit ~400 ms in) spans many polls
+        self.swap_follow_fade_frames = FIELD_FOLLOW_FADE_FRAMES
         self._ini_pending: dict | None = None
         self._ini_sig = None
         self._no_code = False
@@ -7939,7 +7953,8 @@ class FakeGame:
     def _sw_intent(self, dest: int) -> None:
         """`swap intent <field>` -> NetSyncClient.DebugInjectIntent: section 4 = [field LE][nonce] through the real codec (battlewire's
         append / read twins), NoteBenchSeen (the seen edge), the bench's lines, then -- a followable, installed field -- StartFollowWarp
-        (SetUserControl(false), the follow edge, the fade's FIELD_FOLLOW_FADE_FRAMES); then the harness line."""
+        (SetUserControl(false), the follow edge, the fade's ``swap_follow_fade_frames``: FIELD_FOLLOW_FADE_FRAMES by default); then the
+        harness line."""
         sw = self._sw
         sw["intent_nonce"] = (sw["intent_nonce"] + 1) & 0xFF
         nonce = sw["intent_nonce"]
@@ -7956,9 +7971,13 @@ class FakeGame:
         elif not self._field_registered(rt_dest):
             self._mlog(SWAP_INTENT_BENCH_NOT_INSTALLED.format(field=rt_dest))
         else:
-            self.control = False                      # StartFollowWarp: SetUserControl(false), then the fade
+            # StartFollowWarp: SetUserControl(false) in the SAME call that arms the follow (NetSyncClient.cs:6670/:6674), held off
+            # for the whole fade until the landing (_field_follow_land) -- [ff9mapkit netsync s168] C3(c): a guest-menu press inside
+            # the fade reads term 9's `control`, never term 10's `busy` (DESIGN D1; GM0-WHY-BUSY lands on the follow's field)
+            self.control = False
             start_t = self._sw_follow_edge(rt_dest, SWAP_FOLLOW_VIA_INTENT, self.field_id)
-            sw["follow"] = {"dest": rt_dest, "start_t": start_t, "due_frame": self.frame + FIELD_FOLLOW_FADE_FRAMES, "ready_t": -1}
+            sw["follow"] = {"dest": rt_dest, "start_t": start_t, "due_frame": self.frame + max(1, int(self.swap_follow_fade_frames)),
+                            "ready_t": -1}
             self._mlog(SWAP_INTENT_FOLLOW_LINE.format(field=rt_dest) + BW.swap_stamp_text(self._sw_on(), start_t))
             self._wfo_supersede_by(rt_dest)           # [ff9mapkit netsync s165] StartFollowWarp supersedes an uncommitted world-out
         self._mlog(BW.swap_harness_intent(dest, nonce))
@@ -8406,7 +8425,7 @@ class FakeGame:
                 if view["b6"] and why not in ("debounce", "not_following") and why not in w["logged"]:
                     w["logged"].add(why)
                     w["n"]["refused"] += 1
-                    self._mlog("[NetSync] " + BW.log_world_out_waits(why))
+                    self._mlog("[NetSync] " + self._wfo_waits_line(why, view))
         elif st == "fading":
             if not self._wfo_supersede(view) and self.frame >= w["due"]:
                 self._wfo_commit()
@@ -8414,8 +8433,21 @@ class FakeGame:
             self._wfo_land()
         self._wfo_dot_tick()
 
+    def _wfo_waits_line(self, why: str, view) -> str:
+        """NoteWorldOutWaits' line (NetSyncClient.cs:9042). A reason in FAKE_WORLD_OUT_WORDS is written as the engine writes it: its WhyText
+        and the tail '-- field <fld>, the host on world map <W|?>'. Every other reason keeps the s165 token the WF-* harness rows pin."""
+        words = FAKE_WORLD_OUT_WORDS.get(why)
+        if words is None:
+            return BW.log_world_out_waits(why)
+        idx = view.get("idx")
+        world = BW.WORLD_BASE + int(idx) if view.get("x") is not None and idx is not None else "?"
+        return f"{BW.log_world_out_waits(words)} -- field {int(self.field_id)}, the host on world map {world}"
+
     def _wfo_start(self, view) -> None:
-        """The start: PairingEvaluate's departure, the start pin kept, control off, the fade."""
+        """The start: PairingEvaluate's departure, the start pin kept, control off, the fade. It can follow a seated guest menu's
+        forced `out` close only AFTER that close's door: the gate's FieldHUD term (term 7) refuses while any menu state is up, and
+        ui_state turns FieldHUD only at the restore door (_gm_leave_menu, which logs 'restored at the door' first) -- the start line
+        is logged after the door's line (C3(d), the GM0-OUT order the duo judges)."""
         w = self._wfo
         w.update(state="fading", why=None, world=BW.WORLD_BASE + int(view["idx"]), pin=dict(view),
                  due=self.frame + int(self.world_out_fade_frames), start_rt=self.rt, intent_seen=view["_intent"])
@@ -13477,12 +13509,15 @@ class FakeGame:
     #   THE SEAT     all or nothing from ONE frame (the selftest role: the `frame` bench frame; a client: the host's latest, ``gm_host_party``
     #                under ``gm_host_caps``): the record first (every original reference), then the scratches installed (members keyed by
     #                CharacterId), fp_before before anything, seat_fp after; `seat fault <c>` rolls every family back.
-    #   THE MENU     the seated main menu (Order, Party, Card, Config greyed: the buzz), its sub-screens, the census at their confirms
-    #                (FAKE_GM_CENSUS; ``gm_confirm`` fires any site), Cancel back up; the restore at the door (menu family -> the HUD),
-    #                fp_after, the outside fold, the HUD's Show one fade later (event_enable back), the settle one frame after that.
+    #   THE MENU     the seated main menu (Order, Party, Card, Config greyed: the buzz), its sub-screens (a state name each: a key
+    #                there fires NO census, C3(a); only the ``gm_confirm`` seam fires a site), Cancel back up; the restore at the door
+    #                (menu family -> the HUD), fp_after, the outside fold, the HUD's Show one fade later (event_enable back), the settle
+    #                one frame after that.
     #   THE CLOSES   `fireclose <id>` (the bench) and a client's real triggers (the host's intent away, its world-out b6, its battle, its
     #                title b7, its scene on my field, the session's ramp): BW.gm_request_close_over, then one BW.gm_close_drive_rule tick a
-    #                frame (the quit prompt waits, ONE Hide, the HUD's Show, the watchdog), the forced-close line, `last_close`.
+    #                frame (the quit prompt waits, ONE Hide, the HUD's Show, the watchdog), the forced-close line, `last_close`. The tick
+    #                reads events as they stood BEFORE this frame's Show (C3(b)): the record ends `done` one tick after events turn on,
+    #                as the engine's service tick reads ui.IsEventEnable on the Update after the HUD's OnShownAction.
     #   THE BOOKS    `netsync.guestmenu` in the agent's order (BW.GUEST_MENU_SENTINELS' keys), the twelve levers and their release, the
     #                caps word 0x000B (0x0003 under `caps off`, 0x0001 under `worldwalk fp off`), the proof block's three lines (derived
     #                tallies), `session.overlay` "guest_menu" on a client while the refusal line lives (never over the peer-lost line).
@@ -14263,9 +14298,9 @@ class FakeGame:
                 return True
             self.ui_state = FAKE_GM_SCREENS.get(row, "MainMenu")
             return True
-        site = FAKE_GM_CENSUS.get((state, ctl))
-        if site is not None:
-            self.gm_confirm(site, BW.GM_ABILITY_TYPE_ENABLE)
+        # a Confirm / Special on a sub-screen: spent, and NO census (C3(a)). The engine's sites live on real controls in real groups
+        # (ItemUI.cs:415 the Item.Target confirm, EquipUI.cs:183, AbilityUI.cs:419 / :638 a lit support row...); the stand-in has no
+        # screens, so a census plan reads "not reached" here instead of a green no real screen would give. The seam: gm_confirm.
         return True
 
     def gm_confirm(self, site: int, detail: int = BW.GM_ABILITY_TYPE_ENABLE) -> int:
@@ -14349,7 +14384,10 @@ class FakeGame:
         self._mlog(BW.log_gm_forced_close(rec["cause"], rec["from"], how, ms, detail))
         g["close"] = BW.gm_close_record()
 
-    def _gm_close_tick(self) -> None:
+    def _gm_close_tick(self, events_prev=None) -> None:
+        """One GmCloseTick. ``events_prev``: events on as the frame STARTED (taken before the step's Show block: C3(b)) -- the engine's
+        tick reads ui.IsEventEnable and ends the record on the NEXT Update after the HUD's Show turned events on (NetSyncClient.cs:2375,
+        :2405-2406), so `done` lands one tick after `event_enable` reads true. None reads the current value (a direct caller)."""
         g = self._gm
         rec = g["close"]
         if not rec["held"]:
@@ -14357,7 +14395,7 @@ class FakeGame:
         quit_shown = bool(self.quit_prompt) and "quit_under_close" not in self.guest_menu_faults
         if self.quit_prompt:
             g["quit_seen"] = True
-        events = bool(g["event_enable"]) and g["show_at"] is None
+        events = (bool(g["event_enable"]) and g["show_at"] is None) if events_prev is None else bool(events_prev)
         act = BW.gm_close_drive_rule(rec, quit_shown, False, False, self.ui_state, events, True, int(self.rt * 1000))
         if g["close_fault"] >= 0 and rec["step"] == g["close_fault"] and self._gm_bench_gate():
             g["close_fault"] = -1                               # one shot: the tick throws at this step -- its guarded fault end
@@ -14426,6 +14464,9 @@ class FakeGame:
         if g["hide_at"] is not None and self.rt >= g["hide_at"]:
             g["hide_at"] = None
             self._gm_leave_menu()
+        # C3(b): the close tick below reads events as they stood BEFORE this frame's Show (the engine's tick sees the HUD's Show one
+        # Update late), never the value the Show block is about to flip
+        events_prev = bool(g["event_enable"]) and g["show_at"] is None
         if g["show_at"] is not None and self.rt >= g["show_at"]:
             g["show_at"] = None
             if not (g["quit_seen"] and "quit_under_close" in self.guest_menu_faults):
@@ -14438,7 +14479,7 @@ class FakeGame:
             byte, bit = self.gm_tag4_event
             self._gm_events[int(byte)] ^= int(bit)
         self._gm_triggers()
-        self._gm_close_tick()
+        self._gm_close_tick(events_prev)
         self._gm_settle_tick()
 
     def _gm_settle_tick(self) -> None:

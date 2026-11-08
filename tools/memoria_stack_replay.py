@@ -171,6 +171,24 @@ DEFAULT_FILES = [
     # NetSyncState.cs, NetSyncWorldDot.cs, NetSyncWorldWalk.cs) is listed above
     "Assembly-CSharp/Memoria/World/WorldMeshOverride.cs",
     "Assembly-CSharp/Memoria/World/CustomFormCells.cs",
+    # [ff9mapkit netsync s168] the guest's main menu, rung 0 (studies/field-coop/S168-DESIGN.md): its two new files (created
+    # from /dev/null: the menu's pure core + proof, and the seat bracket extracted from the diorama, W1a) and its eight stock
+    # hook sites never in this set -- UIManager.cs (the one door, the scene-load end), MainMenuUI.cs (SetMasterSkill skipped while
+    # seated), EquipUI.cs / AbilityUI.cs / ItemUI.cs (the view-only census refusals), EventEngine.cs (the autosave term),
+    # JsonParser.cs (the load epoch) and AchievementManager.cs (the achievement hold); no patch touched JsonParser.cs, EquipUI.cs
+    # or AbilityUI.cs before. Every other site it touches (NetSyncClient.cs, NetSyncField.cs, NetSyncDiorama.cs,
+    # NetSyncWorldWalk.cs, NetSyncParty.cs, NetSyncState.cs, NetSyncVisitor.cs, NetSyncAte.cs, NetSyncBattle.cs, HarnessAgent.cs,
+    # UIKeyTrigger.cs, SceneDirector.cs and the csproj) is listed above
+    "Assembly-CSharp/Memoria/Netsync/NetSyncGuestMenu.cs",
+    "Assembly-CSharp/Memoria/Netsync/NetSyncSeatBracket.cs",
+    "Assembly-CSharp/Global/UI/UIManager.cs",
+    "Assembly-CSharp/Global/MainMenuUI.cs",
+    "Assembly-CSharp/Global/EquipUI.cs",
+    "Assembly-CSharp/Global/AbilityUI.cs",
+    "Assembly-CSharp/Global/ItemUI.cs",
+    "Assembly-CSharp/Global/Event/Engine/EventEngine.cs",
+    "Assembly-CSharp/Global/JsonParser.cs",
+    "Assembly-CSharp/Assets/SiliconSocial/AchievementManager.cs",
 ]
 
 # [ff9mapkit netsync s157] GENERATED files are only ever replaced WHOLE (the kit renders them from a JSON twin; their pins

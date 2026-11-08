@@ -5,7 +5,8 @@ never the real one -- and the teardown law is proven where it matters: every jun
 after a teardown, including junctions the plan never made. The claim refuses a live run and adopts a dead one; the
 path-scoped pid probe tells one root's game from another's; the ``-single-instance`` mutex key is computed and a clash
 drops the flag; two FakeGames in two tmp roots run side by side under two Sessions in ONE process, each on its own
-channel, with nonce-distinct arms; and a Session without ``instance=`` is exactly what it was.
+channel, with nonce-distinct arms; and a Session without ``instance=`` is exactly what it was. [s168] A run's extra overlay merges
+over the base (never [Netsync]) and an empty one restores install + base; post_close's window filter is pinned through its seams.
 
 WHAT THEY ARE NOT. No FF9 runs here. Junction tests need Windows (NTFS junctions, unelevated); the rest is portable.
 """
@@ -168,6 +169,87 @@ def test_base_overlay_parks_netsync_away_from_the_owner_and_keeps_crlf(tmp_path)
     assert len(I.parked_code(tmp_path / "r")) == len("ff9-") + 8
     # only [Netsync] Enabled flips there; [Graphics]/[Control] Enabled = 1 stay
     assert text.count("Enabled = 1") == 2 and "AlwaysCaptureGamepad = 0" in text
+
+
+# ------------------------------------------------------------------------------------------- [s168] the run's extra overlay
+
+
+def test_overlay_merges_the_runs_extra_overlay_over_the_base_and_mutates_neither(tmp_path):
+    """[ff9mapkit netsync s168] Instance.extra_overlay (duo.py --root-ini) rides ON TOP of base_overlay, section by section: a new
+    section is added, a key joins an existing section, a key in both takes the extra's value (as a string); neither dict is mutated."""
+    inst = I.Instance(tmp_path / "inst" / "guest", install=tmp_path / "install")
+    assert inst.extra_overlay == {} and inst.overlay() == I.base_overlay(inst.root)
+    extra = {"Interface": {"FadeDuration": 300}, "Control": {"SoftReset": "1"}, "SfxProbe": {"Enabled": "1"}}
+    inst.extra_overlay = extra
+    ov, base = inst.overlay(), I.base_overlay(inst.root)
+    assert ov["Interface"] == {"FadeDuration": "300"}
+    assert ov["Control"] == {"AlwaysCaptureGamepad": "0", "SoftReset": "1"}
+    assert ov["SfxProbe"] == {"Enabled": "1"} and ov["Netsync"] == base["Netsync"]
+    assert extra == {"Interface": {"FadeDuration": 300}, "Control": {"SoftReset": "1"}, "SfxProbe": {"Enabled": "1"}}
+    assert base["Control"] == {"AlwaysCaptureGamepad": "0"} and "Interface" not in base
+    ov["Interface"]["FadeDuration"] = "9"
+    assert inst.overlay()["Interface"] == {"FadeDuration": "300"}, "overlay() hands out a copy"
+
+
+def test_an_extra_netsync_is_refused_where_the_overlay_is_spent(tmp_path):
+    """The parked [Netsync] (relay + code) is the owner's protection: an extra overlay naming it -- any spelling -- is refused by overlay()
+    itself, so no wanted_ini / refresh / restore can write it. A run's [Netsync] goes through netsync() and is restored after."""
+    inst = I.Instance(tmp_path / "inst" / "guest", install=tmp_path / "install")
+    for section in ("Netsync", "netsync", " NETSYNC "):
+        inst.extra_overlay = {section: {"RelayUrl": "ws://127.0.0.1:49201"}}
+        with pytest.raises(I.InstanceError, match="written only through netsync"):
+            inst.overlay()
+
+
+def test_wanted_ini_carries_the_extra_and_an_empty_extra_restores_install_plus_base(tmp_path, install):
+    """wanted_ini (what ensure / refresh / restore_ini write) carries [Interface] FadeDuration = 300 while the extra is set -- in the
+    install's own CRLF, beside the parked [Netsync] -- and an EMPTY extra puts the root back to exactly install + base."""
+    from ff9mapkit.coop import read_ini_key
+    root = tmp_path / "inst" / "guest"
+    root.mkdir(parents=True)
+    inst = inst_for(root, install)
+    base_text = I.overlay_text(INI, I.base_overlay(root))
+    assert inst.wanted_ini() == base_text
+    inst.extra_overlay = {"Interface": {"FadeDuration": "300"}}
+    want = inst.wanted_ini()
+    assert read_ini_key(want, "Interface", "FadeDuration") == "300" and "[Interface]\r\nFadeDuration = 300" in want
+    assert "\n" not in want.replace("\r\n", ""), "the install's newline style is kept"
+    assert read_ini_key(want, "Netsync", "Enabled") == "0" and read_ini_key(want, "Netsync", "RelayUrl") == I.PARKED_RELAY
+    assert inst.restore_ini() is True and inst.restore_ini() is False
+    assert read_ini_key((root / "Memoria.ini").read_bytes().decode("utf-8"), "Interface", "FadeDuration") == "300"
+    inst.extra_overlay = {}
+    assert inst.restore_ini() is True
+    assert (root / "Memoria.ini").read_bytes().decode("utf-8") == base_text
+    assert read_ini_key(base_text, "Interface", "FadeDuration") is None
+    assert (install / "Memoria.ini").read_bytes() == INI.encode("utf-8"), "the install's ini is never written"
+
+
+# ------------------------------------------------------------------------------------------- [s168] post_close (WM_CLOSE)
+
+
+def test_post_close_posts_wm_close_only_to_the_pids_visible_windows():
+    """post_close (GM0-QUIT-D's any-role route to the guest's quit prompt): WM_CLOSE (0x0010) to every VISIBLE top-level window of the
+    pid and nothing else -- never a hidden one, another pid's, a null handle -- counting only the posts the queue took; a pid <= 0, junk
+    or this very process posts nothing. Offline through the seams: the in-game effect is the rampquit leg's to prove."""
+    sent = []
+    wins = lambda: [(101, 4242, True), (102, 4242, False), (103, 777, True), (0, 4242, True), (104, 4242, True)]   # noqa: E731
+    assert I.post_close(4242, windows=wins, post=lambda h, msg: sent.append((h, msg)) or True) == 2
+    assert sent == [(101, I.WM_CLOSE), (104, I.WM_CLOSE)] and I.WM_CLOSE == 0x0010
+    assert I.post_close(4242, windows=wins, post=lambda h, msg: h == 104) == 1, "a refused post is not counted"
+    for bad in (0, -1, None, "x"):
+        assert I.post_close(bad, windows=wins, post=lambda h, msg: pytest.fail(f"posted for pid {bad!r}")) == 0
+    mine = os.getpid()                                            # never the driver's own windows, whatever the seam lists
+    assert I.post_close(mine, windows=lambda: [(9, mine, True)], post=lambda h, msg: pytest.fail("posted to the driver")) == 0
+    assert I.Instance.post_close(4242, windows=wins, post=lambda h, msg: True) == 2, "reachable as Instance.post_close"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="EnumWindows is Windows-only")
+def test_post_close_reads_the_real_desktop_and_posts_nothing_for_a_pid_with_no_window():
+    """The ctypes path itself (EnumWindows / GetWindowThreadProcessId / IsWindowVisible): every row typed, a callback error raised rather
+    than swallowed, and a pid no process has (the dead-claimant pid above) gets no WM_CLOSE -- nothing on this desktop is touched."""
+    rows = I._top_windows()
+    assert all(isinstance(h, int) and isinstance(p, int) and isinstance(v, bool) for h, p, v in rows)
+    assert I.post_close(0x7FFFFFF0) == 0
 
 
 # ------------------------------------------------------------------------------------------- build / verify

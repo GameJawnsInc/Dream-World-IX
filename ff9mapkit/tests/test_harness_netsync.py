@@ -131,7 +131,12 @@ def test_the_driver_and_the_stand_in_speak_the_agents_sub_verbs():
     # [ff9mapkit netsync s164] the LIVE agent is the stand-in AT the live stack's rung (s163's until the s164 patch lands); the driver's
     # list is the newest stand-in's -- a sub-verb ahead of the live agent is gated by its capability key (`netsync.swap`), never sent
     assert Session.NETSYNC_SUBVERBS == FG.NETSYNC_SUBVERBS and agent == FG.netsync_subverbs(_live_caps())
-    assert agent == Session.NETSYNC_SUBVERBS[:len(agent)]
+    # [ff9mapkit netsync s168] ...less the agent's LAST sub-verb once ITS patch is live: the driver sends `guestmenu` as a RAW step
+    # (coop_guest_menu: cb.ns_verb, decision 32), never through this gate, so the gate's list never carries it
+    raw = (BW.NETSYNC_SUBVERB_S168,) if _s168_live() else ()
+    gated = agent[:len(agent) - len(raw)]
+    assert agent[len(gated):] == raw and not set(raw) & set(Session.NETSYNC_SUBVERBS)
+    assert gated == Session.NETSYNC_SUBVERBS[:len(gated)]
     assert set(Session.NETSYNC_AUTHORITY_SUBVERBS) == set(Session.NETSYNC_SUBVERBS) - set(FG.NETSYNC_SUBVERBS_F3)
 
 
@@ -140,9 +145,14 @@ def test_the_stand_in_publishes_the_agents_netsync_keys(game):
     the agent's values -- and an F3 stand-in none of the F3.2 ones."""
     nothing, pinned = _agent_netsync_nothing()
     fake = FakeGame(game)
-    fake.netsync_caps = _live_caps()                         # [ff9mapkit netsync s164] the stand-in AT the live stack's rung
+    _live_rung(fake)                         # [ff9mapkit netsync s164] the stand-in AT the live stack's rung
     doc = fake._netsync_doc()
     assert set(doc) == set(nothing), (set(doc) ^ set(nothing))
+    # [ff9mapkit netsync s168] ...and the DEFAULT stand-in (the s167 engine every bench uses unless it opts in, decision 32) stays pinned too:
+    # the agent less s168's one key (on s167 and earlier _unmenued is the identity and this is the line above)
+    plain = FakeGame(game)
+    plain.netsync_caps = _live_caps() - FG.NETSYNC_S168_CAPS
+    assert set(plain._netsync_doc()) == set(_unmenued(nothing)), set(plain._netsync_doc()) ^ set(_unmenued(nothing))
     assert {k: doc[k] for k in pinned} == pinned == FG.NETSYNC_F3_PINNED
     fake.netsync_dialogue = None
     old = fake._netsync_doc()
@@ -348,7 +358,7 @@ def test_talk_publishes_nothing_the_engine_does_not(game):
     nothing, _pinned = _agent_netsync_nothing()
     for contract in ("authority", None):
         fake = FakeGame(game)
-        fake.netsync_caps = _live_caps()                     # [ff9mapkit netsync s164] the stand-in AT the live stack's rung
+        _live_rung(fake)                     # [ff9mapkit netsync s164] the stand-in AT the live stack's rung
         fake.netsync_dialogue = contract
         fake.field_id = FIELD
         fake._netsync(["selftest", "1"])
@@ -953,11 +963,18 @@ def _unfollowed(doc: dict) -> dict:
     return out
 
 
+def _unmenued(doc: dict) -> dict:
+    """[ff9mapkit netsync s168] A `netsync` document without s168's catch-line key -- `guestmenu`, netsync's LAST key (after s166's
+    `wire_peer`; BW.NETSYNC_TOP_KEYS_S168): the catch line as s167 wrote it -- s168 adds that one block and nothing else."""
+    return {k: v for k, v in doc.items() if k not in BW.NETSYNC_TOP_KEYS_S168}
+
+
 def _unwalked(doc: dict) -> dict:
     """[ff9mapkit netsync s166] A `netsync` document without s166 A0's catch-line key -- `kitcell` inside `world` (NETSYNC_TOP_NESTED_KEYS'
     `worldwalk` row; no top-level key): the catch line as s165 wrote it -- A0 adds that and nothing else. [ff9mapkit netsync s166] A0b
-    adds `pairpull` beside it, and A2 the round's one TOP-LEVEL key, `wire_peer`, netsync's LAST (NETSYNC_TOP_CAP_KEYS' `worldwalk` row)."""
-    out = {k: v for k, v in doc.items() if k not in FG.NETSYNC_TOP_CAP_KEYS.get("worldwalk", ())}
+    adds `pairpull` beside it, and A2 the round's one TOP-LEVEL key, `wire_peer`, netsync's LAST (NETSYNC_TOP_CAP_KEYS' `worldwalk` row).
+    [ff9mapkit netsync s168] (and without s168's key: :func:`_unmenued`)"""
+    out = {k: v for k, v in _unmenued(doc).items() if k not in FG.NETSYNC_TOP_CAP_KEYS.get("worldwalk", ())}
     if isinstance(out.get("world"), dict):
         # [ff9mapkit netsync s167] ...and round B's `walk` / `fp` (the same rung: world's last two once ITS patch is live -- the lane's s167
         # growth goes with round A's `lane`)
@@ -1017,7 +1034,10 @@ def _s166_a4_live() -> bool:
 
 def _live_caps() -> frozenset:
     """[ff9mapkit netsync s164] The stand-in's capability set at the LIVE stack's rung (s164's once its patch lands, else s163's).
-    [ff9mapkit netsync s165] (s165's once ITS patch lands) [ff9mapkit netsync s166] (s166's once ITS patch lands)"""
+    [ff9mapkit netsync s165] (s165's once ITS patch lands) [ff9mapkit netsync s166] (s166's once ITS patch lands) [ff9mapkit netsync
+    s168] (and s168's opt-in `guestmenu` cap on top once ITS patch lands: off the battle ladder, decision 32 -- FG.NETSYNC_S168_CAPS)"""
+    if _s168_live():
+        return FG.caps_through("worldwalk") | FG.NETSYNC_S168_CAPS
     if _s166_live():
         return FG.caps_through("worldwalk")
     if _s165_live():
@@ -1025,20 +1045,31 @@ def _live_caps() -> frozenset:
     return FG.caps_through("swap" if _s164_live() else "speed")
 
 
+def _live_rung(fake) -> None:
+    """[ff9mapkit netsync s168] Put a stand-in AT the live stack's rung: its caps (:func:`_live_caps`) and, once the s168 patch is live,
+    the s168 opt-in whole (FG.guest_menu_stand_in: the s167 world-walk pieces beside the `guestmenu` cap -- the s168 engine carries s167,
+    and the rung publishes nothing without them)."""
+    fake.netsync_caps = _live_caps()
+    if _s168_live():
+        FG.guest_menu_stand_in(fake)
+
+
 def _sw_live_tail(*names: str) -> list:
     """[ff9mapkit netsync s164] A tail of `netsync`'s keys as the LIVE agent writes it: ``names``, through s163's `speed`, then s164's
     `swap` once its patch is live. [ff9mapkit netsync s165] ...then s165's `saveguard` and `host` once ITS patch is live.
-    [ff9mapkit netsync s166] ...then A2's `wire_peer` once the s166 patch is live."""
+    [ff9mapkit netsync s166] ...then A2's `wire_peer` once the s166 patch is live. [ff9mapkit netsync s168] ...then `guestmenu`, netsync's
+    LAST key, once the s168 patch is live."""
     return (list(names) + (["swap"] if _s164_live() else []) + (list(BW.NETSYNC_TOP_KEYS_S165) if _s165_live() else [])
-            + (list(BW.NETSYNC_TOP_KEYS_S166) if _s166_live() else []))
+            + (list(BW.NETSYNC_TOP_KEYS_S166) if _s166_live() else []) + (list(BW.NETSYNC_TOP_KEYS_S168) if _s168_live() else []))
 
 
 def _sw_live_subverbs(*names: str) -> list:
     """[ff9mapkit netsync s165] A tail of the agent's SUB-VERB list as the LIVE agent writes it: ``names``, then s164's `swap` and
     s165's `worldfollow` once each patch is live (:func:`_sw_live_tail` is netsync's KEY tail: s165 appends two keys there,
-    `saveguard` and `host`, but ONE sub-verb here). [ff9mapkit netsync s166] ...then s166's `worldwalk` once ITS patch is live."""
+    `saveguard` and `host`, but ONE sub-verb here). [ff9mapkit netsync s166] ...then s166's `worldwalk` once ITS patch is live.
+    [ff9mapkit netsync s168] ...then s168's `guestmenu` (the agent's LAST sub-verb) once ITS patch is live."""
     return (list(names) + (["swap"] if _s164_live() else []) + (["worldfollow"] if _s165_live() else [])
-            + (["worldwalk"] if _s166_live() else []))
+            + (["worldwalk"] if _s166_live() else []) + ([BW.NETSYNC_SUBVERB_S168] if _s168_live() else []))
 
 
 def _s165_world_tail() -> str:
@@ -1070,8 +1101,10 @@ def _sw_agent_index(i: int) -> int:
     """[ff9mapkit netsync s164] The LIVE agent's index for the driver's negative sub-verb index ``i``: the same once the s164 patch is
     live, else one further toward the end (an s163 agent has no trailing `swap`). [ff9mapkit netsync s165] ...and one further again
     until the s165 patch is live (an s164 agent has no trailing `worldfollow`). [ff9mapkit netsync s166] ...and again until the s166
-    patch is live (an s165 agent has no trailing `worldwalk`)."""
-    return i + (0 if _s164_live() else 1) + (0 if _s165_live() else 1) + (0 if _s166_live() else 1)
+    patch is live (an s165 agent has no trailing `worldwalk`). [ff9mapkit netsync s168] ...and one further FROM the end once the s168
+    patch is live: its agent appends `guestmenu` LAST, a sub-verb the driver's ladder does not carry (decision 32)."""
+    return (i + (0 if _s164_live() else 1) + (0 if _s165_live() else 1) + (0 if _s166_live() else 1)
+            - (1 if _s168_live() and "guestmenu" not in Session.NETSYNC_SUBVERBS else 0))
 
 
 def _sw_live_catch_tail() -> str:
@@ -1083,6 +1116,8 @@ def _sw_live_catch_tail() -> str:
                  + json.dumps(BW.HOST_SENTINELS_S166 if _s166_a3_live() else BW.HOST_SENTINELS, separators=(",", ":")))   # [s166] W2: + guest
     if _s166_live():                    # [ff9mapkit netsync s166] ...then A2's `wire_peer` at its sentinels, netsync's LAST key
         tail += ',"wire_peer":' + json.dumps(BW.WIRE_PEER_SENTINELS, separators=(",", ":"))
+    if _s168_live():                    # [ff9mapkit netsync s168] ...then `guestmenu` at its sentinels, netsync's LAST key now
+        tail += ',"guestmenu":' + json.dumps(BW.GUEST_MENU_SENTINELS, separators=(",", ":"))
     return tail
 
 
@@ -1250,10 +1285,12 @@ def test_s166_wire_peer_closes_netsync_at_the_catch_lines_sentinels(game):
     does (it speaks 14)."""
     nothing, _pinned = _agent_netsync_nothing()
     fake = FakeGame(game)
-    fake.netsync_caps = _live_caps()
+    _live_rung(fake)
     doc = fake._netsync_doc()
     if _s166_live():
-        assert list(nothing)[-2:] == ["host", "wire_peer"] and list(doc)[-1] == "wire_peer", list(nothing)[-3:]
+        # [ff9mapkit netsync s168] by stage: `guestmenu` follows `wire_peer` once ITS patch is live (test_s168_guestmenu_closes_netsync_...)
+        assert list(_unmenued(nothing))[-2:] == ["host", "wire_peer"] and list(_unmenued(doc))[-1] == "wire_peer", list(nothing)[-3:]
+        assert list(nothing)[-1] == list(doc)[-1] == ("guestmenu" if _s168_live() else "wire_peer"), (list(nothing)[-2:], list(doc)[-2:])
         assert json.dumps(nothing["wire_peer"]) == json.dumps(BW.WIRE_PEER_SENTINELS) == json.dumps(doc["wire_peer"])
         assert tuple(nothing["wire_peer"]["rx"]) == tuple(BW.WIRE_PEER_RX_SENTINELS)
     else:
@@ -1287,7 +1324,7 @@ def test_a_fresh_stand_in_publishes_the_agents_f33_sentinels(game):
     stack_wire = int(re.search(r"Version = (\d+);", wire[0]).group(1))
     assert stack_wire == (FG.NETSYNC_WIRE_V15 if _s166_live() else FG.NETSYNC_WIRE_V14)
     live = FakeGame(game)
-    live.netsync_caps = _live_caps()
+    _live_rung(live)
     assert live._netsync_doc()["wire"] == stack_wire
     assert doc["wire"] == FG.netsync_wire(FakeGame(game).netsync_caps)
     assert net_lines("NetSyncField.cs", r"public static Int32 KeyTick;") and doc["key_tick"] == 0
@@ -2416,6 +2453,13 @@ def test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order():
                       if isinstance(dio_w[k], dict) and set(dio_n[k]) - set(dio_w[k])}
         assert dio_nested == FG.NETSYNC_DIORAMA_NESTED_KEYS.get(cap, {}), (patch, dio_nested)
         prev_verbs, prev_doc = verbs_now, doc_now
+    if _s168_live():
+        # [ff9mapkit netsync s168] the opt-in rung, OFF the battle ladder (decision 32): its patch appends ONE sub-verb and ONE top-level key,
+        # both LAST, and touches no older block (its catch line is s167's -- round B's world growth, off this ladder too -- plus that key)
+        verbs_now, doc_now, s167 = _subverbs_in("s168"), _catch_doc_in("s168"), _catch_doc_in("s167")
+        assert verbs_now == prev_verbs + (BW.NETSYNC_SUBVERB_S168,), verbs_now[-3:]
+        assert list(doc_now) == list(s167) + list(BW.NETSYNC_TOP_KEYS_S168) and _unmenued(doc_now) == s167
+        prev_verbs, prev_doc = verbs_now, doc_now       # the live stack's document from here on (the reads below are the LIVE union's)
     assert prev_verbs == _agent_subverbs() == FG.netsync_subverbs(_live_caps())     # [ff9mapkit netsync s164] the live rung's
     assert FG.NETSYNC_SUBVERBS == Session.NETSYNC_SUBVERBS
     battle = _battle_of(prev_doc)
@@ -6658,7 +6702,8 @@ def test_the_sitting_a_constants_and_names_are_the_stacks():
     assert {re.match(r'case Ovl\w+: return "(\w+)";', ln).group(1) for ln in _stack_text("NetSyncClient.cs")
             if re.match(r'case Ovl\w+: return "(\w+)";', ln)} == set(BW.OVERLAY_NAMES) | (set(BW.OVERLAY_NAMES_S166) if _s166_a3_live()
                                                                                          else set()) \
-        | (set(BW.OVERLAY_NAMES_S167) if _s167_live() else set())   # [ff9mapkit netsync s166] W2: A3's five; [ff9mapkit netsync s167] round B's six
+        | (set(BW.OVERLAY_NAMES_S167) if _s167_live() else set()) \
+        | ({BW.OVERLAY_NAME_GUEST_MENU} if _s168_live() else set())   # [ff9mapkit netsync s166] W2: A3's five; [ff9mapkit netsync s167] round B's six; [ff9mapkit netsync s168] OverlayName(29)
     field = {v: k for k, v in BW.CS_FIELD_CONSTANTS.items()}
     for value, name in BW.MENU_KEY_NAMES.items():
         assert net_lines("NetSyncField.cs", re.escape(f'case {field[value]}: return "{name}";')), name
@@ -17575,7 +17620,11 @@ def test_the_rig_twin_is_the_engines_table_and_the_census():
     # [ff9mapkit netsync s163] + 10, the host's booster (NetSyncState.SectionSpeed)
     # [ff9mapkit netsync s167] + 11 BY STAGE once round B's patch is live: the world fingerprint (NetSyncState.SectionFp, between 10 and 7)
     fp = {BW.SECTION_FP} if _s167_live() else set()
-    assert used <= {0, 4, 5, 6, 7} | {1, 2, 3} | {9, 10} | fp and BW.SECTION_DRESS not in used and BW.SECTION_DRESS not in (9, 10, BW.SECTION_FP)
+    # [ff9mapkit netsync s168] + 12 BY STAGE once its patch is live: the guest menu's block, host to guest (NetSyncState.SectionGuestMenu)
+    gm = {BW.SECTION_GUEST_MENU} if _s168_live() else set()
+    assert used <= {0, 4, 5, 6, 7} | {1, 2, 3} | {9, 10} | fp | gm and BW.SECTION_DRESS not in used \
+        and BW.SECTION_DRESS not in (9, 10, BW.SECTION_FP, BW.SECTION_GUEST_MENU)
+    assert ("public const Byte SectionGuestMenu = 12;" in state) == bool(gm) and BW.SECTION_GUEST_MENU == 12
     assert "public const Byte SectionChest = 9;" in state and BW.SECTION_CHEST == 9
     assert "public const Byte SectionSpeed = 10;" in state and BW.SECTION_SPEED == 10
     assert ("public const Byte SectionFp = 11;" in state) == bool(fp) and BW.SECTION_FP == 11
@@ -31569,9 +31618,11 @@ def test_s164_arrive_the_proof_totals_are_the_engines():
 # the catch literal carries its sentinels in the same change (THE CATCH LITERAL IS PART OF EVERY KEY ADDITION). BY STAGE: the live stack
 # carries no s168 patch until the W1 clone is frozen (the s167 stage: neither the agent nor a default stand-in has it); the opt-in s168
 # stand-in (FG.guest_menu_stand_in) publishes the block LAST at BW.GUEST_MENU_SENTINELS' keys. tests/test_coop_guest_menu.py pins the
-# block to a clone named by FF9_S168_CLONE; these pins move onto the stack the moment an s168 patch lands.
+# block to a clone named by FF9_S168_CLONE; these pins move onto the stack the moment an s168 patch lands. [s168] The patch is FROZEN on
+# the stack now (s168-netsync-guest-menu.patch): the s168 branch of every by-stage pin is the live one, and the older pins reach the live
+# rung through _live_rung / _live_caps / _sw_live_tail / _sw_live_subverbs / _unmenued.
 def _s168_live() -> bool:
-    """[ff9mapkit netsync s168] Whether the LIVE patch stack carries an s168 patch yet (none until the W1 clone is frozen)."""
+    """[ff9mapkit netsync s168] Whether the LIVE patch stack carries an s168 patch (none until the W1 clone was frozen; it is now)."""
     return any(n.startswith("s168-") and n not in msr.DEAD for n in msr.stack())
 
 

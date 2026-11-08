@@ -162,6 +162,75 @@ def pids_at(exe, **seams) -> list[int]:
     return scan_game(exe, **seams)[0]
 
 
+#: The message :func:`post_close` posts: a window close request (what the title bar's X sends), never a key or a focus change.
+WM_CLOSE = 0x0010
+
+
+def _top_windows() -> list[tuple[int, int, bool]]:
+    """``[(hwnd, pid, visible)]`` for every top-level window on this desktop (EnumWindows + GetWindowThreadProcessId +
+    IsWindowVisible; a private user32 handle, so no other caller's argtypes are touched). Windows only."""
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    enum_proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user32.EnumWindows.argtypes = [enum_proc, wintypes.LPARAM]
+    user32.EnumWindows.restype = wintypes.BOOL
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.IsWindowVisible.restype = wintypes.BOOL
+    out: list[tuple[int, int, bool]] = []
+    errors: list = []
+
+    def _each(hwnd, _lparam):
+        try:
+            owner = wintypes.DWORD(0)
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+            out.append((int(hwnd or 0), int(owner.value), bool(user32.IsWindowVisible(hwnd))))
+            return True
+        except BaseException as err:                  # noqa: BLE001 - a ctypes callback swallows it: carried out, raised below
+            errors.append(err)
+            return False
+
+    user32.EnumWindows(enum_proc(_each), 0)
+    if errors:
+        raise errors[0]
+    return out
+
+
+def _post_message(hwnd: int, msg: int) -> bool:
+    """PostMessageW(hwnd, msg, 0, 0): queued, returns at once (never SendMessage, which would wait on the game's pump)."""
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    user32.PostMessageW.restype = wintypes.BOOL
+    return bool(user32.PostMessageW(hwnd, msg, 0, 0))
+
+
+def post_close(pid: int, *, windows=None, post=None) -> int:
+    """[ff9mapkit netsync s168] Post WM_CLOSE to every VISIBLE top-level window of ``pid``; returns how many windows got it (0
+    off Windows, for a pid <= 0 or THIS process's own, or for a pid with no visible window). No focus, no keys: THE UNATTENDED
+    LAW holds. FF9's UIKeyTrigger.OnApplicationQuit cancels the quit and raises the stock quit prompt (Unity 5.2.3 honours
+    CancelQuit) on any scene but Bundle -- so never call it on the title/boot (Bundle) scene, and never Confirm the prompt it
+    raises (Cancel closes it). GM0-QUIT-D's any-role route to the guest's prompt (the duo guest is role client: ``endbench
+    quit on`` is the selftest role's); unproven in game until the rampquit leg measures it. ``windows`` (a callable returning
+    ``[(hwnd, pid, visible)]``) and ``post`` (``post(hwnd, msg) -> bool``) are the test seams."""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return 0
+    if pid <= 0 or pid == os.getpid():                # never the driver itself (a stand-in game's "pid" can be ours)
+        return 0
+    if windows is None:
+        if os.name != "nt":
+            return 0
+        windows = _top_windows
+    post = post or _post_message
+    hits = [h for h, owner, visible in windows() if int(owner) == pid and visible and h]
+    return sum(1 for h in hits if post(h, WM_CLOSE))
+
+
 def single_instance_key(exe) -> str:
     """The name FF9's ``-single-instance`` mutex takes for ``exe``: the last 30 characters of its canonical path, every
     non-alphanumeric turned into '-'. Two exes whose keys match cannot both run with the flag -- the second exits 0 in
@@ -375,6 +444,11 @@ class Instance:
         self._others = others
         self._nonce: str | None = None                  # our claim's nonce while we hold it
         self._claim_depth = 0
+        #: [ff9mapkit netsync s168] a run's own ``{section: {key: value}}`` ON TOP of :func:`base_overlay` (:meth:`overlay`):
+        #: duo.py's ``--root-ini`` (the FadeDuration-300 rows). A hand edit of a root's ini is regenerated away at every
+        #: refresh (ensure, and every Session launch), so this is the only writer that survives one. Never [Netsync] (that is
+        #: :meth:`netsync`'s); the duo empties it before :meth:`restore_ini`, so the root goes back to install + base.
+        self.extra_overlay: dict = {}
 
     def __repr__(self) -> str:
         return f"Instance({str(self.root)!r}, install={str(self.install)!r})"
@@ -433,7 +507,16 @@ class Instance:
         return Plan(links, copies, inst / "Memoria.ini", self.ini)
 
     def overlay(self) -> dict:
-        return base_overlay(self.root)
+        """:func:`base_overlay` with :attr:`extra_overlay` merged over it section by section (a key in both: the extra's
+        value). Neither dict is mutated. An extra [Netsync] is refused here, where the overlay is spent: the parked relay
+        and code are the owner's protection, and a run's [Netsync] goes through :meth:`netsync` and is restored after."""
+        ov = {s: dict(kv) for s, kv in base_overlay(self.root).items()}
+        for section, kv in (self.extra_overlay or {}).items():
+            if str(section).strip().lower() == "netsync":
+                raise InstanceError(f"extra_overlay names [{section}]: a root's [Netsync] is written only through "
+                                    f"netsync() (the parked relay and code stay) -- refusing")
+            ov.setdefault(str(section), {}).update({str(k): str(v) for k, v in dict(kv).items()})
+        return ov
 
     def wanted_ini(self) -> str:
         return overlay_text(_read_ini(self.install / "Memoria.ini"), self.overlay())
@@ -445,6 +528,9 @@ class Instance:
     def pids(self) -> list[int]:
         """The FF9.exe pids running FROM this root (the Session's pid probe in instance mode)."""
         return self.scan()[0]
+
+    #: :func:`post_close` (WM_CLOSE to a pid's visible top-level windows), reachable as ``Instance.post_close(pid)`` too.
+    post_close = staticmethod(post_close)
 
     def assert_not_running(self, why: str) -> None:
         mine, _others, unknown = self.scan()
