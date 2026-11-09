@@ -6,6 +6,7 @@ Prints ``{"gl": false, ...}`` when no context can be made (a headless box): the 
 
     python _worldview3d_native.py hermetic      # synthetic scene + the break-it mutations
     python _worldview3d_native.py bench         # the six committed V-shore bench cameras on the install
+    python _worldview3d_native.py stock         # the same cells and cameras on stock disc 1 + one break-it
 """
 
 from __future__ import annotations
@@ -127,6 +128,32 @@ def bench(V, R):
     return out
 
 
+def stock_site(R):
+    """The V-shore bench's cells on STOCK disc 1: an empty folder stack reads no override anywhere, so the scene is
+    the base game's blocks whatever the world folders hold (coast, cliffs, grass and sea under all six cameras)."""
+    import dataclasses
+    return dataclasses.replace(R.BENCH_VSHORE, disc=1, stack=())
+
+
+def stock(V, R):
+    """The six committed cameras on stock disc-1 blocks, plus one break-it on those same real blocks: the GPU fed
+    each texture upside down must differ by an AREA, so the comparison on real atlases can fail."""
+    site = stock_site(R)
+    batches = R.load_batches(site, stock=True)
+    look = lambda p: R.tex_for(p, site)                      # noqa: E731
+    flipped = lambda p: (lambda t: None if t is None else t[::-1].copy())(look(p))   # noqa: E731
+    out = {"gl": True, "tris": int(sum(len(t) for *_, t in batches)), "views": {}, "mutation": {"blob": 0}}
+    for vn, v in R.BENCH_VIEWS.items():
+        a = R.raster(v, batches, vn, site=site, verbose=False)
+        g = V.render_still(batches, v, res=site.res, tex_lookup=look)
+        c = V.compare(a, g)
+        c["sky_frac"] = float((a == R.SKY).all(axis=2).mean())
+        out["views"][vn] = c
+        m = V.compare(a, V.render_still(batches, v, res=site.res, tex_lookup=flipped))
+        out["mutation"]["blob"] = max(out["mutation"]["blob"], m["blob"])
+    return out
+
+
 def main(mode):
     app = QGuiApplication(sys.argv[:1])                      # noqa: F841 -- the GL platform must exist
     from ff9mapkit.workspace import worldview3d as V
@@ -134,7 +161,7 @@ def main(mode):
     assert Path(V.__file__).resolve().is_relative_to(Path(__file__).resolve().parents[1]), V.__file__
     if not V.gl_available():
         return {"gl": False, "platform": QGuiApplication.platformName()}
-    return {"hermetic": hermetic, "bench": bench}[mode](V, R)
+    return {"hermetic": hermetic, "bench": bench, "stock": stock}[mode](V, R)
 
 
 if __name__ == "__main__":
