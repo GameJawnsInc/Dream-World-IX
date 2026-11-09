@@ -142,6 +142,15 @@ land in its footprint. Only then does it compose the prefab into your folder, th
 in game yet: walk its rim and every carry before you trust it. In the Workspace, the World tab's **Edit the map → Add a prefab**
 card does the same into a draft: click open ocean, read its verdict, Accept.
 
+```bash
+py -m ff9mapkit world-prefab desert-peak-isle --cell 21,1 --turn 90 --mod-folder FF9CustomMap-world --dry-run
+```
+
+`--turn 90|180|270` places the same walked land turned by a quarter turn. The prefab is built at its catalog site,
+held to its fingerprint, and turned block by block; the written land must be the catalog's land turned. `--list`
+shows which turns each prefab allows. A prefab whose land rides a stock object, as `beach-chain` does, stays at turn
+0. A turn not yet walked in game says so when you place it: walk its rim once.
+
 ## Reshape stock ground (hills, craters, ridges)
 
 ```bash

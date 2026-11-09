@@ -8,6 +8,10 @@ The ghost is the prefab's own land there (``world.prefabedit.ghost``). The previ
 (the footprint on the map and on open ocean, nothing edited in or beside it); ``world-prefab --dry-run`` judges the
 rest -- the prefab staged outside the install and held to the land its catalog fingerprint names -- and Accept places
 it into the draft as ONE step (one Undo takes the whole landmass back).
+
+THE TURN (rung P5): a Turn picker beside the prefab offers the quarter turns its catalog entry allows (hidden when it
+allows only 0). A turn is the walked land turned (``world-prefab --turn``), so the ghost is the same land laid down
+turned, the anchor fits the turned footprint, and the step's row carries ``turn``.
 """
 from __future__ import annotations
 
@@ -18,7 +22,8 @@ from .worldforest import GATE_WORDS, CarryTool
 
 PREFAB_GATES = {**GATE_WORDS, "catalog": "the catalog", "rows": "the map's rows", "window": "the clear window",
                 "identity": "the identity check", "nav": "the navigation check", "written": "the written-land check",
-                "disc4": "the disc-4 check", "compose": "a row of the prefab", "error": "world-prefab"}
+                "disc4": "the disc-4 check", "compose": "a row of the prefab", "turn": "the turn",
+                "error": "world-prefab"}
 
 
 class PrefabTool(CarryTool):
@@ -67,6 +72,13 @@ class PrefabTool(CarryTool):
                                                              for i in range(self.prefab_box.count())]))
         self.prefab_box.currentIndexChanged.connect(lambda _ix: self._prefab_changed())
         row.addWidget(self.prefab_box)
+        self.turn_box = QComboBox()
+        self.turn_box.setAccessibleName("Turn")
+        self.turn_box.setToolTip("Turn the prefab by a quarter turn: the same walked land, turned whole (every tile "
+                                 "stays one the game draws). Only the turns its catalog entry allows are offered.")
+        self._fill_turns()
+        self.turn_box.currentIndexChanged.connect(lambda _ix: self._prefab_changed(turn_only=True))
+        row.addWidget(self.turn_box)
         self.cell_lbl = widgets.role_label("Click open ocean.", "caption")
         self.cell_lbl.setAccessibleName("Anchor block")
         row.addWidget(self.cell_lbl)
@@ -82,10 +94,32 @@ class PrefabTool(CarryTool):
     def donor(self):
         return str(self.prefab_box.currentData())
 
-    def prefab(self) -> dict:
-        return self._rows[self.donor()]
+    def turn(self) -> int:
+        """The quarter turn picked (0 when the prefab allows no other)."""
+        t = self.turn_box.currentData() if hasattr(self, "turn_box") else None
+        return int(t) if t is not None else 0
 
-    def _prefab_changed(self):
+    def prefab(self) -> dict:
+        """The prefab as it lands: the catalog entry turned by the picked turn (``prefab.turned``)."""
+        from ..world.prefab import turned
+        return turned(self._rows[self.donor()], self.turn())
+
+    def _fill_turns(self, keep: int = 0):
+        """The Turn picker's items: the turns the current prefab allows; hidden when that is turn 0 alone."""
+        from ..world.prefab import turns_of
+        turns = turns_of(self._rows[self.donor()]) if self._rows else (0,)
+        self.turn_box.blockSignals(True)
+        self.turn_box.clear()
+        for t in turns:
+            self.turn_box.addItem(f"turn {t}°", t)
+        ix = self.turn_box.findData(int(keep))
+        self.turn_box.setCurrentIndex(ix if ix >= 0 else 0)
+        self.turn_box.blockSignals(False)
+        self.turn_box.setVisible(len(turns) > 1)
+
+    def _prefab_changed(self, turn_only: bool = False):
+        if not turn_only:
+            self._fill_turns(keep=self.turn())
         if self._click is not None:
             self.place(*self._click, self._pick_y)       # a different footprint: fit the anchor to the click again
         else:
@@ -99,6 +133,10 @@ class PrefabTool(CarryTool):
         if ix < 0:
             raise ValueError(f"its prefab {row['name']} is not one the catalog lists")
         self.prefab_box.setCurrentIndex(ix)
+        t = int(row.get("turn", 0))
+        self._fill_turns(keep=t)
+        if self.turn() != t:
+            raise ValueError(f"its turn {t} is not one prefab {row['name']} allows")
         self.place(*self.FE.center(tuple(int(v) for v in row["cell"]), self.prefab()))
 
     def cell(self):
@@ -127,10 +165,12 @@ class PrefabTool(CarryTool):
 
     # -- the shape and the laws --
     def _cmd(self, target, *, dry_run, report=None):
-        return self.FE.command(target, self.donor(), self._anchor or (0, 0), dry_run=dry_run, report=report)
+        return self.FE.command(target, self.donor(), self._anchor or (0, 0), dry_run=dry_run, report=report,
+                               turn=self.turn())
 
     def _shape(self, ol, ground_y):
-        return self.FE.at(ol, self._anchor), self.FE.rim(self._anchor, self.prefab())
+        p = self.prefab()
+        return self.FE.at(self.FE.turn(ol, p), self._anchor), self.FE.rim(self._anchor, p)
 
     def _folders(self, *, stack):
         from pathlib import Path
@@ -199,6 +239,12 @@ class PrefabTool(CarryTool):
         p = self.prefab()
         a = self._anchor
         walked = "walked in game" if p["status"] == "qualified" else "NOT yet walked in game"
+        t = self.turn()
+        if t and p["status"] == "qualified":
+            walked = ("walked in game, this turn too" if t in (p.get("walked_turns") or ()) else
+                      f"walked in game at turn 0, turned {t} (walk this turn's rim once)")
+        elif t:
+            walked += f", turned {t}"
         tier = v.get("identity") or "the catalog's land"
         n = len(v.get("blocks") or [])
         return (f"Passes: {p['name']} on anchor ({a[0]}, {a[1]}), {n} block{'s' if n != 1 else ''}, {walked}. "

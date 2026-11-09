@@ -997,6 +997,13 @@ def _snap_world_prefab(ctx: _Ctx, win) -> None:
             view.update()
         _settle(12)
         _grab(ctx, "world-3d-prefab", win)
+        # rung P5: the same prefab turned 90 -- the ghost laid down turned, the Turn picker showing
+        if pt.turn_box.findData(90) >= 0:
+            pt.turn_box.setCurrentIndex(pt.turn_box.findData(90))
+            pt._timer.stop()
+            pt._check()
+            _settle(12)
+            _grab(ctx, "world-3d-prefab-turned", win)
         state["refuse"] = True
         pt.place(1504.0, -1120.0, 0.0)
         pt._timer.stop()

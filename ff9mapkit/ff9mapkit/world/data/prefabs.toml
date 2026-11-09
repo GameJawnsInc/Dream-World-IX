@@ -11,6 +11,11 @@
 # it in fingerprint_cell: beside stock land the coast-nav stamp re-classes the nearest sea (THE NAV MARGIN), so a
 # placement there is judged against a reference copy staged at that clean site (world/prefab.py).
 #
+# turns = the quarter turns a prefab places at (default [0]). A turn is the WALKED land turned whole (world/prefab.py
+# THE QUARTER TURN), never a re-mint, so it shares the fingerprint; a prefab that turns names fingerprint_cell, the
+# site it is composed at before turning. Each turn below was measured offline at 2-4 sites (identity + the engine
+# ground query, studies/overworld-editor/evidence/prefab-turn/). walked_turns = the turns other than 0 walked in game.
+#
 # status: "candidate" until the owner walks it in game (rim, every carry), then "qualified" with the walk noted.
 # Each prefab is a composition the verbs' own gates passed whole; the walk, not the gates, is the verdict
 # (A GREEN GATE SUITE IS A REGRESSION HARNESS, NOT AN ORACLE).
@@ -24,6 +29,7 @@ note = "A r60 desert island with the desert peak (19,3) on its home ground, turn
 fingerprint = "732af2c5e7a973a7591b6935f7f583795a117c4794bcaf5c900152c831f0f338"
 fingerprint_cell = [1, 14]
 footprint = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 0], [0, 1], [1, -1], [1, 0], [1, 1]]
+turns = [0, 90, 180, 270]
 
 [[prefab.rows]]
 table = "island"
@@ -47,6 +53,7 @@ note = "A r60 meadow island (verbatim meadow stamps) with the clean canopy blob 
 fingerprint = "78196ce1e7e11c6b8aafc58efd0aa65cbb6f68a55eb2e5d31d80cf3e94a1ada7"
 fingerprint_cell = [1, 14]
 footprint = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 0], [0, 1], [1, -1], [1, 0], [1, 1]]
+turns = [0, 90, 180, 270]
 
 [[prefab.rows]]
 table = "island"
@@ -74,7 +81,9 @@ ground = "desert"
 walked = "as the carry unit the-comma, turned 90, onto (20,0): party at 9.551 (predicted 9.554), C5.md"
 note = "The comma, turned 90: a teardrop island ~190u long, a bare rock spine to 26.5u and a green arm 51u out."
 fingerprint = "dc977f24e67110f56dce43e967a58f786aa6777a9ef6b36358ed56eec8dfbe26"
+fingerprint_cell = [20, 0]
 footprint = [[0, 0], [1, 0], [1, 1], [2, 0], [2, 1]]
+turns = [0, 90, 180, 270]
 
 [[prefab.rows]]
 table = "transplant"
@@ -90,7 +99,9 @@ ground = "crystal"
 walked = "as the carry unit crystal-reef, turn 0, onto (11,1): party on a shard at 9.266 (predicted 9.265), C5.md"
 note = "The Shimmering crystal reef: six small unwalkable crystal masses in 2x2 blocks."
 fingerprint = "fd9e3b22d0300c16c9e4ba332cb7f40317b44d7de78e0f9aceb35cbdca92a014"
+fingerprint_cell = [11, 1]
 footprint = [[0, 0], [0, 1], [1, 0], [1, 1]]
+turns = [0, 90, 180, 270]
 
 [[prefab.rows]]
 table = "transplant"
@@ -105,7 +116,9 @@ ground = "grass"
 walked = "as the carry unit terminus-pair, turn 0, onto (3,0): party on its grass at 5.039 (predicted 5.044), C5.md"
 note = "Two small grass islands stacked north-south in 1x2 blocks."
 fingerprint = "04746eb89a45460ee0765d4e3f0d7145ab310c81154367b9d576fb66284688bd"
+fingerprint_cell = [3, 0]
 footprint = [[0, 0], [0, 1]]
+turns = [0, 90, 180, 270]
 
 [[prefab.rows]]
 table = "transplant"
@@ -121,6 +134,7 @@ walked = "as the carry unit beach-chain, turn 0, onto (19,1): party on its grass
 note = "The beach island and its chain of dots, 4x2 blocks: real beaches. Turn 0 only."
 fingerprint = "49bcb6f4a96a61e3dcfcee419438873fa4ca533b1a9b9e4cdf0173087e834e99"
 footprint = [[0, 0], [1, 0], [1, 1], [2, 0], [2, 1], [3, 0], [3, 1]]
+turns_note = "Chocobo's Lagoon's object rides on (9,17), which no file overrides: turn 0 only"
 
 [[prefab.rows]]
 table = "transplant"
