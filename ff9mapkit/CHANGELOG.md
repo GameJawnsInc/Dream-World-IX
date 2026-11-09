@@ -33,9 +33,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   or read, or when another installed folder has land in its footprint. `--list` shows the catalog, `--dry-run`
   checks without writing, `--recipe-out` saves the placed rows as a `world-fuse` recipe, and `--fingerprint`
   takes a new entry's fingerprint.
-- **Eight prefabs:** `desert-peak-isle` (walked, qualified); three candidates, `meadow-grove-isle`, `snow-ridge-isle`
-  (a two-lobe snow island with the coastal snow ridge and its inlet) and `desert-scrub-isle` (a desert island with the
-  scrub crag and its walled canopy); and the four walked stock carry units as prefabs: `comma-isle`, `crystal-reef`,
+- **Eight prefabs:** walked and qualified, `desert-peak-isle`, `snow-ridge-isle` (a two-lobe snow island with the
+  coastal snow ridge and its inlet) and `desert-scrub-isle` (a desert island with the scrub crag and its walled
+  canopy); one candidate, `meadow-grove-isle`; and the four walked stock carry units as prefabs: `comma-isle`, `crystal-reef`,
   `terminus-pair` and `beach-chain` (real beaches).
 - **Placement reaches across the x seam and beside stock land.** Near stock land the island's sea is re-classed for
   boats by the coast-nav stamp; placement then checks the island against a reference copy built at the catalog's

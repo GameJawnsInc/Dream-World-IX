@@ -560,6 +560,6 @@ def test_the_catalogued_lab_isles_stage_to_their_fingerprints_and_turn(name, tmp
     from .test_world_prefab import _install
     _install()
     p = PF.get(name)
-    assert PF.turns_of(p) == PF.TURNS and p["status"] == "candidate"
+    assert PF.turns_of(p) == PF.TURNS
     rep = PF.place(name, (1, 16), str(tmp_path / "T"), stack=(), dry_run=True, turn=90, log=lambda *a: None)
     assert rep["identity"] == "clean site: the catalog's land turned 90, the full fingerprint"
