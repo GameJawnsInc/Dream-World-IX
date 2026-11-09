@@ -463,7 +463,7 @@ def test_the_verb_lists_the_catalog_and_writes_a_placed_recipe(tmp_path, capsys)
     from ff9mapkit.world import recipe as R
     assert cli.main(["world-prefab", "--list"]) == 0
     out = capsys.readouterr().out
-    assert "desert-peak-isle" in out and "candidate" in out
+    assert "desert-peak-isle" in out and all(p["name"] in out and p["status"] in out for p in PF.load_catalog())
     path = tmp_path / "placed.toml"
     assert cli.main(["world-prefab", "desert-peak-isle", "--cell", "21,1", "--recipe-out", str(path)]) == 0
     rows = R.loads(path.read_text(encoding="utf-8"))
