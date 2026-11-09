@@ -151,6 +151,17 @@ held to its fingerprint, and turned block by block; the written land must be the
 shows which turns each prefab allows. A prefab whose land rides a stock object, as `beach-chain` does, stays at turn
 0. A turn not yet walked in game says so when you place it: walk its rim once.
 
+To make a prefab of your own from a landmass you built, save it from the World tab (**Edit the map → Save the draft as
+a prefab…**) or from a draft or recipe:
+
+```bash
+py -m ff9mapkit world-prefab my-desert-isle --save --from path/to/recipe.toml --steps 2,3
+```
+
+`--steps` picks the rows (one island or carried coast first, then the forest, mountain and hill on it). The prefab is
+built outside the install, fingerprinted at a clean site, proved the same land at a second, and its turns measured; it
+goes into your own catalog (`prefabs.toml` in the kit's settings folder), read after the kit's.
+
 ## Reshape stock ground (hills, craters, ridges)
 
 ```bash

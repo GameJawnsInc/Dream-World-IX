@@ -2635,6 +2635,13 @@ DIALOG_OPENERS = {
     # the named 3-button 'a campaign deploy will wipe your New Game entry' confirm -- fabricate a plan
     # + a casualty so the modal has something to name (BuildDoc._confirm_campaign_deploy).
     "campaign-newgame": _open_campaign_newgame,
+    # rung P6: the World tab's Save as prefab dialog, opened by the function its menu entry calls (ask_save), on an
+    # invented draft: a sink (greyed), then an island and the mountain and hill on it (ticked)
+    "prefab-save":   lambda w: __import__("ff9mapkit.workspace.worldprefabsave", fromlist=["ask_save"]).ask_save(
+        w, [{"row": {"table": "sink"}, "label": "sink at 412, -230"},
+            {"row": {"table": "island", "ground": "desert"}, "label": "island r60 seed 5 at 672, -608"},
+            {"row": {"table": "mountain"}, "label": "mountain 19,3 at 664, -604, turned 90"},
+            {"row": {"table": "hill"}, "label": "hill r14 at 650, -590"}], {"desert-isle"}),
 }
 
 
@@ -2656,7 +2663,7 @@ HOME_STATES = ("fresh", "midway", "ready", "veteran", "open")
 TABS = ("build", "import", "coop", "models", "battle", "story", "items")
 DIALOGS = ("new-field", "new-campaign", "new-journey", "fork-regions", "import-fields", "setup", "prefs",
            "about", "concept-map", "infohub", "updates", "fork-battle", "campaign-newgame",
-           "anim-picker", "animset-picker")
+           "anim-picker", "animset-picker", "prefab-save")
 
 
 def all_surfaces() -> list[str]:

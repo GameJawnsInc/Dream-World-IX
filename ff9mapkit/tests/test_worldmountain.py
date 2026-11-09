@@ -460,7 +460,7 @@ def test_the_mountain_button_opens_its_card_and_one_card_is_open_at_a_time(app, 
     assert not doc.tools_btn.isHidden()
     assert [a.text() for a in doc.tools_btn.menu().actions()] == ["Add a prefab", "Add forest", "Add mountain", "Add a hill", "Add an island",
                                                                    "Shape a coast", "Carry a coast", "Move the river",
-                                                                   "Sink an island"]
+                                                                   "Sink an island", "Save the draft as a prefab…"]
     doc.tool_actions["forest"].trigger()
     doc.tool_actions["mountain"].trigger()
     assert not doc._mountain.isHidden() and doc._forest.isHidden()

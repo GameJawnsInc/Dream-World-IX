@@ -254,6 +254,42 @@ stable across runs, so today's behaviour IS reproducible at a fixed site. It jus
   nothing, (0,12) re-classes 15-20 samples, so only (0,12) catches a turn that skips the stamp.
   Evidence: `evidence/prefab-turn/run-final.log` (+ `islands.json`, `units.json`) is the run on the final writer;
   `run.log`, `comma.json`, `reef.json` and `terminus.json` are the first run, on the -0.0 writer.
+- **P6 — Save as prefab: BUILT (2026-11-08), offline-proven on real bytes.** The catalog grows from the editor:
+  `world-prefab NAME --save --from DRAFT|RECIPE [--steps I,J] [--note ...] [--no-turns]`, and the World tab's
+  **Edit the map → Save the draft as a prefab…** (a dialog of the draft's steps: the last island or carried coast and
+  the relief after it ticked by default; then the CLI as a job; the Add a prefab picker re-reads the catalog).
+  - **YOUR CATALOG:** `prefabs.toml` in the kit's per-user config folder (`provision._user_dir("config")`, beside
+    the prefs), read after the kit's own, one namespace (a name in either refuses in both). Never the package data.
+  - **The rows:** one base (island or transplant) then relief, made RELATIVE to the anchor block: the block holding
+    the island's centre, or the transplant's own cell. Editor rows are already exact placements with their seed.
+  - **The checks, each refusing before the catalog is touched:** staged at its own anchor (the footprint); a CLEAN
+    site (the anchor when it is one) gives the fingerprint and `fingerprint_cell`, its navigation settled; staged
+    again at a SECOND clean site it must be the same land (THE COMPOSITION MOVES AS ONE); each turn placed at that
+    second site and held to the land turned. The entry is a CANDIDATE; its TOML passes the catalog's own reader before
+    it is appended.
+  - **A TRANSPLANT BASE NEEDS ITS WHOLE RECT OPEN, NOT JUST ITS FOOTPRINT** (found by the oracle run): the comma's rect
+    is 3x2, its footprint 5 blocks, and the first site picked had real sea in the sixth; `target_rel` holds the rect.
+  - **ORACLES (real bytes, scratch catalogs):** the walked desert peak isle's own rows, saved back from (10,9), are its
+    catalog entry exactly -- rows, footprint and fingerprint bit for bit, all four turns (84 s); the comma's too
+    (fingerprinted at (2,0), proved at (19,0)); the snow ridge isle's rows from (21,1) anchor one block east of the
+    hand-picked catalog anchor (its centre sits in (22,1)) and are the same land keyed from that anchor.
+  - **Adversarial review** (3 lenses, 2 refuting skeptics each): 11 confirmed, 10 fixed and fenced --
+    - THE USER'S CATALOG NEVER TAKES DOWN THE KIT'S: a user file that does not parse (a BOM from a hand edit, a typo),
+      an entry that breaks a rule, or a name the kit already uses (a later kit release) is SKIPPED and named
+      (`catalog_problems`, printed by `--list`), never raised; the kit's names win; a BOM reads;
+    - the append is LOCKED, re-checks the name against the file at write time (two saves stage for minutes at once:
+      doubled names broke every prefab, and the later write erased the earlier save), and replaces the file
+      ATOMICALLY (a kill mid-write left a truncated catalog); a lock older than a minute is a dead save's;
+    - `--save` without NAME listed the catalog and exited 0; `--steps` composes in the draft's order; the dialog
+      passes `--note=...` (a note starting with '-' was an argparse error);
+    - the tab TELLS the outcome in a message box (a refresh overwrote the bar's caption) and the menu entry says a save
+      is running; the open card's picker reads the catalog before it clears;
+    - a clean-sites test crashed on an entry without rows (`target_rel`).
+    **OPEN (not fixed):** a `[[prefab]]` recipe row names a user prefab by NAME only, so a recipe shared to another
+    machine (or replayed after a delete and re-save under the same name) composes that machine's land of that name
+    under its own fingerprint. The fix is a fingerprint on the row, checked by `place()` -- a recipe-format change.
+  - Fence: `tests/test_world_prefab_save.py` (rows, catalog file, every refusal, the CLI, the dialog, the tab's job and
+    the open card re-reading; one install-gated oracle). 21 mutations each turn it red. Snap: `dlg:prefab-save`.
 - **P4 — the arrangement search ("synth")**: enumerate seed/radius x home-matched donors x offsets, keep
   the all-green ones, and render them for the owner. Only the walked ones become prefabs.
 

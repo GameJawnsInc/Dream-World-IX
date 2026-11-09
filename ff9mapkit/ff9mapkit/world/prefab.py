@@ -66,6 +66,7 @@ import math
 import re
 import shutil
 import tempfile
+import time
 import tomllib
 from pathlib import Path
 
@@ -103,57 +104,121 @@ class PrefabRefused(ValueError):
 
 
 # ---------------------------------------------------------------- the catalog
+def user_catalog() -> Path:
+    """The USER's catalog (rung P6, Save as prefab): ``prefabs.toml`` in the kit's per-user config folder, beside the
+    prefs -- never the package's own data (read-only on some installs, wiped on upgrade). Read after the kit's."""
+    from .. import provision
+    return provision._user_dir("config") / "prefabs.toml"
+
+
+def catalog_paths(path=None) -> list:
+    """The catalog files :func:`load_catalog` reads: ``path`` alone when given, else the kit's and then the user's
+    (when it exists)."""
+    if path is not None:
+        return [Path(path)]
+    user = user_catalog()
+    return [CATALOG] + ([user] if user.is_file() else [])
+
+
+_USER_PROBLEMS: list = []
+
+
 def load_catalog(path=None) -> list:
-    """Every ``[[prefab]]`` in the catalog TOML, validated: unique names, a known status, exactly one BASE row first
-    (an island with an explicit seed -- the frame refuses without one -- or a transplant with ``cell`` and ``donor``),
-    only :data:`PREFAB_TABLES`, a relative ``center`` on every other row, no ``near`` / ``prefab_frame`` / ``step``
-    written by hand (placement sets them), and a ``fingerprint_cell`` beside any island prefab's fingerprint."""
-    doc = tomllib.loads(Path(path or CATALOG).read_text(encoding="utf-8"))
-    out, seen = [], set()
+    """Every ``[[prefab]]`` in the catalog TOML(s), validated: unique names (across the kit's catalog and the user's),
+    a known status, exactly one BASE row first (an island with an explicit seed -- the frame refuses without one -- or
+    a transplant with ``cell`` and ``donor``), only :data:`PREFAB_TABLES`, a relative ``center`` on every other row,
+    no ``near`` / ``prefab_frame`` / ``step`` written by hand (placement sets them), and a ``fingerprint_cell`` beside
+    any island prefab's fingerprint. ``path`` reads that one file, strictly; ``None`` reads the kit's catalog strictly
+    and then the USER's leniently (:func:`catalog_problems`).
+
+    THE USER'S CATALOG NEVER TAKES DOWN THE KIT'S (review P6): a user file that does not parse, an entry that breaks a
+    rule, or a name the kit's catalog (or an earlier user entry) already holds is SKIPPED and named in
+    :func:`catalog_problems` -- never raised -- so a hand edit, a BOM, or a later kit prefab of the same name costs that
+    one entry, not every prefab. The kit's names win."""
+    seen: set = set()
+    if path is not None:
+        return _load_one(Path(path), seen)
+    out = _load_one(CATALOG, seen)
+    problems: list = []
+    user = user_catalog()
+    if user.is_file():
+        out += _load_one(user, seen, problems=problems)
+    _USER_PROBLEMS[:] = problems
+    return out
+
+
+def catalog_problems() -> list:
+    """What the last read of the USER's catalog skipped, in words (empty: every entry loaded)."""
+    load_catalog()
+    return list(_USER_PROBLEMS)
+
+
+def _load_one(cat: Path, seen: set, *, problems=None) -> list:
+    """One catalog file. ``problems`` given = LENIENT (the user's): what breaks a rule is skipped and appended there."""
+    try:
+        doc = tomllib.loads(Path(cat).read_text(encoding="utf-8-sig"))   # (a BOM from a hand edit is not an error)
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as e:
+        if problems is None:
+            raise ValueError(f"{cat}: not a readable prefab catalog ({e})") from e
+        problems.append(f"{cat}: not a readable prefab catalog ({e}); none of its prefabs are offered")
+        return []
+    out = []
     for i, p in enumerate(doc.get("prefab", ())):
-        name = p.get("name")
-        where = f"[[prefab]] #{i} ({name!r})"
-        if not name or name in seen:
-            raise ValueError(f"{where}: needs a unique name")
-        seen.add(name)
-        if p.get("status") not in STATUSES:
-            raise ValueError(f"{where}: status must be one of {STATUSES}")
-        rows = p.get("rows") or []
-        if not rows or rows[0].get("table") not in BASE_TABLES:
-            raise ValueError(f"{where}: the first row is the base the relief stands on: one of {BASE_TABLES}")
-        if sum(1 for r in rows if r.get("table") in BASE_TABLES) != 1:
-            raise ValueError(f"{where}: one base (island or transplant) per prefab")
-        if rows[0]["table"] == "island" and "seed" not in rows[0]:
-            raise ValueError(f"{where}: the island row needs its seed (the prefab frame refuses a centre-derived one)")
-        for r in rows:
-            if r.get("table") not in PREFAB_TABLES:
-                raise ValueError(f"{where}: table {r.get('table')!r} has not been measured under a shift; "
-                                 f"a prefab holds {PREFAB_TABLES}")
-            if r["table"] == "transplant":
-                if "cell" not in r or len(r["cell"]) != 2 or "donor" not in r:
-                    raise ValueError(f"{where}: a transplant row names cell = [dx, dy] (blocks from the anchor) and "
-                                     f"its donor")
-            elif "center" not in r or len(r["center"]) != 2:
-                raise ValueError(f"{where}: every row is an exact placement: center = [dx, dz] from the frame origin")
-            if "near" in r or "prefab_frame" in r or "step" in r:
-                raise ValueError(f"{where}: near / prefab_frame / step are set by placement, not the catalog")
-        foot = p.get("footprint")
-        if foot is not None and not all(len(b) == 2 for b in foot):
-            raise ValueError(f"{where}: footprint = [[dx, dy], ...] blocks relative to the anchor")
-        fc = p.get("fingerprint_cell")
-        if p.get("fingerprint") and stamped_nav(p) and (fc is None or len(fc) != 2):
-            raise ValueError(f"{where}: an island prefab's fingerprint names the CLEAN site it was taken at: "
-                             f"fingerprint_cell = [bx, by]")
-        turns = p.get("turns", [0])
-        if not turns or any(t not in TURNS for t in turns) or 0 not in turns or len(set(turns)) != len(turns):
-            raise ValueError(f"{where}: turns = a list of distinct quarter turns from {TURNS}, 0 among them")
-        if set(turns) != {0} and (fc is None or len(fc) != 2):
-            raise ValueError(f"{where}: a turned placement is the land composed at its catalog site and turned, so a "
-                             f"prefab that turns names that site: fingerprint_cell = [bx, by]")
-        if any(t not in turns or t == 0 for t in p.get("walked_turns", ())):
-            raise ValueError(f"{where}: walked_turns lists turns other than 0 that the prefab allows ({turns})")
+        try:
+            _check_entry(cat, i, p, seen)
+        except ValueError as e:
+            if problems is None:
+                raise
+            problems.append(f"{e} -- skipped")
+            continue
+        seen.add(p["name"])
         out.append(p)
     return out
+
+
+def _check_entry(cat, i: int, p: dict, seen: set) -> None:
+    """One ``[[prefab]]`` table's rules (:func:`load_catalog`); raises ValueError naming the entry."""
+    name = p.get("name")
+    where = f"{Path(cat).name} [[prefab]] #{i} ({name!r})"
+    if not name or name in seen:
+        raise ValueError(f"{where}: needs a unique name" + (" (the kit's catalog or an earlier entry has it)"
+                                                            if name else ""))
+    if p.get("status") not in STATUSES:
+        raise ValueError(f"{where}: status must be one of {STATUSES}")
+    rows = p.get("rows") or []
+    if not rows or rows[0].get("table") not in BASE_TABLES:
+        raise ValueError(f"{where}: the first row is the base the relief stands on: one of {BASE_TABLES}")
+    if sum(1 for r in rows if r.get("table") in BASE_TABLES) != 1:
+        raise ValueError(f"{where}: one base (island or transplant) per prefab")
+    if rows[0]["table"] == "island" and "seed" not in rows[0]:
+        raise ValueError(f"{where}: the island row needs its seed (the prefab frame refuses a centre-derived one)")
+    for r in rows:
+        if r.get("table") not in PREFAB_TABLES:
+            raise ValueError(f"{where}: table {r.get('table')!r} has not been measured under a shift; "
+                             f"a prefab holds {PREFAB_TABLES}")
+        if r["table"] == "transplant":
+            if "cell" not in r or len(r["cell"]) != 2 or "donor" not in r:
+                raise ValueError(f"{where}: a transplant row names cell = [dx, dy] (blocks from the anchor) and "
+                                 f"its donor")
+        elif "center" not in r or len(r["center"]) != 2:
+            raise ValueError(f"{where}: every row is an exact placement: center = [dx, dz] from the frame origin")
+        if "near" in r or "prefab_frame" in r or "step" in r:
+            raise ValueError(f"{where}: near / prefab_frame / step are set by placement, not the catalog")
+    foot = p.get("footprint")
+    if foot is not None and not all(len(b) == 2 for b in foot):
+        raise ValueError(f"{where}: footprint = [[dx, dy], ...] blocks relative to the anchor")
+    fc = p.get("fingerprint_cell")
+    if p.get("fingerprint") and stamped_nav(p) and (fc is None or len(fc) != 2):
+        raise ValueError(f"{where}: an island prefab's fingerprint names the CLEAN site it was taken at: "
+                         f"fingerprint_cell = [bx, by]")
+    turns = p.get("turns", [0])
+    if not turns or any(t not in TURNS for t in turns) or 0 not in turns or len(set(turns)) != len(turns):
+        raise ValueError(f"{where}: turns = a list of distinct quarter turns from {TURNS}, 0 among them")
+    if set(turns) != {0} and (fc is None or len(fc) != 2):
+        raise ValueError(f"{where}: a turned placement is the land composed at its catalog site and turned, so a "
+                         f"prefab that turns names that site: fingerprint_cell = [bx, by]")
+    if any(t not in turns or t == 0 for t in p.get("walked_turns", ())):
+        raise ValueError(f"{where}: walked_turns lists turns other than 0 that the prefab allows ({turns})")
 
 
 def get(name: str, path=None) -> dict:
@@ -996,3 +1061,264 @@ def place(name: str, cell, mod_folder, *, game=None, dry_run: bool = False, skip
         return report
     finally:
         _drop(staged)
+
+
+# ---------------------------------------------------------------- Save as prefab (rung P6)
+#: A saved prefab's name: lower-case words joined by hyphens (it is a catalog key, a CLI argument and a recipe value).
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,47}$")
+#: The relief tables a saved prefab may carry on its base (PREFAB_TABLES less the bases).
+RELIEF_TABLES = tuple(t for t in PREFAB_TABLES if t not in BASE_TABLES)
+#: The keys a composition row never brings into the catalog (placement sets them; ``load_catalog`` refuses them).
+_PLACEMENT_KEYS = ("step", "prefab_frame", "near")
+#: How far a relief row may stand from the base's anchor frame (a sanity bound: a carry reads 96u round its centre).
+_MAX_REL = 4 * BLOCK
+
+
+def entry_from_rows(name: str, rows) -> tuple:
+    """A composition's absolute rows (a draft's or a recipe's: one BASE row first, then relief) as a catalog entry
+    RELATIVE to its anchor -- the block holding the island's centre, or the transplant's own ``cell`` -- with
+    ``(entry, anchor)``. Refuses what a prefab cannot hold, with gate ``rows``."""
+    if not NAME_RE.match(str(name or "")):
+        raise PrefabRefused(f"a prefab name is lower-case letters, digits and hyphens (2-48), not {name!r}",
+                            gate="catalog")
+    rows = [{k: v for k, v in dict(r).items() if k not in _PLACEMENT_KEYS} for r in rows]
+    if not rows or rows[0].get("table") not in BASE_TABLES:
+        raise PrefabRefused(f"a prefab starts with its base -- an island or a carried coast ({BASE_TABLES}) -- and the "
+                            f"relief stands on it; the first row is {rows[0].get('table') if rows else 'missing'}",
+                            gate="rows")
+    for r in rows[1:]:
+        if r.get("table") not in RELIEF_TABLES:
+            raise PrefabRefused(f"a prefab holds one base and its relief ({RELIEF_TABLES}); "
+                                f"{r.get('table')!r} cannot ride along", gate="rows")
+    base = rows[0]
+    if base["table"] == "island":
+        if "seed" not in base or "center" not in base:
+            raise PrefabRefused("the island row needs its center and seed (an editor row always has both)",
+                                gate="rows")
+        cx, cz = (float(v) for v in base["center"])
+        anchor = (math.floor(cx / BLOCK) % 24, math.floor(-cz / BLOCK))
+    else:
+        anchor = (int(base["cell"][0]) % 24, int(base["cell"][1]))
+    out = []
+    for r in rows:
+        row = dict(r)
+        if row["table"] == "transplant":
+            row["cell"] = [0, 0]
+        else:
+            if "center" not in row:
+                raise PrefabRefused(f"a {row['table']} row needs its exact center (an editor row always has it)",
+                                    gate="rows")
+            dx, dz = rel_point(float(row["center"][0]), float(row["center"][1]), anchor)
+            if abs(dx) > _MAX_REL or abs(dz) > _MAX_REL:
+                raise PrefabRefused(f"the {row['table']} row at {row['center']} stands {math.hypot(dx, dz):.0f}u from "
+                                    f"the base's block: it is not part of this landmass", gate="rows")
+            row["center"] = [dx, dz]
+        out.append(row)
+    return {"name": str(name), "status": "candidate", "rows": out}, anchor
+
+
+def target_rel(entry: dict) -> set:
+    """Every block (offset from the anchor) the entry's verbs need OPEN OCEAN: its footprint, and for a transplant base
+    its whole target rect -- the carry refuses a real block anywhere in it, written or not (measured: the comma's rect
+    is 3x2, its footprint 5 blocks, and a site whose sixth block is real sea refused the carry)."""
+    need = {tuple(int(v) for v in b) for b in entry.get("footprint") or ()}
+    base = (entry.get("rows") or [{}])[0]
+    if base.get("table") == "transplant":
+        from .transplantedit import tsize
+        tw, th = tsize(tuple(base.get("size") or (1, 1)), int(base.get("rot") or 0))
+        cx, cy = (int(v) for v in base.get("cell") or (0, 0))
+        need |= {(cx + i, cy + j) for i in range(tw) for j in range(th)}
+    return need
+
+
+def clean_sites(entry: dict, *, game=None, first=None, limit=None) -> list:
+    """Anchors where the entry's footprint is stock OPEN OCEAN on both discs (no block prefab of its own:
+    ``extract.block_parts``) and no stock ground lies within the nav margin of it (:func:`stock_ground`): the sites a
+    fingerprint may be taken at (for a transplant base, its whole target rect too: :func:`target_rel`). ``first`` is
+    tried before the map's row-major order; ``limit`` stops the search once
+    that many are found (the stock-ground read is the slow part). A site whose whole footprint ring is open ocean holds
+    no stock ground near by construction, so it is never read."""
+    from .extract import block_parts
+    from .mesh import GRID_ROWS
+    occupied = set(block_parts(disc=1, game=game)) | set(block_parts(disc=4, game=game))
+    need = target_rel(entry)
+
+    def is_real(b):
+        return (int(b[0]), int(b[1])) in occupied
+    order = ([tuple(first)] if first is not None else []) + [
+        (bx, by) for by in range(GRID_ROWS) for bx in range(24) if (bx, by) != (tuple(first) if first else None)]
+    out = []
+    for cell in order:
+        try:
+            check_rows_on_map(entry, cell)
+        except PrefabRefused:
+            continue
+        if any(not 0 <= int(cell[1]) + r[1] < GRID_ROWS for r in need):
+            continue
+        if any(is_real(label_of(r, cell)) for r in need):
+            continue
+        foot = set(footprint_labels(entry, cell))
+        if any(is_real(b) for b in _ring(foot)) and stock_ground(entry, cell, game=game):
+            continue
+        out.append(cell)
+        if limit is not None and len(out) >= limit:
+            break
+    return out
+
+
+def entry_toml(entry: dict) -> str:
+    """One ``[[prefab]]`` table (and its ``[[prefab.rows]]``) as the catalog writes it."""
+    from .recipe import _value
+    head = ("name", "status", "walked", "ground", "note", "saved", "fingerprint", "fingerprint_cell", "footprint",
+            "turns", "turns_note")
+    lines = ["", "[[prefab]]"]
+    for k in head:
+        if k in entry:
+            v = entry[k]
+            if isinstance(v, str):
+                v = " ".join(v.split())                   # one line: a note never breaks the TOML
+            lines.append(f"{k} = {_value(v)}")
+    for r in entry["rows"]:
+        lines += ["", "[[prefab.rows]]", f"table = {_value(r['table'])}"]
+        lines += [f"{k} = {_value(v)}" for k, v in r.items() if k != "table"]
+    return "\n".join(lines) + "\n"
+
+
+_USER_HEADER = ("# Your landmass PREFABS (the World tab's Save as prefab / world-prefab --save), read after the kit's own\n"
+                "# catalog (world/data/prefabs.toml): the same rules, one namespace. A saved prefab is a CANDIDATE until\n"
+                "# you walk it in game; then set status = \"qualified\" and note the walk.\n")
+
+
+def save(name: str, rows, *, catalog=None, game=None, note: str = "", turns: bool = True, source: str = "",
+         log=print) -> dict:
+    """SAVE AS PREFAB (rung P6): freeze a composition -- a base island or carried coast and the relief on it, as a
+    draft or a recipe holds them -- into a catalog entry, appended to ``catalog`` (default :func:`user_catalog`).
+
+    It is composed with the prefab frame on (P0), never copied: the entry is the land the frame writes, which can differ
+    from an unframed draft's in its meadow stamps, rolling relief and a mountain's fallback tiles. The steps, each
+    refusing before anything is written:
+
+    1. the rows as an entry relative to their anchor (:func:`entry_from_rows`); the name unique in every catalog read;
+    2. staged at its own anchor to learn its footprint (the verbs held that site to open ocean when it was made);
+    3. a CLEAN site (:func:`clean_sites`; the anchor itself when it is one): staged there, its navigation settled --
+       the fingerprint and ``fingerprint_cell``;
+    4. THE COMPOSITION MOVES AS ONE: staged at a second clean site, the same fingerprint, or it refuses (a verb that
+       read something outside the frame);
+    5. with ``turns``, each quarter turn placed at that second site and held to the land turned
+       (:func:`stage_turned`); the turns that pass open, a riding part keeps it at 0 (``turns_note``).
+
+    Returns the report (the entry, its sites, the turns measured)."""
+    path = Path(catalog) if catalog is not None else user_catalog()
+    entry, anchor = entry_from_rows(name, rows)
+    if entry["name"] in _taken_names(path):
+        raise PrefabRefused(f"a prefab named {name!r} is in the catalog already: pick another name", gate="catalog")
+    log(f"anchor block {anchor}: staging the composition there to learn its footprint")
+    first = stage(entry, anchor, game=game)
+    if not first["footprint"]:
+        raise PrefabRefused("the composition wrote no land", gate="rows")
+    entry["footprint"] = [list(b) for b in first["footprint"]]
+    sites = clean_sites(entry, game=game, first=anchor, limit=2)
+    if len(sites) < 2:
+        raise PrefabRefused(f"the map has {len(sites)} clean site(s) for a footprint of {len(first['footprint'])} "
+                            f"blocks: a prefab is fingerprinted at one and proved at a second", gate="window")
+    fc = anchor if anchor in sites else sites[0]
+    st1 = first if fc == anchor else stage(entry, fc, game=game)
+    if st1["nav"]:
+        raise PrefabRefused(f"staged at the clean site {fc}, the coast-nav stamp would still re-class its sea "
+                            f"({st1['nav']}): a regression in the stamp or a verb", gate="nav")
+    entry.update({"fingerprint": st1["fingerprint"], "fingerprint_cell": list(fc)})
+    second = next(s for s in sites if s != fc)
+    log(f"fingerprinted at {fc}; staging again at {second} (the composition must move as one)")
+    st2 = stage(entry, second, game=game)
+    if st2["fingerprint"] != st1["fingerprint"] or st2["footprint"] != st1["footprint"]:
+        raise PrefabRefused(f"staged at {fc} and at {second} the composition is NOT the same land: a row reads "
+                            f"something the prefab frame does not move with it (it cannot be a prefab)", gate="identity")
+    turned_ok, why = [0], ""
+    if turns:
+        for t in (90, 180, 270):
+            st = None
+            try:
+                view = turned(entry, t)
+                st = stage_turned(entry, t, second, game=game)
+                _identity_turned(view, entry["name"], second, st, game=game, log=lambda *a: None)
+                turned_ok.append(t)
+            except PrefabRefused as e:
+                why = why or f"turn {t}: {e}"
+                if e.gate == "turn":                     # a riding part: no turn can pass
+                    break
+            finally:
+                _drop(st)
+    entry["turns"] = turned_ok
+    if why and turned_ok == [0]:
+        entry["turns_note"] = why[:300]
+    stamp = time.strftime("%Y-%m-%d")
+    entry["saved"] = f"{stamp}" + (f" from {source}" if source else "")
+    if note:
+        entry["note"] = note
+    load_check = _load_one_text(entry_toml(entry))
+    _append_entry(path, entry)
+    log(f"saved {entry['name']!r} to {path}: {len(entry['footprint'])} blocks, turns {entry['turns']}, a candidate "
+        f"until you walk it")
+    return {"ok": True, "name": entry["name"], "catalog": str(path), "anchor": list(anchor),
+            "fingerprint": entry["fingerprint"], "fingerprint_cell": list(fc), "second_site": list(second),
+            "footprint": entry["footprint"], "turns": entry["turns"], "turns_note": entry.get("turns_note", ""),
+            "rows": len(entry["rows"]), "checked": load_check}
+
+
+def _taken_names(path: Path) -> set:
+    """Every name a new entry for ``path`` must not take: the kit's catalog and that file's own entries, even ones
+    that break a rule (their names are still spoken for)."""
+    names = {p["name"] for p in _load_one(CATALOG, set())} if Path(path).resolve() != CATALOG.resolve() else set()
+    if Path(path).is_file():
+        try:
+            doc = tomllib.loads(Path(path).read_text(encoding="utf-8-sig"))
+            names |= {str(p.get("name")) for p in doc.get("prefab", ()) if p.get("name")}
+        except (tomllib.TOMLDecodeError, UnicodeDecodeError):
+            pass
+    return names
+
+
+def _append_entry(path: Path, entry: dict) -> None:
+    """Append one entry under a LOCK, its name checked again against the file as it is now (another save may have
+    finished during this one's minutes of staging), written ATOMICALLY (a temp file beside it, then a rename: a kill
+    mid-write leaves the old file whole) -- review P6: a read-modify-write with neither lost saves and doubled names."""
+    import os
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock = path.with_name(path.name + ".lock")
+    fd = None
+    for _ in range(200):                                 # ~10 s: another save's append is milliseconds
+        try:
+            fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            break
+        except FileExistsError:
+            if time.time() - lock.stat().st_mtime > 60:  # a lock a killed save left behind
+                lock.unlink(missing_ok=True)
+                continue
+            time.sleep(0.05)
+    if fd is None:
+        raise PrefabRefused(f"{path} is locked by another save (remove {lock.name} if no save is running)",
+                            gate="catalog")
+    try:
+        if entry["name"] in _taken_names(path):
+            raise PrefabRefused(f"a prefab named {entry['name']!r} was saved while this one was being checked: "
+                                f"save it again under another name", gate="catalog")
+        text = path.read_text(encoding="utf-8-sig") if path.is_file() else _USER_HEADER
+        tmp = path.with_name(path.name + f".tmp-{os.getpid()}")
+        tmp.write_text(text.rstrip("\n") + "\n" + entry_toml(entry), encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        os.close(fd)
+        lock.unlink(missing_ok=True)
+
+
+def _load_one_text(text: str) -> str:
+    """Validate an entry's TOML through the catalog's own reader before it is written (a law in a docstring is a
+    wish: what is appended must load)."""
+    tmp = Path(tempfile.mkdtemp(prefix="ff9-prefab-save-"))
+    try:
+        (tmp / "c.toml").write_text(text, encoding="utf-8")
+        _load_one(tmp / "c.toml", set())
+        return "loads"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)

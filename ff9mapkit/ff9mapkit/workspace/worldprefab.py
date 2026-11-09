@@ -58,18 +58,8 @@ class PrefabTool(CarryTool):
         self.prefab_box.setAccessibleName("Prefab")
         self.prefab_box.setToolTip("Which landmass to place, whole: the prefab catalog (world/data/prefabs.toml). A "
                                    "walked one has been checked in game; a new one has not.")
-        self._rows = {}
-        for p in self.FE.prefabs(self._catalog):
-            self._rows[p["name"]] = p
-            self.prefab_box.addItem(self.prefab_label(p), p["name"])
-            tip = (p.get("note", "") + " " + (f"Walked: {p['walked']}." if p.get("walked") else
-                                             "Not yet walked in game.")).strip()
-            self.prefab_box.setItemData(self.prefab_box.count() - 1, tip, 3)
-        # sized from its own labels (characters, so it hears the text-size dial): a candidate's " · new" must not be
-        # clipped off the closed box (review P3: 3 of 6 shipped labels outran a fixed 16)
         self.prefab_box.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        self.prefab_box.setMinimumContentsLength(max([16] + [len(self.prefab_box.itemText(i))
-                                                             for i in range(self.prefab_box.count())]))
+        self._fill_prefabs()
         self.prefab_box.currentIndexChanged.connect(lambda _ix: self._prefab_changed())
         row.addWidget(self.prefab_box)
         self.turn_box = QComboBox()
@@ -82,6 +72,37 @@ class PrefabTool(CarryTool):
         self.cell_lbl = widgets.role_label("Click open ocean.", "caption")
         self.cell_lbl.setAccessibleName("Anchor block")
         row.addWidget(self.cell_lbl)
+
+    def _fill_prefabs(self):
+        """The picker's items: the catalog's prefabs (the kit's and yours), walked first, each with its note."""
+        prefabs = self.FE.prefabs(self._catalog)          # read first: a refusal leaves the picker as it was
+        self.prefab_box.clear()
+        self._rows = {}
+        for p in prefabs:
+            self._rows[p["name"]] = p
+            self.prefab_box.addItem(self.prefab_label(p), p["name"])
+            tip = (p.get("note", "") + " " + (f"Walked: {p['walked']}." if p.get("walked") else
+                                             "Not yet walked in game.")).strip()
+            self.prefab_box.setItemData(self.prefab_box.count() - 1, tip, 3)
+        # sized from its own labels (characters, so it hears the text-size dial): a candidate's " · new" must not be
+        # clipped off the closed box (review P3: 3 of 6 shipped labels outran a fixed 16)
+        self.prefab_box.setMinimumContentsLength(max([16] + [len(self.prefab_box.itemText(i))
+                                                             for i in range(self.prefab_box.count())]))
+
+    def reload_catalog(self):
+        """Re-read the catalog into the picker (Save as prefab added one, rung P6), keeping the picked prefab and
+        turn; a ghost already read for a prefab stays (its rows cannot change: a name is never reused)."""
+        keep, turn = self.donor(), self.turn()
+        self.prefab_box.blockSignals(True)
+        try:
+            self._fill_prefabs()
+            ix = self.prefab_box.findData(keep)
+            self.prefab_box.setCurrentIndex(ix if ix >= 0 else 0)
+        finally:
+            self.prefab_box.blockSignals(False)
+        self._fill_turns(keep=turn)
+        if self.donor() != keep:
+            self._prefab_changed()
 
     @staticmethod
     def prefab_label(p) -> str:
