@@ -122,7 +122,9 @@ stable across runs, so today's behaviour IS reproducible at a fixed site. It jus
   scenario 4000 -> its world exit -> `teleport(630.6, -605.4)` -> y 3.199 (predicted 3.2).
   FOUND on the way: the hint `world-mountain` prints ("teleport (cx-32.5, cz+0.5)") landed EXACTLY on a tri edge
   here (barycentric 0.0) -- the harness's invisible-at-y-0 case. Check castability before teleporting to it.
-  The meadow isle stays a candidate. **ADDED (2026-11-08), candidates:** `snow-ridge-isle` and `desert-scrub-isle`,
+  **The meadow isle QUALIFIED (2026-11-08):** placed live on (19,18) beside stock land (18,16)/(19,16) (the
+  nav-margin tier; disc 4 identical, ledger 0 drift of 810), the party on its grass at (1240.37, -1168.27) y 3.199,
+  and the owner walked it: "Walked it fine". With it EVERY catalog prefab is walked. **ADDED (2026-11-08), candidates:** `snow-ridge-isle` and `desert-scrub-isle`,
   the terrain study's round 21 / round 22 lab islands and carves (both owner-passed in game), framed, at their labs'
   own relative placement (anchor (21,1) there). Snow: `--ground snow --radius 88 --lobes 2 --patches 0 --seed 42`
   centred (64, 32) from the anchor, comp9 (`8-10,0-1`, its inlet floor from the catalog) at (30, 48) rot 270 -- the

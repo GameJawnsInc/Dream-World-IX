@@ -48,7 +48,8 @@ ground = "desert"
 
 [[prefab]]
 name = "meadow-grove-isle"
-status = "candidate"
+status = "qualified"
+walked = "2026-11-08: owner walk on the live map, anchored at block (19,18) beside stock land -- passed"
 ground = "grass"
 note = "A r60 meadow island (verbatim meadow stamps) with the clean canopy blob (15,15) and a r14 grass hill beside it."
 fingerprint = "78196ce1e7e11c6b8aafc58efd0aa65cbb6f68a55eb2e5d31d80cf3e94a1ada7"
