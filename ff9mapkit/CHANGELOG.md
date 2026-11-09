@@ -15,7 +15,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   refuses to turn it.
 - **The World tab's Add a prefab card has a Turn picker** beside the prefab. It appears only for a prefab that turns.
   The ghost shows the turned land, and the step's recipe row carries the turn.
-- A turn has not been walked in game until you walk it: the card and the command say so.
+- A turn has not been walked in game until you walk it: the card and the command say so. The desert peak isle turned
+  90 has been walked in game.
 
 ### Added — World tab: "Add a prefab", a whole landmass in one click
 - **Edit the map → Add a prefab** places a catalog prefab where you click: pick it, see its land as a ghost on the
