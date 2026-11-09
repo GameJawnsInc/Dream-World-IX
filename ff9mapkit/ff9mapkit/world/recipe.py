@@ -32,9 +32,9 @@ def row_for(argv) -> dict:
     a = cli.build_parser().parse_args([str(v) for v in argv])
     verb = argv[0]
     if verb == "world-prefab":
-        if not a.name or not a.cell or a.list or a.fingerprint or a.recipe_out or a.skip_mirror:
+        if not a.name or not a.cell or a.list or a.fingerprint or a.recipe_out or a.skip_mirror or a.save:
             raise ValueError("a [[prefab]] row is one placement: a name and --cell (no --list, --fingerprint, "
-                             "--recipe-out, --skip-mirror)")
+                             "--recipe-out, --skip-mirror, --save)")
         row = {"table": "prefab", "name": str(a.name), "cell": [int(v) for v in a.cell.split(",")]}
         if a.turn:
             row["turn"] = int(a.turn)                     # left out at 0, as the command leaves it

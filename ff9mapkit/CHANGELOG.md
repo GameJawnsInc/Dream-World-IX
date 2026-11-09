@@ -5,6 +5,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — Save as prefab: grow the catalog from your own landmasses
+- **World tab → Edit the map → Save the draft as a prefab…** freezes an island (or a carried coast) in your draft,
+  with the forest, mountain and hill on it, as a prefab of your own. Tick the steps, name it, Save. It takes a minute
+  or two and changes nothing in the draft or the game; then **Add a prefab** offers it, marked new until you walk it.
+- **`world-prefab NAME --save --from DRAFT|RECIPE [--steps 1,3]`** does the same from the command line. The prefab
+  is built outside the install, checked at a clean site, checked again at a second site to prove it is the same land
+  wherever it goes, and each quarter turn is measured. It refuses, saving nothing, when any check fails.
+- Your prefabs live in your own catalog (`prefabs.toml` in the kit's settings folder, beside your preferences), read
+  after the kit's: one list, and a name can be used only once.
+
 ### Added — turned prefabs: four looks from one walked landmass
 - **`world-prefab NAME --cell BX,BY --turn 90|180|270`** places a prefab turned by a quarter turn. It is the same
   walked land, turned whole, never a new island: the prefab is built at its catalog site, checked against its

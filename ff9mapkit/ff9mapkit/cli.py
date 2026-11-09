@@ -5779,6 +5779,9 @@ def _cmd_world_prefab(args: argparse.Namespace) -> int:
     from .world import prefab as PF
     from .world import recipe as R
     try:
+        if args.save and not args.name:
+            raise PF.PrefabRefused("--save needs the new prefab's NAME (world-prefab NAME --save --from ...)",
+                                   gate="catalog")
         if args.list or not args.name:
             for p in PF.load_catalog():
                 tables = " + ".join(r["table"] for r in p["rows"])
@@ -5787,6 +5790,13 @@ def _cmd_world_prefab(args: argparse.Namespace) -> int:
                       + (f"  turns {', '.join(str(t) for t in turns)}" if turns != (0,) else ""))
                 if p.get("note"):
                     print(f"{'':24s} {p['note']}")
+            for why in PF.catalog_problems():
+                print(f"SKIPPED from your catalog: {why}", file=sys.stderr)
+            return 0
+        if args.save:
+            rep = _world_prefab_save(args, PF)
+            if args.report_json:
+                Path(args.report_json).write_text(json.dumps({"refused": None, **rep}, indent=1), encoding="utf-8")
             return 0
         if not args.cell:
             print("give --cell BX,BY: the anchor block the prefab is placed on", file=sys.stderr)
@@ -5856,6 +5866,36 @@ def _cmd_world_prefab(args: argparse.Namespace) -> int:
     if args.dry_run:
         print("dry run: nothing written")
     return 0
+
+
+def _world_prefab_save(args, PF) -> dict:
+    """``world-prefab NAME --save --from DRAFT|RECIPE [--steps 1,3]``: the chosen rows of a World-tab draft (its
+    applied steps, in order) or of a recipe TOML, saved as a new catalog prefab (``prefab.save``)."""
+    from pathlib import Path
+    from .world import draft as D
+    from .world import recipe as R
+    if not args.from_path:
+        raise PF.PrefabRefused("--save needs --from: a World-tab draft folder or a recipe TOML", gate="rows")
+    src = Path(args.from_path)
+    if src.is_dir():
+        if not D.is_draft(src):
+            raise PF.PrefabRefused(f"{src} is not a World-tab draft (save a recipe and pass the .toml)", gate="rows")
+        rows, what = D.recipe_rows(src), f"draft {src.name}"
+    else:
+        rows, what = R.loads(src.read_text(encoding="utf-8")), f"recipe {src.name}"
+    if args.steps:
+        try:
+            idx = [int(v) for v in args.steps.split(",")]
+        except ValueError:
+            raise PF.PrefabRefused(f"--steps is 1-based step numbers, comma-separated, not {args.steps!r}",
+                                   gate="rows") from None
+        bad = [i for i in idx if not 1 <= i <= len(rows)]
+        if bad or len(set(idx)) != len(idx):
+            raise PF.PrefabRefused(f"--steps {args.steps}: the {what} has steps 1-{len(rows)}", gate="rows")
+        idx = sorted(idx)                                # composed in the draft's own order, as it was made
+        rows = [rows[i - 1] for i in idx]
+        what += " steps " + ",".join(str(i) for i in idx)
+    return PF.save(args.name, rows, game=args.game, note=args.note or "", turns=not args.no_turns, source=what)
 
 
 def _cmd_world_donors(args: argparse.Namespace) -> int:
@@ -11149,6 +11189,15 @@ def build_parser() -> argparse.ArgumentParser:
     wpf.add_argument("--recipe-out", metavar="PATH",
                      help="also write the placed rows as a world-fuse recipe TOML")
     wpf.add_argument("--skip-mirror", action="store_true", help="don't auto-mirror the written overrides to Disc4")
+    wpf.add_argument("--save", action="store_true",
+                     help="SAVE AS PREFAB: freeze --from's rows (a base island or carried coast, then its relief) as a "
+                          "new catalog prefab NAME in your own catalog: composed with the prefab frame, fingerprinted at "
+                          "a clean site, proved at a second, its turns measured (a few minutes; writes no mod folder)")
+    wpf.add_argument("--from", dest="from_path", metavar="DRAFT|RECIPE",
+                     help="with --save: a World-tab draft folder (its applied steps) or a recipe TOML")
+    wpf.add_argument("--steps", metavar="I,J,...", help="with --save: which of --from's steps, 1-based (default all)")
+    wpf.add_argument("--note", help="with --save: a one-line note for the catalog entry")
+    wpf.add_argument("--no-turns", action="store_true", help="with --save: skip measuring the quarter turns")
     wpf.add_argument("--report-json", metavar="PATH", help="write the verdict as JSON")
     wpf.set_defaults(func=_cmd_world_prefab)
 
