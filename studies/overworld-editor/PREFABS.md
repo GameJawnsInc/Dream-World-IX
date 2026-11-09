@@ -122,9 +122,17 @@ stable across runs, so today's behaviour IS reproducible at a fixed site. It jus
   scenario 4000 -> its world exit -> `teleport(630.6, -605.4)` -> y 3.199 (predicted 3.2).
   FOUND on the way: the hint `world-mountain` prints ("teleport (cx-32.5, cz+0.5)") landed EXACTLY on a tri edge
   here (barycentric 0.0) -- the harness's invisible-at-y-0 case. Check castability before teleporting to it.
-  The meadow isle stays a candidate. Still to add: the snow-ridge isle (comp9:
-  `--ground snow --radius 88 --lobes 2`) and the desert-scrub isle (comp26). Each one is walked once, then
-  `qualified`.
+  The meadow isle stays a candidate. **ADDED (2026-11-08), candidates:** `snow-ridge-isle` and `desert-scrub-isle`,
+  the terrain study's round 21 / round 22 lab islands and carves (both owner-passed in game), framed, at their labs'
+  own relative placement (anchor (21,1) there). Snow: `--ground snow --radius 88 --lobes 2 --patches 0 --seed 42`
+  centred (64, 32) from the anchor, comp9 (`8-10,0-1`, its inlet floor from the catalog) at (30, 48) rot 270 -- the
+  rot the CLI's `--near` scan from round 21's point picks; 403 rock tris + 2 plugs, peak 20.39. Desert scrub: r55
+  `--seed 42` desert at (36, 28), comp26 (`14-15,3`, its canopy) at (38, 24) rot 0; 139 rock tris, peak 9.75. Both
+  fingerprinted at (1,14), navigation settled; both mints print the WARN-only Sea4 uniformity gate, as the labs did.
+  Measured (`evidence/prefab-turn/new-isles.json`): every turn at (1,16) and beside stock land at (0,12) passes
+  identity; the ground query matches at clean sites but for 1-2 samples per turn that are the SAME cliff-wall tile
+  (topo 58) 1e-4u apart (a steep plane's height read from another vertex order, at the probe's 4-decimal rounding),
+  0 beyond 1e-3; controls 2691-4965. All four turns open. Each is walked once, then `qualified`.
 - **P1b — seam, disc 4, the nav margin, carry units: BUILT (2026-11-08), offline-proven, adversarially reviewed.**
   - **Disc 4:** the auto-mirror's copy must be the staged land and its navigation settled; the clear window counts
     both disc trees.

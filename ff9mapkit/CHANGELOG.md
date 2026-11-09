@@ -10,8 +10,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   walked land, turned whole, never a new island: the prefab is built at its catalog site, checked against its
   fingerprint, then turned block by block and written, and the written land must be exactly the catalog's land with
   that turn applied. Turning by quarter turns keeps every ground and sea tile one the game already draws.
-- **Five of the six prefabs turn** (`desert-peak-isle`, `meadow-grove-isle`, `comma-isle`, `crystal-reef`,
-  `terminus-pair`). `beach-chain` stays at turn 0: the Chocobo's Lagoon object on it cannot turn, and the command
+- **Seven of the eight prefabs turn** (`desert-peak-isle`, `meadow-grove-isle`, `snow-ridge-isle`,
+  `desert-scrub-isle`, `comma-isle`, `crystal-reef`, `terminus-pair`). `beach-chain` stays at turn 0: the Chocobo's Lagoon object on it cannot turn, and the command
   refuses to turn it.
 - **The World tab's Add a prefab card has a Turn picker** beside the prefab. It appears only for a prefab that turns.
   The ghost shows the turned land, and the step's recipe row carries the turn.
@@ -33,8 +33,10 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   or read, or when another installed folder has land in its footprint. `--list` shows the catalog, `--dry-run`
   checks without writing, `--recipe-out` saves the placed rows as a `world-fuse` recipe, and `--fingerprint`
   takes a new entry's fingerprint.
-- **Six prefabs:** `desert-peak-isle` (walked, qualified), `meadow-grove-isle` (candidate), and the four walked
-  stock carry units as prefabs: `comma-isle`, `crystal-reef`, `terminus-pair` and `beach-chain` (real beaches).
+- **Eight prefabs:** `desert-peak-isle` (walked, qualified); three candidates, `meadow-grove-isle`, `snow-ridge-isle`
+  (a two-lobe snow island with the coastal snow ridge and its inlet) and `desert-scrub-isle` (a desert island with the
+  scrub crag and its walled canopy); and the four walked stock carry units as prefabs: `comma-isle`, `crystal-reef`,
+  `terminus-pair` and `beach-chain` (real beaches).
 - **Placement reaches across the x seam and beside stock land.** Near stock land the island's sea is re-classed for
   boats by the coast-nav stamp; placement then checks the island against a reference copy built at the catalog's
   clean site, and requires the stamp to have settled those classes. The disc-4 copy is checked too.
