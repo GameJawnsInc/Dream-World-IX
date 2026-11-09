@@ -15,6 +15,7 @@ file pins what the BENCH builds on them:
 
 Every scenario-touching test runs in a CHILD process: a scenario puts its own dir on sys.path and reads its COOP_* knobs at import.
 """
+import ast
 import json
 import os
 import pathlib
@@ -29,6 +30,25 @@ from harness import battlewire as BW                               # noqa: E402
 from harness import fakegame as FG                                 # noqa: E402
 
 SCENARIOS = REPO / "studies" / "test-harness" / "scenarios"
+
+
+def _fault_families(table: str) -> list:
+    """The fault families ``table`` (T2_FAULT_REDS / DUO_FAULT_REDS) names, read at COLLECTION from the scenario's own literal -- the
+    scenario cannot be imported here (it reads its COOP_* knobs at import). The walk / duo fault tests parametrize over exactly these,
+    so a family a leg does not carry is never collected: 45 by-design matrix skips would otherwise sit under the nightly gate's skip
+    ceiling (tools/nightly_gate.md) and blunt its power to see a silenced family. The `tables` test pins this read to the imported
+    table, and a table that stops being a plain literal fails collection rather than parametrizing over nothing."""
+    tree = ast.parse((SCENARIOS / "coop_world_follow.py").read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and [getattr(t, "id", None) for t in node.targets] == [table]:
+            fams = sorted(ast.literal_eval(node.value))
+            if fams:
+                return fams
+    raise RuntimeError(f"coop_world_follow.py: no non-empty literal {table} to parametrize over")
+
+
+T2_FAMILIES = _fault_families("T2_FAULT_REDS")
+DUO_FAMILIES = _fault_families("DUO_FAULT_REDS")
 
 # ------------------------------------------------------------------------------------------------ the child
 _CHILD = r'''
@@ -397,6 +417,8 @@ def test_the_tables_are_the_docstring_and_each_others(tables):
     assert all(set(v) <= set(tables["t2_rows"]) and k in FG.WORLD_FOLLOW_FAULTS for k, v in tables["t2_faults"].items())
     assert set(tables["duo_old"]) <= set(tables["duo"]) and not set(tables["duo_old"]) & {"S165-D0", "S165-D-SHARED"}
     assert all(set(v) <= set(tables["duo"]) and k in FG.WORLD_FOLLOW_FAULTS for k, v in tables["duo_faults"].items())
+    # the walk / duo fault tests' collect-time parametrize read IS the imported table (no family untested, none invented)
+    assert T2_FAMILIES == sorted(tables["t2_faults"]) and DUO_FAMILIES == sorted(tables["duo_faults"])
     assert tables["solo_cal"][-1] == "S165-CAL" and tables["solo"][-1] == "S165-R"
     c = tables["consts"]
     assert (c["FARSHORE"], c["WORLD"], c["ICE_TILE"], c["FS_LANDING"]) == (6603, 9011, [1197.37, -796.7], [68.0, -444.0])
@@ -492,10 +514,8 @@ def test_the_walk_legs_pose_row_needs_the_tapes_pose_never_the_landing():
     assert {"S165-WK-WAIT", "S165-WK-LEAVE", "S165-WK-POSE"} <= set(r["red"]), r["red"]
 
 
-@pytest.mark.parametrize("fault", sorted(FG.WORLD_FOLLOW_FAULTS))
+@pytest.mark.parametrize("fault", T2_FAMILIES)
 def test_each_fault_family_turns_exactly_its_walk_rows_red(tables, fault):
-    if fault not in tables["t2_faults"]:
-        pytest.skip("a solo-only fault family (the T2 leg's families: T2_FAULT_REDS)")
     want = set(tables["t2_faults"][fault])
     # a long tile stand: the guest's own walk out (never_starts) and the dot's wait fit inside it before the tape's 300; hold_ignored's
     # follow-out lands after the release's base (a 2 s fade: the base is read ~1.2 s after b6 on the wall, the start ~0.1 s after it),
@@ -516,10 +536,8 @@ def test_the_duo_is_green_on_s165_and_calibrates_on_s164(tables):
     assert "S165-D-CAL" not in old["red"] and old["sent"] == []
 
 
-@pytest.mark.parametrize("fault", sorted(FG.WORLD_FOLLOW_FAULTS))
+@pytest.mark.parametrize("fault", DUO_FAMILIES)
 def test_each_fault_family_turns_exactly_its_duo_rows_red(tables, fault):
-    if fault not in tables["duo_faults"]:
-        pytest.skip("not a duo fault family (DUO_FAULT_REDS)")
     want = set(tables["duo_faults"][fault])
     r = _run("duo", faults=[fault])
     assert set(r["red"]) == want, {c: r["detail"][c] for c in set(r["red"]) ^ want}

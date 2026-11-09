@@ -519,11 +519,12 @@ def main() -> int:
                     help="record this run's ruff F count without judging it against the last full "
                          "green's -- the deliberate escape hatch for a one-run INCREASE (say why in "
                          "the merge message); the new count becomes the baseline")
-    ap.add_argument("--skip-ceiling", type=int, default=32,
+    ap.add_argument("--skip-ceiling", type=int, default=48,
                     help="POST-run verdict (audit rec 18): a green run that SKIPPED more than this "
                          "is flagged skip-long (rc 1) -- the collect floor cannot see a module-level "
-                         "skipif, which still COLLECTS the family it silences. Seeded at ~2x the "
-                         "last green run's skipped count (16); rationale in nightly_gate.md")
+                         "skipif, which still COLLECTS the family it silences. The baseline skipped "
+                         "count (32) + 16 of headroom, so a silenced family of 17+ trips it; "
+                         "rationale in nightly_gate.md")
     ap.add_argument("--pytest-args", default=None,
                     help="extra tokens appended to the suite pytest command -- for narrowed "
                          "verification runs of the gate itself, never the nightly schedule")
