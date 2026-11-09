@@ -5,8 +5,15 @@ runs headless here. The GPU half needs a real OpenGL context, which the offscree
 not have, so it runs in a child process on the native platform (``_worldview3d_native.py``) and is judged here:
 blob 0 and coverage 0 against the software raster, AND each break-it mutation (texture V not flipped, the cull off,
 a batch dropped) must be caught -- a comparison that cannot fail proves nothing. The child skips only when it
-reports that no GL context exists. Nothing here reads the developer's install except the one bench test, which
-says so and skips without one.
+reports that no GL context exists.
+
+Two tests read the developer's install, and they gate on different things:
+  * the STOCK twin reads only the base game's disc-1 blocks, which every install carries. It is install-gated the
+    nightly's way: without an install (or UnityPy) it skips, and under ``FF9MAPKIT_REQUIRE_INSTALL=1`` (the nightly
+    gate, ``tools/nightly_gate.py``) it FAILS instead, so the gate can never go green on that skip.
+  * the V-shore bench reads Path D's DEPLOYED disc-9 blocks in ``FF9CustomMap-world`` -- the owner's working bench,
+    not the install. The owner retired it in the 2026-11-08 world reset (memory project-ff9-world-reset-2026-11), so
+    with no bench file deployed it skips with that reason, gate or not; a bench that IS deployed is judged in full.
 """
 
 from __future__ import annotations
@@ -229,15 +236,57 @@ def _has_install() -> bool:
         return False
 
 
-@pytest.mark.skipif(not _has_install(), reason="reads the install's V-shore bench (disc 9)")
+def _needs_install(why: str):
+    """Skip a test the install gates -- or FAIL it under FF9MAPKIT_REQUIRE_INSTALL=1, as the nightly gate sets."""
+    msg = f"reads the FF9 install, and {why}"
+    if os.environ.get("FF9MAPKIT_REQUIRE_INSTALL", "").strip() not in ("", "0"):
+        pytest.fail("install required here (FF9MAPKIT_REQUIRE_INSTALL=1): " + msg)
+    pytest.skip(msg)
+
+
+def _deployed_bench_files() -> list:
+    """The V-shore bench's files as deployed: render.BENCH_VSHORE's cells and parts, disc 9 in its one mod folder."""
+    site = R.BENCH_VSHORE.resolved()
+    return [p for bx, by in site.cells for part in site.parts if (p := R.live_path(site, bx, by, part)).is_file()]
+
+
 def test_gpu_matches_the_committed_bench_cameras():
     """A0's acceptance on real blocks: the six committed V-shore cameras (render.BENCH_VIEWS), the stills the
-    renderer was promoted against. Measured 2026-10-23: blob 0, coverage <= 2, differ 0.11-0.51%."""
+    renderer was promoted against. Measured 2026-10-23: blob 0, coverage <= 2, differ 0.11-0.51%.
+
+    The bench is deployed state, not the install: with NO bench file in place it skips (gate or not), naming why.
+    The 2026-11-09 nightly read 0 tris here because the 2026-11-08 world reset moved Disc9 to a backup, on
+    purpose -- the stock twin below keeps the real-block check running. A PARTLY deployed bench is still judged."""
+    if not _has_install():
+        _needs_install("no install resolved")
+    if not _deployed_bench_files():
+        pytest.skip(f"the V-shore bench (Path D disc 9, {R.BENCH_VSHORE.mod_folder}) is not deployed: retired in "
+                    "the 2026-11-08 world reset; test_gpu_matches_the_oracle_on_stock_disc1_blocks covers real "
+                    "blocks")
     out = _native("bench")
     assert out["tris"] > 5000, out                           # the bench's blocks were really read
     for vn, c in out["views"].items():
         assert c["blob"] == 0 and c["coverage"] <= 4, (vn, c)
         assert c["differ"] < 0.01 * c["pixels"], (vn, c)
+
+
+def test_gpu_matches_the_oracle_on_stock_disc1_blocks():
+    """The bench's twin on blocks every install carries: the same 20 cells and six cameras on STOCK disc 1 (an empty
+    folder stack, so no world deploy or reset can change the scene). Measured 2026-11-09: 11,746 tris (Terrain and
+    three sea parts: coast, cliffs, grass), blob 0, coverage <= 2, differ 0.14-0.83%, sky <= 40% in every view; the
+    textures fed upside down scored blob 609,005 -- the comparison on real atlases can fail."""
+    if not _has_install():
+        _needs_install("no install resolved")
+    import importlib.util
+    if importlib.util.find_spec("UnityPy") is None:
+        _needs_install("UnityPy is not installed (the assets extra) to read its stock blocks")
+    out = _native("stock")
+    assert out["tris"] > 5000, out                           # the stock blocks were really read
+    for vn, c in out["views"].items():
+        assert c["blob"] == 0 and c["coverage"] <= 4, (vn, c)
+        assert c["differ"] < 0.01 * c["pixels"], (vn, c)
+        assert c["sky_frac"] < 0.95, (vn, c)                 # not vacuous: the camera sees the blocks
+    assert out["mutation"]["blob"] > 100, out["mutation"]    # every break-it is an AREA the measure sees
 
 
 # ------------------------------------------------------------------ rung A1: the pick
