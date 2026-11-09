@@ -180,7 +180,7 @@ stable across runs, so today's behaviour IS reproducible at a fixed site. It jus
   - the snap anchors clear of the synthetic island;
   - one test that could not fail now can.
   Snap: `world:3d-prefab` (invented land).
-- **P5 — quarter turns: BUILT (2026-11-08), offline-proven; the owner's walk of one turn is pending.**
+- **P5 — quarter turns: BUILT (2026-11-08), offline-proven, and the first turn OWNER-WALKED: "Walked it fine".**
   `world-prefab --turn 90|180|270`, the `[[prefab]]` row's `turn`, and a Turn picker on the card.
   **A TURN IS A STAMP, NOT A RE-RUN.** Re-running the rows with a turned outline would mint new land (the mains
   tiles, the meadow stamps and the mountain's apron all re-roll), so every turn would need its own walk. Instead
@@ -211,8 +211,13 @@ stable across runs, so today's behaviour IS reproducible at a fixed site. It jus
   mismatches at every clean site; beside stock land 15-20 class-only differences (heights and parts identical: the
   nav margin re-classing, as designed). Its negative control (the map one quarter turn short) mismatches on
   1328-3552 samples, so the oracle can fail.
-  **Status:** a turn places with a banner until it is in `walked_turns`. One turned walk (the desert peak isle at 90)
-  would qualify the law the way the comma's walk at rot 90 did for transplant.
+  **Status:** a turn places with a banner until it is in `walked_turns`. **WALKED (2026-11-08):** `desert-peak-isle`
+  turned 90 was placed live at block (1,16) in FF9CustomMap-world (identity: clean site, the full fingerprint; disc 4
+  mirrored 81 files and identical; ledger 0 drift of 324; chart redrawn), and the owner walked it: "Walked it fine".
+  The harness put the party there: New Game -> 750 at scenario 4000 -> its world exit -> `teleport(93.4, -1097.4)`
+  (the first walk's apron point, turned; checked castable first) -> y 3.199 (predicted 3.2). `walked_turns = [90]`.
+  This is the turn LAW's in-game proof, as the comma's walk at rot 90 was for transplant; other prefabs' turns still
+  place with the banner until walked.
   **THE IDENTITY IS NOT THE WRITER CHECKING ITSELF** (review): the digest turns each file by transplant's own
   `_rot_xz` and places each block by the rigid point map (`turn_point` of its centre), while the writer turns by
   `_local_turn` and the block map `turn_rel`. A content turn or block map that is not one rigid motion with them is
