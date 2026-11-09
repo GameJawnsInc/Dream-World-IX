@@ -73,7 +73,8 @@ radius = 14.0
 
 [[prefab]]
 name = "snow-ridge-isle"
-status = "candidate"
+status = "qualified"
+walked = "2026-11-08: owner walk on the live map, anchored at block (21,1) -- passed"
 ground = "snow"
 note = "A two-lobe r88 snow island with the coastal snow ridge (8-10,0-1, comp9) and its inlet floor, turned 270: 403 rock tris + 2 plugs, peak 20.4u. Terrain study round 21's lab island and carve (owner-passed), framed."
 fingerprint = "383c93d9e66439c76596b3a0f845de91af7bc8d9e10aac85f415429e74f6fc11"
@@ -99,7 +100,8 @@ ground = "snow"
 
 [[prefab]]
 name = "desert-scrub-isle"
-status = "candidate"
+status = "qualified"
+walked = "2026-11-08: owner walk on the live map, anchored at block (23,5) across the x seam -- passed"
 ground = "desert"
 note = "A r55 desert island with the desert scrub crag (14-15,3, comp26) and its walled scrub canopy: 139 rock + canopy tris, peak 9.75u. Terrain study round 22's lab island and carve (owner-passed), framed."
 fingerprint = "06a7f01fed4746c966ba15615c44253ba239b998350d5ce984db08058bac5983"

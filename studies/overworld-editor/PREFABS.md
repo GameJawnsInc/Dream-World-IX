@@ -132,7 +132,13 @@ stable across runs, so today's behaviour IS reproducible at a fixed site. It jus
   Measured (`evidence/prefab-turn/new-isles.json`): every turn at (1,16) and beside stock land at (0,12) passes
   identity; the ground query matches at clean sites but for 1-2 samples per turn that are the SAME cliff-wall tile
   (topo 58) 1e-4u apart (a steep plane's height read from another vertex order, at the probe's 4-decimal rounding),
-  0 beyond 1e-3; controls 2691-4965. All four turns open. Each is walked once, then `qualified`.
+  0 beyond 1e-3; controls 2691-4965. All four turns open.
+  **BOTH QUALIFIED (2026-11-08):** placed live in FF9CustomMap-world through `world-prefab` -- the snow ridge isle on
+  (21,1), its lab's own spot, beside stock land (19,3)/(20,3) (the nav-margin tier), and the desert scrub isle on
+  (23,5) across the x seam (a clean site, the full fingerprint); disc 4 identical, ledger 0 drift of 648, chart
+  redrawn. The harness put the party on each (snow (1341.87, -79.27) y 3.199; desert apron (1477.87, -359.27) y 3.188,
+  reached by `--attach` with no relaunch), and the owner walked both: "Fine, next isle", "Walked it fine". The framed
+  mountain carries (the apron fallback hashed from the anchor, not the lab's absolute cell) passed as the labs did.
 - **P1b — seam, disc 4, the nav margin, carry units: BUILT (2026-11-08), offline-proven, adversarially reviewed.**
   - **Disc 4:** the auto-mirror's copy must be the staged land and its navigation settled; the clear window counts
     both disc trees.
