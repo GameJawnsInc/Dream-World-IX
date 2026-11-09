@@ -1,0 +1,1786 @@
+[
+ {
+  "name": "snow-ridge-isle",
+  "cell": [
+   1,
+   16
+  ],
+  "turn": 90,
+  "footprint": [
+   [
+    -1,
+    -1
+   ],
+   [
+    -1,
+    0
+   ],
+   [
+    -1,
+    1
+   ],
+   [
+    0,
+    -1
+   ],
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    -1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "blocks": 9,
+  "identity": "clean site: the catalog's land turned 90, the full fingerprint",
+  "beside_stock_land": [],
+  "ground_samples": 9216,
+  "ground_mismatches": 0,
+  "ground_mismatch_examples": [],
+  "control_wrong_map_mismatches": 4945,
+  "height_or_part_mismatches": 0,
+  "seconds": 34.2
+ },
+ {
+  "name": "snow-ridge-isle",
+  "cell": [
+   1,
+   16
+  ],
+  "turn": 180,
+  "footprint": [
+   [
+    -1,
+    -1
+   ],
+   [
+    -1,
+    0
+   ],
+   [
+    -1,
+    1
+   ],
+   [
+    0,
+    -1
+   ],
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    -1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "blocks": 9,
+  "identity": "clean site: the catalog's land turned 180, the full fingerprint",
+  "beside_stock_land": [],
+  "ground_samples": 9216,
+  "ground_mismatches": 0,
+  "ground_mismatch_examples": [],
+  "control_wrong_map_mismatches": 4945,
+  "height_or_part_mismatches": 0,
+  "seconds": 32.7
+ },
+ {
+  "name": "snow-ridge-isle",
+  "cell": [
+   1,
+   16
+  ],
+  "turn": 270,
+  "footprint": [
+   [
+    -1,
+    -1
+   ],
+   [
+    -1,
+    0
+   ],
+   [
+    -1,
+    1
+   ],
+   [
+    0,
+    -1
+   ],
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    -1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "blocks": 9,
+  "identity": "clean site: the catalog's land turned 270, the full fingerprint",
+  "beside_stock_land": [],
+  "ground_samples": 9216,
+  "ground_mismatches": 1,
+  "ground_mismatch_examples": [
+   {
+    "at": [
+     145.0,
+     -969.0
+    ],
+    "turned": [
+     55.0,
+     -1105.0
+    ],
+    "walked": [
+     "Terrain",
+     58,
+     0.254
+    ],
+    "turned_land": [
+     "Terrain",
+     58,
+     0.2539
+    ]
+   }
+  ],
+  "control_wrong_map_mismatches": 4945,
+  "height_or_part_mismatches": 0,
+  "seconds": 32.3
+ },
+ {
+  "name": "snow-ridge-isle",
+  "cell": [
+   0,
+   12
+  ],
+  "turn": 90,
+  "footprint": [
+   [
+    -1,
+    -1
+   ],
+   [
+    -1,
+    0
+   ],
+   [
+    -1,
+    1
+   ],
+   [
+    0,
+    -1
+   ],
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    -1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "blocks": 9,
+  "identity": "nav margin: the catalog's land turned 90, the margin's classes settled by the stamp",
+  "beside_stock_land": [
+   [
+    22,
+    13
+   ],
+   [
+    22,
+    14
+   ]
+  ],
+  "ground_samples": 9216,
+  "ground_mismatches": 20,
+  "ground_mismatch_examples": [
+   {
+    "at": [
+     1.0,
+     -833.0
+    ],
+    "turned": [
+     -63.0,
+     -895.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     1.0,
+     -835.0
+    ],
+    "turned": [
+     -61.0,
+     -895.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     1.0,
+     -837.0
+    ],
+    "turned": [
+     -59.0,
+     -895.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     1.0,
+     -839.0
+    ],
+    "turned": [
+     -57.0,
+     -895.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     3.0,
+     -833.0
+    ],
+    "turned": [
+     -63.0,
+     -893.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     3.0,
+     -835.0
+    ],
+    "turned": [
+     -61.0,
+     -893.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     3.0,
+     -837.0
+    ],
+    "turned": [
+     -59.0,
+     -893.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     3.0,
+     -839.0
+    ],
+    "turned": [
+     -57.0,
+     -893.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   }
+  ],
+  "control_wrong_map_mismatches": 4965,
+  "height_or_part_mismatches": 0,
+  "seconds": 38.4
+ },
+ {
+  "name": "snow-ridge-isle",
+  "cell": [
+   0,
+   12
+  ],
+  "turn": 180,
+  "footprint": [
+   [
+    -1,
+    -1
+   ],
+   [
+    -1,
+    0
+   ],
+   [
+    -1,
+    1
+   ],
+   [
+    0,
+    -1
+   ],
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    -1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "blocks": 9,
+  "identity": "nav margin: the catalog's land turned 180, the margin's classes settled by the stamp",
+  "beside_stock_land": [
+   [
+    22,
+    13
+   ],
+   [
+    22,
+    14
+   ]
+  ],
+  "ground_samples": 9216,
+  "ground_mismatches": 15,
+  "ground_mismatch_examples": [
+   {
+    "at": [
+     183.0,
+     -833.0
+    ],
+    "turned": [
+     -55.0,
+     -895.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     185.0,
+     -833.0
+    ],
+    "turned": [
+     -57.0,
+     -895.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     185.0,
+     -835.0
+    ],
+    "turned": [
+     -57.0,
+     -893.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     187.0,
+     -833.0
+    ],
+    "turned": [
+     -59.0,
+     -895.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     187.0,
+     -835.0
+    ],
+    "turned": [
+     -59.0,
+     -893.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     187.0,
+     -837.0
+    ],
+    "turned": [
+     -59.0,
+     -891.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     189.0,
+     -833.0
+    ],
+    "turned": [
+     -61.0,
+     -895.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     189.0,
+     -835.0
+    ],
+    "turned": [
+     -61.0,
+     -893.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   }
+  ],
+  "control_wrong_map_mismatches": 4960,
+  "height_or_part_mismatches": 0,
+  "seconds": 40.3
+ },
+ {
+  "name": "snow-ridge-isle",
+  "cell": [
+   0,
+   12
+  ],
+  "turn": 270,
+  "footprint": [
+   [
+    -1,
+    -1
+   ],
+   [
+    -1,
+    0
+   ],
+   [
+    -1,
+    1
+   ],
+   [
+    0,
+    -1
+   ],
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    -1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "blocks": 9,
+  "identity": "nav margin: the catalog's land turned 270, the margin's classes settled by the stamp",
+  "beside_stock_land": [
+   [
+    22,
+    13
+   ],
+   [
+    22,
+    14
+   ]
+  ],
+  "ground_samples": 9216,
+  "ground_mismatches": 21,
+  "ground_mismatch_examples": [
+   {
+    "at": [
+     145.0,
+     -969.0
+    ],
+    "turned": [
+     -9.0,
+     -849.0
+    ],
+    "walked": [
+     "Terrain",
+     58,
+     0.254
+    ],
+    "turned_land": [
+     "Terrain",
+     58,
+     0.2539
+    ]
+   },
+   {
+    "at": [
+     183.0,
+     -1021.0
+    ],
+    "turned": [
+     -61.0,
+     -887.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     185.0,
+     -1017.0
+    ],
+    "turned": [
+     -57.0,
+     -889.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     185.0,
+     -1019.0
+    ],
+    "turned": [
+     -59.0,
+     -889.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     185.0,
+     -1021.0
+    ],
+    "turned": [
+     -61.0,
+     -889.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     185.0,
+     -1023.0
+    ],
+    "turned": [
+     -63.0,
+     -889.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     187.0,
+     -1017.0
+    ],
+    "turned": [
+     -57.0,
+     -891.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     187.0,
+     -1019.0
+    ],
+    "turned": [
+     -59.0,
+     -891.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   }
+  ],
+  "control_wrong_map_mismatches": 4965,
+  "height_or_part_mismatches": 0,
+  "seconds": 43.9
+ },
+ {
+  "name": "desert-scrub-isle",
+  "cell": [
+   1,
+   16
+  ],
+  "turn": 90,
+  "footprint": [
+   [
+    -1,
+    -1
+   ],
+   [
+    -1,
+    0
+   ],
+   [
+    -1,
+    1
+   ],
+   [
+    0,
+    -1
+   ],
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    -1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "blocks": 9,
+  "identity": "clean site: the catalog's land turned 90, the full fingerprint",
+  "beside_stock_land": [],
+  "ground_samples": 9216,
+  "ground_mismatches": 1,
+  "ground_mismatch_examples": [
+   {
+    "at": [
+     69.0,
+     -881.0
+    ],
+    "turned": [
+     49.0,
+     -1083.0
+    ],
+    "walked": [
+     "Terrain",
+     58,
+     0.0524
+    ],
+    "turned_land": [
+     "Terrain",
+     58,
+     0.0523
+    ]
+   }
+  ],
+  "control_wrong_map_mismatches": 2691,
+  "height_or_part_mismatches": 0,
+  "seconds": 24.4
+ },
+ {
+  "name": "desert-scrub-isle",
+  "cell": [
+   1,
+   16
+  ],
+  "turn": 180,
+  "footprint": [
+   [
+    -1,
+    -1
+   ],
+   [
+    -1,
+    0
+   ],
+   [
+    -1,
+    1
+   ],
+   [
+    0,
+    -1
+   ],
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    -1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "blocks": 9,
+  "identity": "clean site: the catalog's land turned 180, the full fingerprint",
+  "beside_stock_land": [],
+  "ground_samples": 9216,
+  "ground_mismatches": 2,
+  "ground_mismatch_examples": [
+   {
+    "at": [
+     61.0,
+     -907.0
+    ],
+    "turned": [
+     131.0,
+     -1077.0
+    ],
+    "walked": [
+     "Terrain",
+     58,
+     2.1925
+    ],
+    "turned_land": [
+     "Terrain",
+     58,
+     2.1926
+    ]
+   },
+   {
+    "at": [
+     69.0,
+     -881.0
+    ],
+    "turned": [
+     123.0,
+     -1103.0
+    ],
+    "walked": [
+     "Terrain",
+     58,
+     0.0524
+    ],
+    "turned_land": [
+     "Terrain",
+     58,
+     0.0523
+    ]
+   }
+  ],
+  "control_wrong_map_mismatches": 2691,
+  "height_or_part_mismatches": 0,
+  "seconds": 27.5
+ },
+ {
+  "name": "desert-scrub-isle",
+  "cell": [
+   1,
+   16
+  ],
+  "turn": 270,
+  "footprint": [
+   [
+    -1,
+    -1
+   ],
+   [
+    -1,
+    0
+   ],
+   [
+    -1,
+    1
+   ],
+   [
+    0,
+    -1
+   ],
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    -1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "blocks": 9,
+  "identity": "clean site: the catalog's land turned 270, the full fingerprint",
+  "beside_stock_land": [],
+  "ground_samples": 9216,
+  "ground_mismatches": 1,
+  "ground_mismatch_examples": [
+   {
+    "at": [
+     61.0,
+     -907.0
+    ],
+    "turned": [
+     117.0,
+     -1021.0
+    ],
+    "walked": [
+     "Terrain",
+     58,
+     2.1925
+    ],
+    "turned_land": [
+     "Terrain",
+     58,
+     2.1926
+    ]
+   }
+  ],
+  "control_wrong_map_mismatches": 2691,
+  "height_or_part_mismatches": 0,
+  "seconds": 26.5
+ },
+ {
+  "name": "desert-scrub-isle",
+  "cell": [
+   0,
+   12
+  ],
+  "turn": 90,
+  "footprint": [
+   [
+    -1,
+    -1
+   ],
+   [
+    -1,
+    0
+   ],
+   [
+    -1,
+    1
+   ],
+   [
+    0,
+    -1
+   ],
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    -1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "blocks": 9,
+  "identity": "nav margin: the catalog's land turned 90, the margin's classes settled by the stamp",
+  "beside_stock_land": [
+   [
+    22,
+    13
+   ],
+   [
+    22,
+    14
+   ]
+  ],
+  "ground_samples": 9216,
+  "ground_mismatches": 21,
+  "ground_mismatch_examples": [
+   {
+    "at": [
+     1.0,
+     -833.0
+    ],
+    "turned": [
+     -63.0,
+     -895.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     1.0,
+     -835.0
+    ],
+    "turned": [
+     -61.0,
+     -895.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     1.0,
+     -837.0
+    ],
+    "turned": [
+     -59.0,
+     -895.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     1.0,
+     -839.0
+    ],
+    "turned": [
+     -57.0,
+     -895.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     3.0,
+     -833.0
+    ],
+    "turned": [
+     -63.0,
+     -893.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     3.0,
+     -835.0
+    ],
+    "turned": [
+     -61.0,
+     -893.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     3.0,
+     -837.0
+    ],
+    "turned": [
+     -59.0,
+     -893.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     3.0,
+     -839.0
+    ],
+    "turned": [
+     -57.0,
+     -893.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   }
+  ],
+  "control_wrong_map_mismatches": 2711,
+  "height_or_part_mismatches": 0,
+  "seconds": 26.4
+ },
+ {
+  "name": "desert-scrub-isle",
+  "cell": [
+   0,
+   12
+  ],
+  "turn": 180,
+  "footprint": [
+   [
+    -1,
+    -1
+   ],
+   [
+    -1,
+    0
+   ],
+   [
+    -1,
+    1
+   ],
+   [
+    0,
+    -1
+   ],
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    -1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "blocks": 9,
+  "identity": "nav margin: the catalog's land turned 180, the margin's classes settled by the stamp",
+  "beside_stock_land": [
+   [
+    22,
+    13
+   ],
+   [
+    22,
+    14
+   ]
+  ],
+  "ground_samples": 9216,
+  "ground_mismatches": 17,
+  "ground_mismatch_examples": [
+   {
+    "at": [
+     61.0,
+     -907.0
+    ],
+    "turned": [
+     67.0,
+     -821.0
+    ],
+    "walked": [
+     "Terrain",
+     58,
+     2.1925
+    ],
+    "turned_land": [
+     "Terrain",
+     58,
+     2.1926
+    ]
+   },
+   {
+    "at": [
+     69.0,
+     -881.0
+    ],
+    "turned": [
+     59.0,
+     -847.0
+    ],
+    "walked": [
+     "Terrain",
+     58,
+     0.0524
+    ],
+    "turned_land": [
+     "Terrain",
+     58,
+     0.0523
+    ]
+   },
+   {
+    "at": [
+     183.0,
+     -833.0
+    ],
+    "turned": [
+     -55.0,
+     -895.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     185.0,
+     -833.0
+    ],
+    "turned": [
+     -57.0,
+     -895.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     185.0,
+     -835.0
+    ],
+    "turned": [
+     -57.0,
+     -893.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     187.0,
+     -833.0
+    ],
+    "turned": [
+     -59.0,
+     -895.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     187.0,
+     -835.0
+    ],
+    "turned": [
+     -59.0,
+     -893.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     187.0,
+     -837.0
+    ],
+    "turned": [
+     -59.0,
+     -891.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   }
+  ],
+  "control_wrong_map_mismatches": 2706,
+  "height_or_part_mismatches": 0,
+  "seconds": 29.9
+ },
+ {
+  "name": "desert-scrub-isle",
+  "cell": [
+   0,
+   12
+  ],
+  "turn": 270,
+  "footprint": [
+   [
+    -1,
+    -1
+   ],
+   [
+    -1,
+    0
+   ],
+   [
+    -1,
+    1
+   ],
+   [
+    0,
+    -1
+   ],
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    -1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "blocks": 9,
+  "identity": "nav margin: the catalog's land turned 270, the margin's classes settled by the stamp",
+  "beside_stock_land": [
+   [
+    22,
+    13
+   ],
+   [
+    22,
+    14
+   ]
+  ],
+  "ground_samples": 9216,
+  "ground_mismatches": 21,
+  "ground_mismatch_examples": [
+   {
+    "at": [
+     61.0,
+     -907.0
+    ],
+    "turned": [
+     53.0,
+     -765.0
+    ],
+    "walked": [
+     "Terrain",
+     58,
+     2.1925
+    ],
+    "turned_land": [
+     "Terrain",
+     58,
+     2.1926
+    ]
+   },
+   {
+    "at": [
+     183.0,
+     -1021.0
+    ],
+    "turned": [
+     -61.0,
+     -887.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     185.0,
+     -1017.0
+    ],
+    "turned": [
+     -57.0,
+     -889.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     185.0,
+     -1019.0
+    ],
+    "turned": [
+     -59.0,
+     -889.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     185.0,
+     -1021.0
+    ],
+    "turned": [
+     -61.0,
+     -889.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     185.0,
+     -1023.0
+    ],
+    "turned": [
+     -63.0,
+     -889.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     187.0,
+     -1017.0
+    ],
+    "turned": [
+     -57.0,
+     -891.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   },
+   {
+    "at": [
+     187.0,
+     -1019.0
+    ],
+    "turned": [
+     -59.0,
+     -891.0
+    ],
+    "walked": [
+     "Sea4",
+     57,
+     0.0
+    ],
+    "turned_land": [
+     "Sea4",
+     53,
+     0.0
+    ]
+   }
+  ],
+  "control_wrong_map_mismatches": 2711,
+  "height_or_part_mismatches": 0,
+  "seconds": 28.1
+ }
+]

@@ -551,3 +551,15 @@ def test_a_turned_prefab_s_read_windows_are_the_walked_ones_turned():
     v = PF.turned(p, 90)
     want = {PF.label_of(PF.turn_rel(p, PF.rel_block(b, cell), 90), cell) for b in walked}
     assert PF.reads(v, cell) == want != walked
+
+
+@pytest.mark.parametrize("name", ["snow-ridge-isle", "desert-scrub-isle"])
+def test_the_catalogued_lab_isles_stage_to_their_fingerprints_and_turn(name, tmp_path):
+    """Round 21's snow ridge and round 22's desert scrub crag, catalogued as prefabs (their lab islands and carves,
+    framed): each stages to its catalog fingerprint at its own site and places turned 90 at a second clean site."""
+    from .test_world_prefab import _install
+    _install()
+    p = PF.get(name)
+    assert PF.turns_of(p) == PF.TURNS and p["status"] == "candidate"
+    rep = PF.place(name, (1, 16), str(tmp_path / "T"), stack=(), dry_run=True, turn=90, log=lambda *a: None)
+    assert rep["identity"] == "clean site: the catalog's land turned 90, the full fingerprint"

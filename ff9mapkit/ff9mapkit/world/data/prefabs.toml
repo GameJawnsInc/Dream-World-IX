@@ -71,6 +71,56 @@ table = "hill"
 center = [4.0, 24.0]
 radius = 14.0
 
+[[prefab]]
+name = "snow-ridge-isle"
+status = "candidate"
+ground = "snow"
+note = "A two-lobe r88 snow island with the coastal snow ridge (8-10,0-1, comp9) and its inlet floor, turned 270: 403 rock tris + 2 plugs, peak 20.4u. Terrain study round 21's lab island and carve (owner-passed), framed."
+fingerprint = "383c93d9e66439c76596b3a0f845de91af7bc8d9e10aac85f415429e74f6fc11"
+fingerprint_cell = [1, 14]
+footprint = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 0], [0, 1], [1, -1], [1, 0], [1, 1]]
+turns = [0, 90, 180, 270]
+
+[[prefab.rows]]
+table = "island"
+center = [64.0, 32.0]
+radius = 88.0
+lobes = 2
+patches = 0
+seed = 42.0
+ground = "snow"
+
+[[prefab.rows]]
+table = "mountain"
+center = [30.0, 48.0]
+rot = 270.0
+donor = "8-10,0-1"
+ground = "snow"
+
+[[prefab]]
+name = "desert-scrub-isle"
+status = "candidate"
+ground = "desert"
+note = "A r55 desert island with the desert scrub crag (14-15,3, comp26) and its walled scrub canopy: 139 rock + canopy tris, peak 9.75u. Terrain study round 22's lab island and carve (owner-passed), framed."
+fingerprint = "06a7f01fed4746c966ba15615c44253ba239b998350d5ce984db08058bac5983"
+fingerprint_cell = [1, 14]
+footprint = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 0], [0, 1], [1, -1], [1, 0], [1, 1]]
+turns = [0, 90, 180, 270]
+
+[[prefab.rows]]
+table = "island"
+center = [36.0, 28.0]
+radius = 55.0
+patches = 0
+seed = 42.0
+ground = "desert"
+
+[[prefab.rows]]
+table = "mountain"
+center = [38.0, 24.0]
+donor = "14-15,3"
+ground = "desert"
+
 # ---- walked stock carry units (donors.toml class "coast"): the base is a transplant, no minted surface at all.
 # Each was walked in game as a carry at the rotation given (studies/overworld-editor/C5.md, C20.md); the prefab
 # entry is that carry, placed by block with its fingerprint measured identical at two anchors.
