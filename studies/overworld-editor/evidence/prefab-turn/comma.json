@@ -1,0 +1,254 @@
+[
+ {
+  "name": "comma-isle",
+  "cell": [
+   20,
+   0
+  ],
+  "turn": 90,
+  "footprint": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "blocks": 5,
+  "identity": "clean site: the catalog's land turned 90, the full fingerprint",
+  "beside_stock_land": [
+   [
+    19,
+    3
+   ],
+   [
+    20,
+    3
+   ]
+  ],
+  "ground_samples": 5120,
+  "ground_mismatches": 0,
+  "ground_mismatch_examples": [],
+  "control_wrong_map_mismatches": 3550,
+  "height_or_part_mismatches": 0,
+  "seconds": 8.4
+ },
+ {
+  "name": "comma-isle",
+  "cell": [
+   20,
+   0
+  ],
+  "turn": 180,
+  "footprint": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    1
+   ]
+  ],
+  "blocks": 5,
+  "identity": "clean site: the catalog's land turned 180, the full fingerprint",
+  "beside_stock_land": [],
+  "ground_samples": 5120,
+  "ground_mismatches": 0,
+  "ground_mismatch_examples": [],
+  "control_wrong_map_mismatches": 3026,
+  "height_or_part_mismatches": 0,
+  "seconds": 5.2
+ },
+ {
+  "name": "comma-isle",
+  "cell": [
+   20,
+   0
+  ],
+  "turn": 270,
+  "footprint": [
+   [
+    0,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    1,
+    2
+   ]
+  ],
+  "blocks": 5,
+  "identity": "clean site: the catalog's land turned 270, the full fingerprint",
+  "beside_stock_land": [
+   [
+    19,
+    3
+   ],
+   [
+    20,
+    3
+   ]
+  ],
+  "ground_samples": 5120,
+  "ground_mismatches": 0,
+  "ground_mismatch_examples": [],
+  "control_wrong_map_mismatches": 3552,
+  "height_or_part_mismatches": 0,
+  "seconds": 5.1
+ },
+ {
+  "name": "comma-isle",
+  "cell": [
+   2,
+   16
+  ],
+  "turn": 90,
+  "footprint": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "blocks": 5,
+  "identity": "clean site: the catalog's land turned 90, the full fingerprint",
+  "beside_stock_land": [],
+  "ground_samples": 5120,
+  "ground_mismatches": 0,
+  "ground_mismatch_examples": [],
+  "control_wrong_map_mismatches": 3550,
+  "height_or_part_mismatches": 0,
+  "seconds": 4.9
+ },
+ {
+  "name": "comma-isle",
+  "cell": [
+   2,
+   16
+  ],
+  "turn": 180,
+  "footprint": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    1
+   ]
+  ],
+  "blocks": 5,
+  "identity": "clean site: the catalog's land turned 180, the full fingerprint",
+  "beside_stock_land": [],
+  "ground_samples": 5120,
+  "ground_mismatches": 0,
+  "ground_mismatch_examples": [],
+  "control_wrong_map_mismatches": 3026,
+  "height_or_part_mismatches": 0,
+  "seconds": 5.5
+ },
+ {
+  "name": "comma-isle",
+  "cell": [
+   2,
+   16
+  ],
+  "turn": 270,
+  "footprint": [
+   [
+    0,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    1,
+    2
+   ]
+  ],
+  "blocks": 5,
+  "identity": "clean site: the catalog's land turned 270, the full fingerprint",
+  "beside_stock_land": [],
+  "ground_samples": 5120,
+  "ground_mismatches": 0,
+  "ground_mismatch_examples": [],
+  "control_wrong_map_mismatches": 3552,
+  "height_or_part_mismatches": 0,
+  "seconds": 5.3
+ }
+]

@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — turned prefabs: four looks from one walked landmass
+- **`world-prefab NAME --cell BX,BY --turn 90|180|270`** places a prefab turned by a quarter turn. It is the same
+  walked land, turned whole, never a new island: the prefab is built at its catalog site, checked against its
+  fingerprint, then turned block by block and written, and the written land must be exactly the catalog's land with
+  that turn applied. Turning by quarter turns keeps every ground and sea tile one the game already draws.
+- **Five of the six prefabs turn** (`desert-peak-isle`, `meadow-grove-isle`, `comma-isle`, `crystal-reef`,
+  `terminus-pair`). `beach-chain` stays at turn 0: the Chocobo's Lagoon object on it cannot turn, and the command
+  refuses to turn it.
+- **The World tab's Add a prefab card has a Turn picker** beside the prefab. It appears only for a prefab that turns.
+  The ghost shows the turned land, and the step's recipe row carries the turn.
+- A turn has not been walked in game until you walk it: the card and the command say so.
+
 ### Added — World tab: "Add a prefab", a whole landmass in one click
 - **Edit the map → Add a prefab** places a catalog prefab where you click: pick it, see its land as a ghost on the
   ocean, and the card checks it with `world-prefab` (about half a minute: the prefab is built outside the install

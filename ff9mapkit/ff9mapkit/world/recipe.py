@@ -35,7 +35,10 @@ def row_for(argv) -> dict:
         if not a.name or not a.cell or a.list or a.fingerprint or a.recipe_out or a.skip_mirror:
             raise ValueError("a [[prefab]] row is one placement: a name and --cell (no --list, --fingerprint, "
                              "--recipe-out, --skip-mirror)")
-        return {"table": "prefab", "name": str(a.name), "cell": [int(v) for v in a.cell.split(",")]}
+        row = {"table": "prefab", "name": str(a.name), "cell": [int(v) for v in a.cell.split(",")]}
+        if a.turn:
+            row["turn"] = int(a.turn)                     # left out at 0, as the command leaves it
+        return row
     if verb == "world-island":
         if a.center is None:
             raise ValueError("an [[island]] row is placed by --center")
@@ -148,7 +151,8 @@ _ROW_DEFAULTS = {"forest": {"spread": 1.0, "reach": 96.0, "rot": 0.0},
                  "island": {"radius": 24.0, "lobes": 1, "height": 3.2, "ground": "grass", "prefab_frame": False},
                  "sink": {"cluster": False, "allow_entrances": False},
                  "morph": {"allow_entrances": False},
-                 "transplant": {"rot": 0, "size": [1, 1]}}
+                 "transplant": {"rot": 0, "size": [1, 1]},
+                 "prefab": {"turn": 0}}
 _ANGLE_KEY = {"forest": "rot", "mountain": "rot", "transplant": "rot"}
 
 
@@ -185,7 +189,8 @@ def label(row: dict) -> str:
         return f"island r{_num(row.get('radius', 24))} seed {_num(row.get('seed', 0))} at {_num(c[0])}, {_num(c[1])}"
     if table == "prefab":
         c = row.get("cell") or (0, 0)
-        return f"prefab {row.get('name', '?')} on block ({c[0]}, {c[1]})"
+        return (f"prefab {row.get('name', '?')} on block ({c[0]}, {c[1]})"
+                + (f", turned {row['turn']}" if row.get("turn") else ""))
     if table == "morph":
         c = row.get("cell") or (0, 0)
         return f"{row.get('verb', 'morph')} {_num(row.get('depth', 0))} at block ({c[0]}, {c[1]})"
@@ -281,8 +286,9 @@ def row_cells(row: dict) -> list:
     table = row["table"]
     if table == "prefab":                                 # its footprint, from the catalog (it writes nothing else)
         try:
-            from .prefab import footprint_labels, get
-            return footprint_labels(get(str(row["name"])), tuple(int(v) for v in row["cell"])) or all_cells()
+            from .prefab import footprint_labels, view_for
+            return (footprint_labels(view_for(str(row["name"]), row.get("turn", 0)), tuple(int(v) for v in row["cell"]))
+                    or all_cells())
         except (KeyError, ValueError):
             return all_cells()
     pt = row.get("center") or row.get("near")
@@ -315,8 +321,8 @@ def anchor(row: dict):
     if table == "prefab" and row.get("cell"):
         c = tuple(int(v) for v in row["cell"])
         try:
-            from .prefab import footprint_center, get
-            return footprint_center(get(str(row.get("name"))), c)
+            from .prefab import footprint_center, view_for
+            return footprint_center(view_for(str(row.get("name")), row.get("turn", 0)), c)
         except (KeyError, ValueError):
             return 64.0 * c[0] + 32.0, -(64.0 * c[1] + 32.0)
     if table == "river":
@@ -375,10 +381,10 @@ def replay_window(step: dict) -> set:
         # past it) and every relief row's read window -- an edit dirtying any of them re-runs the step (review P3)
         try:
             from . import prefab as PF
-            p = PF.get(str(row["name"]))
+            p = PF.view_for(str(row["name"]), row.get("turn", 0))
             c = tuple(int(v) for v in row["cell"])
             foot = set(PF.footprint_labels(p, c))
-            return foot | PF._ring(foot) | PF.read_windows(PF.expand(p, c)) | cells
+            return foot | PF._ring(foot) | PF.reads(p, c) | cells
         except (KeyError, ValueError):
             from .draft import all_cells
             return set(all_cells()) | cells

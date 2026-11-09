@@ -22,7 +22,12 @@ footprint block stock open ocean, no edit in the footprint or its ring in the ta
 of the stack, and none in a relief row's read window in the target. Identity, navigation and every verb's own gates
 run on Check.
 
-THE RECIPE ROW is ``world-fuse``'s ``[[prefab]]`` (``name``, ``cell``), which runs this very command's pipeline.
+THE TURN (rung P5): the card hands every function here the prefab AS IT LANDS (``prefab.turned``: the turned footprint,
+its ``turn``), so the anchor, the rim, the centre and the preview are the turned ones; :func:`turn` lays the turn-0
+ghost down turned, by the very rigid map the files take (``prefab.turn_point``).
+
+THE RECIPE ROW is ``world-fuse``'s ``[[prefab]]`` (``name``, ``cell``, ``turn`` when not 0), which runs this very
+command's pipeline.
 """
 from __future__ import annotations
 
@@ -129,6 +134,20 @@ def ghost(prefab: dict, *, game=None) -> np.ndarray:
     return np.concatenate(parts) if parts else np.zeros((0, 3, 3))
 
 
+def turn(land, prefab: dict) -> np.ndarray:
+    """:func:`ghost`'s land (anchor (0, 0), turn 0) laid down as ``prefab`` lands -- turned by its ``turn`` with the
+    rigid map the files take, still on anchor (0, 0). Turn 0 is the land as it is."""
+    from .prefab import turn_of, turn_point
+    out = np.array(land, dtype=np.float64)
+    t = turn_of(prefab)
+    if not t or not out.size:
+        return out
+    flat = out.reshape(-1, 3)
+    for v in flat:
+        v[0], v[2] = turn_point(float(v[0]), float(v[2]), prefab, (0, 0), t)
+    return flat.reshape(out.shape)
+
+
 def at(land, cell) -> np.ndarray:
     """:func:`ghost`'s land moved from anchor (0, 0) to anchor ``cell`` (whole blocks)."""
     out = np.array(land, dtype=np.float64)
@@ -141,7 +160,7 @@ def preview(cell, prefab: dict, *, land: set, occupied, occupied_target) -> dict
     """``world-prefab``'s first laws for anchor ``cell``: ``{"ok", "why", "where", "blocks"}``. ``land`` is the stock
     land set (:func:`stock_land`); ``occupied(blocks)`` -> ``{block: [folder]}`` over the target and the stack;
     ``occupied_target(blocks)`` over the target alone (the relief rows read only it)."""
-    from .prefab import _ring, expand, read_windows
+    from .prefab import _ring, reads
 
     def mid(b):
         return (BLOCK * b[0] + 32.0, -(BLOCK * b[1] + 32.0))
@@ -160,17 +179,19 @@ def preview(cell, prefab: dict, *, land: set, occupied, occupied_target) -> dict
         return {"ok": False, "why": f"{len(taken)} block{'s' if len(taken) > 1 else ''} in or beside its footprint "
                                     f"already hold{'s' if len(taken) == 1 else ''} an edit in {', '.join(names)}",
                 "where": [mid(b) for b in sorted(taken)], "blocks": foot}
-    reads = sorted(read_windows(expand(prefab, cell)) - set(near))
-    taken = occupied_target(reads) if reads else {}
+    win = sorted(reads(prefab, cell) - set(near))
+    taken = occupied_target(win) if win else {}
     if taken:
         return {"ok": False, "why": f"its carries read {len(taken)} block{'s' if len(taken) > 1 else ''} the draft "
                                     f"already edits", "where": [mid(b) for b in sorted(taken)], "blocks": foot}
     return {"ok": True, "why": "", "where": [], "blocks": foot}
 
 
-def command(mod_folder, name: str, cell, *, dry_run: bool = True, report=None) -> list:
-    """The ``world-prefab`` argv (after ``python -m ff9mapkit``)."""
+def command(mod_folder, name: str, cell, *, dry_run: bool = True, report=None, turn: int = 0) -> list:
+    """The ``world-prefab`` argv (after ``python -m ff9mapkit``); ``--turn`` only when the prefab turns."""
     argv = ["world-prefab", str(name), "--cell", f"{int(cell[0])},{int(cell[1])}", "--mod-folder", str(mod_folder)]
+    if int(turn or 0):
+        argv += ["--turn", str(int(turn))]
     if dry_run:
         argv.append("--dry-run")
     if report is not None:

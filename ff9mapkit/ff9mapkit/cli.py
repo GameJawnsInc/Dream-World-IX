@@ -5782,7 +5782,9 @@ def _cmd_world_prefab(args: argparse.Namespace) -> int:
         if args.list or not args.name:
             for p in PF.load_catalog():
                 tables = " + ".join(r["table"] for r in p["rows"])
-                print(f"{p['name']:24s} {p['status']:10s} {len(p.get('footprint') or ()):2d} blocks  {tables}")
+                turns = PF.turns_of(p)
+                print(f"{p['name']:24s} {p['status']:10s} {len(p.get('footprint') or ()):2d} blocks  {tables}"
+                      + (f"  turns {', '.join(str(t) for t in turns)}" if turns != (0,) else ""))
                 if p.get("note"):
                     print(f"{'':24s} {p['note']}")
             return 0
@@ -5791,8 +5793,22 @@ def _cmd_world_prefab(args: argparse.Namespace) -> int:
             return 2
         cell = tuple(int(v) for v in args.cell.split(","))
         prefab = PF.get(args.name)
+        if args.fingerprint and args.turn:
+            print("--fingerprint takes the walked land at turn 0 (a turn's identity is the catalog's land turned)",
+                  file=sys.stderr)
+            return 2
+        if args.turn and args.turn not in PF.turns_of(prefab):
+            raise PF.PrefabRefused(f"prefab {args.name!r} does not turn {args.turn}: its catalog entry allows "
+                                   f"{list(PF.turns_of(prefab))}"
+                                   + (f" ({prefab['turns_note']})" if prefab.get("turns_note") else ""), gate="turn")
         if args.recipe_out:
-            Path(args.recipe_out).write_text(R.dumps(PF.expand(prefab, cell)), encoding="utf-8")
+            if args.turn:
+                # a turn is the walked land turned, not a re-run of its rows: the recipe is the one [[prefab]] row,
+                # whose runner is this command's own pipeline
+                rows = [{"table": "prefab", "name": args.name, "cell": list(cell), "turn": int(args.turn)}]
+            else:
+                rows = PF.expand(prefab, cell)
+            Path(args.recipe_out).write_text(R.dumps(rows), encoding="utf-8")
             print(f"wrote the placed recipe: {args.recipe_out} (compose it with world-fuse)")
         if args.fingerprint:
             PF.check_rows_on_map(prefab, cell)
@@ -5822,7 +5838,7 @@ def _cmd_world_prefab(args: argparse.Namespace) -> int:
             print("give --mod-folder (or --fingerprint / --recipe-out alone)", file=sys.stderr)
             return 2 if not args.recipe_out else 0
         rep = PF.place(args.name, cell, args.mod_folder, game=args.game, dry_run=args.dry_run,
-                       skip_mirror=args.skip_mirror)
+                       skip_mirror=args.skip_mirror, turn=args.turn)
     except (PF.PrefabRefused, ValueError) as e:
         refused = isinstance(e, PF.PrefabRefused)
         print(f"REFUSED: {e}" if refused else f"world-prefab: {e}", file=sys.stderr)
@@ -11121,6 +11137,10 @@ def build_parser() -> argparse.ArgumentParser:
     wpf.add_argument("--cell", metavar="BX,BY", help="the anchor block: the prefab's frame origin is its corner")
     wpf.add_argument("--mod-folder", help="the FolderNames mod folder to place into (the World tab's draft, or a "
                                           "live folder)")
+    wpf.add_argument("--turn", type=int, default=0, choices=(0, 90, 180, 270),
+                     help="place the walked land turned by a quarter turn: composed at its catalog site, held to the "
+                          "catalog, then every block turned (the 4u lattice and every tile kept lawful); the catalog's "
+                          "turns lists the turns a prefab allows")
     wpf.add_argument("--dry-run", action="store_true",
                      help="run the window check and the staged identity, write nothing into the folder")
     wpf.add_argument("--fingerprint", action="store_true",

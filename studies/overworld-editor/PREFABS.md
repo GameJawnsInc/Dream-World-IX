@@ -56,8 +56,8 @@ stable across runs, so today's behaviour IS reproducible at a fixed site. It jus
 
 - **Placement snaps to whole 64u blocks** today, because the fingerprint hashes triangles and the relief/mountain
   frames anchor at a block corner. The SURFACE is identical at any 4u shift (SYNTH-DEEP-DIVE.md), so a 4u snap is
-  reachable with a surface fingerprint and 4u frame anchors. Turning a prefab is unmeasured: the mint has
-  no rotation, so a turned prefab would be a re-run, not a stamp, and would need its own walk.
+  reachable with a surface fingerprint and 4u frame anchors. Quarter TURNS are built (P5): a turn is the walked
+  bytes turned block by block, not a re-run of the rows, so it shares the walked fingerprint.
 - **THE OPEN-OCEAN TARGET LAW** (every footprint block is true open ocean) keeps a prefab off other land,
   so its own sea ring is the only context it ever meets. That is what lets one walk stand for every site.
   The stock map has 30 open 3x3 windows without the x seam and **56 with it** (19 4x4, 2 5x5); the kit already
@@ -180,6 +180,59 @@ stable across runs, so today's behaviour IS reproducible at a fixed site. It jus
   - the snap anchors clear of the synthetic island;
   - one test that could not fail now can.
   Snap: `world:3d-prefab` (invented land).
+- **P5 — quarter turns: BUILT (2026-11-08), offline-proven; the owner's walk of one turn is pending.**
+  `world-prefab --turn 90|180|270`, the `[[prefab]]` row's `turn`, and a Turn picker on the card.
+  **A TURN IS A STAMP, NOT A RE-RUN.** Re-running the rows with a turned outline would mint new land (the mains
+  tiles, the meadow stamps and the mountain's apron all re-roll), so every turn would need its own walk. Instead
+  the prefab is composed at turn 0 at its catalog site (`fingerprint_cell`), held to the catalog fingerprint, and
+  every file is turned: each block moves to its turned place and its block-local content turns about the block
+  centre (`transplant._rot_xz`, the law transplant was proven on over 11 in-game passes: the 4u lattice maps to
+  itself and every tile turns into its own rotation variant). Positions and land normals turn; sea normals (one
+  uniform constant), uvs and tangents (the IDALL) are kept. The files go through `deploy_override` /
+  `deploy_donor_sidecar` (ledgered), then the coast-nav stamp and the disc-4 mirror, as for every writer.
+  **Identity, turned:** the written land must equal the catalog site's land with exactly that turn applied
+  (`fingerprint(..., turn=)`, an independent digest of the source turned), at both tiers (full at a clean site;
+  beside stock land, outside the nav margin plus a settled stamp).
+  **Laws the turn adds:**
+  - THE OPEN-OCEAN TARGET LAW is checked by `place()` itself for a turn (at turn 0 the composing verbs check it at the
+    target; a turn composes elsewhere).
+  - THE RIDING PART: a block whose `Donor.txt` prefab carries a part no file overrides would show that part UNTURNED.
+    `turn_blockers` refuses it, reading the bundle's own part list (`extract.block_parts`) on BOTH discs (the mirror
+    copies the sidecar to disc 4, which resolves it against its own prefab). Measured: beach-chain's (21,1) block
+    rides Chocobo's Lagoon's Object (donor (9,17)), so it stays turn 0 (`turns_note`), and the gate finds that by
+    itself; the other five prefabs' donors are fully overridden.
+  - THE MANIFEST LAW: a turn is not a fuse row, so `fuse.manifest_step` gives it the compose's drift gate and one
+    `world_manifest.json` entry (a draft waives the gate, as for every editor job).
+  - The catalog opts a prefab in (`turns`, default `[0]`) and names the site it is composed at.
+  **Measured** (`prefab_turn_probe.py`, `evidence/prefab-turn/`): the 2 island prefabs x 4 sites (two clean, (0,12)
+  across the seam beside stock land, (21,1) beside stock land) x 3 turns, and the 3 turnable carry units x 2 sites x 3
+  turns. All 42 pass world-prefab's own identity. An independent oracle, the engine-faithful ground query, compared
+  9216 samples (2048-5120 for the units) of the walked land against the turned land at the turned points: 0
+  mismatches at every clean site; beside stock land 15-20 class-only differences (heights and parts identical: the
+  nav margin re-classing, as designed). Its negative control (the map one quarter turn short) mismatches on
+  1328-3552 samples, so the oracle can fail.
+  **Status:** a turn places with a banner until it is in `walked_turns`. One turned walk (the desert peak isle at 90)
+  would qualify the law the way the comma's walk at rot 90 did for transplant.
+  **THE IDENTITY IS NOT THE WRITER CHECKING ITSELF** (review): the digest turns each file by transplant's own
+  `_rot_xz` and places each block by the rigid point map (`turn_point` of its centre), while the writer turns by
+  `_local_turn` and the block map `turn_rel`. A content turn or block map that is not one rigid motion with them is
+  refused (a sabotage test each). The writer computes in `_rot_xz`'s own arithmetic: the first form (`x' = -z`) wrote
+  -0.0 where transplant writes 0.0 -- the same land to the engine, a different hash, caught on real bytes.
+  **Adversarial review** (3 lenses, 2 refuting skeptics per finding): 8 confirmed, all fixed and fenced -- the donor
+  part list was a hand list missing Beach2 / Stream / VolcanoCrater / VolcanoLava / Sea4f and disc 4; the turned
+  write skipped the manifest-drift gate and record; `--recipe-out --turn` wrote before checking the turn; `canon`
+  had no `turn = 0` default; a window test could not fail (it planted inside the unturned ring); and two findings
+  against a catalog and test anchor the review saw before they were finished.
+  Fence: `tests/test_world_prefab_turn.py` (the arithmetic as one rigid motion, the turned digest against the turned
+  writer, every refusal, the plumbing; four install-gated: the desert peak turned at a clean site and beside stock
+  land plus a sabotaged writer refused, the comma turned and written for real with its ledger and manifest, and
+  beach-chain's riding object) and the card tests in `tests/test_worldprefab.py`. Snap: `world-3d-prefab-turned`.
+  23 mutations (the turn's gates, normals, donor, identity, shift, digest independence, manifest, fuse, recipe, CLI,
+  card, preview, the stamp) each turn it red; the first pass left 6 alive, and each became a test. One lesson: the
+  beside-land check must stand where the stamp really re-classes -- (21,1) is beside stock land but re-classes
+  nothing, (0,12) re-classes 15-20 samples, so only (0,12) catches a turn that skips the stamp.
+  Evidence: `evidence/prefab-turn/run-final.log` (+ `islands.json`, `units.json`) is the run on the final writer;
+  `run.log`, `comma.json`, `reef.json` and `terminus.json` are the first run, on the -0.0 writer.
 - **P4 — the arrangement search ("synth")**: enumerate seed/radius x home-matched donors x offsets, keep
   the all-green ones, and render them for the owner. Only the walked ones become prefabs.
 

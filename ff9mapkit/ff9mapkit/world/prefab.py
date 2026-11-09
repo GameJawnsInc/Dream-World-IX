@@ -43,6 +43,21 @@ winding is kept.
 
 Status follows ``donors.toml``: a ``candidate`` places with a banner and is walked in game before it is ``qualified``;
 the fingerprint does not change when it is (the walk qualifies the bytes the fingerprint names).
+
+THE QUARTER TURN (rung P5, PREFABS.md). ``turn = 90 | 180 | 270`` places the prefab's WALKED land turned, never a
+re-mint: the prefab is composed at turn 0 at its catalog site (``fingerprint_cell``) and held to its catalog
+fingerprint, then every file of it is turned block by block -- each block moves to its turned place and its
+block-local content turns about the block centre (``transplant._rot_xz``), so whole blocks map onto whole blocks, the
+4u lattice onto itself, and every tile into its own rotation variant (transplant's in-game-proven law: the mains
+anti-tiling and the Wang strips already use all four). Positions turn; normals turn except the sea's (a uniform
+constant every sea tile shares, ``transplant.LAND_PARTS``); uvs and tangents (the IDALL) are kept. The turned files
+are written through the kit's ledgered writers (``mesh.deploy_override`` / ``deploy_donor_sidecar``), then the
+coast-nav stamp and the disc-4 mirror run as for every world writer. IDENTITY, TURNED: the written land must be the
+catalog's land with exactly that turn applied (:func:`fingerprint` ``turn=``) -- the two tiers above, unchanged --
+so one walked fingerprint names all four turns. Rotation is proper (no mirror), so winding and the mains' handedness
+are kept. A turn refuses when a block's ``Donor.txt`` prefab would render a part the prefab does not override (that
+part would ride the donor prefab UNTURNED), and the catalog's ``turns`` lists the turns a prefab allows
+(default ``[0]``).
 """
 from __future__ import annotations
 
@@ -73,6 +88,8 @@ _FILE = re.compile(r"^Block\[(\d+)\]\[(\d+)\] (\w+)\.(ff9mesh|txt)$")
 #: The parts the coast-nav stamp classes (``coastnav.SEA_PARTS``) and the classes it writes (``coastnav.WATER``).
 _NAV_PARTS = ("Sea1", "Sea2", "Sea3", "Sea4", "Sea5")
 _NAV_WATER = {53, 54, 55, 56, 57}
+#: The quarter turns (degrees); 0 is the walked land as it is.
+TURNS = (0, 90, 180, 270)
 
 
 class PrefabRefused(ValueError):
@@ -127,6 +144,14 @@ def load_catalog(path=None) -> list:
         if p.get("fingerprint") and stamped_nav(p) and (fc is None or len(fc) != 2):
             raise ValueError(f"{where}: an island prefab's fingerprint names the CLEAN site it was taken at: "
                              f"fingerprint_cell = [bx, by]")
+        turns = p.get("turns", [0])
+        if not turns or any(t not in TURNS for t in turns) or 0 not in turns or len(set(turns)) != len(turns):
+            raise ValueError(f"{where}: turns = a list of distinct quarter turns from {TURNS}, 0 among them")
+        if set(turns) != {0} and (fc is None or len(fc) != 2):
+            raise ValueError(f"{where}: a turned placement is the land composed at its catalog site and turned, so a "
+                             f"prefab that turns names that site: fingerprint_cell = [bx, by]")
+        if any(t not in turns or t == 0 for t in p.get("walked_turns", ())):
+            raise ValueError(f"{where}: walked_turns lists turns other than 0 that the prefab allows ({turns})")
         out.append(p)
     return out
 
@@ -203,9 +228,9 @@ def rel_point(x: float, z: float, cell) -> tuple:
     return (x - ox + WORLD_W / 2) % WORLD_W - WORLD_W / 2, z - oz
 
 
-def read_windows(rows) -> set:
+def read_windows(rows, *, clip: bool = True) -> set:
     """Every block (wrapped label) a relief row reads: its centre +- its reach (the hill's own rule:
-    ``max(96, radius + 10)``), clipped to the map's rows."""
+    ``max(96, radius + 10)``), clipped to the map's rows (``clip=False`` keeps off-map rows, for a turn to map)."""
     from .mesh import GRID_ROWS, wrap_block_col
     out = set()
     for r in rows:
@@ -218,9 +243,19 @@ def read_windows(rows) -> set:
             reach = float(r.get("reach", _DEFAULT_REACH))
         for bx in range(math.floor((cx - reach) / BLOCK), math.floor((cx + reach) / BLOCK) + 1):
             for by in range(math.floor(-(cz + reach) / BLOCK), math.floor(-(cz - reach) / BLOCK) + 1):
-                if 0 <= by < GRID_ROWS:
+                if 0 <= by < GRID_ROWS or not clip:
                     out.add((wrap_block_col(bx), by))
     return out
+
+
+def reads(prefab: dict, cell) -> set:
+    """The relief rows' read windows for the prefab on anchor ``cell`` -- for a TURNED view (:func:`turned`), the walked
+    land's windows turned with it (its clear window is the turn of the walked one's), clipped to the map's rows."""
+    from .mesh import GRID_ROWS
+    win = read_windows(expand(prefab, cell), clip=not turn_of(prefab))
+    if turn_of(prefab):
+        win = {label_of(turn_rel(prefab, rel_block(b, cell), turn_of(prefab)), cell) for b in win}
+    return {b for b in win if 0 <= b[1] < GRID_ROWS}
 
 
 def _ring(labels) -> set:
@@ -246,21 +281,140 @@ def _dist_to_blocks(x: float, z: float, labels) -> float:
     return best
 
 
+# ---------------------------------------------------------------- the quarter turn
+def turns_of(prefab: dict) -> tuple:
+    """The quarter turns the catalog allows the prefab (default turn 0 only: a prefab turns once its entry says so,
+    measured at its catalog site)."""
+    return tuple(int(t) for t in prefab.get("turns", (0,)))
+
+
+def _steps(turn) -> int:
+    t = int(turn)
+    if t not in TURNS:
+        raise PrefabRefused(f"turn must be one of {TURNS} (quarter turns keep the 4u lattice and every tile lawful; "
+                            f"other angles do not), not {turn!r}", gate="turn")
+    return t // 90
+
+
+def _rot_block(d, n: int) -> tuple:
+    """Block offset ``d`` turned ``n`` quarter turns about the frame origin (the block-index form of
+    ``(x, z) -> (-z, x)``; z grows as the row index falls)."""
+    dx, dy = int(d[0]), int(d[1])
+    for _ in range(n % 4):
+        dx, dy = dy, -dx
+    return dx, dy
+
+
+def _source_foot(prefab: dict) -> list:
+    return [tuple(int(v) for v in b) for b in (prefab.get("source_footprint") or prefab.get("footprint") or [(0, 0)])]
+
+
+def _turn_shift(prefab: dict, n: int) -> tuple:
+    """The whole-block shift that puts the turned footprint's bounding rect where the walked one's starts."""
+    foot = _source_foot(prefab)
+    rot = [_rot_block(b, n) for b in foot]
+    return (min(b[0] for b in foot) - min(b[0] for b in rot), min(b[1] for b in foot) - min(b[1] for b in rot))
+
+
+def turn_rel(prefab: dict, rel, turn) -> tuple:
+    """Where the block at offset ``rel`` (from the anchor, in the walked land) lands in the land turned ``turn``:
+    turned about the anchor, then shifted so the footprint's bounding rect starts at the same offset."""
+    n = _steps(turn)
+    if n == 0:
+        return int(rel[0]), int(rel[1])
+    r = _rot_block(rel, n)
+    s = _turn_shift(prefab, n)
+    return r[0] + s[0], r[1] + s[1]
+
+
+def turned(prefab: dict, turn) -> dict:
+    """The prefab as it lands turned ``turn``: the same rows (they compose the walked land at its catalog site), the
+    turned ``footprint``, and ``turn`` / ``source_footprint`` for every frame read. Turn 0 is the entry itself."""
+    n = _steps(turn)
+    if n == 0:
+        return prefab
+    out = dict(prefab)
+    out["source_footprint"] = [list(b) for b in _source_foot(prefab)]
+    out["footprint"] = sorted([list(turn_rel(prefab, b, turn)) for b in _source_foot(prefab)])
+    out["turn"] = int(turn)
+    return out
+
+
+def turn_of(prefab: dict) -> int:
+    return int(prefab.get("turn", 0))
+
+
+def view_for(name: str, turn=0, catalog=None) -> dict:
+    """The catalog entry ``name`` as it lands turned ``turn`` (:func:`turned`): what a ``[[prefab]]`` row's footprint,
+    centre and clear window are read from."""
+    return turned(get(name, catalog), int(turn or 0))
+
+
+def _local_turn(x: float, z: float, n: int) -> tuple:
+    """A block-LOCAL point (x 0..64, z -64..0) turned ``n`` quarter turns about the block centre -- exactly
+    ``transplant._rot_xz``, one step ``(x, z) -> (-z, x - 64)``, in ITS arithmetic (about the centre, so a 0 comes out
+    0.0 and never -0.0: the bytes are transplant's bit for bit, and the identity's digest -- which turns by
+    ``_rot_xz`` itself -- hashes the exact floats the writer wrote; measured: the bare ``-z`` form wrote -0.0 there)."""
+    dx, dz = x - 32.0, z + 32.0
+    for _ in range(n % 4):
+        dx, dz = -dz, dx
+    return 32.0 + dx, -32.0 + dz
+
+
+def _dir_turn(nx: float, nz: float, n: int) -> tuple:
+    for _ in range(n % 4):
+        nx, nz = -nz, nx
+    return nx, nz
+
+
+def _turns_normals(part: str) -> bool:
+    """Whether ``part``'s normals turn: the sea's are one uniform constant every tile shares (transplant's law)."""
+    return not part.lower().startswith("sea")
+
+
+def turn_point(x: float, z: float, prefab: dict, cell, turn) -> tuple:
+    """World ``(x, z)`` in the walked land anchored on ``cell`` -> where it lands turned ``turn`` (the same rigid map
+    the files take; unwrapped, for the ghost and the words)."""
+    n = _steps(turn)
+    if n == 0:
+        return float(x), float(z)
+    ox, oz = origin(cell)
+    d0 = _source_foot(prefab)[0]
+    d1 = turn_rel(prefab, d0, turn)
+
+    def mid(d):                                          # a block's centre, frame-relative
+        return BLOCK * d[0] + 32.0, 32.0 - BLOCK * d[1]
+    c0, c1 = mid(d0), mid(d1)
+    rx, rz = x - ox - c0[0], z - oz - c0[1]
+    for _ in range(n):
+        rx, rz = -rz, rx
+    return ox + c1[0] + rx, oz + c1[1] + rz
+
+
 # ---------------------------------------------------------------- the fingerprint
 def _f32(v) -> float:
     import struct
     return struct.unpack("<f", struct.pack("<f", float(v)))[0]
 
 
-def mesh_digest(path, *, mask_tri=None, label=None, cell=None) -> str:
+def mesh_digest(path, *, mask_tri=None, label=None, cell=None, steps: int = 0, part: str = "") -> str:
     """The triangles of one ``.ff9mesh``, order-free and winding-kept (see the module docstring). ``mask_tri`` (with
     the file's block ``label`` and the anchor ``cell``) is a predicate on a triangle's centroid relative to the frame
     origin (:func:`rel_point`): where it holds, the navigation class of the triangle's WATER vertices is blanked
-    (tangent.x bits 2-7 when they hold a water topograph) -- the nav-margin triangles a site's stamp decides."""
+    (tangent.x bits 2-7 when they hold a water topograph) -- the nav-margin triangles a site's stamp decides.
+    ``steps`` digests the triangles as they are TURNED that many quarter turns (THE QUARTER TURN: positions about the
+    block centre, the normals unless ``part`` is a sea) -- then ``label`` is the block the turned file lands on. The
+    turn here is TRANSPLANT'S OWN (``transplant._rot_xz`` / ``_rot_dir``), not the writer's helpers, so the identity
+    is not the writer checking itself (review P5)."""
     from .extract import block_world_origin
     from .mesh import read_ff9mesh
     m = read_ff9mesh(path)
     V, U, T, N, I = m["verts"], m["uvs"], m["tangents"], m["normals"], m["indices"]
+    if steps % 4:
+        from .transplant import LAND_PARTS, _rot_dir, _rot_xz
+        V = [(lambda x, z, y: (x, y, z))(*_rot_xz(v[0], v[2], steps % 4), v[1]) for v in V]
+        if N and (part.lower() in LAND_PARTS or not part.lower().startswith("sea")):
+            N = [(lambda nx, nz, ny: (nx, ny, nz))(*_rot_dir(n[0], n[2], steps % 4), n[1]) for n in N]
     ox, oz = block_world_origin(*label) if mask_tri is not None else (0.0, 0.0)
 
     def corner(i, masked):
@@ -306,19 +460,36 @@ def written_blocks(mod_root, disc: int = 1) -> set:
     return out
 
 
-def fingerprint(mod_root, cell, blocks, *, disc: int = 1, mask_tri=None) -> str:
+def fingerprint(mod_root, cell, blocks, *, disc: int = 1, mask_tri=None, turn: int = 0, prefab=None,
+                to_cell=None) -> str:
     """One hash over every override file of disc ``disc`` at ``blocks`` (wrapped labels), keyed by the block's offset
     from ``cell`` and the part: meshes by :func:`mesh_digest`, sidecars (``Donor.txt``) by their bytes. ``mask_tri``
-    blanks the class of the nav-margin triangles of the SEA parts only (see :func:`mesh_digest`)."""
+    blanks the class of the nav-margin triangles of the SEA parts only (see :func:`mesh_digest`).
+
+    ``turn`` (with the ``prefab`` and the anchor ``to_cell`` it lands on) hashes the land as it would be TURNED and
+    placed there: each block keyed by its turned offset, its triangles turned (THE QUARTER TURN), ``mask_tri`` judged
+    on the turned centroids -- so it equals the plain fingerprint of a correctly turned placement on ``to_cell``."""
+    n = _steps(turn)
+    if n and prefab is None:
+        raise ValueError("a turned fingerprint needs the prefab (its footprint fixes the turn's shift)")
     rows = []
     for label in sorted(blocks):
         rel = rel_block(label, cell)
+        out_cell = cell
+        if n:
+            # the block's turned place by the RIGID point map (its centre through turn_point), not the writer's
+            # block map (turn_rel): a block map that is not one rigid motion with the content's turn refuses
+            out_cell = (int(to_cell[0]) % 24, int(to_cell[1])) if to_cell is not None else cell
+            cx, cz = BLOCK * (out_cell[0] + rel[0]) + 32.0, -BLOCK * (out_cell[1] + rel[1]) - 32.0
+            tx, tz = turn_point(cx, cz, prefab, out_cell, turn)
+            rel = rel_block((math.floor(tx / BLOCK) % 24, math.floor(-tz / BLOCK)), out_cell)
+        out_label = label_of(rel, out_cell) if n else label
         for p in _block_files(mod_root, label, disc):
             name = _FILE.match(p.name)[3]
             part = name + "." + _FILE.match(p.name)[4]
             if p.suffix == ".ff9mesh":
                 mask = mask_tri if name in _NAV_PARTS else None
-                dig = mesh_digest(p, mask_tri=mask, label=label, cell=cell)
+                dig = mesh_digest(p, mask_tri=mask, label=out_label, cell=out_cell, steps=n, part=name)
             else:
                 dig = hashlib.sha256(p.read_bytes()).hexdigest()
             rows.append(f"{rel[0]},{rel[1]}|{part}|{dig}")
@@ -381,10 +552,9 @@ def window_blockers(prefab: dict, cell, mod_root, *, stack=None) -> dict:
     empty sets when the window is clear. The target: the footprint, its ring and every relief row's read window.
     ``stack`` = the install's FolderNames roots: the footprint and its ring (the nav stamp's loader cannot see another
     folder's land). Both disc trees count: a placement writes disc 4 too (the auto-mirror)."""
-    rows = expand(prefab, cell)
     foot = {label_of(r, cell) for r in prefab.get("footprint") or ()}
     near = foot | _ring(foot)
-    want = near | read_windows(rows)
+    want = near | reads(prefab, cell)
     have = written_blocks(mod_root, 1) | written_blocks(mod_root, 4)
     out = {"target": want & have, "stack": {}}
     for root in stack or ():
@@ -448,6 +618,166 @@ def stage(prefab: dict, cell, *, game=None, keep: bool = False) -> dict:
     finally:
         if not keep:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+def source_cell(prefab: dict) -> tuple:
+    """Where a TURNED placement composes the walked land before turning it: the catalog's fingerprint site."""
+    fc = prefab.get("fingerprint_cell")
+    if fc is None:
+        raise PrefabRefused(f"prefab {prefab['name']!r} names no fingerprint_cell: a turned placement composes the "
+                            f"walked land at that catalog site first", gate="catalog")
+    return int(fc[0]) % 24, int(fc[1])
+
+
+def _donor_parts(donor, *, game=None) -> set:
+    """Every sub-mesh a stock block's prefab carries, on EITHER disc (lower-case bundle names; empty = open ocean):
+    the bundle's own list (``extract.block_parts``), never a list of names kept here -- review P5: a hand list missed
+    Beach2, Stream, VolcanoCrater/VolcanoLava and disc 4's Sea4f. Both discs, because the mirror copies the Donor.txt
+    to disc 4, where the engine resolves it against disc 4's own prefab."""
+    from .extract import block_parts
+    d = (int(donor[0]), int(donor[1]))
+    return set(block_parts(disc=1, game=game).get(d, ())) | set(block_parts(disc=4, game=game).get(d, ()))
+
+
+def turn_blockers(root, *, game=None) -> dict:
+    """``{block: [part, ...]}``: the blocks of a staged folder whose ``Donor.txt`` prefab carries a part (on disc 1 or
+    disc 4) the folder does not override. Turned, that part would ride the donor prefab UNTURNED beside the turned land
+    (a stock Object, a stream, a sea layer), so a turn refuses there; at turn 0 the verbs chose that donor for exactly
+    what it draws."""
+    out = {}
+    for label in sorted(written_blocks(root)):
+        files = _block_files(root, label)
+        have = {_FILE.match(p.name)[3].lower() for p in files if p.suffix == ".ff9mesh"}
+        for p in files:
+            if _FILE.match(p.name)[3] == "Donor":
+                donor = tuple(int(v) for v in p.read_text(encoding="utf-8").strip().split(","))
+                left = sorted(_donor_parts(donor, game=game) - have)
+                if left:
+                    out[label] = left
+    return out
+
+
+def _turned_mesh(path, part: str, n: int, label):
+    """One staged ``.ff9mesh`` turned ``n`` quarter turns (THE QUARTER TURN), as a BlockMesh on block ``label``."""
+    import dataclasses
+    from .extract import CH_NRM, CH_POS
+    from .mesh import blockmesh_from_ff9mesh
+    bm = blockmesh_from_ff9mesh(path, disc=1, x=label[0], y=label[1], part=part)
+    chan = dict(bm.chan_arrays)
+    out = []
+    for v in chan.get(CH_POS) or ():
+        x, z = _local_turn(v[0], v[2], n)
+        out.append([x, v[1], z])
+    chan[CH_POS] = out
+    if chan.get(CH_NRM) and _turns_normals(part):
+        nr = []
+        for v in chan[CH_NRM]:
+            nx, nz = _dir_turn(v[0], v[2], n)
+            nr.append([nx, v[1], nz])
+        chan[CH_NRM] = nr
+    return dataclasses.replace(bm, name=f"Block[{label[0]}][{label[1]}] {part}", chan_arrays=chan)
+
+
+def write_turned(src_root, src_cell, prefab: dict, turn, mod_folder, cell, *, game=None, skip_mirror=False) -> list:
+    """Write the walked land staged in ``src_root`` (anchored on ``src_cell``) into ``mod_folder``, TURNED ``turn`` and
+    anchored on ``cell``: every file through the kit's ledgered writers, then the coast-nav stamp over the turned sea
+    (it decides the classes beside stock land, as for the mint) and the disc-4 mirror. Returns the written paths."""
+    from . import discmirror as DM
+    from . import mesh as M
+    n = _steps(turn)
+    written = []
+    labels = []
+    for label in sorted(written_blocks(src_root)):
+        tl = label_of(turn_rel(prefab, rel_block(label, src_cell), turn), cell)
+        labels.append(tl)
+        for p in _block_files(src_root, label):
+            m = _FILE.match(p.name)
+            part, ext = m[3], m[4]
+            if ext == "txt":
+                if part != "Donor":
+                    raise PrefabRefused(f"a staged {p.name} is a sidecar the turn does not know how to carry", [label],
+                                        gate="turn")
+                dx, dy = (int(v) for v in p.read_text(encoding="utf-8").strip().split(","))
+                written.append(M.deploy_donor_sidecar(dx, dy, mod_folder=str(mod_folder), disc=1, x=tl[0], y=tl[1],
+                                                      game=game))
+            else:
+                written.append(M.deploy_override(_turned_mesh(p, part, n, tl), mod_folder=str(mod_folder), game=game,
+                                                 disc=1, part=part))
+    if stamped_nav(prefab):
+        from . import coastnav as CN
+        CN.stamp(str(mod_folder), disc=1, cells=sorted(labels), policy=nav_policy(prefab), deploy=True, game=game,
+                 backup=False, skip_mirror=DM.DEFERRED)
+    DM.auto_mirror(written, mod_folder=str(mod_folder), skip_mirror=skip_mirror)
+    return written
+
+
+def stage_turned(prefab: dict, turn, cell, *, game=None) -> dict:
+    """A TURNED placement staged: the walked land composed at its catalog site (``source``, kept) and written turned
+    onto ``cell`` in a second staging folder. Returns :func:`stage`'s shape plus ``source`` (its own stage dict).
+    Both folders are kept; the caller removes them (:func:`_drop`)."""
+    src = stage(prefab, source_cell(prefab), game=game, keep=True)
+    tmp = Path(tempfile.mkdtemp(prefix="ff9-prefab-turn-"))
+    out = {"root": tmp, "source": src}
+    try:
+        if src["fingerprint"] != prefab["fingerprint"]:
+            raise PrefabRefused(f"prefab {prefab['name']!r} composed at its catalog site {source_cell(prefab)} is NOT "
+                                f"the land its catalog entry names (fingerprint {src['fingerprint'][:12]} vs "
+                                f"{prefab['fingerprint'][:12]}): a verb it rides changed its bytes -- a regression to "
+                                f"find; nothing turned, nothing written", gate="identity")
+        left = turn_blockers(src["root"], game=game)
+        if left:
+            raise PrefabRefused(f"prefab {prefab['name']!r} cannot turn: on {sorted(left)} its donor prefab draws "
+                                f"{sorted({p for ps in left.values() for p in ps})}, which the prefab does not override, "
+                                f"so the engine would draw it UNTURNED beside the turned land", gate="turn")
+        write_turned(src["root"], source_cell(prefab), prefab, turn, tmp, cell, game=game, skip_mirror=True)
+        labels = written_blocks(tmp)
+        out.update({"fingerprint": fingerprint(tmp, cell, labels), "blocks": sorted(labels),
+                    "footprint": sorted(rel_block(b, cell) for b in labels),
+                    "nav": nav_settled(tmp, labels, policy=nav_policy(prefab), game=game) if stamped_nav(prefab)
+                    else {}})
+        return out
+    except BaseException:
+        _drop(out)
+        raise
+
+
+def _drop(staged) -> None:
+    """Remove a stage's folders (a turned stage's source too)."""
+    if not staged:
+        return
+    for st in (staged, staged.get("source") or {}):
+        if st.get("root"):
+            shutil.rmtree(st["root"], ignore_errors=True)
+
+
+def _identity_turned(view: dict, name: str, cell, staged: dict, *, game, log) -> str:
+    """Judge a TURNED staging: the walked land (already held to the catalog at its own site) turned is the want --
+    the full fingerprint at a clean site, the nav-margin tier beside stock land (the module docstring)."""
+    turn = turn_of(view)
+    if staged["footprint"] != sorted(tuple(b) for b in view["footprint"]):
+        raise PrefabRefused(f"prefab {name!r} turned {turn} on {cell} covers {staged['footprint']}, the turn of the "
+                            f"catalog's footprint is {sorted(tuple(b) for b in view['footprint'])}: IDENTITY BROKEN, "
+                            f"nothing written", gate="identity")
+    src = staged["source"]
+    scell = source_cell(view)
+    ground = stock_ground(view, cell, game=game) if stamped_nav(view) else {}
+    points = [pt for pts in ground.values() for pt in pts]
+    mask = margin_mask(points, cell) if ground else None
+    want = fingerprint(src["root"], scell, src["blocks"], turn=turn, prefab=view, to_cell=cell, mask_tri=mask)
+    got = fingerprint(staged["root"], cell, staged["blocks"], mask_tri=mask)
+    if got != want:
+        where = (f"OUTSIDE the nav margin of the stock land at {sorted(ground)}" if ground else "")
+        raise PrefabRefused(f"prefab {name!r} turned {turn} on {cell} is NOT the catalog's land turned {where}: the "
+                            f"turn moved something it must not -- a regression to find; nothing written",
+                            gate="identity")
+    if staged["nav"]:
+        raise PrefabRefused(f"prefab {name!r} turned {turn} on {cell} leaves sea the coast-nav stamp would still "
+                            f"re-class ({staged['nav']}); nothing written", ground, gate="nav")
+    if not ground:
+        return f"clean site: the catalog's land turned {turn}, the full fingerprint"
+    log(f"site beside stock land {sorted(ground)}: the catalog's land turned {turn}, its sea within {NAV_MARGIN:g}u of "
+        f"that land re-classed by the coast-nav stamp")
+    return f"nav margin: the catalog's land turned {turn}, the margin's classes settled by the stamp"
 
 
 def _identity(prefab: dict, name: str, cell, staged: dict, *, game, log) -> str:
@@ -539,7 +869,7 @@ def _undo_words(draft_of) -> str:
 
 
 def place(name: str, cell, mod_folder, *, game=None, dry_run: bool = False, skip_mirror: bool = False,
-          catalog=None, stack=None, allow_overwrite: bool = False, log=print) -> dict:
+          catalog=None, stack=None, allow_overwrite: bool = False, turn: int = 0, log=print) -> dict:
     """Place prefab ``name`` with its anchor on block ``cell``: the row check, the clear window, the staging
     identity, then (unless ``dry_run``) the compose into ``mod_folder`` and the identity of what it wrote on both
     discs. Raises :class:`PrefabRefused` before writing anything on any of the first three. ``stack`` = the FolderNames
@@ -550,15 +880,24 @@ def place(name: str, cell, mod_folder, *, game=None, dry_run: bool = False, skip
     A DRAFT target (the World tab's card) is held to two more laws, because it is promoted later: a live edit to its
     source since it was copied must not lie in or beside the footprint (the stack read skips the source the draft
     stands in for), and Promote's disc-4 copy must be predictable now -- every footprint block open ocean on disc 4 too
-    and the same stock ground near it on both discs, so the mirror copies the checked bytes verbatim."""
+    and the same stock ground near it on both discs, so the mirror copies the checked bytes verbatim.
+
+    ``turn`` (90 / 180 / 270) places the walked land TURNED (THE QUARTER TURN, module docstring): every law above runs
+    on the turned footprint and clear window, and identity is the catalog's land with that turn applied."""
     from .. import config
     from .render import game_stack
-    prefab = get(name, catalog)
-    cell = (int(cell[0]) % 24, int(cell[1]))
-    if not prefab.get("fingerprint") or not prefab.get("footprint"):
+    entry = get(name, catalog)
+    turn = int(turn)
+    _steps(turn)
+    if turn not in turns_of(entry):
+        raise PrefabRefused(f"prefab {name!r} does not turn {turn}: its catalog entry allows {list(turns_of(entry))}"
+                            + (f" ({entry['turns_note']})" if entry.get("turns_note") else ""), gate="turn")
+    if not entry.get("fingerprint") or not entry.get("footprint"):
         raise PrefabRefused(f"prefab {name!r} has no fingerprint/footprint yet: take them with "
                             f"`world-prefab {name} --fingerprint --cell BX,BY` and write them into the catalog",
                             gate="catalog")
+    prefab = turned(entry, turn)
+    cell = (int(cell[0]) % 24, int(cell[1]))
     check_rows_on_map(prefab, cell)
     game_path = config.find_game_path(game)
     mod_root = game_path / mod_folder
@@ -578,20 +917,49 @@ def place(name: str, cell, mod_folder, *, game=None, dry_run: bool = False, skip
     for folder, hit in blockers["stack"].items():
         raise PrefabRefused(f"{folder} (in the FolderNames stack) holds overrides in or beside the prefab's footprint "
                             f"at {sorted(hit)}", hit, gate="window")
+    if turn:
+        # THE OPEN-OCEAN TARGET LAW. At turn 0 the composing verbs refuse stock land under the footprint themselves; a
+        # turn composes at the catalog site and writes the turned files here, so the law is checked here
+        from .island import _real_block_parts
+        real = sorted(b for b in footprint_labels(prefab, cell) if _real_block_parts(b, disc=1, game=game))
+        if real:
+            raise PrefabRefused(f"prefab {name!r} turned {turn} on {cell} would cover stock land or coast at {real}: a "
+                                f"prefab goes onto open ocean", real, gate="window")
     if prefab["status"] != "qualified":
         log(f"CANDIDATE: {name!r} has not been walked in game yet -- walk its rim and every carry, then mark it "
             f"qualified in the catalog.")
-    staged = stage(prefab, cell, game=game, keep=True)
+    elif turn and turn not in (entry.get("walked_turns") or ()):
+        log(f"TURNED {turn}: the walked land, turned by transplant's in-game-proven quarter-turn law; this turn has "
+            f"not itself been walked -- walk its rim once, then add {turn} to walked_turns in the catalog.")
+    staged = stage(prefab, cell, game=game, keep=True) if not turn else stage_turned(entry, turn, cell, game=game)
     try:
-        tier = _identity(prefab, name, cell, staged, game=game, log=log)
-        report = {"name": name, "cell": list(cell), "status": prefab["status"], "staged": staged["fingerprint"],
+        tier = (_identity(prefab, name, cell, staged, game=game, log=log) if not turn else
+                _identity_turned(prefab, name, cell, staged, game=game, log=log))
+        report = {"name": name, "cell": list(cell), "turn": turn, "status": prefab["status"],
+                  "staged": staged["fingerprint"],
                   "footprint": staged["footprint"], "identity": tier, "dry_run": dry_run, "written_fingerprint": None,
                   "blocks": [list(b) for b in staged["blocks"]], "center": list(footprint_center(prefab, cell))}
-        log(f"staged on {cell}: {tier} ({len(staged['blocks'])} blocks)")
+        log(f"staged on {cell}" + (f", turned {turn}" if turn else "") + f": {tier} ({len(staged['blocks'])} blocks)")
         if dry_run:
             return report
-        _compose(mod_root, expand(prefab, cell), game=game, skip_mirror=skip_mirror,
-                 allow_overwrite=allow_overwrite or draft_of is not None)
+        if turn:
+            # the turned files through the kit's ledgered writers (never a copy of staged files: each row names this
+            # write), from the source the identity above was judged on, under the compose's manifest law (its drift
+            # gate, then one manifest entry -- review P5: a turn is not a fuse row, and the turn-0 path gets both)
+            from . import fuse as FU
+            try:
+                FU.manifest_step(str(mod_root), f"prefab {name} turn {turn}",
+                                 {"name": name, "cell": list(cell), "turn": turn},
+                                 lambda: write_turned(staged["source"]["root"], source_cell(entry), entry, turn,
+                                                      str(mod_root), cell, game=game, skip_mirror=skip_mirror),
+                                 game=game, allow_overwrite=allow_overwrite or draft_of is not None)
+            except ValueError as e:
+                if not str(e).startswith("manifest-drift"):
+                    raise
+                raise PrefabRefused(f"a prefab row refused: {e}", gate="compose") from e
+        else:
+            _compose(mod_root, expand(prefab, cell), game=game, skip_mirror=skip_mirror,
+                     allow_overwrite=allow_overwrite or draft_of is not None)
         # (``written`` is the cards' list of written files: the land's identity goes under its own key -- review P3)
         report["written_fingerprint"] = fingerprint(mod_root, cell, staged["blocks"])
         if report["written_fingerprint"] != staged["fingerprint"]:
@@ -621,10 +989,10 @@ def place(name: str, cell, mod_folder, *, game=None, dry_run: bool = False, skip
                                     f"cell back or replayed it on disc 4's own ground. Disc 4 (scenario 11090+) would "
                                     f"show a different or missing island -- undo through the draft or the ledger, "
                                     f"never by hand copy", gate="disc4")
-        log(f"placed {name!r} on block {cell}: {len(staged['blocks'])} blocks, the staged land"
+        log(f"placed {name!r} on block {cell}" + (f", turned {turn}" if turn else "")
+            + f": {len(staged['blocks'])} blocks, the staged land"
             + (" (a draft: Promote makes its disc-4 copy)" if draft_of is not None
                else "" if skip_mirror else " on disc 1 and disc 4"))
         return report
     finally:
-        if staged.get("root"):
-            shutil.rmtree(staged["root"], ignore_errors=True)
+        _drop(staged)

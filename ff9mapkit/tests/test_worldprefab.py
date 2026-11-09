@@ -332,3 +332,65 @@ def test_the_card_works_on_a_folder_with_no_deployed_land(app, tmp_path, catalog
     tool._timer.stop()
     tool._check()
     assert run.argvs and "Passes" in tool.verdict_lbl.text()
+
+
+# ---------------------------------------------------------------- the turn (rung P5)
+TURN_CATALOG = (CATALOG.replace("fingerprint_cell = [1, 14]\n", "fingerprint_cell = [1, 14]\nturns = [0, 90, 180, 270]\n", 1)
+                .replace('fingerprint = "' + "e" * 64 + '"\n', 'fingerprint = "' + "e" * 64 + '"\nfingerprint_cell = [3, 3]\n'
+                         'turns = [0, 90]\n', 1))
+
+
+def test_the_turn_picker_offers_only_the_catalog_s_turns_and_hides_for_turn_0_alone(app, tmp_path, catalog):
+    tool, *_ = _card(app, tmp_path, catalog, lambda k, a: None)
+    assert tool.turn_box.isHidden() and tool.turn() == 0                # the shipped shape: no turns, no picker
+    p = tmp_path / "turns.toml"
+    p.write_text(TURN_CATALOG, encoding="utf-8")
+    tool, *_ = _card(app, tmp_path / "b", p, lambda k, a: None)
+    assert not tool.turn_box.isHidden()
+    assert [tool.turn_box.itemData(i) for i in range(tool.turn_box.count())] == [0, 90, 180, 270]
+    tool.turn_box.setCurrentIndex(tool.turn_box.findData(180))
+    tool.prefab_box.setCurrentIndex(tool.prefab_box.findData("unit"))
+    assert [tool.turn_box.itemData(i) for i in range(tool.turn_box.count())] == [0, 90] and tool.turn() == 0
+
+
+def test_a_turned_prefab_ghosts_turned_refits_its_anchor_checks_with_turn_and_lands_as_a_turned_row(app, tmp_path):
+    p = tmp_path / "turns.toml"
+    p.write_text(TURN_CATALOG, encoding="utf-8")
+
+    def answer(kind, argv):
+        cell = [int(v) for v in argv[argv.index("--cell") + 1].split(",")]
+        return {"ok": True, "dry_run": kind == "check", "refused": None, "turn": 90,
+                "identity": "clean site: the catalog's land turned 90, the full fingerprint",
+                "blocks": [[cell[0] + dx, cell[1] + dy] for dx, dy in FOOT], "center": [672.0, -608.0],
+                "written_fingerprint": "f" * 64, "written_disc4": "deferred: Promote makes it"}
+    tool, run, panel, land = _card(app, tmp_path, p, answer)
+    tool.open_tool()
+    tool.place(64 * 10 + 40.0, -64 * 9 - 20.0)
+    tool.turn_box.setCurrentIndex(tool.turn_box.findData(90))
+    assert tool.cell() == (10, 9)                                       # a square turns onto its own blocks
+    got = panel._overlays[0][0].reshape(-1, 3)
+    assert np.allclose(got, PE.at(PE.turn(land, tool.prefab()), (10, 9)).reshape(-1, 3))
+    assert not np.allclose(got, PE.at(land, (10, 9)).reshape(-1, 3))   # and it IS turned
+    tool._timer.stop()
+    tool._check()
+    (argv,) = run.argvs
+    assert argv[argv.index("--turn") + 1] == "90"
+    assert "turned 90" in tool.verdict_lbl.text()
+    tool.accept_btn.click()
+    assert D.recipe_rows(tool.draft()) == [{"table": "prefab", "name": "isle", "cell": [10, 9], "turn": 90}]
+    tool.load_row({"table": "prefab", "name": "unit", "cell": [4, 10], "turn": 90})
+    assert tool.turn() == 90 and tool.cell() == (4, 10)
+    assert tool.blocks() == PF.footprint_labels(PF.turned(PE.get("unit", p), 90), (4, 10))
+    with pytest.raises(ValueError, match="turn 180"):
+        tool.load_row({"table": "prefab", "name": "unit", "cell": [4, 10], "turn": 180})
+
+
+def test_the_turned_ghost_is_the_files_rigid_map():
+    unit = {"name": "u", "footprint": UNIT, "rows": [{"table": "transplant", "cell": [0, 0], "donor": [9, 5]}]}
+    land = np.array([[[10.0, 3.0, -10.0], [70.0, 4.0, -10.0], [10.0, 5.0, -100.0]]])
+    for t in (90, 180, 270):
+        v = PF.turned(unit, t)
+        g = PE.turn(land, v)
+        for a, b in zip(land.reshape(-1, 3), g.reshape(-1, 3)):
+            assert (b[0], b[2]) == pytest.approx(PF.turn_point(a[0], a[2], v, (0, 0), t)) and b[1] == a[1]
+    assert np.allclose(PE.turn(land, unit), land)
