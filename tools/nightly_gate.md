@@ -344,16 +344,25 @@ Everything is idempotent; re-running any step is safe.
   executed and the fixed floor rotted to 77% of collection — do not reintroduce a manual number.
   A **deliberate** suite shrink beyond 2% will abort `collect-short`; run once with
   `--no-dynamic-floor` and say why in the merge message.
-- **Skip ceiling** (`--skip-ceiling`, default 32 — audit rec 18): the floor is structurally BLIND
+- **Skip ceiling** (`--skip-ceiling`, default 48 — audit rec 18): the floor is structurally BLIND
   to a module-level `skipif`, which still *collects* the family it silences — 56 coastmorph tests
   skipping en masse would read as a green ledger. A green run whose `skipped` exceeds the ceiling
-  gets the verdict `skip-long` (rc 1), which trips the standing RED-LEDGER-TRIAGE rule. Seeded at
-  ~2× the last green run's `skipped` (16 on 2026-08-04) so fixture-gated churn has headroom while
-  a silenced family (tens of skips) cannot hide. If `skipped` legitimately grows past ~half the
-  ceiling, re-seed the same way — do **not** raise it to make a `skip-long` pass without reading
-  WHICH tests skipped in the pytest log first. Proven live 2026-08-05: a narrowed run
-  (`--pytest-args`, verification only) with `--skip-ceiling 0` flipped the ledger to `skip-long`
-  (state restored after).
+  gets the verdict `skip-long` (rc 1), which trips the standing RED-LEDGER-TRIAGE rule.
+  **The ceiling is the baseline `skipped` plus 16 of headroom**, so fixture-gated churn has room
+  while any silenced family of 17 or more trips it. It was first seeded at 32 (~2× the 16 skips of
+  2026-08-04) and re-seeded to 48 on 2026-11-09, when the baseline had reached 32: 31 skips outside
+  the coop matrix below, plus 1 from the retired V-shore GPU bench, which skips by name since
+  7f495bd5. Re-seed as baseline + 16, not 2×: doubling a 32 baseline would let a 32-test family hide.
+  **A matrix skip is removed, not absorbed by raising the ceiling.** A parametrize combination
+  that does not apply should not be generated at all. From 2026-11-02, 45 such skips
+  in `test_coop_world_follow.py` (a fault family on a walk or duo leg that does not carry it) pushed
+  every full run to 75-76 skipped, so a zero-failure night still read `skip-long`; that file now
+  parametrizes over `T2_FAULT_REDS` / `DUO_FAULT_REDS` themselves. `test_opcodes_settextvar_expr.py`'s
+  6 `Null.SByte` skips are the same shape, if the margin is needed again. If `skipped` legitimately
+  climbs within ~8 of the ceiling, re-seed as baseline + 16. Do **not** raise it to make a
+  `skip-long` pass without reading WHICH tests skipped in the pytest log first. Proven live
+  2026-08-05: a narrowed run (`--pytest-args`, verification only) with `--skip-ceiling 0` flipped
+  the ledger to `skip-long` (state restored after).
 - **Lint ratchet** (`--no-lint-ratchet` to bypass for one run): `ruff check --select F` (pyflakes
   only — undefined names, unused imports/variables; style rules stay off, see `[tool.ruff]` in
   `ff9mapkit/pyproject.toml`) over the package, recorded as `ruff_f` in every run. A green full run
