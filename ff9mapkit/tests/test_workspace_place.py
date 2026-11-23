@@ -199,10 +199,12 @@ def test_a_load_in_flight_when_the_file_changed_is_thrown_away(app, tmp_path):
     key = (d._source, 0)
     d._loading = key                                   # a load of this project is in flight
     d.forget_surface(path)
-    d._on_loaded(dict(_bundle(), source=d._source))    # ...and lands with the OLD files
+    d._on_loaded(key, dict(_bundle(), source=d._source))   # ...and lands with the OLD files
     assert key not in d._bundles and not d.canvas._surface_tris
     assert "changed on disk" in d.status.text() and d.load_btn.isEnabled()
-    d._on_loaded(dict(_bundle(), source=d._source))    # the load the author then asks for is good
+    d._loader.start = lambda *a: None
+    d.load_btn.click()                                 # the load the author then asks for is good
+    d._on_loaded(key, dict(_bundle(), source=d._source))
     assert key in d._bundles and d.canvas._surface_tris
 
 
@@ -224,9 +226,10 @@ def test_a_stale_load_stays_in_flight_so_a_second_load_cannot_race_it(app, tmp_p
     d._loader.start = lambda *a: started.append(a)
     d.on_load()
     assert started == []
-    d._on_load_failed("the stale one died")
+    d._on_load_failed(key, "the stale one died")
     assert d._stale_load is None
-    d._on_loaded(dict(_bundle(), source=d._source))    # the next good load is kept, not thrown away
+    d.on_load()
+    d._on_loaded(key, dict(_bundle(), source=d._source))   # the next good load is kept, not thrown away
     assert key in d._bundles
 
 
@@ -570,3 +573,269 @@ def test_a_scrolling_room_places_too(tmp_path):
     toml = next((tmp_path / "A").glob("*.field.toml"))
     b = PD.build_surface_from_project(toml)
     assert list(b["cam"].range) == [960, 448], f"Place resolved {list(b['cam'].range)}, not the scroll range"
+
+
+# ------------------------------------------------------------------ batch 2: the surface's freshness
+def _compose_room(tmp_path, name="A"):
+    """One real composed room on disk -> (its field.toml path, its parsed dict)."""
+    import tomllib
+    from ff9mapkit import floorplan as FP
+    plan = {"name": "D", "mod_folder": "FF9CustomMap", "id_base": 30700, "entry": name,
+            "rooms": [{"name": name, "poly": [[0, 0], [2400, 0], [2400, 1800], [0, 1800]]}],
+            "doors": []}
+    FP.compose_and_emit(plan, tmp_path, log=None)
+    toml = next((tmp_path / name).glob("*.field.toml"))
+    return toml, tomllib.loads(toml.read_text(encoding="utf-8"))
+
+
+def _wait(pred, ms=20000):
+    for _ in range(ms // 20):
+        if pred():
+            return True
+        QTest.qWait(20)
+    return pred()
+
+
+def _x_extent(tris):
+    xs = [v[0] for tr in tris for v in tr]
+    return round(min(xs)), round(max(xs))
+
+
+def test_load_rereads_a_project_room_that_changed_on_disk(app, tmp_path):
+    """Review finding P4. A PROJECT surface used to be read from disk once and then handed back
+    from the cache by every later "Load the room", so a walkmesh re-exported from Blender or
+    recomposed in Floorplan never reached Place: clicks kept raycasting the OLD floor. An explicit
+    Load of a project room now goes back to disk (it is cheap); a donor room stays cached."""
+    toml, data = _compose_room(tmp_path)
+    d, _ = _doc(app)
+    d.show_field("A", data, toml)
+    assert d._source[0] == "project"
+    d.load_btn.click()
+    assert _wait(lambda: d._bundle() is not None and d.canvas._surface_tris), d.status.text()
+    x0, x1 = _x_extent(d.canvas._surface_tris)
+    obj = toml.parent / "walkmesh.obj"                  # the floor re-exported at half its width
+    lines = []
+    for ln in obj.read_text(encoding="utf-8").splitlines():
+        if ln.startswith("v "):
+            _v, x, rest = ln.split(" ", 2)
+            ln = f"v {float(x) / 2} {rest}"
+        lines.append(ln)
+    obj.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    first = d._bundle()
+    d.load_btn.click()
+    _wait(lambda: d._bundle() is not first and d._loading is None)
+    got = _x_extent(d.canvas._surface_tris)
+    assert got == (round(x0 / 2), round(x1 / 2)), f"Load kept the old floor {got}, not the re-exported one"
+
+
+def test_a_same_named_room_in_another_file_does_not_keep_the_old_surface(app, tmp_path):
+    """Review finding P5. Every traced project is called PICTURE by default. "Same field" was
+    decided by that NAME, so opening another PICTURE kept the previous room's art and walkmesh
+    armed, and a click raycast against the OLD room was written into the NEW file's doc."""
+    d, calls = _doc(app)
+    one, two = tmp_path / "one" / "PICTURE.field.toml", tmp_path / "two" / "PICTURE.field.toml"
+    first, second = {"field": {"id": 30058}}, {"field": {"id": 30059}}
+    d.show_field("PICTURE", first, one)
+    d._bundles[(d._source, 0)] = dict(_bundle(), source=d._source)
+    d._apply_bundle(d._bundle(), refit=True)
+    QApplication.processEvents()
+    wpt = d.canvas.world_to_click((0.0, 1500.0))
+    pos = QPoint(round(wpt.x()), round(wpt.y()))
+    d.show_field("PICTURE", second, two)                 # the shell's feed for the other project
+    assert not d.canvas._place_mode and not d.canvas._surface_tris
+    QTest.mouseClick(d.canvas.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+    assert calls == [] and "npc" not in second
+    d.show_field("PICTURE", second, two)                 # a re-feed of the SAME file keeps its view
+    d._bundles[(d._source, 0)] = dict(_bundle(), source=d._source)
+    d._apply_bundle(d._bundle(), refit=True)
+    d.show_field("PICTURE", second, two)
+    assert d.canvas._place_mode and d.canvas._surface_tris
+
+
+def test_a_fork_that_gains_its_own_art_drops_the_donor_surface(app):
+    """Same name, same file, but the surface's SOURCE moved: the fork now ships its own [[layers]]
+    (an `import --editable` scene), so the donor's real room it was placed on is not its room."""
+    d, _ = _doc(app)
+    path = Path("C:/somewhere/FORK.field.toml")
+    d.show_field("FORK", {"field": {"source_field": 351}}, path)
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundle(), refit=True)
+    assert d.canvas._place_mode
+    d.show_field("FORK", {"field": {"source_field": 351},
+                          "layers": [{"image": "back.png", "z": 1000}]}, path)
+    assert d._source[0] == "project"
+    assert not d.canvas._place_mode and not d.canvas._surface_tris
+
+
+@pytest.mark.parametrize("a_ends", ["fails", "succeeds"])
+def test_a_late_load_of_the_previous_room_does_nothing_visible_here(app, tmp_path, monkeypatch, a_ends):
+    """Review finding P6. Load room A, switch to B and Load it, and only then A's load ends: A's
+    error used to be painted on B, and either ending re-enabled Load while B was still in flight
+    (a second click started a twin loader). Driven through the real loader thread."""
+    import threading
+    gate_a, gate_b, a_done = threading.Event(), threading.Event(), threading.Event()
+    a, b = tmp_path / "A.field.toml", tmp_path / "B.field.toml"
+
+    def fake(ref, ci=0):
+        if Path(ref) == a:
+            gate_a.wait(10)
+            a_done.set()
+            if a_ends == "fails":
+                raise RuntimeError("A blew up")
+        else:
+            gate_b.wait(10)
+        return dict(_bundle(), source=("project", str(ref)), cam_index=ci)
+
+    monkeypatch.setattr(P, "build_surface_from_project", fake)
+    d, _ = _doc(app)
+    d.show_field("A", {"field": {"id": 30058}}, a)
+    d.load_btn.click()
+    d.show_field("B", {"field": {"id": 30059}}, b)
+    d.load_btn.click()
+    b_key = (("project", str(b)), 0)
+    assert d._loading == b_key
+    gate_a.set()
+    assert a_done.wait(10)
+    QTest.qWait(300)                                     # A's queued result is delivered
+    assert "blew up" not in d.status.text()
+    assert d._loading == b_key and not d.load_btn.isEnabled(), "Load re-enabled while B is in flight"
+    assert not d.canvas._surface_tris
+    gate_b.set()
+    assert _wait(lambda: d._loading is None and d.canvas._surface_tris), d.status.text()
+    assert d.load_btn.isEnabled()
+
+
+def test_a_camera_left_mid_load_does_not_land_over_the_one_shown(app):
+    """Pick camera 1 (its load starts), go back to camera 0 (cached, shown at once): camera 1's
+    load then lands. It is cached for next time, but the canvas keeps showing camera 0."""
+    d, _ = _doc(app)
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    cam0 = dict(_bundle(), n_cams=2)
+    cam1 = dict(_bundle(tris=_flat_quad(x0=-50, x1=50)), n_cams=2, cam_index=1)
+    d._bundles[(("real", 351), 0)] = cam0
+    d._loader.start = lambda *a: None
+    d.load_btn.click()
+    assert d.cam_box.isVisible()
+    d.cam_box.setCurrentIndex(1)
+    assert d._loading == (("real", 351), 1)
+    d.cam_box.setCurrentIndex(0)
+    d._loader.loaded.emit((("real", 351), 1), cam1)
+    assert d.canvas._surface_tris == cam0["tris"]
+    assert d._bundles[(("real", 351), 1)]["tris"] == cam1["tris"] and d._loading is None and d.load_btn.isEnabled()
+
+
+def test_a_load_ending_after_the_field_closed_leaves_load_off(app, tmp_path):
+    d, _ = _doc(app)
+    path = tmp_path / "ROOM.field.toml"
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)
+    d._loader.start = lambda *a: None
+    d.load_btn.click()
+    key = d._loading
+    d.show_none()                                      # the project was closed mid-load
+    d._loader.loaded.emit(key, dict(_bundle(), source=key[0]))
+    assert not d.load_btn.isEnabled() and not d.canvas._surface_tris
+
+
+def test_a_stale_load_of_the_previous_room_says_nothing_on_the_next(app, tmp_path):
+    """A's load was marked stale (its files were rewritten) and the author moved on to B: when it
+    lands, B must not be told that ITS room changed on disk."""
+    d, _ = _doc(app)
+    a, b = tmp_path / "A.field.toml", tmp_path / "B.field.toml"
+    d.show_field("A", {"field": {"id": 30058}}, a)
+    d._loader.start = lambda *a: None
+    d.load_btn.click()
+    key = d._loading
+    d.forget_surface(a)
+    d.show_field("B", {"field": {"id": 30059}}, b)
+    d._loader.loaded.emit(key, dict(_bundle(), source=key[0]))
+    assert "changed on disk" not in d.status.text() and d.load_btn.isEnabled()
+    assert key not in d._bundles
+
+
+def _clamping_builder(n_cams_of):
+    """A stand-in for build_surface_from_project that clamps the camera like the real one."""
+    def fake(ref, ci=0):
+        n = n_cams_of[Path(ref).parent.name]
+        ci = max(0, min(int(ci), n - 1))
+        tris = _flat_quad(x0=-100 * (ci + 1), x1=100 * (ci + 1))
+        return dict(_bundle(tris=tris), source=("project", str(ref)), cam_index=ci, n_cams=n)
+    return fake
+
+
+def test_a_camera_picked_in_one_file_is_not_carried_to_another_of_its_name(app, tmp_path, monkeypatch):
+    """Review finding P29. The camera pick was remembered per member NAME: camera 1 picked in one
+    PICTURE was requested for the next PICTURE, which has one camera. The builder clamped it to 0,
+    the result never matched the pick, and "Load the room" never applied -- forever."""
+    n_cams = {"one": 2, "two": 1, "three": 2}
+    monkeypatch.setattr(P, "build_surface_from_project", _clamping_builder(n_cams))
+    d, _ = _doc(app)
+    one, two = tmp_path / "one" / "PICTURE.field.toml", tmp_path / "two" / "PICTURE.field.toml"
+    d.show_field("PICTURE", {"field": {"id": 30058}}, one)
+    d.load_btn.click()
+    assert _wait(lambda: d._loading is None and d.cam_box.isVisible()), d.status.text()
+    d.cam_box.setCurrentIndex(1)
+    assert _wait(lambda: d._loading is None and d.canvas._surface_tris
+                 and _x_extent(d.canvas._surface_tris) == (-200, 200)), d.status.text()
+    d.show_field("PICTURE", {"field": {"id": 30059}}, two)
+    d.load_btn.click()
+    assert _wait(lambda: d._loading is None and d.canvas._place_mode), d.status.text()
+    assert _x_extent(d.canvas._surface_tris) == (-100, 100)
+    three = tmp_path / "three" / "PICTURE.field.toml"   # two cameras too: it opens on ITS camera 0
+    d.show_field("PICTURE", {"field": {"id": 30060}}, three)
+    d.load_btn.click()
+    assert _wait(lambda: d._loading is None and d.canvas._place_mode), d.status.text()
+    assert _x_extent(d.canvas._surface_tris) == (-100, 100) and d.cam_box.currentIndex() == 0
+
+
+def test_a_camera_pick_the_room_no_longer_has_follows_the_clamp(app, tmp_path, monkeypatch):
+    """The same file, re-exported with fewer cameras: the pick is clamped with it, not stuck."""
+    n_cams = {"one": 2}
+    monkeypatch.setattr(P, "build_surface_from_project", _clamping_builder(n_cams))
+    d, _ = _doc(app)
+    one = tmp_path / "one" / "PICTURE.field.toml"
+    d.show_field("PICTURE", {"field": {"id": 30058}}, one)
+    d.load_btn.click()
+    assert _wait(lambda: d._loading is None and d.cam_box.isVisible()), d.status.text()
+    d.cam_box.setCurrentIndex(1)
+    assert _wait(lambda: d._loading is None and _x_extent(d.canvas._surface_tris) == (-200, 200))
+    n_cams["one"] = 1                                   # camera 1 is gone from the file
+    d.load_btn.click()
+    assert _wait(lambda: d._loading is None and d.canvas._place_mode
+                 and _x_extent(d.canvas._surface_tris) == (-100, 100)), d.status.text()
+    assert not d.cam_box.isVisible()
+    assert d._bundle()["n_cams"] == 1, "markers and regions still read the vanished camera's surface"
+
+
+def test_an_auto_walkmesh_under_camera_1_is_the_floor_the_build_ships(tmp_path):
+    """Review finding E4. The build frames an AUTO walkmesh with camera 0 (the primary camera
+    drives the walkmesh frame), but Place resolved it with the SELECTED camera: under camera 1 it
+    accepted clicks on a floor the game will not have. The floor is camera 0's under every
+    camera; the selected camera only draws it and casts the clicks."""
+    import re
+    from ff9mapkit import build as B
+    from ff9mapkit.scene import bgi
+    toml, _ = _compose_room(tmp_path)
+    txt = toml.read_text(encoding="utf-8")
+    cams = ('[[camera]]\nentry_settle = "auto"\npitch = 48.0\ndistance = 4482\nfov = 42.2\n\n'
+            '[[camera]]\npitch = 30.0\ndistance = 3000\nfov = 42.2\nyaw = 35\n')
+    txt = re.sub(r"\[camera\]\n(?:[^\[\n].*\n)*", cams + "\n", txt, count=1)
+    txt = txt.replace('[walkmesh]\nobj = "walkmesh.obj"', "[walkmesh]\nauto = true")
+    assert "auto = true" in txt and txt.count("[[camera]]") == 2
+    toml.write_text(txt, encoding="utf-8")
+    proj = B.FieldProject.load(str(toml))
+    shipped, _f = IF.mesh_world_tris(bgi.BgiWalkmesh.from_bytes(
+        B.resolve_walkmesh(proj, B.resolve_camera(proj))))
+    surf = P.build_surface_from_project(toml, 1)
+    assert surf["cam_index"] == 1 and surf["cam"].range == B.resolve_cameras(proj)[1].range
+    assert surf["tris"] == shipped, "Place's camera-1 floor is not the walkmesh the build ships"
+
+
+def test_load_of_a_donor_room_is_still_served_from_the_cache(app):
+    """The donor's real room comes from the install, which does not change mid-session."""
+    d, _ = _doc(app)
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(("real", 351), 0)] = _bundle()
+    started = []
+    d._loader.start = lambda *a: started.append(a)
+    d.load_btn.click()
+    assert started == [] and d.canvas._surface_tris
