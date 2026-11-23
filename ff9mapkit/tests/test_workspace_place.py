@@ -752,6 +752,60 @@ def test_a_stale_load_of_the_previous_room_says_nothing_on_the_next(app, tmp_pat
     assert key not in d._bundles
 
 
+def _clamping_builder(n_cams_of):
+    """A stand-in for build_surface_from_project that clamps the camera like the real one."""
+    def fake(ref, ci=0):
+        n = n_cams_of[Path(ref).parent.name]
+        ci = max(0, min(int(ci), n - 1))
+        tris = _flat_quad(x0=-100 * (ci + 1), x1=100 * (ci + 1))
+        return dict(_bundle(tris=tris), source=("project", str(ref)), cam_index=ci, n_cams=n)
+    return fake
+
+
+def test_a_camera_picked_in_one_file_is_not_carried_to_another_of_its_name(app, tmp_path, monkeypatch):
+    """Review finding P29. The camera pick was remembered per member NAME: camera 1 picked in one
+    PICTURE was requested for the next PICTURE, which has one camera. The builder clamped it to 0,
+    the result never matched the pick, and "Load the room" never applied -- forever."""
+    n_cams = {"one": 2, "two": 1, "three": 2}
+    monkeypatch.setattr(P, "build_surface_from_project", _clamping_builder(n_cams))
+    d, _ = _doc(app)
+    one, two = tmp_path / "one" / "PICTURE.field.toml", tmp_path / "two" / "PICTURE.field.toml"
+    d.show_field("PICTURE", {"field": {"id": 30058}}, one)
+    d.load_btn.click()
+    assert _wait(lambda: d._loading is None and d.cam_box.isVisible()), d.status.text()
+    d.cam_box.setCurrentIndex(1)
+    assert _wait(lambda: d._loading is None and d.canvas._surface_tris
+                 and _x_extent(d.canvas._surface_tris) == (-200, 200)), d.status.text()
+    d.show_field("PICTURE", {"field": {"id": 30059}}, two)
+    d.load_btn.click()
+    assert _wait(lambda: d._loading is None and d.canvas._place_mode), d.status.text()
+    assert _x_extent(d.canvas._surface_tris) == (-100, 100)
+    three = tmp_path / "three" / "PICTURE.field.toml"   # two cameras too: it opens on ITS camera 0
+    d.show_field("PICTURE", {"field": {"id": 30060}}, three)
+    d.load_btn.click()
+    assert _wait(lambda: d._loading is None and d.canvas._place_mode), d.status.text()
+    assert _x_extent(d.canvas._surface_tris) == (-100, 100) and d.cam_box.currentIndex() == 0
+
+
+def test_a_camera_pick_the_room_no_longer_has_follows_the_clamp(app, tmp_path, monkeypatch):
+    """The same file, re-exported with fewer cameras: the pick is clamped with it, not stuck."""
+    n_cams = {"one": 2}
+    monkeypatch.setattr(P, "build_surface_from_project", _clamping_builder(n_cams))
+    d, _ = _doc(app)
+    one = tmp_path / "one" / "PICTURE.field.toml"
+    d.show_field("PICTURE", {"field": {"id": 30058}}, one)
+    d.load_btn.click()
+    assert _wait(lambda: d._loading is None and d.cam_box.isVisible()), d.status.text()
+    d.cam_box.setCurrentIndex(1)
+    assert _wait(lambda: d._loading is None and _x_extent(d.canvas._surface_tris) == (-200, 200))
+    n_cams["one"] = 1                                   # camera 1 is gone from the file
+    d.load_btn.click()
+    assert _wait(lambda: d._loading is None and d.canvas._place_mode
+                 and _x_extent(d.canvas._surface_tris) == (-100, 100)), d.status.text()
+    assert not d.cam_box.isVisible()
+    assert d._bundle()["n_cams"] == 1, "markers and regions still read the vanished camera's surface"
+
+
 def test_load_of_a_donor_room_is_still_served_from_the_cache(app):
     """The donor's real room comes from the install, which does not change mid-session."""
     d, _ = _doc(app)

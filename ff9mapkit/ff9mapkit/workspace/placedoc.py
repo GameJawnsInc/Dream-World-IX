@@ -396,7 +396,7 @@ class PlaceDoc(QWidget):
         self._blocked = None                    # protected_reason / no-donor text (placement refused)
         self._verbatim = False
         self._bundles = {}                      # (donor, cam_index) -> build_surface dict
-        self._cam_pick = {}                     # member -> its chosen camera index
+        self._cam_pick = {}                     # surface source -> its chosen camera index
         self._region_rows_cache = []            # the last region_rows derivation (canvas feed)
         self._loading = None                    # (source, ci) in flight, else None
         self._loader = _SurfaceLoader()
@@ -607,7 +607,8 @@ class PlaceDoc(QWidget):
 
     # ---------------------------------------------------------------- surface load
     def _cam_index(self):
-        return self._cam_pick.get(self._member, 0)
+        # by SOURCE, not by name: another file called PICTURE has its own cameras (finding P29)
+        return self._cam_pick.get(self._source, 0)
 
     def _bundle(self):
         if self._source is None:
@@ -654,6 +655,8 @@ class PlaceDoc(QWidget):
             return                                  # never cached
         self._bundles[(bundle["source"], bundle["cam_index"])] = bundle
         if mine:                                    # (any other: cached, not applied)
+            # a pick the room no longer has came back clamped: the pick follows it
+            self._cam_pick[self._source] = bundle["cam_index"]
             self._apply_bundle(bundle, refit=True)
 
     def _on_load_failed(self, key, msg):
@@ -684,9 +687,9 @@ class PlaceDoc(QWidget):
         self.cam_label.setVisible(multi)
 
     def _on_cam_changed(self, i):
-        if self._member is None or i < 0 or i == self._cam_index():
+        if self._source is None or i < 0 or i == self._cam_index():
             return
-        self._cam_pick[self._member] = int(i)
+        self._cam_pick[self._source] = int(i)
         self.on_load()                              # cached per (donor, camera) -> instant when warm
 
     # ---------------------------------------------------------------- placement
