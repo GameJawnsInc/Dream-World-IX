@@ -949,6 +949,89 @@ def test_first_generate_hands_the_project_to_the_shell_once(app, tmp_path, monke
     assert opened == [str(toml)]
 
 
+def test_a_failed_first_generate_leaves_the_tab_unarmed_and_the_retry_opens(app, tmp_path,
+                                                                           monkeypatch):
+    """Finding T8: Generate armed the project when the job STARTED. A first job that failed and
+    wrote nothing left the button reading 'Regenerate PICTURE -- in place' for a project that does
+    not exist, the status saying 'Generating...' forever, and the retry -- no longer 'first' --
+    never opened the project in the Editor. A REAL second launch, not a second finish of one."""
+    pytest.importorskip("PIL")
+    opened = []
+    run = _Run()
+    doc = TraceDoc(pick_palette("dark"), KIT, run=run, on_generated=opened.append)
+    doc.load_image(_photo(tmp_path))
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    doc.id_box.setText("30785")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    assert "Generating" in doc.status.text()
+    run.calls[0][1]["on_finished"](2)                  # the CLI refused: no field.toml written
+    toml = tmp_path / "photo-field" / "PICTURE.field.toml"
+    assert not toml.exists()
+    assert doc.gen_btn.text() == "Generate field project…"   # not armed over nothing
+    assert "Generating" not in doc.status.text() and "failed" in doc.status.text()
+    assert doc.status.property("state") == "error"
+    doc.on_generate()                                  # the author fixes it and tries again
+    argv = run.calls[1][0]
+    assert Path(argv[argv.index("--out") + 1]) == toml.parent   # back where it started (E9's rule)
+    toml.write_text('[field]\nid = 30785\nname = "PICTURE"\narea = 11\n', encoding="utf-8")
+    run.calls[1][1]["on_finished"](0)
+    assert opened == [str(toml)]                       # the retry IS the first Generate
+    assert "Generated PICTURE" in doc.status.text() and "Generating" not in doc.status.text()
+    assert doc.gen_btn.text().startswith("Regenerate PICTURE")
+
+
+def test_the_status_settles_after_a_regenerate_and_a_failed_one_is_not_stamped(app, tmp_path,
+                                                                               monkeypatch):
+    """Every finish says how it ended. A regenerate that failed and left the project as it was
+    must not claim the project matches the session: the 'not stamped' warning comes back."""
+    pytest.importorskip("PIL")
+    doc, run, toml = _armed(app, tmp_path, monkeypatch)
+    doc.canvas._commit_floor([(120, 210), (254, 200), (364, 440), (20, 440)])
+    doc.on_generate()
+    toml.write_text('[field]\nid = 30789\nname = "PICTURE"\narea = 12\n', encoding="utf-8")
+    run.calls[1][1]["on_finished"](0)
+    assert "Regenerated PICTURE" in doc.status.text() and "not stamped" not in doc.status.text()
+    doc.canvas._commit_floor([(110, 220), (254, 200), (364, 440), (20, 440)])
+    doc.on_generate()
+    run.calls[2][1]["on_finished"](2)                  # refused: the file did not move
+    assert "failed" in doc.status.text() and "Generating" not in doc.status.text()
+    assert "not stamped" in doc.status.text()
+    # the job writes walkmesh.obj + art BEFORE the toml, so an unmoved toml proves nothing about
+    # them: the status must not give the all-clear (review of T8)
+    assert "was not changed" not in doc.status.text()
+    assert "field.toml was not updated" in doc.status.text() and "may have been" in doc.status.text()
+    doc.on_generate()                                  # a failure that DID write the file is
+    toml.write_text('[field]\nid = 30789\nname = "PICTURE"\narea = 13\n', encoding="utf-8")
+    run.calls[3][1]["on_finished"](1)                  # judged by the disk: it is stamped
+    assert "not stamped" not in doc.status.text() and "Output panel" in doc.status.text()
+
+
+def test_a_finish_after_the_author_moved_on_leaves_the_new_session_alone(app, tmp_path,
+                                                                         monkeypatch):
+    """The settle is the LAUNCH's: an author who opened another project while a first Generate
+    ran must not have that project disarmed (or its status overwritten) by the old job failing."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    from ff9mapkit import imagefield as IF
+    run = _Run()
+    doc = TraceDoc(pick_palette("dark"), KIT, run=run)
+    doc.load_image(_photo(tmp_path))
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    doc.id_box.setText("30785")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
+    man = IF.build_image_field(photo, [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)],
+                               tmp_path / "proj", name="HALL9", field_id=30793)
+    doc.load_project(Path(man["toml"]))                # another project, mid-job
+    armed, said = doc._project, doc.status.text()
+    run.calls[0][1]["on_finished"](2)                  # the OLD first job fails, writing nothing
+    assert doc._project is armed and doc.gen_btn.text().startswith("Regenerate HALL9")
+    assert doc.status.text() == said
+
+
 def _armed(app, tmp_path, monkeypatch, **hooks):
     """A session whose FIRST Generate finished cleanly: the next Generate is an in-place
     regenerate. Returns (doc, run, the project's field.toml)."""

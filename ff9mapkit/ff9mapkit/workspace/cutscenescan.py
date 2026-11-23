@@ -256,11 +256,12 @@ def _target_names(raw) -> set:
     return names
 
 
-def scene_problems(raw) -> list:
+def scene_problems(raw, flag_names=None) -> list:
     """The always-on PROBLEMS lane: cheap raw-only structural checks in plain sentences (the shell's
     ``_node_problems`` speaks HTML; the instruments pane speaks text). Pass the MERGED doc — a
     scene.toml field keeps its markers/NPC positions there. 0-based ``scene #k`` prefixes on a
-    dispatch, the GUI's own convention."""
+    dispatch, the GUI's own convention. ``flag_names`` = the campaign's shared flag names (the
+    build resolves those too)."""
     out = []
     blocks = _blocks(raw)
     names = _target_names(raw)
@@ -303,6 +304,48 @@ def scene_problems(raw) -> list:
                     if _bad_name(leg):
                         out.append(f'{tag}step {i} path point {j} "{leg}" is not a known '
                                    f'marker/NPC/player')
+    return out + _flag_name_problems(raw, blocks, flag_names) + _flag_band_problems(raw, blocks)
+
+
+def _flag_name_problems(raw, blocks, flag_names) -> list:
+    """A flag NAME the build cannot resolve, in the resolver's own sentence: an unknown name
+    refuses the WHOLE field at load. ``flags.resolve_project_flags`` owns the rule; each scene is
+    resolved on a copy so a dispatch line can say WHICH scene. A broken [[flag]] table is not a
+    scene's problem -- the lane stays quiet rather than repeat it per scene."""
+    from .. import flags as _flags
+    try:
+        names = {**(flag_names or {}), **_flags.collect_flag_defs(raw if isinstance(raw, dict) else {})}
+    except (ValueError, TypeError):
+        return []
+    out = []
+    for k, b in enumerate(blocks):
+        try:
+            _flags.resolve_project_flags({"cutscene": [copy.deepcopy(b)]}, names)
+        except ValueError as e:
+            out.append((f"scene #{k}: " if len(blocks) > 1 else "") + str(e))
+        except Exception:                          # noqa: BLE001 -- a half-typed doc is normal here
+            continue
+    return out
+
+
+def _flag_band_problems(raw, blocks) -> list:
+    """Raw story-flag writes into a RESERVED ``gEventGlobal`` band, in the build's own sentence.
+    ``build.lint_flag_bands`` owns the rule (its band table is ``flags.py``'s, its sanctions are
+    its own); validate never runs it, so before this no GUI readout did. Run per scene so a
+    dispatch line can say WHICH scene; a scene that writes no flag never pays for the lint."""
+    from .. import build as _build
+    out = []
+    for k, b in enumerate(blocks):
+        steps = b.get("steps") if isinstance(b.get("steps"), list) else []
+        if not ("flag" in b or b.get("set_flags")
+                or any(isinstance(s, dict) and "set_flag" in s for s in steps)):
+            continue
+        try:
+            lines = _build.lint_flag_bands(_build.FieldProject(dict(raw, cutscene=[b]), "."))
+        except Exception:                          # noqa: BLE001 -- a half-typed doc is normal here
+            continue
+        tag = f"scene #{k}: " if len(blocks) > 1 else ""
+        out += [tag + ln for ln in lines if ln.startswith("cutscene")]
     return out
 
 
@@ -320,6 +363,15 @@ def wrap_width(raw):
         return float(w)
     except (TypeError, ValueError):            # a garbage value: validate() reports it; wrap sanely
         return _text.DEFAULT_WRAP_WIDTH
+
+
+def say_as_built(speaker, text) -> str:
+    """The line the BUILD hands its wrapper for a say/open step (the build's text pass:
+    ``with_speaker(step.speaker, text)``, then ``wrap_text``): the speaker's name line, the curly
+    quotes, ``{colour}`` markup expanded to zero-width tags. The step editor's preview and the
+    storyboard strip both wrap THIS, so neither can show a line the game will not."""
+    from ..content import text as _text
+    return _text.with_speaker(speaker or None, "" if text is None else str(text))
 
 
 # --------------------------------------------------------------------- stage / storyboard
@@ -442,12 +494,13 @@ def storyboard(raw, base_dir, wmesh, scene_idx: int) -> dict:
                 pos[name] = (int(anpc["pos"][0]), int(anpc["pos"][1]))
         safe = [s if isinstance(s, dict) else {} for s in steps]
         for gk, grp in enumerate(_conductor.group_parallel(safe)):
-            say, say_who, legs = None, "", []
+            say, say_who, say_spk, legs = None, "", None, []
             for i, s in grp:
                 kk = _forms.step_key(s)
                 if kk in _forms.TEXT_STEPS and say is None:
                     say = s.get(kk)
                     say_who = s.get("speaker") or s.get("actor") or ""
+                    say_spk = s.get("speaker")     # what the build attributes the line with
                 actor = s.get("actor")
                 if not actor or actor not in pos:
                     continue
@@ -467,7 +520,7 @@ def storyboard(raw, base_dir, wmesh, scene_idx: int) -> dict:
                                  "points": [pos[actor]] + pts})
                     pos[actor] = pts[-1]
             out["beats"].append({"k": gk, "step_idxs": [i for i, _s in grp],
-                                 "say": say, "say_actor": say_who,
+                                 "say": say, "say_actor": say_who, "say_speaker": say_spk,
                                  "positions": dict(pos), "legs": legs})
         # THE HONESTY LEDGER -- on the strip's face, not in a docstring.
         out["notes"] = [

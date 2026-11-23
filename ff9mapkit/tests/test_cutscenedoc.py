@@ -269,13 +269,46 @@ def test_the_storyboard_scrubs_beats_and_wraps_the_say_line(doc, tmp_path):
     assert doc.board_slider.maximum() == 1
     doc._show_beat(1)
     assert "beat 2 of 2" in doc.board_pos.text()
-    assert "Cid:" in doc.board_say.text()               # the speaker attribution
-    assert "Made it to the altar." in doc.board_say.text()
+    # E1: the strip shows the line the BUILD emits (name line, quotes, the build's wrap) --
+    # not an invented "Cid:" prefix
+    assert doc.board_say.text() == _as_built("Cid", "Made it to the altar.")
     assert doc.ladder._beat_marks == {2}                # ▶ sweeps the ladder
     t = _tags(doc.canvas)
     assert t["beatpos"] >= 1                            # storyboard mode draws positions
     doc.board_btn.setChecked(False)
     assert doc.ladder._beat_marks == set()
+
+
+def _preview(doc):
+    from PySide6.QtWidgets import QPlainTextEdit
+    return doc.editor.say_preview.findChild(QPlainTextEdit).toPlainText()
+
+
+def _as_built(speaker, text, raw=None):
+    """What the BUILD puts in the window for a say step: build._add's own two calls."""
+    from ff9mapkit.content import text as _text
+    from ff9mapkit import dialogue as _dlg
+    return _dlg.wrap_preview(_text.with_speaker(speaker, text),
+                             cutscenescan.wrap_width(raw or _raw()))
+
+
+def test_the_editor_preview_shows_what_the_build_emits(doc, tmp_path):
+    """E1: the preview wrapped the RAW typed text -- no speaker name line, no quotes, {colour}
+    markup measured as visible text, a typed \\n shown literally -- so it broke lines where the
+    game does not, and its 'fits' note judged a different line."""
+    _fed(doc, tmp_path)
+    doc._edit_step(2)                                  # say "Made it to the altar.", speaker Cid
+    assert _preview(doc) == _as_built("Cid", "Made it to the altar.")
+    long = "We crossed the whole glen before the dusk light faded out over the {item}hills{/}"
+    doc.editor.value_text.setPlainText(long)
+    assert _preview(doc) == _as_built("Cid", long)
+    doc.editor.x_speaker.setText("Mira")               # the speaker alone changed: re-run
+    assert _preview(doc) == _as_built("Mira", long), "the preview ignored a speaker change"
+    doc.editor.x_speaker.clear()
+    doc.editor.value_text.setPlainText("First line here\\nSecond line")   # a TYPED backslash-n
+    assert _preview(doc) == "First line here\nSecond line"
+    doc._apply_step()
+    assert doc._steps()[2]["say"] == "First line here\nSecond line", "read_step agrees"
 
 
 def test_the_storyboard_error_lane_renders_instead_of_raising(doc, tmp_path):
@@ -296,6 +329,29 @@ def test_stage_now_sync_paints_the_summary_and_the_verdicts(doc, tmp_path):
     assert doc.stage_list.item(0).text().startswith("⚠")
     assert _tags(doc.canvas)["verdict"] >= 1            # painted at the failing leg
     assert doc._wmesh is not None and doc._stage_armed
+
+
+_TWO_CAST = FIELD_TOML.replace(
+    '[[cutscene]]\nrequires_scenario = 300\nsteps = [\n  { say = "Dusk falls over the glen." },\n'
+    '  { wait = 30 },\n]',
+    '[[cutscene]]\nactors = ["Cid"]\nrequires_scenario = 300\n'
+    'steps = [ { walk = [2000, 2000], actor = "Cid" } ]')
+
+
+def test_a_stall_paints_only_on_its_own_scene(doc, tmp_path):
+    """C1: the verdict rows cover EVERY cast scene; the stage shows ONE. A stall in scene #1 must
+    not paint 'step 0 stalls here' on scene #0's stage (a different, fine step), and switching
+    scenes re-filters."""
+    assert "walk = [2000, 2000]" in _TWO_CAST, "the fixture edit must land"
+    _fed(doc, tmp_path, _TWO_CAST)
+    doc.stage_now(sync=True)
+    assert "1 staging problem" in doc.stage_note.text()
+    assert doc._scene == 0
+    assert _tags(doc.canvas)["verdict"] == 0, "scene #1's stall painted on scene #0's stage"
+    doc.rail.setCurrentRow(1)
+    assert _tags(doc.canvas)["verdict"] >= 1, "its own scene paints it"
+    doc.rail.setCurrentRow(0)
+    assert _tags(doc.canvas)["verdict"] == 0, "switching back re-filters"
 
 
 def test_a_clean_staging_says_so_and_paints_nothing(doc, tmp_path):
@@ -482,6 +538,26 @@ def test_the_pacing_extras_round_trip_and_validate_clean(doc, tmp_path):
     assert len(doc._steps()) == n and doc._steps()[0]["duration"] == 90, "no op fired"
 
 
+def test_a_raw_window_style_byte_round_trips_as_an_int(doc, tmp_path):
+    """C5: style = 128 is the documented raw-flags-byte form. The build reads a STRING as a style
+    NAME, so an Apply that wrote '128' back broke a valid step (even an Apply that only fixed a
+    typo in the line). A name stays a name."""
+    from ff9mapkit.content import text as _text
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc._steps()[0]["style"] = 128
+    doc._edit_step(0)
+    assert doc.editor.x_style.text() == "128"
+    doc.editor.value_text.setPlainText("Dusk falls over the glen!")   # a typo fix, nothing else
+    doc._apply_step()
+    assert doc._steps()[0]["style"] == 128, doc._steps()[0]
+    _text.resolve_style(doc._steps()[0]["style"])          # the build accepts what was written
+    assert doc.editor.step_i == 0, "the editor stays on its row after Apply"
+    doc.editor.x_style.setText("notail")
+    doc._apply_step()
+    assert doc._steps()[0]["style"] == "notail", "a style NAME stays a name"
+
+
 def test_a_window_step_round_trips_and_the_valueless_kind_hides_its_value(doc, tmp_path):
     _fed(doc, tmp_path)
     doc.rail.setCurrentRow(1)
@@ -499,6 +575,36 @@ def test_a_window_step_round_trips_and_the_valueless_kind_hides_its_value(doc, t
         "a valueless step hides the value row"
     doc._apply_step()
     assert doc._steps()[doc.editor.insert_at - 1] == {"raise": True}
+
+
+def test_set_flag_takes_a_flag_name_and_problems_flags_a_reserved_index(doc, tmp_path):
+    """C19: 'Set flag' took only two integers -- it refused a [[flag]] NAME the build resolves --
+    and accepted 8600, a save-corrupting reserved bit, with every GUI readout green.
+    After review: a name the field does not define (a typo) is a PROBLEM -- the build refuses
+    the whole field on it, so the tab must not say 'No structural problems'."""
+    _fed(doc, tmp_path, FIELD_TOML + '\n[[flag]]\nname = "glen_done"\nindex = 8712\n')
+    doc.rail.setCurrentRow(1)
+    doc._add_step()
+    doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("set_flag"))
+    doc.editor.value_line.setText("glen_done, 1")
+    doc._apply_step()
+    assert doc.editor.note.text() == "", doc.editor.note.text()
+    added = doc._steps()[doc.editor.insert_at - 1]
+    assert added == {"set_flag": ["glen_done", 1]}
+    assert forms.step_value_text(added) == "glen_done, 1", "the name reopens as typed"
+    assert "No structural problems." in doc.problems_lbl.text()
+    doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("set_flag"))
+    doc.editor.value_line.setText("glen_dnoe, 1")      # the typo
+    doc._apply_step()
+    assert "unknown flag name 'glen_dnoe'" in doc.problems_lbl.text(), \
+        f"PROBLEMS stayed green over a name the build refuses: {doc.problems_lbl.text()!r}"
+    doc._del_step(doc.editor.insert_at - 1 if doc.editor.insert_at else len(doc._steps()) - 1)
+    doc._add_step()
+    doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("set_flag"))
+    doc.editor.value_line.setText("8600, 1")
+    doc._apply_step()
+    assert "8600" in doc.problems_lbl.text() and "reserved" in doc.problems_lbl.text(), \
+        f"PROBLEMS stayed green over a reserved flag: {doc.problems_lbl.text()!r}"
 
 
 def test_with_prev_is_gated_by_the_compilers_rule_and_row_position(doc, tmp_path):
@@ -591,6 +697,58 @@ def test_pick_on_the_stage_fills_the_value(doc, tmp_path):
     assert doc.canvas.on_sim_click is None, "one shot only"
 
 
+def _wait_stage(doc, timeout=20):
+    """Let the async worker a REAL gesture started (button / debounce) land."""
+    import time
+    deadline = time.time() + timeout
+    while doc._stage_busy and time.time() < deadline:
+        QApplication.processEvents()
+        time.sleep(0.02)
+    QApplication.processEvents()
+    assert not doc._stage_busy, "the staging worker never landed"
+
+
+def _small_mesh_bytes() -> bytes:
+    """A floor that ends at x=300: the altar (x=900) is OFF it, so Cid's walk stalls."""
+    from ff9mapkit.scene import bgi
+    verts = [(-300, 0, 600), (300, 0, 600), (300, 0, -300), (-300, 0, -300)]
+    return bgi.build(verts, [(0, 1, 2), (0, 2, 3)]).to_bytes()
+
+
+def test_pick_on_the_stage_shows_it_is_armed_and_never_outlives_its_step(doc, tmp_path):
+    """E2: the pick stayed armed after Apply, after Edit on another row and after a kind change,
+    with no sign -- and silently stole the next stage press (a handle drag, a pan) into the
+    editor's value."""
+    from PySide6.QtCore import Qt as _Qt
+
+    def armed():
+        return doc.canvas.on_sim_click is not None
+
+    def crosshair():
+        return doc.canvas.viewport().cursor().shape() == _Qt.CursorShape.CrossCursor
+
+    _fed(doc, tmp_path)
+    doc._edit_step(0)                                  # the walk
+    doc.editor.pick_btn.click()
+    assert armed() and doc.editor.pick_btn.isChecked() and crosshair(), "armed must SHOW"
+    doc.editor.pick_btn.click()                        # a second press cancels
+    assert not armed() and not doc.editor.pick_btn.isChecked() and not crosshair()
+    doc.editor.pick_btn.click()
+    doc._apply_step()
+    assert not armed() and not doc.editor.pick_btn.isChecked() and not crosshair(), \
+        "Apply left the pick armed"
+    doc.editor.pick_btn.click()
+    doc._edit_step(2)                                  # another row (a say)
+    assert not armed() and not doc.editor.pick_btn.isChecked(), "Edit on another row left it armed"
+    doc._edit_step(0)
+    doc.editor.pick_btn.click()
+    doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("teleport"))
+    assert not armed(), "a kind change left it armed"
+    doc.editor.pick_btn.click()
+    doc._add_step()
+    assert not armed(), "Add step left it armed"
+
+
 def test_a_warm_mesh_rejudges_without_touching_disk(doc, tmp_path, monkeypatch):
     _fed(doc, tmp_path)
     doc.stage_now(sync=True)
@@ -598,11 +756,42 @@ def test_a_warm_mesh_rejudges_without_touching_disk(doc, tmp_path, monkeypatch):
     monkeypatch.setattr(cutscenescan, "load_walkmesh",
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError("disk touched")))
     doc._steps()[0]["walk"] = [2000, 2000]             # an edit that now stalls
-    doc.stage_now(sync=True)                           # the re-judge rides the WARM mesh
+    doc._last_stage = None
+    doc._restage()                                     # the AUTOMATIC lane rides the WARM mesh
+    _wait_stage(doc)
+    assert doc._last_stage.error == "", doc._last_stage.error
     assert doc._last_stage.warnings, "the warm re-judge must catch the new stall"
     # and a committed edit ARMS the debounced re-judge
     doc._after_edit("test edit")
     assert doc._restage_timer.isActive()
+
+
+def test_the_check_button_reloads_the_walkmesh_from_disk(doc, tmp_path):
+    """C4: the button's tooltip promises the SAVED walkmesh. After a regenerate / re-export
+    replaced it, a click judged the old warm copy and said every walk reaches its target."""
+    _, p = _fed(doc, tmp_path)
+    doc.stage_now(sync=True)
+    assert "✓" in doc.stage_note.text() and doc._wmesh is not None
+    (tmp_path / "walkmesh.bgi").write_bytes(_small_mesh_bytes())    # the floor changed on disk
+    doc._last_stage = None
+    doc.stage_btn.click()                              # the real gesture (async worker)
+    _wait_stage(doc)
+    assert doc._last_stage is not None, "the click produced no result"
+    assert doc._last_stage.warnings, \
+        f"the click judged the stale warm mesh: {doc.stage_note.text()!r}"
+
+
+def test_a_same_named_field_at_another_path_drops_the_warm_staging(doc, tmp_path):
+    """C4/E3: a copied field or a re-imported fork keeps the member NAME. Its walks must not be
+    judged (or its storyboard routed) on the previous file's floor, nor wear its verdict."""
+    (tmp_path / "a").mkdir()
+    _fed(doc, tmp_path / "a")
+    doc.stage_now(sync=True)
+    assert doc._stage_armed and "✓" in doc.stage_note.text()
+    p_b = make_cutscene_field(tmp_path / "b")
+    doc.show_field("GLEN", tomllib.loads(FIELD_TOML), p_b)
+    assert doc._wmesh is None and not doc._stage_armed, "the old file's mesh survived"
+    assert doc.stage_note.text() == "", "the old file's verdict survived"
 
 
 # ------------------------------------------------------------------ the accordion (declutter round)
@@ -723,6 +912,220 @@ def test_settings_and_the_editor_are_mutually_exclusive(doc, tmp_path):
 
 
 # ------------------------------------------------------------------ shell: undo + one-writer
+def _glen_on_tab(win, tmp_path):
+    win.open_field(make_cutscene_field(tmp_path))
+    win.tabs.setCurrentWidget(win.cutscene_doc)
+    doc = win.cutscene_doc
+    doc.rail.setCurrentRow(1)                          # narration: [say "Dusk…", wait 30]
+    return doc
+
+
+def _scene1(win):
+    return win._doc("GLEN").data["cutscene"][1]["steps"]
+
+
+def test_undo_under_an_open_editor_never_overwrites_another_step(win, tmp_path):
+    """C2: Ctrl+Z swaps in a NEW buffer. The editor stayed aimed at its old (scene, row), so the
+    next Apply wrote its stale content over whichever step now held that row -- one step lost,
+    another duplicated -- with no sign anything had changed."""
+    doc = _glen_on_tab(win, tmp_path)
+    doc._move_step(0, +1)                              # [wait, say] -- one undo step
+    doc._edit_step(0)                                  # the editor holds the WAIT
+    assert doc.editor.value_line.text() == "30"
+    win._undo()                                        # Ctrl+Z: [say, wait] again
+    assert win.tabs.currentWidget() is doc
+    assert [forms.step_key(s) for s in _scene1(win)] == ["say", "wait"]
+    assert doc.editor.scene is None, "the editor still claims row 0, which is now another step"
+    doc._apply_step()                                  # a stray Apply must not write anything
+    assert [forms.step_key(s) for s in _scene1(win)] == ["say", "wait"]
+
+
+def test_undo_that_removes_the_edited_row_closes_the_editor(win, tmp_path):
+    """C2: the row the editor is on no longer exists -- Apply raised IndexError out of the slot
+    and the user saw nothing happen."""
+    doc = _glen_on_tab(win, tmp_path)
+    doc._add_step()
+    doc.editor.value_text.setPlainText("a third line")
+    doc._apply_step()                                  # lands at row 2 (one undo step)
+    doc._close_editor()
+    doc._edit_step(2)
+    win._undo()                                        # row 2 is gone
+    assert len(_scene1(win)) == 2
+    assert doc.editor.scene is None
+    doc._apply_step()                                  # no IndexError out of the slot
+
+
+def test_an_undo_that_leaves_the_edited_step_alone_keeps_the_editor(win, tmp_path):
+    """The other half of C2: a buffer swap that did not touch the editor's step (here an undo
+    of a Behavior-tab edit) must not throw the author's half-typed line away."""
+    doc = _glen_on_tab(win, tmp_path)
+    doc._edit_step(0)
+    doc.editor.value_text.setPlainText("half-typed rewrite")
+    data = win._doc("GLEN").data
+    data.setdefault("marker", []).append({"name": "well", "pos": [-100, -100]})
+    win._on_behavior_edit("GLEN", "add a marker")      # a real checkpointed edit elsewhere
+    win._undo()
+    win.tabs.setCurrentWidget(doc)                     # back on the tab: the feed sees the swap
+    assert doc._raw is win._doc("GLEN").data, "the doc follows the restored buffer"
+    assert doc.editor.scene == 1 and doc.editor.step_i == 0, "the editor was closed needlessly"
+    assert doc.editor.value_text.toPlainText() == "half-typed rewrite"
+    doc._apply_step()
+    assert _scene1(win)[0]["say"] == "half-typed rewrite", "Apply lands in the RESTORED buffer"
+    assert "wait" in _scene1(win)[1]
+
+
+def test_undo_re_judges_an_armed_staging(win, tmp_path):
+    """C3: once the staging is armed, Ctrl+Z brought the stalling walk back while the inspector
+    still said every walk reaches its target -- a same-field re-feed never re-judged."""
+    p = make_cutscene_field(tmp_path)
+    p.write_text(FIELD_TOML.replace('walk = "altar"', "walk = [2000, 2000]"), encoding="utf-8")
+    win.open_field(p)
+    win.tabs.setCurrentWidget(win.cutscene_doc)
+    doc = win.cutscene_doc
+    doc.stage_now(sync=True)
+    assert "staging problem" in doc.stage_note.text()
+    doc._edit_step(0)
+    doc.editor.value_line.setText("altar")             # the fix, through the editor
+    doc._apply_step()
+    doc._restage_timer.stop()
+    doc.stage_now(sync=True, warm=True)
+    assert "✓" in doc.stage_note.text()
+    win._undo()                                        # the stall is back in the document
+    assert win._doc("GLEN").data["cutscene"][0]["steps"][0]["walk"] == [2000, 2000]
+    assert doc._restage_timer.isActive(), "the undo did not re-judge the armed staging"
+    doc._restage_timer.stop()
+    doc._restage()                                     # what the debounce fires
+    _wait_stage(doc)
+    assert "staging problem" in doc.stage_note.text()
+
+
+def test_apply_refuses_when_an_in_place_writer_removed_its_row(doc, tmp_path):
+    """C2's last guard: a writer that edits the SAME buffer in place (the Editor tree's delete)
+    gives show_field no buffer swap to notice; Apply itself must refuse, and say so."""
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc._edit_step(1)                                  # the wait
+    cutscenescan.remove_step(doc._raw, 1, 1)           # the in-place writer
+    doc._apply_step()                                  # must not raise IndexError
+    assert len(doc._steps()) == 1 and "say" in doc._steps()[0]
+    assert doc.editor.note.text(), "the refusal is SAID"
+
+
+_THREE_SCENES = FIELD_TOML + """
+[[cutscene]]
+requires_scenario = 400
+steps = [
+  { say = "Scene two line A" },
+  { say = "Scene two line B" },
+]
+"""
+
+
+def _says(win):
+    return [[s.get("say") or forms.step_key(s) for s in b.get("steps", [])]
+            for b in win._doc("GLEN").data["cutscene"]]
+
+
+def test_an_editor_tree_scene_delete_never_aims_apply_at_another_scene(win, tmp_path):
+    """C2 (after review): the Editor tree's 'Remove cutscene' pops scene #0 IN PLACE -- the same
+    buffer, so no swap to notice -- and every later scene shifts down one. An editor open on scene
+    1 row 0 then pointed at the old scene 2 row 0, and Apply overwrote 'Scene two line A'."""
+    p = make_cutscene_field(tmp_path)
+    p.write_text(_THREE_SCENES, encoding="utf-8")
+    win.open_field(p)
+    win.tabs.setCurrentWidget(win.cutscene_doc)
+    doc = win.cutscene_doc
+    doc.rail.setCurrentRow(1)
+    doc._edit_step(0)                                  # "Dusk falls over the glen."
+    doc.editor.value_text.setPlainText("Dusk falls, rewritten")
+    win._confirm = lambda *a, **k: True
+    win._delete_object("GLEN", "cutscene", single=True, label="cutscene")   # the tree's Remove
+    win.tabs.setCurrentWidget(doc)
+    win._feed_cutscene()
+    doc._apply_step()
+    assert _says(win) == [["Dusk falls, rewritten", "wait"],
+                          ["Scene two line A", "Scene two line B"]], \
+        "Apply wrote into a scene the author never opened"
+
+
+def test_an_add_editor_never_inserts_into_the_scene_an_undo_put_at_its_index(win, tmp_path):
+    """C2 (after review): ADD mode was exempt from the survival rule. Delete scene #0, Add on the
+    narration scene (now #0), type, Ctrl+Z: the cast scene came back at #0 and Apply inserted the
+    narration line between its turn and its say."""
+    win.open_field(make_cutscene_field(tmp_path))
+    win.tabs.setCurrentWidget(win.cutscene_doc)
+    doc = win.cutscene_doc
+    doc.rail.setCurrentRow(0)
+    doc._del_scene()                                   # one undo step
+    doc._add_step()                                    # ADD on the narration scene, now #0
+    doc.editor.value_text.setPlainText("Narration line 3")
+    win._undo()
+    win.tabs.setCurrentWidget(doc)
+    doc._apply_step()
+    says = _says(win)
+    assert says[0] == ["walk", "turn", "Made it to the altar."], f"the cast scene was written: {says}"
+    assert says[1] == ["Dusk falls over the glen.", "wait", "Narration line 3"], \
+        f"the typed line must land in the scene it was typed for: {says}"
+
+
+def test_a_stage_drag_of_the_open_step_shows_in_the_editor_and_survives_apply(doc, tmp_path):
+    """C2 (after review): dragging the open walk step's target rewrote the step, but the editor
+    kept 'altar'; the next Apply (here: only a speed change) silently reverted the drag."""
+    _fed(doc, tmp_path)
+    doc._edit_step(0)                                  # walk "altar", actor Cid
+    assert doc._stage_handles(), "the open step's target is a stage handle"
+    doc._on_stage_move(("target", 0, 0), 120, 300)     # the drag
+    assert doc.editor.value_line.text() == "120, 300", "the editor still shows the old target"
+    doc.editor.x_speed.setText("12")
+    doc._apply_step()
+    assert doc._raw["cutscene"][0]["steps"][0] == {"walk": [120, 300], "actor": "Cid", "speed": 12}
+
+
+def test_apply_writes_to_the_scene_the_editor_opened_not_the_selected_one(doc, tmp_path):
+    """C2: the editor addresses ITS scene. If the tab's selected scene ever differs from the
+    editor's, Apply must still land in the scene the step was opened from."""
+    raw, _ = _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc._edit_step(0)
+    doc._scene = 0                                     # the selection moved without a close
+    doc.editor.value_text.setPlainText("Night falls")
+    doc._apply_step()
+    assert raw["cutscene"][1]["steps"][0]["say"] == "Night falls"
+    assert [forms.step_key(s) for s in raw["cutscene"][0]["steps"]] == ["walk", "turn", "say"]
+    assert raw["cutscene"][0]["steps"][2]["say"] == "Made it to the altar."
+
+
+def test_a_field_switch_drops_the_doc_held_verdict_rows(doc, tmp_path):
+    """C1: the verdicts live on the doc and every render repaints them, so a field switch that
+    kept the rows would paint the old field's stall on the new field's stage."""
+    (tmp_path / "a").mkdir()
+    _fed(doc, tmp_path / "a", FIELD_TOML.replace('walk = "altar"', "walk = [2000, 2000]"))
+    doc.stage_now(sync=True)
+    assert doc._verdicts and _tags(doc.canvas)["verdict"] >= 1
+    doc.show_field("GLEN", tomllib.loads(FIELD_TOML), make_cutscene_field(tmp_path / "b"))
+    assert doc._verdicts == []
+    assert _tags(doc.canvas)["verdict"] == 0, "the old field's stall painted on the new field"
+
+
+def test_a_failed_explicit_reload_drops_the_warm_mesh_and_the_auto_rejudge(doc, tmp_path):
+    """C4 (after review): the button's reload failed (a broken .bgi) and said so, but the OLD warm
+    mesh stayed armed -- the next edit's automatic re-judge painted the old floor's checkmark
+    over the error."""
+    _fed(doc, tmp_path)
+    doc.stage_now(sync=True)
+    assert "✓" in doc.stage_note.text()
+    (tmp_path / "walkmesh.bgi").write_bytes(b"garbage")
+    doc.stage_now(sync=True)                           # the explicit press
+    assert "No walkmesh" in doc.stage_note.text()
+    assert doc._wmesh is None and not doc._stage_armed
+    doc._steps()[2]["say"] = "Made it."
+    doc._after_edit("edit")
+    assert not doc._restage_timer.isActive(), "an edit re-armed a judge on the old floor"
+    doc._restage()                                     # even if fired, it must read disk again
+    _wait_stage(doc)
+    assert "✓" not in doc.stage_note.text(), doc.stage_note.text()
+
+
 def test_a_doc_edit_lands_by_reference_dirty_and_one_undo_step(win, tmp_path):
     p = make_cutscene_field(tmp_path)
     win.open_field(p)
@@ -778,3 +1181,94 @@ def test_retheme_and_set_scale_survive_both_pages(doc, tmp_path):
     doc.set_scale(150)
     assert doc.board_slider.minimumWidth() == 180
     assert doc.crumb_label() == "Cutscene — GLEN"
+
+
+# --------------------------------------------------------------- batch 2, the final review
+def test_a_swapped_buffer_never_carries_the_editor_into_a_look_alike_scene(doc, tmp_path):
+    """After an undo the editor's scene must be re-found by its contents -- its OWN index first.
+    'Some scene equal to the one it opened on' carried it into a duplicate (Duplicate scene makes
+    those routine) whenever its own scene had changed under it, and Apply wrote the author's
+    line into a scene they never opened. Also fences the own-row fallback: without it the open
+    step's typed text is dropped by every undo of an edit elsewhere in its scene."""
+    import copy
+    raw, path = _fed(doc, tmp_path)
+    raw["cutscene"][1] = copy.deepcopy(raw["cutscene"][0])        # scene #1 is now a twin of #0
+    doc.show_field("GLEN", raw, path)
+    doc.rail.setCurrentRow(0)
+    doc._edit_step(2)                                  # the say "Made it to the altar." of scene #0
+    doc.editor.value_text.setPlainText("typed, not yet applied")
+    swapped = copy.deepcopy(raw)                       # an undo: a NEW buffer in which a SIBLING step
+    swapped["cutscene"][0]["steps"][0]["walk"] = [5, 5]            # of scene #0 differs
+    doc.show_field("GLEN", swapped, path)
+    assert doc.editor.scene == 0 and doc.editor.step_i == 2, "the editor left its own scene"
+    assert doc.editor.value_text.toPlainText() == "typed, not yet applied"
+    doc._apply_step()
+    assert swapped["cutscene"][0]["steps"][2]["say"] == "typed, not yet applied"
+    assert swapped["cutscene"][1]["steps"][2]["say"] == "Made it to the altar."   # the twin: untouched
+
+
+def test_a_waypoint_added_or_removed_on_the_open_route_survives_apply(doc, tmp_path):
+    """The stage's insert / delete of a path point rewrote the step, but the open editor kept the
+    old route in its box; the next Apply (even a speed-only change) wrote it back."""
+    raw, path = _fed(doc, tmp_path)
+    raw["cutscene"][0]["steps"][0] = {"path": [[0, 400], [200, 400]], "actor": "Cid"}
+    doc.show_field("GLEN", raw, path)
+    doc.rail.setCurrentRow(0)
+    doc._edit_step(0)
+    doc._on_stage_insert(("leg", 0, 0, 0))             # a point after the first
+    assert len(raw["cutscene"][0]["steps"][0]["path"]) == 3
+    doc.editor.x_speed.setText("12")
+    doc._apply_step()
+    step = raw["cutscene"][0]["steps"][0]
+    assert step["path"] == [[0, 400], [100, 400], [200, 400]] and step["speed"] == 12
+    doc._on_stage_delete(("leg", 0, 0, 1))             # and take it out again
+    doc.editor.x_speed.setText("14")
+    doc._apply_step()
+    step = raw["cutscene"][0]["steps"][0]
+    assert step["path"] == [[0, 400], [200, 400]] and step["speed"] == 14
+
+
+def test_a_flag_the_campaign_owns_is_not_called_unknown(app, tmp_path):
+    """A member's scene may set a flag its CAMPAIGN defines. The tab's unknown-name check must be
+    handed the campaign's names, or every shared flag is a false problem."""
+    for names, clean in (({"bridge_out": 8713}, True), ({}, False)):
+        d = CutsceneDoc(pick_palette("dark"), flag_names_fn=lambda n=names: n)
+        try:
+            raw, path = _fed(d, tmp_path)
+            assert "No structural problems." in d.problems_lbl.text()      # the premise: clean before
+            raw["cutscene"][0]["steps"].append({"set_flag": ["bridge_out", 1]})
+            d.show_field("GLEN", raw, path)
+            assert ("No structural problems." in d.problems_lbl.text()) is clean, d.problems_lbl.text()
+        finally:
+            d.hide()
+            d.instruments.setParent(None)
+
+
+def test_adding_or_duplicating_a_scene_closes_the_step_editor(doc, tmp_path):
+    """The selection moves to the new scene; an editor left open would still be aimed at a step
+    of the old one while the ladder shows another."""
+    _fed(doc, tmp_path)
+    for act in (doc._add_scene, doc._dup_scene):
+        doc.rail.setCurrentRow(0)
+        doc._edit_step(0)
+        assert doc.editor.scene is not None
+        act()
+        assert doc.editor.scene is None, f"{act.__name__} left the step editor open"
+
+
+def test_a_check_that_was_running_while_the_scenes_changed_paints_nothing(doc, tmp_path):
+    """Its rows are numbered by the scenes as they WERE: after a scene is deleted mid-check, the
+    stall would paint on whichever scene now has that number. They are dropped and the document
+    is judged again as it is."""
+    _fed(doc, tmp_path)
+    doc.stage_now(sync=True)                           # arms the lane: a warm mesh, a real result
+    assert doc._stage_armed and doc._wmesh is not None
+    doc._stage_busy = True                             # a check is in flight ...
+    doc._stage_moved = False
+    doc.rail.setCurrentRow(1)
+    doc._del_scene()                                   # ... and the author deletes a scene
+    stale_rows = [{"scene": 0, "step": 0, "kind": "stall", "pts": [(0, 0), (1, 1)], "label": "x"}]
+    doc._restage_timer.stop()
+    doc._finish_stage((doc._stage_gen, doc._last_stage, stale_rows, doc._wmesh))
+    assert doc._verdicts == [], "rows judged against the old scene layout were painted"
+    assert doc._restage_timer.isActive(), "the document must be judged again as it now is"

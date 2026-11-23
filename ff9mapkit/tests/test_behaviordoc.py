@@ -747,6 +747,71 @@ def test_a_field_switch_drops_the_mesh_and_the_painted_verdicts(edoc, tmp_path):
     assert edoc.sweep_note.text() == ""
 
 
+def test_a_same_named_field_at_another_path_drops_the_sweep_mesh(edoc, tmp_path):
+    """C4 (the Behavior twin): a copied field keeps the member NAME; its routes must not be swept
+    on the previous file's floor."""
+    edoc.show_field("BGLADE", demo_raw(), make_behavior_field(tmp_path / "a"))
+    edoc.sweep_now(sync=True)
+    assert edoc._wmesh is not None and edoc._sweep_armed
+    edoc.show_field("BGLADE", demo_raw(), make_behavior_field(tmp_path / "b"))
+    assert edoc._wmesh is None and not edoc._sweep_armed, "the old file's mesh survived"
+
+
+def test_the_sweep_button_reloads_the_walkmesh_from_disk(edoc, tmp_path):
+    """C4: the tooltip promises the SAVED walkmesh; an explicit press must read it again (a
+    regenerate or re-export replaced it), while the automatic re-judge stays warm."""
+    import time
+    from ff9mapkit.scene import bgi
+    p = make_behavior_field(tmp_path)
+    edoc.show_field("BGLADE", demo_raw(), p)
+    edoc.sweep_now(sync=True)
+    assert _scene_tags(edoc.canvas).count("jam"), "the notched floor jams the ring"
+    xs = (-300, 1000)                                  # the same floor WITHOUT the notch
+    verts = [(x, 0, z) for z in (600, -300) for x in xs]
+    (tmp_path / "walkmesh.bgi").write_bytes(bgi.build(verts, [(0, 1, 3), (0, 3, 2)]).to_bytes())
+    edoc.sweep_btn.click()                             # the real gesture (async worker)
+    deadline = time.time() + 20
+    while edoc._sweep_busy and time.time() < deadline:
+        QApplication.processEvents()
+        time.sleep(0.02)
+    QApplication.processEvents()
+    assert not edoc._sweep_busy
+    assert _scene_tags(edoc.canvas).count("jam") == 0, \
+        f"the press swept the stale warm mesh: {edoc.sweep_note.text()!r}"
+
+
+def test_a_failed_explicit_reload_drops_the_warm_mesh_and_the_auto_resweep(edoc, tmp_path):
+    """C4 (after review): a press whose reload FAILS (a broken .bgi) said so, but the OLD warm
+    mesh stayed armed -- the next edit's automatic re-sweep judged the old floor over the error."""
+    p = make_behavior_field(tmp_path)
+    edoc.show_field("BGLADE", demo_raw(), p)
+    edoc.sweep_now(sync=True)
+    assert edoc._wmesh is not None and edoc._sweep_armed
+    (tmp_path / "walkmesh.bgi").write_bytes(b"garbage")
+    edoc.sweep_now(sync=True)                          # the explicit press
+    assert "no walkmesh" in edoc.sweep_note.text()
+    assert edoc._wmesh is None and not edoc._sweep_armed
+    edoc._move_row(0, +1)                              # an edit must not re-sweep the old floor
+    assert not edoc._resweep_timer.isActive()
+
+
+def test_the_automatic_resweep_stays_on_the_warm_mesh(edoc, tmp_path, monkeypatch):
+    import time
+    p = make_behavior_field(tmp_path)
+    edoc.show_field("BGLADE", demo_raw(), p)
+    edoc.sweep_now(sync=True)
+    monkeypatch.setattr(behaviorscan, "load_walkmesh", lambda *a, **k: (None, "disk touched"))
+    edoc._resweep()                                    # what the debounce timer fires
+    deadline = time.time() + 20
+    while edoc._sweep_busy and time.time() < deadline:
+        QApplication.processEvents()
+        time.sleep(0.02)
+    QApplication.processEvents()
+    assert not edoc._sweep_busy, "the re-judge never landed"
+    assert "disk touched" not in edoc.sweep_note.text()
+    assert _scene_tags(edoc.canvas).count("jam"), "the warm re-judge still paints its jams"
+
+
 def test_a_stale_sweep_never_paints(edoc, tmp_path):
     """The generation guard: a worker still in flight for the OLD field lands after a
     switch and must be dropped, not painted onto the new one."""

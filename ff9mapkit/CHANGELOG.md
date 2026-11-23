@@ -93,6 +93,48 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   (one Undo step; a value that cannot be read keeps you on the form, and Problems says why); and a form left open
   behind those tabs is rebuilt when they change its row.
 
+### Fixed — Cutscene tab: the step editor, the staging check, and checks that disagreed with the build
+- **The step editor's Apply writes only to the step it was opened on.** After an Undo, a scene removed in the Editor
+  tree, or a scene added at its position, Apply could overwrite a different step or land in another scene. If the
+  step is gone, Apply now says so and writes nothing. Dragging the open step's target on the stage (or adding or
+  removing a waypoint) updates the editor, so a later Apply keeps it.
+- **"Check the staging" always reads the saved walkmesh.** It could judge a floor that had since been regenerated or
+  re-exported, or another project's floor when two fields shared a name; Behavior's "Sweep routes" had the same fault.
+  Closing the project clears the old result, a check whose walkmesh fails to load no longer leaves an old checkmark
+  standing, and Undo, Redo and edits in other tabs re-check an armed staging.
+- **A staging problem is drawn only on its own scene**, not on whichever scene is selected.
+- **A Window style typed as a number** (for example 128) is saved as a number, so applying the step no longer breaks
+  the build.
+- **"Set flag" takes a flag name** as well as an index. PROBLEMS now warns about an index in a reserved,
+  save-corrupting band and about a name neither the field nor its campaign defines; both used to pass every check in
+  the Workspace.
+- **The wrap preview and the storyboard show the line the game will display**: the speaker's name line, the quotes,
+  colour markup, and a typed `\n` as a line break.
+- **"Pick on the stage" shows when it is armed** (the button stays pressed, the stage shows a crosshair) and ends
+  with its step, so it can no longer capture a later drag.
+- **Scene-bar buttons show their whole label** ("+ Step", not "+ St…") at the default window size.
+
+### Fixed — Place tab: the room on screen is the room on disk
+- **A traced or composed room is read from disk again** whenever you come back to the Place tab or to that room, and
+  on every "Load the room". It used to be read once per session, so clicks could land on a floor that no longer
+  existed. A room you had loaded comes back by itself, keeping your zoom; a failed read leaves no old floor
+  clickable. Donor rooms (forks of real fields) stay cached.
+- **Two fields with the same name are no longer confused** (every traced project is called PICTURE by default): the
+  previous room's art and floor are not left clickable over the new one, and a camera picked for one no longer
+  leaves the other stuck on "Loading".
+- **A room's late load never shows on another room**, and never re-enables Load mid-flight.
+- **Under camera 1 or later**, a room with an auto-framed walkmesh shows the floor the build ships.
+
+### Fixed — Trace tab and the job runner
+- **Regenerate keeps the Editor's Field-form settings** (location, title, text block, borrowed background). Only the
+  id, name and area are the generator's.
+- **A finished Generate is no longer reported "failed"** because of an arrow, Japanese text or a non-Latin folder
+  name. Every job the Workspace runs now reads and writes UTF-8.
+- **Ctrl+Z on the Trace and Floorplan tabs undoes that tab's own last gesture.** It used to undo an unrelated field
+  edit and jump to another tab.
+- **A failed first Generate no longer leaves the tab set to "Regenerate — in place"**, and the status line now says
+  how each Generate ended.
+
 ### Changed — World tab: faster, and the window no longer freezes while it works
 - **Undo, Redo and every Accept no longer reload the whole 3D map.** Only the blocks whose files changed are drawn
   again: Undo and Redo come back in under a second (8-11 s before), a forest Accept in about 5 s (22-25 s).

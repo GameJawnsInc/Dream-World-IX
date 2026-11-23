@@ -73,6 +73,40 @@ T1 and P1 rows). Not converged by proof: the third round was not itself reviewed
   the Workspace, GUI and image-field files (3 template-gated skips), the shell's `--smoke`, and a pixel
   diff of 15 `cutscene:*` / `trace:*` / `place:*` snaps against the pre-fix renders (no change).
 
+## Fixed since, batch 2 (2026-11-23)
+
+Batch 1 above is on `master` (`dab0a05c`). Batch 2 is on the branch, commits `46a944da..4b427fe3`:
+19 more findings, in three groups that touch different files. Each group was implemented by one agent
+in its own worktree, attacked by a reviewer, answered by a fixer, and then the integrated batch was
+attacked again by three reviewers (12 findings, answered in `4b427fe3`). That last answer was not itself
+reviewed.
+
+| Group | Findings fixed |
+|---|---|
+| **Cutscene tab** | C1 (a stall paints only on its own scene) · C2 (the step editor's Apply lands only on the step it was opened on) · C3 (Undo re-judges an armed staging) · C4, E3 (the staging and sweep checks always read the saved walkmesh; Close and a same-named field drop the old one) · C5 (a numeric Window style stays a number) · C19 ("Set flag" takes a name; a reserved index or an undefined name is a problem) · E1 (the wrap preview and storyboard show what the build emits) · E2 ("Pick on the stage" shows when armed and ends with its step) |
+| **Place tab** | P4 (a project room is re-read on return and on every Load, and comes back by itself) · P5 (same-named fields are told apart by path) · P6 (a late load never shows on another room) · P29 (the camera pick is per file) · E4 (under camera 1 the floor is the one the build ships) |
+| **Trace and backend** | T2 (regenerate keeps the Editor's `[field]` keys) · E10 (jobs speak UTF-8; a finished Generate is not reported failed) · C17 (scene-bar buttons show their whole label) · T26 (Ctrl+Z on Trace and Floorplan undoes that tab's own gesture) · T8 (a failed first Generate does not arm the tab; the status says how it ended) |
+
+**Left open in batch 2** (known, not fixed):
+
+- C19: the Workspace-wide Check still does not run the flag-band lint; only the Cutscene tab's own
+  PROBLEMS readout flags a reserved index.
+- E2: a point picked off the walkmesh is still accepted without a note.
+- E3: Close project resets the Cutscene and Behavior tabs but not Place (Place drops its room on any
+  tab change, which covers the common case).
+- T8: a regenerate that fails partway can leave `walkmesh.obj` and the art rewritten under the old
+  `field.toml`; the status now says so, but the write order in `imagefield.py` is unchanged. A first
+  Generate that wrote the project and still exited non-zero is not opened in the Editor.
+- C2: an Add-mode step editor closes (and loses its typed line) when an Undo changes the scene it was
+  adding to; scenes have no stable id to follow.
+- P4: a walkmesh rewritten from outside while the Place tab stays in view is not noticed until the next
+  Load or tab change.
+
+Verified by: 1,169 tests across the Workspace, GUI, cutscene, behavior, image-field, forms and lint
+files (4 skips), the shell's `--smoke`, and a pixel diff of the `cutscene:*` / `trace:*` / `place:*`
+snaps against the pre-fix renders: the only changes are the whole scene-bar labels and a live toolbar
+Undo on the Trace tab. Not played in the game or driven by hand.
+
 ## 1. The numbers
 
 139 findings stand: **4 data-loss bugs, 23 major, 88 minor, 24 nits.**

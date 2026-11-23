@@ -11,6 +11,7 @@ Launch:  ``py apps/ff9_workspace.pyw``  (or ``py -m ff9mapkit.workspace.shell``)
 
 from __future__ import annotations
 
+import codecs
 import collections
 import copy
 import html
@@ -22,7 +23,7 @@ import time
 import tomllib
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QElapsedTimer, QEvent, QObject, QProcess, QSize, QTimer, QUrl, Signal
+from PySide6.QtCore import Qt, QElapsedTimer, QEvent, QObject, QProcess, QProcessEnvironment, QSize, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QAction, QBrush, QColor, QDesktopServices, QFontMetricsF, QIcon, QKeySequence, QPainter, QPalette,
     QPixmap, QShortcut, QTextCharFormat, QTextCursor, QTextDocument,
@@ -3591,6 +3592,10 @@ class Workspace(QMainWindow):
         self._member_items = {}
         self._root_items = []
         self._clear_doc()
+        for tab in (getattr(self, "cutscene_doc", None), getattr(self, "behavior_doc", None)):
+            if tab is not None:                    # nothing re-feeds them on Close: without this
+                tab.show_none()                    # they kept the closed field, its warm walkmesh,
+        #                                            and its verdict for the next same-named member
         self.map.clear()
         self._content_crumbs = []
         self._content_chip = None
@@ -4986,6 +4991,7 @@ class Workspace(QMainWindow):
                 and not self._commit_active_ck()):
             self.tabs.setCurrentWidget(self.doc_scroll)    # re-enters this handler for the Editor
             return
+        self._refresh_undo_actions()                       # Trace/Floorplan Undo is their own (_local_undo_doc)
         self._mount_behavior_instruments(w is getattr(self, "behavior_doc", None))
         self._mount_cutscene_instruments(w is getattr(self, "cutscene_doc", None))
         if w in (self.doc_scroll, self.map):
@@ -5332,13 +5338,12 @@ class Workspace(QMainWindow):
             bd._reset_sweep()
 
     def _refresh_field_tabs(self, member):
-        """Drop the Behavior / Cutscene / Place tabs' per-field state for ``member`` and feed them
-        again: a warm walkmesh, an armed surface, an open step editor all describe files that may
-        just have been replaced. Cheap by contract (the feeds read no disk)."""
-        for tab in (getattr(self, "behavior_doc", None), getattr(self, "cutscene_doc", None),
-                    getattr(self, "place_doc", None)):
-            if tab is not None and getattr(tab, "_member", None) == member:
-                tab.show_none()
+        """``member``'s buffer was REPLACED (a reload from disk): drop what the three tabs read
+        from its old floor and art, then feed them the new buffer. The Cutscene and Behavior tabs
+        are fed, not blanked: each rebinds what it has open against the new document by itself (a
+        step editor whose step is still there keeps the line being typed; one whose step is gone
+        closes). Cheap by contract (the feeds read no disk)."""
+        self._forget_field_floor(member)
         self._feed_behavior()
         self._feed_cutscene()
         self._feed_place()
@@ -5668,7 +5673,24 @@ class Workspace(QMainWindow):
             return True
         return False
 
+    def _local_undo_doc(self):
+        """The current tab when it keeps its OWN undo history and edits no open field (Trace, Floorplan),
+        else None. There Undo means that doc's last gesture and Redo means nothing: the app-level stack would
+        revert another tab's edit and jump there, leaving the wrong gesture in place (finding T26)."""
+        if not hasattr(self, "tabs"):
+            return None
+        w = self.tabs.currentWidget()
+        for name in ("trace_doc", "floorplan_doc"):
+            d = getattr(self, name, None)
+            if d is not None and w is d:
+                return d
+        return None
+
     def _undo(self):
+        local = self._local_undo_doc()
+        if local is not None:
+            local.on_undo()
+            return
         if not self._commit_active_ck():           # fold+checkpoint any pending edit FIRST (its own step) so a
             return                                 # typed-but-uncommitted change isn't lost; abort on a bad value
         if not self._undo_stack:
@@ -5678,6 +5700,8 @@ class Workspace(QMainWindow):
         self._apply_history(rec.member, rec.before, rec.focus, f"Undo {rec.label}")
 
     def _redo(self):
+        if self._local_undo_doc() is not None:     # Trace/Floorplan keep no redo (see _local_undo_doc)
+            return
         if not self._commit_active_ck():           # (a pending edit is a divergence -> it commits + clears redo)
             return
         if not self._redo_stack:
@@ -5788,6 +5812,14 @@ class Workspace(QMainWindow):
         """Enable/disable + label the toolbar Undo/Redo from the stacks (shows the next op's name)."""
         u = self._undo_stack[-1].label if self._undo_stack else None
         r = self._redo_stack[-1].label if self._redo_stack else None
+        local = self._local_undo_doc()
+        if local is not None and getattr(self, "act_undo", None) is not None:
+            kind = "trace" if local is getattr(self, "trace_doc", None) else "floorplan"
+            self.act_undo.setEnabled(True)         # on_undo is a no-op on an empty doc history
+            self.act_undo.setToolTip(f"Undo the last {kind} gesture (Ctrl+Z)")
+            self.act_redo.setEnabled(False)
+            self.act_redo.setToolTip(f"{kind.capitalize()} has no redo")
+            return
         if getattr(self, "act_undo", None) is not None:
             self.act_undo.setEnabled(bool(u))
             self.act_undo.setToolTip(f"Undo {u} (Ctrl+Z)" if u else "Undo (Ctrl+Z)")
@@ -9701,6 +9733,13 @@ class Workspace(QMainWindow):
         self._set_busy(True)                            # loading state: 'Working…' until _proc_done clears it
         self.act_lint_cli.setEnabled(False)
         self.proc = QProcess(self)
+        # The child writes UTF-8 because _drain_proc reads UTF-8. Left to the locale (cp1252 on a Western
+        # Windows), any arrow / CJK / non-Latin path in a report raised UnicodeEncodeError AFTER the work was
+        # done, and a finished job read as "failed" (E10). PYTHONIOENCODING touches only the std streams.
+        env = QProcessEnvironment.systemEnvironment()
+        env.insert("PYTHONIOENCODING", "utf-8")
+        self.proc.setProcessEnvironment(env)
+        self._job_dec = codecs.getincrementaldecoder("utf-8")("replace")   # a read may end mid-character
         self.proc.setProgram(str(argv[0]))
         self.proc.setArguments([str(a) for a in argv[1:]])
         self.proc.setWorkingDirectory(str(cwd or KIT))
@@ -9820,7 +9859,7 @@ class Workspace(QMainWindow):
         self.output.ensureCursorVisible()
 
     def _drain_proc(self):
-        raw = bytes(self.proc.readAllStandardOutput()).decode("utf-8", "replace")
+        raw = self._job_dec.decode(bytes(self.proc.readAllStandardOutput()))
         self._job_out.append(raw)                        # accumulate VERBATIM (unrstripped) so a chunk boundary
         text = raw.rstrip()                              # mid-line doesn't corrupt the joined anchor scan
         if text:

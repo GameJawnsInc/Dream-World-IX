@@ -408,3 +408,151 @@ def test_a_second_generate_click_does_not_lose_the_first_jobs_launch_record(win,
     _regenerate(photo, toml, gateways=[_DOOR])
     win.trace_doc._after_generate(0, False, str(toml))
     assert any("saved while Trace was regenerating" in v.headline for v in said)
+
+
+# ------------------------------------------------------------- Ctrl+Z on the Trace tab (T26)
+def _trace_with_a_field_edit_behind_it(win, app, tmp_path):
+    """An open field with one committed edit on the shell's stack, then the Trace tab with two
+    vertices clicked -- the review's path: edit elsewhere, go to Trace, click a wrong vertex."""
+    photo, toml = _project(tmp_path)
+    assert win.open_field(toml)
+    _place_an_npc(win)
+    _place_an_npc(win)
+    win._undo()                                        # one step on EACH stack: both must stay put
+    assert win._undo_stack and win._redo_stack
+    win.show()
+    win.activateWindow()
+    win.tabs.setCurrentWidget(win.trace_doc)
+    td = win.trace_doc
+    td.load_image(photo)
+    td.canvas._commit_floor([(100, 300)])
+    td.canvas._commit_floor([(100, 300), (280, 300)])
+    td.canvas.setFocus()
+    app.processEvents()
+    return td
+
+
+def test_ctrl_z_on_the_trace_tab_undoes_the_trace_not_another_tabs_edit(win, app, tmp_path):
+    """Finding T26: a REAL Ctrl+Z (through the window's shortcut map) on the Trace canvas undid
+    the open field's last edit and jumped to its tab, leaving the wrong vertex in place."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    td = _trace_with_a_field_edit_behind_it(win, app, tmp_path)
+    stack, redo = list(win._undo_stack), list(win._redo_stack)
+    npcs = len(win._doc(_NAME).data.get("npc") or [])
+    QTest.keyClick(td.canvas, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+    app.processEvents()
+    assert td._floor == [(100, 300)]                   # the trace gesture is taken back ...
+    assert win.tabs.currentWidget() is td              # ... on the tab the author is looking at
+    assert win._undo_stack == stack and win._redo_stack == redo
+    assert len(win._doc(_NAME).data.get("npc") or []) == npcs   # the field edit is untouched
+    QTest.keyClick(td.canvas, Qt.Key.Key_Z,
+                   Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
+    app.processEvents()                                # Trace has no redo: nothing else moves
+    assert td._floor == [(100, 300)] and win._undo_stack == stack and win._redo_stack == redo
+    assert len(win._doc(_NAME).data.get("npc") or []) == npcs
+    assert win.tabs.currentWidget() is td
+
+
+def test_the_toolbar_undo_on_the_trace_tab_acts_on_the_trace(win, app, tmp_path):
+    """The toolbar Undo is the same rule as the key, and says so: on Trace it names the trace,
+    never the other tab's edit it would no longer touch."""
+    td = _trace_with_a_field_edit_behind_it(win, app, tmp_path)
+    stack = list(win._undo_stack)
+    assert "trace" in win.act_undo.toolTip().lower() and win.act_undo.isEnabled()
+    assert not win.act_redo.isEnabled()
+    win.act_undo.trigger()
+    win.act_redo.trigger()
+    assert td._floor == [(100, 300)] and win._undo_stack == stack
+    assert win.tabs.currentWidget() is td
+    win.tabs.setCurrentWidget(win.doc_scroll)          # off Trace, the app-level labels come back
+    assert win.act_undo.toolTip().startswith("Undo place NPC")
+
+
+def test_ctrl_z_on_the_floorplan_tab_undoes_the_floorplan_not_another_tabs_edit(win, app, tmp_path):
+    """T26 on the OTHER doc-local-undo tab (review): Floorplan keeps its own history too, and a
+    real Ctrl+Z there reverted the open field's Place edit and jumped to the Place tab."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    _photo, toml = _project(tmp_path)
+    assert win.open_field(toml)
+    _place_an_npc(win)
+    fp = win.floorplan_doc
+    win.show()
+    win.activateWindow()
+    win.tabs.setCurrentWidget(fp)
+    fp._push_history()                                 # one floorplan gesture on its own stack
+    stack, npcs = list(win._undo_stack), len(win._doc(_NAME).data.get("npc") or [])
+    assert "floorplan" in win.act_undo.toolTip().lower() and not win.act_redo.isEnabled()
+    fp.setFocus()
+    app.processEvents()
+    QTest.keyClick(fp, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+    app.processEvents()
+    assert fp._history == []                           # the floorplan gesture is taken back ...
+    assert win.tabs.currentWidget() is fp              # ... where the author is looking
+    assert win._undo_stack == stack
+    assert len(win._doc(_NAME).data.get("npc") or []) == npcs
+    QTest.keyClick(fp, Qt.Key.Key_Z,
+                   Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
+    app.processEvents()
+    assert win._undo_stack == stack and win.tabs.currentWidget() is fp
+
+
+# ------------------------------------------------------------- the job pipe speaks UTF-8 (E10)
+def _run_real_job(win, app, code):
+    """A REAL run_job: a Python child through the shell's own QProcess, waited out."""
+    import sys
+    import time
+    done = []
+    assert win.run_job([sys.executable, "-c", code], subject="Pipe probe", on_finished=done.append)
+    deadline = time.monotonic() + 60
+    while not done and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    assert done, "the job never finished"
+    return done[0]
+
+
+def test_a_job_that_prints_beyond_cp1252_is_not_a_failure(win, app, monkeypatch):
+    """Finding E10, every verb at once: the shell's child wrote its stdout in the locale codepage
+    (cp1252 on a Western Windows -- forced here so a UTF-8 host reproduces it), so an arrow made
+    a finished job exit 1, and a plain e-acute came back as a replacement mark because the shell
+    decodes UTF-8. The child is told to write UTF-8, the encoding the shell reads."""
+    monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
+    monkeypatch.delenv("PYTHONUTF8", raising=False)
+    code = _run_real_job(win, app, "print('caf\\u00e9 \\u2192 north')")
+    assert code == 0, win.output.toPlainText()[-400:]
+    assert "café → north" in win.output.toPlainText()
+
+
+def test_a_character_split_across_two_reads_is_not_mangled(win, app):
+    """A pipe read can end inside a multi-byte character; decoding each read on its own turned
+    one arrow into two replacement marks."""
+    code = _run_real_job(win, app, (
+        "import sys, time; o = sys.stdout.buffer; o.write(b'A \\xe2'); o.flush(); "
+        "time.sleep(0.5); o.write(b'\\x86\\x92 B\\n'); o.flush()"))
+    assert code == 0
+    assert "A → B" in "".join(win._job_out)      # the verbatim record the failure anchor scans
+    assert "→ B" in win.output.toPlainText() and "�" not in win.output.toPlainText()
+
+
+def test_a_reload_keeps_a_step_editor_whose_step_is_still_there(win, tmp_path):
+    """A regenerate that changes the file reloads the buffer. The Cutscene tab used to be blanked
+    with it, closing the step editor and dropping the line being typed -- for a step the
+    regenerate never touched. It is fed the new buffer instead and rebinds by itself."""
+    photo, toml = _project(tmp_path)
+    toml.write_text(toml.read_text(encoding="utf-8")
+                    + '\n[cutscene]\nsteps = [ { say = "first" } ]\n', encoding="utf-8")
+    assert win.open_field(toml)
+    win.tabs.setCurrentWidget(win.cutscene_doc)
+    cd = win.cutscene_doc
+    cd._edit_step(0)
+    cd.editor.value_text.setPlainText("typed, not yet applied")
+    cd._wmesh = object()
+    _regenerate(photo, toml, gateways=[_DOOR])         # the file changes; its [cutscene] does not
+    win.trace_doc._after_generate(0, False, str(toml))
+    assert [g["name"] for g in win._doc(_NAME).data["gateway"]] == ["traced_door0"]   # reloaded
+    assert cd.editor.step_i == 0 and cd.editor.value_text.toPlainText() == "typed, not yet applied"
+    assert cd._wmesh is None                           # the old floor is not kept
+    cd._apply_step()
+    assert win._doc(_NAME).data["cutscene"]["steps"][0]["say"] == "typed, not yet applied"

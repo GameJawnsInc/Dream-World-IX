@@ -171,6 +171,45 @@ def test_scene_problems_names_the_offenders():
     assert any("scene #1: step 0 (turn) needs a cast" in p for p in probs)
 
 
+def test_scene_problems_flags_a_raw_reserved_flag_write_with_the_lints_own_sentence():
+    """C19: a 'Set flag' step on 8600 (the read-mail payload band) went through every GUI check
+    green while lint_flag_bands -- reached only from the CLI -- called it save-corrupting. The tab
+    now says the build's own sentence, scene-tagged; the band rule stays the lint's (flags.py)."""
+    from ff9mapkit import build as _build
+    raw = _raw([{"steps": [{"say": "hi"}]},
+                {"steps": [{"say": "hi"}, {"set_flag": [8600, 1]}, {"set_flag": [8712, 1]},
+                           {"set_flag": ["glen_done", 1]}]}])
+    probs = [p for p in cs.scene_problems(raw) if "8600" in p or "8712" in p]
+    lint = [ln for ln in _build.lint_flag_bands(_build.FieldProject(copy.deepcopy(raw), "."))
+            if "cutscene" in ln]
+    assert len(lint) == 1 and len(probs) == 1, (lint, probs)
+    assert probs[0] == "scene #1: " + lint[0], "the tab must say the lint's own sentence"
+    assert "step #1" in probs[0]
+    # a half-typed doc is this lane's NORMAL input: a garbage step must not raise out of the render
+    cs.scene_problems(_raw([{"steps": [5, {"set_flag": [8600, 1]}]}]))
+
+
+def test_scene_problems_flags_an_undefined_flag_name_with_the_resolvers_own_sentence():
+    """C19 (after review): 'Set flag' takes a [[flag]] NAME, so a typo applied clean and PROBLEMS
+    stayed green while the build refused the whole field. The tab now says the resolver's own
+    sentence (flags.resolve_project_flags owns the rule), and a defined name -- the field's own
+    [[flag]] table or the campaign's -- stays silent."""
+    from ff9mapkit import flags as _flags
+    scene = {"steps": [{"say": "hi"}, {"set_flag": ["glen_dnoe", 1]}]}
+    raw = _raw([{"steps": [{"say": "a"}]}, scene])
+    raw["flag"] = [{"name": "glen_done", "index": 8712}]
+    probs = [p for p in cs.scene_problems(raw) if "glen_dnoe" in p]
+    with pytest.raises(ValueError) as ei:
+        _flags.resolve_project_flags(copy.deepcopy(raw))
+    assert probs == ["scene #1: " + str(ei.value)], probs
+    scene["steps"][1]["set_flag"][0] = "glen_done"
+    assert cs.scene_problems(raw) == []
+    camp = _raw({"requires_flag": "bridge_out", "steps": [{"say": "hi"}]})
+    assert any("bridge_out" in p for p in cs.scene_problems(camp))
+    assert cs.scene_problems(camp, flag_names={"bridge_out": 8713}) == [], \
+        "a campaign-level name is defined"
+
+
 def test_scene_problems_clean_scene_is_silent():
     raw = _raw({"actors": ["Cid"],
                 "steps": [{"walk": "altar", "actor": "Cid"},
