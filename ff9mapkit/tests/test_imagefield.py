@@ -176,6 +176,71 @@ def test_the_cli_band_checks_the_id_and_its_deploy_hint_names_it(tmp_path, capsy
     assert f'"{out / "ROOM.field.toml"}"' in said
 
 
+def _sideways_phone_photo(path):
+    """An 800x400 JPEG stored landscape with EXIF Orientation=6 (a portrait phone shot): every
+    photo viewer shows it 400x800. Left half red, right half blue, so a rotation is visible."""
+    from PIL import Image
+    im = Image.new("RGB", (800, 400), (200, 30, 30))
+    im.paste((30, 30, 200), (400, 0, 800, 400))
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    im.save(path, exif=exif, quality=95)
+    return path
+
+
+def _grey16(path):
+    """A 16-bit greyscale PNG (mode I;16): a horizontal gradient whose 8-bit mean is ~95."""
+    import numpy as np
+    from PIL import Image
+    row = np.linspace(0, 48000, 384, dtype=np.uint16)
+    Image.fromarray(np.tile(row, (448, 1))).save(path)
+    assert Image.open(path).mode.startswith("I")       # the premise: really a 16-bit image
+    return path
+
+
+def test_the_photo_is_read_upright_and_16_bit_is_not_white(tmp_path):
+    """Findings T19 + E11: every ingest did Image.open(p).convert('RGB'), which ignores EXIF
+    orientation (a phone photo traced and shipped sideways) and clamps 16-bit samples to 255
+    (a white rectangle, canvas and shipped art alike). open_rgb is the one reader."""
+    pytest.importorskip("PIL")
+    pytest.importorskip("numpy")
+    import numpy as np
+    from PIL import Image
+    im = IF.open_rgb(_sideways_phone_photo(tmp_path / "phone.jpg"))
+    assert im.mode == "RGB" and im.size == (400, 800)  # upright, as every viewer shows it
+    g = IF.open_rgb(_grey16(tmp_path / "grey16.png"))
+    assert g.mode == "RGB" and 80 < float(np.asarray(g).mean()) < 110
+
+
+def test_every_photo_ingest_spends_the_one_reader():
+    """The call-site law: the build, the auto floor-seed and the HTML tracer each read the source
+    photo; a site that goes back to Image.open(...).convert('RGB') reopens T19/E11 silently."""
+    import inspect
+    for fn in (IF.build_image_field, IF.auto_floor, IF.write_trace_html):
+        src = inspect.getsource(fn)
+        assert "open_rgb(image_path)" in src, fn.__name__
+        assert "Image.open(image_path)" not in src, fn.__name__
+
+
+def test_the_build_ships_the_photo_the_way_the_tab_shows_it(tmp_path):
+    pytest.importorskip("PIL")
+    pytest.importorskip("numpy")
+    import numpy as np
+    from PIL import Image, ImageOps
+    floor = [(130, 200), (254, 200), (364, 440), (20, 440)]
+    phone = _sideways_phone_photo(tmp_path / "phone.jpg")
+    upright = tmp_path / "upright.png"
+    ImageOps.exif_transpose(Image.open(phone)).save(upright)
+    IF.build_image_field(phone, floor, tmp_path / "a")
+    IF.build_image_field(upright, floor, tmp_path / "b")
+    a = np.asarray(Image.open(tmp_path / "a" / "art" / "base.png"), dtype=np.int16)
+    b = np.asarray(Image.open(tmp_path / "b" / "art" / "base.png"), dtype=np.int16)
+    assert np.abs(a - b).max() <= 2                    # the same pixels (JPEG decode aside)
+    IF.build_image_field(_grey16(tmp_path / "g.png"), floor, tmp_path / "g")
+    base = np.asarray(Image.open(tmp_path / "g" / "art" / "base.png"))
+    assert float(base.mean()) < 200                    # not the white rectangle
+
+
 # ---------------------------------------------------------------- anchored occluders (contact -> Z)
 
 def test_occluder_z_is_actor_depth_at_contact():

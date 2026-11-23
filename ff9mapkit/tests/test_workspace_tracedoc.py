@@ -1664,6 +1664,26 @@ def test_a_cut_out_entry_leads_with_what_the_author_must_know(app, tmp_path, mon
     assert "(230,320)" in tip and "z 1073" in tip
 
 
+def test_the_tab_reads_the_photo_through_the_builds_one_reader(app, tmp_path, monkeypatch):
+    """Findings T19 + E11, the tab half: 'the build uses the exact crop shown here' holds only if
+    the canvas and the build read the photo through ONE function (upright, 16-bit scaled)."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    from ff9mapkit import imagefield as IF
+    p = tmp_path / "phone.jpg"
+    im = Image.new("RGB", (800, 400), (200, 30, 30))
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    im.save(p, exif=exif)
+    seen = []
+    real = IF.open_rgb
+    monkeypatch.setattr(IF, "open_rgb", lambda path: seen.append(str(path)) or real(path))
+    doc, _ = _doc(app)
+    doc.load_image(p)
+    assert seen == [str(p)]                            # the build's own reader, spent
+    assert doc._img_size == (400, 800)                 # upright: the cut-out frame and snip scale
+
+
 def test_the_canvas_keeps_a_usable_minimum(app):
     """The canvas had no minimum of its own (66 px, the scroll area's). A floor ABOVE what the
     window can give overpaints the rows below, so it is modest: 96 px (measured natively, the

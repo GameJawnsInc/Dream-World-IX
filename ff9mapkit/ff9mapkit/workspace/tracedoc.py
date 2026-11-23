@@ -652,8 +652,7 @@ class TraceDoc(QWidget):
     def load_image(self, path):
         """The one image ingest: the SAME cover-crop the build performs, at 2x display res.
         Opening a new image clears the trace (the old polygon means nothing on new art)."""
-        from PIL import Image
-        src = Image.open(path).convert("RGB")
+        src = imagefield.open_rgb(path)                # the build's own reader (T19, E11)
         self._img_size = src.size
         disp = imagefield._cover_crop(src, imagefield.CANVAS_W * 2, imagefield.CANVAS_H * 2)
         buf = io.BytesIO()

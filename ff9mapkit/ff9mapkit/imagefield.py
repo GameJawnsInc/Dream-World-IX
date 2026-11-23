@@ -557,6 +557,21 @@ def write_walkmesh_obj(verts, faces, path) -> None:
 
 
 # ----------------------------------------------------------------- image layers (Pillow)
+def open_rgb(path):
+    """THE photo reader -- the Trace tab's canvas, the build, the auto floor-seed and the HTML
+    tracer all read the source photo through this one function, so 'the build uses the exact
+    crop shown here' holds. ``Image.open(p).convert('RGB')`` at each site ignored EXIF
+    orientation (a portrait phone photo traced and shipped sideways) and clamped every 16-bit
+    sample to 255 (a 16-bit PNG became a white rectangle) -- findings T19 + E11."""
+    from PIL import Image, ImageOps
+    with Image.open(path) as src:
+        im = ImageOps.exif_transpose(src)
+        if im.mode in ("I;16", "I;16L", "I;16B", "I;16N", "I"):
+            # 16-bit greyscale: scale 0..65535 down to 0..255 (convert('L') would clamp)
+            im = im.convert("I").point(lambda v: v * (1 / 257)).convert("L")
+        return im.convert("RGB")
+
+
 def _cover_crop(img, w: int, h: int):
     """Cover-crop ``img`` to exactly w x h: scale to fill the aspect, centre-crop the overflow."""
     from PIL import Image
@@ -626,7 +641,7 @@ def auto_floor(image_path, *, pitch: float = DEFAULT_PITCH, fov: float = DEFAULT
         raise ImageFieldError("auto floor-seed needs numpy (py -m pip install numpy, or the "
                               "ff9mapkit[image] extra) -- or hand-trace the floor with --trace") from e
     from PIL import Image, ImageFilter
-    src = Image.open(image_path).convert("RGB")
+    src = open_rgb(image_path)
     im = _cover_crop(src, CANVAS_W, CANVAS_H).filter(ImageFilter.GaussianBlur(2.0))
     a = np.asarray(im, dtype=np.float32) / 255.0                     # (H, W, 3)
     H, W = CANVAS_H, CANVAS_W
@@ -832,7 +847,7 @@ def write_trace_html(image_path, out_html, *, pitch: float = DEFAULT_PITCH, fov:
     import io
     import json
     from PIL import Image
-    src = Image.open(image_path).convert("RGB")
+    src = open_rgb(image_path)
     disp = _cover_crop(src, CANVAS_W * 2, CANVAS_H * 2)     # the same crop geometry, at display res
     buf = io.BytesIO()
     disp.save(buf, "JPEG", quality=88)
@@ -1141,7 +1156,7 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
 
     # 2) art crops, HELD in memory until the merge clears
     art_writes = [(out / "art" / "base.png",
-                   _cover_to_canvas(Image.open(image_path).convert("RGB"), CANVAS_W, CANVAS_H))]
+                   _cover_to_canvas(open_rgb(image_path), CANVAS_W, CANVAS_H))]
 
     layers = [("art/base.png", Z_BASE)]
     fg_manifest, layer_notes = [], {}
