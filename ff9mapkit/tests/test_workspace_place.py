@@ -1155,6 +1155,32 @@ def test_regions_status_speaks_of_the_kind_being_drawn(app):
     assert "walk-out" not in d.status.text()
 
 
+def test_place_speaks_of_every_lane_not_only_forks(app):
+    """Review finding P22. Place serves novel, traced and composed fields too, but its empty
+    state sent the author off to fork something, and Load spoke only of a donor."""
+    d, _ = _doc(app)
+    for text in (d.status.text(), d.load_btn.toolTip()):
+        assert "fork one" not in text and "donor" not in text, text
+    assert "New Field" in d.status.text()
+    d.show_field("NOVEL", {"field": {"id": 30058}}, Path("C:/somewhere/NOVEL.field.toml"))
+    for text in (d.status.text(), d.load_btn.toolTip()):
+        assert "donor" not in text and "own" in text, text
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    for text in (d.status.text(), d.load_btn.toolTip()):
+        assert "#351" in text, text
+
+
+def test_a_bundled_example_refusal_names_the_gui_way_out(app):
+    """Review finding P22: the refusal mixed an ASCII '--' into Place's em-dash sentence and named
+    a CLI command. Place words its own way out; protected_reason (CLI + editor) is untouched."""
+    d, _ = _doc(app)
+    ex = Path(ff9mapkit.__file__).parent.parent / "examples" / "vivi-hut" / "hut_int.field.toml"
+    d.show_field("HUT", {"verbatim_eb": {"donor": 351}}, ex)
+    text = d.status.text()
+    assert "bundled example" in text and " -- " not in text and "`" not in text, text
+    assert "New Field" in text and "copy" in text, text
+
+
 def test_a_walk_out_rotate_is_undone_as_a_rotate(app, monkeypatch):
     """Review finding E8: the rotate went through the generic reshape, so Undo read 'reshape
     gateway zone' -- the same as a corner drag. Driven through the quad's own menu."""

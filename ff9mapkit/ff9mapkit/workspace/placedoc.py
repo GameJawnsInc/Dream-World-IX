@@ -440,8 +440,6 @@ class PlaceDoc(QWidget):
         row.addWidget(self.field_label)
         row.addSpacing(10)
         self.load_btn = QPushButton("Load the room")
-        self.load_btn.setToolTip("Extract the donor's camera + walkmesh and composite its "
-                                 "background (cached after the first load).")
         self.load_btn.clicked.connect(self.on_load)
         row.addWidget(self.load_btn)
         self.cam_label = QLabel("Camera")
@@ -551,8 +549,8 @@ class PlaceDoc(QWidget):
         # the constructor ends HERE, so this is the clusters' first sync: without it both tools'
         # controls showed until a field was fed, and their sum (~1140px) became the window floor
         self._sync_tool_clusters()
-        self._refresh("Open a field (a fork of a real room) and come back — or fork one on the "
-                      "Import tab.")
+        self._sync_load_tip()
+        self._refresh()
 
     def show_field(self, member, data, path, *, dirty=False):
         """The one feed: the OPEN doc's parsed dict (by reference — the ops mutate exactly the
@@ -587,6 +585,7 @@ class PlaceDoc(QWidget):
                              "resolve its camera and walkmesh from")
         self.field_label.setText(f"{member} — donor field #{self._donor}"
                                  if self._donor is not None else str(member))
+        self._sync_load_tip()
         if not same:                                # (a late load of the old room never lands here:
             #                                         _on_loaded applies only the request it waits for)
             if self._loading is None or self._loading != getattr(self, "_stale_load", None):
@@ -679,6 +678,24 @@ class PlaceDoc(QWidget):
             self._stale_load = self._loading
 
     # ---------------------------------------------------------------- surface load
+    def _room_words(self):
+        """Whose art Load brings: a donor room's, or this field's own (novel, traced, composed,
+        an editable fork) -- Place serves every lane, and says which one it is on."""
+        if self._source is not None and self._source[0] == "real":
+            return f"donor field #{self._source[1]}'s"
+        return "this field's own"
+
+    def _sync_load_tip(self):
+        if self._source is None:
+            tip = "Open a field first: Load reads its camera, walkmesh and art."
+        elif self._source[0] == "real":
+            tip = (f"Extract donor field #{self._source[1]}'s camera and walkmesh and composite its "
+                   "background (cached after the first load).")
+        else:
+            tip = ("Read this field's own camera, walkmesh and art from its files (read again on "
+                   "every Load, so a re-export shows).")
+        self.load_btn.setToolTip(tip)
+
     def _cam_index(self):
         # by SOURCE, not by name: another file called PICTURE has its own cameras (finding P29)
         return self._cam_pick.get(self._source, 0)
@@ -1029,14 +1046,19 @@ class PlaceDoc(QWidget):
 
     def _refresh(self, note="", state=""):
         if self._blocked is not None:
-            note = note or f"Placement is off here — {self._blocked}."
+            # protected_reason is the CLI's and the editor's too, and names `ff9mapkit new`: Place
+            # keeps its head and words the way out in the app's own terms (finding P22)
+            head = self._blocked.split(" -- ")[0]
+            way = (" Save a copy in a folder of your own, or start one with Field ▸ New Field."
+                   if head != self._blocked else "")
+            note = note or f"Placement is off here — {head}.{way}"
             state = state or "warn"
         elif self._member is None:
-            note = note or ("Open a field (a fork of a real room) and come back — or fork one "
-                            "on the Import tab.")
+            note = note or ("Open a field and come back — a fork of a real room, a traced photo, "
+                            "a Floorplan room or a Field ▸ New Field scaffold all place here.")
         elif self._bundle() is None:
-            note = note or ("Load the room to place content — the donor's art, camera, and "
-                            "walkmesh arrive together.")
+            note = note or (f"Load the room to place content — {self._room_words()} art, camera "
+                            "and walkmesh arrive together.")
         elif not note and self.tools.current() == "regions":
             n = len(self._region_rows_cache)
             warned = sum(1 for r in self._region_rows_cache if r.get("warn"))
