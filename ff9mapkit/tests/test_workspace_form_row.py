@@ -228,3 +228,93 @@ def test_reset_restores_the_mounted_rows_own_saved_state(win):
     win._touch(_M)
     win._reset_active()
     assert _gateways(win) == [("g1", 101), ("g2", 102)]
+
+
+# ------------------------------------------------------------------ the adversarial pass over the fix
+def test_reset_of_a_renamed_row_restores_that_rows_own_saved_copy(win):
+    """A row's NAME is one of the things Reset puts back. Matching a renamed row by its new name
+    handed it the saved copy of whichever row used to carry that name."""
+    data = win._doc(_M).data
+    data["gateway"][1]["name"] = "g2"                  # g1 renamed onto g2's old name...
+    data["gateway"][2]["name"] = "g3"                  # ...and g2 moved on (both unsaved)
+    win._touch(_M)
+    _mount(win, "gateway:1")
+    win._reset_active()
+    assert _gateways(win) == [("g0", 100), ("g1", 101), ("g3", 102)]
+
+
+def test_reset_says_so_when_it_cannot_tell_which_saved_row_this_is(win, monkeypatch):
+    """Rows removed without a save AND a row renamed: neither index nor name identifies its
+    saved copy. Pasting a neighbour's values is worse than doing nothing and saying why."""
+    data = win._doc(_M).data
+    del data["gateway"][0]                             # the lists no longer line up...
+    data["gateway"][0]["name"] = "renamed"             # ...and g1's name is no longer in the save
+    data["gateway"][0]["to"] = 999
+    win._touch(_M)
+    _mount(win, "gateway:0")
+    said = []
+    monkeypatch.setattr(win, "_show_problems", lambda verdict, problems: said.append(verdict))
+    win._reset_active()
+    assert _gateways(win) == [("renamed", 999), ("g2", 102)]       # untouched
+    assert said and "Nothing to reset" in said[0].headline
+
+
+def test_save_and_delete_on_a_row_that_is_gone_touch_nothing(win, monkeypatch):
+    """The form's row was removed under it: index 1 is now ANOTHER gateway. Its buttons must not
+    fall back to that index."""
+    _mount(win)
+    _type(win, "to", "555")
+    del win._doc(_M).data["gateway"][1]
+    monkeypatch.setattr(win, "_confirm", lambda title, text: True)
+    said = []
+    monkeypatch.setattr(win, "_show_problems", lambda verdict, problems: said.append(verdict))
+    win._save()
+    next(b for b in win.doc_host.findChildren(QPushButton) if b.text() == "Delete Gateway").click()
+    assert _gateways(win) == [("g0", 100), ("g2", 102)]
+    assert [v.headline for v in said] == ["This Gateway no longer exists"] * 2
+    disk = tomllib.loads(win.toml.read_text(encoding="utf-8"))
+    assert len(disk["gateway"]) == 3                   # and nothing was written
+
+
+def test_identity_tells_two_rows_with_equal_contents_apart(win):
+    """Found by ``is``, never by ``==``: two rows may hold exactly the same values."""
+    data = win._doc(_M).data
+    data["gateway"][2] = dict(data["gateway"][1])      # g2 is now a twin of g1, a distinct object
+    _mount(win, "gateway:2")
+    _type(win, "to", "555")
+    assert win._commit_active_ck()
+    assert [g["to"] for g in data["gateway"]] == [100, 101, 555]   # the SECOND twin, not the first
+
+
+def test_a_row_that_moved_takes_its_key_header_and_tree_row_with_it(win):
+    _mount(win)                                        # gateway:1 -- "g1"
+    win.tabs.setCurrentWidget(win.place_doc)
+    pd = _arm_place(win)
+    pd._on_region_deleted(_row(pd, "g0"))
+    ctx = win._save_ctx
+    assert (ctx["key"], ctx["idx"], ctx["mounted_key"]) == ("gateway:0", 0, "gateway:0")   # rebuilt
+    assert ctx["row"] is win._doc(_M).data["gateway"][0]
+    cur = win.tree.currentItem()
+    assert cur is not None and win._payload(cur)[2] == "gateway:0"  # the tree is back on that row
+
+
+def test_a_form_whose_row_was_deleted_on_the_art_is_replaced_and_the_tree_moves_on(win):
+    _mount(win)
+    win.tabs.setCurrentWidget(win.place_doc)
+    pd = _arm_place(win)
+    pd._on_region_deleted(_row(pd, "g1"))
+    assert win._save_ctx is None                       # no form left to write anything
+    cur = win.tree.currentItem()
+    assert cur is not None and win._payload(cur)[0] == "group"     # not a row that is gone
+
+
+@pytest.mark.parametrize("hook", ["_on_behavior_edit", "_on_cutscene_edit"])
+def test_the_behavior_and_cutscene_tabs_resync_the_form_too(win, hook):
+    """Those tabs change the same document through their own ops; the form behind them must
+    show what they wrote, or its next edit writes the old values back."""
+    _mount(win)
+    row = win._doc(_M).data["gateway"][1]
+    row["to"] = 4242                                   # what such an op does: mutate, then call its hook
+    getattr(win, hook)(_M, "an edit made in that tab")
+    ctx = win._save_ctx
+    assert forms.build_entity(ctx["spec"], read(ctx["getters"]))["to"] == 4242

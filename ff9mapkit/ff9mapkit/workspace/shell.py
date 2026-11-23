@@ -5164,6 +5164,7 @@ class Workspace(QMainWindow):
         if member in getattr(self, "_member_items", {}):
             self.tree.blockSignals(True)
             self._refresh_objects(member)
+            had = self._save_ctx
             self._resync_mounted_form(member)          # the Editor form behind this tab follows its row
             ctx = self._save_ctx                       # ...and the tree lands back on that row (the
             if ctx and ctx.get("member") == member:    # rebuilt rows are NEW items; signals are blocked,
@@ -5171,6 +5172,13 @@ class Workspace(QMainWindow):
                 if it is not None:
                     self.tree.setCurrentItem(it)
             self.tree.blockSignals(False)
+            if had and had.get("member") == member and self._save_ctx is None:
+                # its row was deleted on the art: land on that list's group row, UNblocked, so the
+                # Inspector, breadcrumb and Editor stop describing a row that no longer exists
+                node = (self._object_item(member, had["section"], kind="group")
+                        or self._member_items.get(member))
+                if node is not None:
+                    self.tree.setCurrentItem(node)
         else:
             self._resync_mounted_form(member)
         self._feed_place()
@@ -5798,11 +5806,19 @@ class Workspace(QMainWindow):
                 doc.data.pop(section, None)                    # it didn't exist at last save -> drop it
         else:
             i = self._ctx_idx(ctx)                             # the row on screen (heals ctx["key"])
-            src = self._ctx_base_row(ctx, i) if i is not None else None
-            if src is not None:                                # ITS saved copy -- not whatever row now
-                row = doc.data[section][i]                     # sits at the index it was mounted at.
-                row.clear()                                    # In place: the row keeps its identity
-                row.update(copy.deepcopy(src))
+            if i is None:
+                self._row_gone(_LIST_SINGULAR.get(section, section))
+                return
+            src = self._ctx_base_row(ctx, i)
+            if src is None:                                    # never paste a neighbour's values
+                self._show_problems(
+                    fb.Verdict(fb.WARN, "Nothing to reset this to",
+                               "rows were added or removed since the last save, so its saved copy "
+                               "cannot be told apart — use Undo (Ctrl+Z) instead"), [])
+                return
+            row = doc.data[section][i]                         # ITS saved copy -- not whatever row now
+            row.clear()                                        # sits at the index it was mounted at.
+            row.update(copy.deepcopy(src))                     # In place: the row keeps its identity
         key = ctx["key"]
         self._touched.discard(member)
         self._checkpoint(member, f"reset {section}", key)     # a Reset is itself an undoable change
@@ -7739,19 +7755,25 @@ class Workspace(QMainWindow):
         return i
 
     def _ctx_base_row(self, ctx, i):
-        """The LAST-SAVED copy of the row a list form is mounted on (live index ``i``), or None.
-        The saved list and the live one stop lining up by index the moment a row is added or
-        removed without a save, so the row is matched by NAME when that is unambiguous and by
-        index only while the two lists are the same length."""
+        """The LAST-SAVED copy of the row a list form is mounted on (live index ``i``), or None
+        when it cannot be told which saved row that is.
+
+        While the saved list and the live one are the same LENGTH they line up by index -- every
+        Editor route keeps them so (Add appends, Delete saves at once) -- and index is then the
+        only honest key: a row's NAME is one of the things Reset is there to put back, so matching
+        a renamed row by its new name handed it another row's saved copy. Once a row has been
+        removed without a save (a Place delete) the index is off by one for everything after it;
+        then, and only then, a name that is unique on both sides identifies the row. Otherwise
+        None: Reset says so instead of pasting a neighbour's values."""
         base = self._clean.get(ctx["member"], {}).get(ctx["section"], []) or []
         cur = self._docs[ctx["member"]].data.get(ctx["section"], []) or []
+        if len(base) == len(cur):
+            return base[i] if i < len(base) else None
         name = cur[i].get("name") if isinstance(cur[i], dict) else None
-        hits = [b for b in base if isinstance(b, dict) and name is not None and b.get("name") == name]
-        if len(hits) == 1:
-            return hits[0]
-        if len(base) == len(cur) and i < len(base):
-            return base[i]
-        return None
+        if name is None or sum(1 for r in cur if isinstance(r, dict) and r.get("name") == name) != 1:
+            return None
+        hits = [r for r in base if isinstance(r, dict) and r.get("name") == name]
+        return hits[0] if len(hits) == 1 else None
 
     def _row_gone(self, what="item"):
         self._show_problems(
