@@ -746,6 +746,7 @@ import json, sys
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QWidget
 app = QApplication([])
+print("QT-PLATFORM-UP", flush=True)     # the handshake: past here, a crash is a FAILURE, not a skip
 import ff9mapkit
 from ff9mapkit.editor import theme
 from ff9mapkit.workspace import style, widgets
@@ -795,8 +796,10 @@ def test_an_elide_button_at_its_own_hint_shows_its_whole_label_natively():
     r = subprocess.run([sys.executable, "-c", _NATIVE_ELIDE_CHILD], capture_output=True, timeout=300,
                        env=env, cwd=str(pkg_root))
     lines = r.stdout.decode("utf-8", "replace").strip().splitlines()
-    if r.returncode != 0 or not lines:
-        pytest.skip(f"no native Qt platform here: {r.stderr.decode('utf-8', 'replace')[-300:]}")
+    err = r.stderr.decode("utf-8", "replace")[-600:]
+    if "QT-PLATFORM-UP" not in lines:                  # QApplication itself never came up
+        pytest.skip(f"no native Qt platform here: {err}")
+    assert r.returncode == 0, f"the measuring child crashed AFTER Qt came up:\n{err}"   # (review of C17)
     out = json.loads(lines[-1])
     if out["platform"] in ("offscreen", "minimal"):
         pytest.skip(f"no native font database ({out['platform']})")
