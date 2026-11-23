@@ -176,6 +176,7 @@ def region_rows(data: dict) -> list:
     region laws: the TREADQUAD overlap judge (``build.region_overlap_pairs`` — one owner
     with the lint) and the engine-fan audit (``imagefield.zone_fan_audit``)."""
     from .. import build                            # lazy: the judge, not the builder
+    from .. import pack                             # the one owner of the id bands
     rows = []
     for kind in ("gateway", "event"):
         for idx, e in enumerate(data.get(kind, []) or []):
@@ -207,6 +208,12 @@ def region_rows(data: dict) -> list:
             if isinstance(to, bool) or (isinstance(to, int) and to <= 0) or to is None:
                 warns.append("NO TARGET — this door compiles to Field(0), a guaranteed black "
                              "screen; right-click it → Set gateway target")
+            elif isinstance(to, int) and to >= pack.CUSTOM_ID_MIN:
+                try:                                 # the band owner judges a custom id (a REAL
+                    pack.check_custom_id(to, "target")   # field id below the band is a legal target)
+                except ValueError as e:
+                    warns.append(f"{str(e).split(' -- ')[0]} — the door black-screens in-game; "
+                                 "right-click it → Set gateway target")
         else:
             ev = (data.get("event", []) or [])[r["index"]]
             if ev.get("message") == "..." and not (ev.get("received") and "give_item" in ev):
@@ -897,8 +904,12 @@ class PlaceDoc(QWidget):
         r = self._region_rows_cache[i]
         if r["kind"] != "gateway":
             return
-        cur = (self._data.get("gateway", []) or [])[r["index"]].get("to") or 0
-        to = self._ask_field_id(cur)
+        cur = (self._data.get("gateway", []) or [])[r["index"]].get("to")
+        if cur is not None and not isinstance(cur, int):   # "worldmap" (or any non-id): the id
+            self._refresh(f"{r['label']} goes to the world map ({cur!r}), not a field — change "   # dialog
+                          "where it leads in the Editor form (Gateways).", "warn")   # cannot say it
+            return
+        to = self._ask_field_id(cur or 0)
         if to is None:
             return
         label = set_gateway_target(self._data, r["index"], to)

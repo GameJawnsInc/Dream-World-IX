@@ -1155,6 +1155,33 @@ def test_regions_status_speaks_of_the_kind_being_drawn(app):
     assert "walk-out" not in d.status.text()
 
 
+@pytest.mark.parametrize("to, warned", [(9005, True), (9000, True), (9012, True),
+                                        (8999, False), (9013, False), (351, False),
+                                        (4005, False), (30001, False)])
+def test_a_door_into_the_world_map_hole_warns_on_the_art(to, warned):
+    """Review finding P12. A target in the engine-reserved 9000-9012 hole built clean and
+    black-screens in-game; only to <= 0 warned. Judged by the band owner (pack.check_custom_id)
+    -- a REAL field id stays a legal target."""
+    data = {"gateway": [{"name": "door0", "to": to,
+                         "zone": [[0, 500], [100, 500], [100, 600], [0, 600]]}]}
+    (row,) = P.region_rows(data)
+    assert bool(row["warn"] and "world-map hole" in row["warn"]) is warned, row["warn"]
+
+
+def test_set_gateway_target_leaves_a_world_map_door_alone(app, monkeypatch):
+    """Review finding P12. The quad menu offered Set gateway target on a to="worldmap" door; its
+    integer dialog could not say "worldmap", and OK turned the door into a field warp."""
+    data = {"field": {"source_field": 351},
+            "gateway": [{"name": "out", "to": "worldmap",
+                         "zone": [[0, 500], [100, 500], [100, 600], [0, 600]]}]}
+    d, calls = _regions_on(app, data)
+    asked = []
+    monkeypatch.setattr(d, "_ask_field_id", lambda cur: asked.append(cur) or 100)
+    d._on_region_retarget(0)
+    assert asked == [] and calls == [] and data["gateway"][0]["to"] == "worldmap"
+    assert "world map" in d.status.text() and "Editor" in d.status.text(), d.status.text()
+
+
 def test_place_speaks_of_every_lane_not_only_forks(app):
     """Review finding P22. Place serves novel, traced and composed fields too, but its empty
     state sent the author off to fork something, and Load spoke only of a donor."""
