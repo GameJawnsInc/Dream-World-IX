@@ -625,6 +625,45 @@ def test_load_rereads_a_project_room_that_changed_on_disk(app, tmp_path):
     assert got == (round(x0 / 2), round(x1 / 2)), f"Load kept the old floor {got}, not the re-exported one"
 
 
+def test_a_same_named_room_in_another_file_does_not_keep_the_old_surface(app, tmp_path):
+    """Review finding P5. Every traced project is called PICTURE by default. "Same field" was
+    decided by that NAME, so opening another PICTURE kept the previous room's art and walkmesh
+    armed, and a click raycast against the OLD room was written into the NEW file's doc."""
+    d, calls = _doc(app)
+    one, two = tmp_path / "one" / "PICTURE.field.toml", tmp_path / "two" / "PICTURE.field.toml"
+    first, second = {"field": {"id": 30058}}, {"field": {"id": 30059}}
+    d.show_field("PICTURE", first, one)
+    d._bundles[(d._source, 0)] = dict(_bundle(), source=d._source)
+    d._apply_bundle(d._bundle(), refit=True)
+    QApplication.processEvents()
+    wpt = d.canvas.world_to_click((0.0, 1500.0))
+    pos = QPoint(round(wpt.x()), round(wpt.y()))
+    d.show_field("PICTURE", second, two)                 # the shell's feed for the other project
+    assert not d.canvas._place_mode and not d.canvas._surface_tris
+    QTest.mouseClick(d.canvas.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+    assert calls == [] and "npc" not in second
+    d.show_field("PICTURE", second, two)                 # a re-feed of the SAME file keeps its view
+    d._bundles[(d._source, 0)] = dict(_bundle(), source=d._source)
+    d._apply_bundle(d._bundle(), refit=True)
+    d.show_field("PICTURE", second, two)
+    assert d.canvas._place_mode and d.canvas._surface_tris
+
+
+def test_a_fork_that_gains_its_own_art_drops_the_donor_surface(app):
+    """Same name, same file, but the surface's SOURCE moved: the fork now ships its own [[layers]]
+    (an `import --editable` scene), so the donor's real room it was placed on is not its room."""
+    d, _ = _doc(app)
+    path = Path("C:/somewhere/FORK.field.toml")
+    d.show_field("FORK", {"field": {"source_field": 351}}, path)
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundle(), refit=True)
+    assert d.canvas._place_mode
+    d.show_field("FORK", {"field": {"source_field": 351},
+                          "layers": [{"image": "back.png", "z": 1000}]}, path)
+    assert d._source[0] == "project"
+    assert not d.canvas._place_mode and not d.canvas._surface_tris
+
+
 def test_load_of_a_donor_room_is_still_served_from_the_cache(app):
     """The donor's real room comes from the install, which does not change mid-session."""
     d, _ = _doc(app)

@@ -534,8 +534,11 @@ class PlaceDoc(QWidget):
         """The one feed: the OPEN doc's parsed dict (by reference — the ops mutate exactly the
         buffer the Editor and Save see). Cheap by design: no disk here (the startup-spend law);
         the donor surface loads on the user's own Load click."""
-        same = member == self._member
         from .. import build                        # lazy: the resolver, not the builder
+        # "The same field" is the same SURFACE SOURCE (a project's own file, or a donor room), never
+        # just the same name: every traced project is called PICTURE, and a name match kept the
+        # previous room's art and walkmesh armed while clicks wrote into the new doc (finding P5).
+        old = (self._member, getattr(self, "_source", None))
         self._member, self._data = member, data
         self._path = Path(path) if path else None
         self._donor = build.donor_field_id(data)
@@ -554,6 +557,7 @@ class PlaceDoc(QWidget):
         own_scene = bool(data.get("layers"))
         self._source = (("real", self._donor) if self._donor is not None and not own_scene
                         else ("project", str(self._path)) if self._path else None)
+        same = old == (self._member, self._source)
         if self._blocked is None and self._source is None:
             self._blocked = ("this field has not been saved to disk yet — Place needs a file to "
                              "resolve its camera and walkmesh from")
