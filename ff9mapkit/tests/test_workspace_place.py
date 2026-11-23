@@ -1419,6 +1419,66 @@ def test_with_a_fork_open_the_control_row_floors_at_its_wider_half(app, tool):
     assert fl.toolTip() == fl.fullText() and "351" in fl.toolTip()
 
 
+_NATIVE_FIELD_LABEL_CHILD = r'''
+import json, sys, tempfile
+from pathlib import Path
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication
+app = QApplication([])
+print("QT-PLATFORM-UP", flush=True)     # the handshake: past here, a crash is a FAILURE, not a skip
+import ff9mapkit
+from ff9mapkit import prefs, provision
+_tmp = Path(tempfile.mkdtemp())          # never the developer's prefs or config
+prefs._path = lambda: _tmp / "prefs.json"
+provision._user_dir = lambda sub: _tmp / sub
+from ff9mapkit.editor import theme
+from ff9mapkit.workspace import placedoc as P, style
+pal = theme.pick_palette("mist")
+cut = []
+for scale in (100, 110, 125, 150):
+    app.setStyleSheet(style.qss(pal, "comfortable", scale))
+    d = P.PlaceDoc(pal, on_edit=lambda *a: None, scale=scale)
+    d.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+    d.show_field("PLACEDEMO", {"field": {"source_field": 351}}, Path("C:/x/PLACEDEMO.field.toml"))
+    d.resize(1600, 700)                  # room to spare: the label sits at its own hint
+    d.show()
+    app.processEvents(); app.processEvents()
+    fl = d.field_label
+    if fl.text() != fl.fullText():
+        cut.append(f"{scale}%: {fl.fullText()!r} -> {fl.text()!r} at w{fl.width()} "
+                   f"hint {fl.sizeHint().width()}")
+    d.hide()
+print(json.dumps({"platform": app.platformName(), "file": ff9mapkit.__file__, "cut": cut}))
+'''
+
+
+def test_the_field_name_is_whole_when_the_row_has_room_natively():
+    """Review of P17: ElideLabel's sizeHint is the ROUNDED advance while its elide measures the
+    fractional one, so at 150% the label got exactly its hint and read 'donor field #3...' with
+    ~550px free -- the one fact the line exists to show. Native platform only (offscreen widths
+    are fiction); the ElideButton twin is C17 in test_workspace_widgets.py."""
+    import json
+    import subprocess
+    import sys
+
+    pkg_root = Path(ff9mapkit.__file__).resolve().parent.parent
+    env = {k: v for k, v in os.environ.items() if k != "QT_QPA_PLATFORM"}
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["FF9MAPKIT_NO_THUMBS"] = "1"
+    r = subprocess.run([sys.executable, "-c", _NATIVE_FIELD_LABEL_CHILD], capture_output=True,
+                       timeout=300, env=env, cwd=str(pkg_root))
+    lines = r.stdout.decode("utf-8", "replace").strip().splitlines()
+    err = r.stderr.decode("utf-8", "replace")[-600:]
+    if "QT-PLATFORM-UP" not in lines:
+        pytest.skip(f"no native Qt platform here: {err}")
+    assert r.returncode == 0, f"the measuring child crashed AFTER Qt came up:\n{err}"
+    out = json.loads(lines[-1])
+    if out["platform"] in ("offscreen", "minimal"):
+        pytest.skip(f"no native font database ({out['platform']})")
+    assert Path(out["file"]).resolve().is_relative_to(pkg_root)
+    assert out["cut"] == [], "\n".join(out["cut"])
+
+
 def test_place_speaks_of_every_lane_not_only_forks(app):
     """Review finding P22. Place serves novel, traced and composed fields too, but its empty
     state sent the author off to fork something, and Load spoke only of a donor."""

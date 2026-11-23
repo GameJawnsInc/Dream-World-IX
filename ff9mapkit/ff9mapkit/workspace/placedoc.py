@@ -36,12 +36,13 @@ and the surface matches what the build ships) and touches no game install.
 
 from __future__ import annotations
 
+import math
 import os
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtGui import QCursor, QPixmap
+from PySide6.QtCore import QObject, QSize, Qt, Signal
+from PySide6.QtGui import QCursor, QFontMetricsF, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup, QComboBox, QHBoxLayout, QLabel, QMenu, QPushButton, QRadioButton,
     QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
@@ -264,6 +265,18 @@ def content_markers(data: dict) -> list:
 floor_y_at = imagefield.floor_y_at
 
 
+class _FieldLabel(widgets.ElideLabel):
+    """The control row's field name. ElideLabel's sizeHint is the ROUNDED integer advance, but
+    its elide tests the real (fractional) one against that width: at 150% Segoe UI the hint was
+    305+2 while elidedText needed 306, so the label got exactly its hint and still read
+    'donor field #3…' with hundreds of px free (review of P17). Ask for the ceiling instead."""
+
+    def sizeHint(self):
+        hint = super().sizeHint()
+        adv = QFontMetricsF(self.font()).horizontalAdvance(self.fullText())
+        return QSize(max(hint.width(), math.ceil(adv) + 3), hint.height())
+
+
 # --------------------------------------------------------------------- the async surface load
 class _SurfaceLoader(QObject):
     """One background build of a donor room's place surface (camera + mesh + composited art).
@@ -476,7 +489,7 @@ class PlaceDoc(QWidget):
         row.setSpacing(8)
         # min_ch 24: the lead stays narrower than the tail (the floor is unchanged), but the row
         # spills before the name is cut -- at 10 it read 'hut_int — d…' in a 1280 window
-        self.field_label = widgets.ElideLabel("no field", "muted", min_ch=24)
+        self.field_label = _FieldLabel("no field", "muted", min_ch=24)
         # Preferred, not ElideLabel's Ignored: it takes its whole text when there is room and
         # yields to min_ch when there is not, so Load stays beside it instead of at the far end
         self.field_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
