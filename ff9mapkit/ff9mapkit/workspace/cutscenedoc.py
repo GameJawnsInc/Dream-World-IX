@@ -665,6 +665,8 @@ class CutsceneDoc(QWidget):
         self._guide_state = "nofield"
         self._wmesh = None                         # the staging lane's cached walkmesh (per field)
         self._last_stage = None                    # the last StagingResult (tests/snaps read it)
+        self._verdicts = []                        # EVERY scene's verdict rows; the stage paints
+        #                                            only the selected scene's (_paint_verdicts)
         self._stage_busy = False
         self._stage_armed = False                  # first EXPLICIT check arms auto re-judges
         self._stage_gen = 0                        # field switch/close drops in-flight results
@@ -1049,6 +1051,7 @@ class CutsceneDoc(QWidget):
         handles = self._stage_handles()
         self.canvas.set_edit(bool(handles))
         self.canvas.set_selected_step(self._selected_step)
+        self._paint_verdicts()                     # a scene switch re-filters the rows
         self.canvas.set_scene(cutscenescan.stage_model(raw, self._scene), refit=refit,
                               handles=handles)
         if self.settings_btn.isChecked():          # isChecked, not isVisible: visibility is a lie
@@ -1511,9 +1514,15 @@ class CutsceneDoc(QWidget):
         for lbl, why in res.skipped:
             self.stage_list.addItem(f"? {lbl} not checked — {why}")
         self.stage_list.setVisible(self.stage_list.count() > 0)
-        self.canvas.set_verdicts(rows)
+        self._verdicts = list(rows or [])
+        self._paint_verdicts()
         if self.board_btn.isChecked():
             self._refresh_board()                  # the warm mesh upgrades straight legs to routes
+
+    def _paint_verdicts(self):
+        """The stage shows ONE scene, so it paints only that scene's verdicts: another scene's
+        stall would land on this scene's step of the same number (a different, fine step)."""
+        self.canvas.set_verdicts([r for r in self._verdicts if r.get("scene") == self._scene])
 
     def _restage(self):
         if self._stage_busy:
@@ -1534,5 +1543,6 @@ class CutsceneDoc(QWidget):
         widgets.set_state(self.stage_note, "")
         self.stage_list.clear()
         self.stage_list.setVisible(False)
+        self._verdicts = []
         if hasattr(self, "canvas"):
             self.canvas.set_verdicts([])

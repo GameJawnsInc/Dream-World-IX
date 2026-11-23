@@ -298,6 +298,29 @@ def test_stage_now_sync_paints_the_summary_and_the_verdicts(doc, tmp_path):
     assert doc._wmesh is not None and doc._stage_armed
 
 
+_TWO_CAST = FIELD_TOML.replace(
+    '[[cutscene]]\nrequires_scenario = 300\nsteps = [\n  { say = "Dusk falls over the glen." },\n'
+    '  { wait = 30 },\n]',
+    '[[cutscene]]\nactors = ["Cid"]\nrequires_scenario = 300\n'
+    'steps = [ { walk = [2000, 2000], actor = "Cid" } ]')
+
+
+def test_a_stall_paints_only_on_its_own_scene(doc, tmp_path):
+    """C1: the verdict rows cover EVERY cast scene; the stage shows ONE. A stall in scene #1 must
+    not paint 'step 0 stalls here' on scene #0's stage (a different, fine step), and switching
+    scenes re-filters."""
+    assert "walk = [2000, 2000]" in _TWO_CAST, "the fixture edit must land"
+    _fed(doc, tmp_path, _TWO_CAST)
+    doc.stage_now(sync=True)
+    assert "1 staging problem" in doc.stage_note.text()
+    assert doc._scene == 0
+    assert _tags(doc.canvas)["verdict"] == 0, "scene #1's stall painted on scene #0's stage"
+    doc.rail.setCurrentRow(1)
+    assert _tags(doc.canvas)["verdict"] >= 1, "its own scene paints it"
+    doc.rail.setCurrentRow(0)
+    assert _tags(doc.canvas)["verdict"] == 0, "switching back re-filters"
+
+
 def test_a_clean_staging_says_so_and_paints_nothing(doc, tmp_path):
     _fed(doc, tmp_path)
     doc.stage_now(sync=True)
