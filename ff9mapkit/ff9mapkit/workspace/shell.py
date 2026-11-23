@@ -1230,8 +1230,8 @@ class Workspace(QMainWindow):
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.Yes) != QMessageBox.StandardButton.Yes:
             return
-        if not self._maybe_prompt_unsaved():               # QApplication.quit() skips closeEvent -> guard here
-            return
+        if not self.close():                               # closeEvent is the ONE ask (fields + trace); the
+            return                                         # updater starts only once it is accepted
         launcher = (shutil.which("ff9mapkit-workspace")
                     or str(Path.home() / ".local" / "bin" / "ff9mapkit-workspace.exe"))
         try:
@@ -8060,13 +8060,19 @@ class Workspace(QMainWindow):
         self._mark_clean(member)
         return True
 
-    def _maybe_prompt_unsaved(self) -> bool:
+    def _maybe_prompt_unsaved(self, *, closing=False) -> bool:
         """Before a file switch / window close: fold the active form in, and if any cached field has
         unsaved edits, offer Save / Discard / Cancel. Returns False ONLY on Cancel (caller aborts).
+        ``closing`` (the app is going away) also asks about a Trace session the last Generate has
+        not written -- it lives only in memory (finding T25); a file switch leaves it alone.
         Headless/offscreen never blocks (returns True)."""
         self._commit_active_ck()                   # the in-progress form's edits count toward dirty (+ checkpoint)
         if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
             return True
+        if closing and self.trace_doc.has_unsaved() and not self._confirm(
+                "Discard the traced session?",
+                "The Trace tab has work the last Generate has not written. Close anyway?"):
+            return False
         dirty = self._dirty_members()
         if not dirty:
             return True
@@ -8133,7 +8139,7 @@ class Workspace(QMainWindow):
         return self.open_save(str(p))              # .dat / save JSON
 
     def closeEvent(self, event):                   # noqa: N802 (Qt override)
-        if self._maybe_prompt_unsaved():
+        if self._maybe_prompt_unsaved(closing=True):
             self._save_layout()                    # window/splitters/console come back next launch
             self.world_doc.shutdown()              # a live-folder write runs to its end; an in-game edit goes back
             event.accept()

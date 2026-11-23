@@ -1937,7 +1937,8 @@ def snap_trace(ctx: _Ctx, state: str) -> None:
         _settle(6)
     _grab(ctx, f"trace-{state}", win)
     _grab(ctx, f"trace-{state}-canvas", win.trace_doc.canvas)   # the SUBJECT, not just the window
-    _close(win)
+    with _no_modals():                                 # a traced, un-generated session now asks
+        _close(win)                                    # before the window closes (finding T25)
 
 
 PLACE_STATES = ("bare", "fork", "refused", "regions")
