@@ -460,7 +460,10 @@ class StepEditor(QFrame):
             for key in ("speaker", "tail", "style"):
                 s = getattr(self, f"x_{key}").text().strip()
                 if s:
-                    step[key] = s
+                    # an all-digit style is the raw flags BYTE: content.text.resolve_style reads
+                    # a string as a style NAME, so "128" must go back as the int 128
+                    step[key] = (int(s) if key == "style" and s.isdecimal() and s.isascii()
+                                 else s)
             for key in ("window", "speed", "duration", "signal"):
                 s = getattr(self, f"x_{key}").text().strip()
                 if s:

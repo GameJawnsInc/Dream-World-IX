@@ -482,6 +482,26 @@ def test_the_pacing_extras_round_trip_and_validate_clean(doc, tmp_path):
     assert len(doc._steps()) == n and doc._steps()[0]["duration"] == 90, "no op fired"
 
 
+def test_a_raw_window_style_byte_round_trips_as_an_int(doc, tmp_path):
+    """C5: style = 128 is the documented raw-flags-byte form. The build reads a STRING as a style
+    NAME, so an Apply that wrote '128' back broke a valid step (even an Apply that only fixed a
+    typo in the line). A name stays a name."""
+    from ff9mapkit.content import text as _text
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc._steps()[0]["style"] = 128
+    doc._edit_step(0)
+    assert doc.editor.x_style.text() == "128"
+    doc.editor.value_text.setPlainText("Dusk falls over the glen!")   # a typo fix, nothing else
+    doc._apply_step()
+    assert doc._steps()[0]["style"] == 128, doc._steps()[0]
+    _text.resolve_style(doc._steps()[0]["style"])          # the build accepts what was written
+    assert doc.editor.step_i == 0, "the editor stays on its row after Apply"
+    doc.editor.x_style.setText("notail")
+    doc._apply_step()
+    assert doc._steps()[0]["style"] == "notail", "a style NAME stays a name"
+
+
 def test_a_window_step_round_trips_and_the_valueless_kind_hides_its_value(doc, tmp_path):
     _fed(doc, tmp_path)
     doc.rail.setCurrentRow(1)
