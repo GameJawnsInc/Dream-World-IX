@@ -1004,3 +1004,163 @@ def test_the_regions_tool_shows_the_traced_floor_edge(app):
     n0 = len(calls)                                          # corners, not vertices
     _click(c, (200.0, 300.0))
     assert len(calls) == n0 and len(c._pending_region) == 1
+
+
+# --------------------------------------------------------------------------- furniture ON the art
+# The art is an ARBITRARY ground. These fences read RENDERED pixels (colour is font-independent,
+# so offscreen colour holds) over art that spans the luminance range, in every shipped theme.
+
+_ARTS = {"black": "#000000", "white": "#ffffff", "tan floor": "#9e8460", "navy wall": "#26293a"}
+
+
+def _lum(c):
+    def ch(v):
+        v /= 255
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+    return 0.2126 * ch(c[0]) + 0.7152 * ch(c[1]) + 0.0722 * ch(c[2])
+
+
+def _cr(a, b):
+    la, lb = _lum(a), _lum(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def _furnished(app, theme, art):
+    """Every kind of on-art furniture over a flat ``art`` ground: trace legs + vertices (one
+    above the horizon), a contact, a gateway, a marker."""
+    from PySide6.QtGui import QColor
+    c = BackdropCanvas(pick_palette(theme), on_floor=lambda pts: None)
+    pm = QPixmap(384, 448)
+    pm.fill(QColor(art))
+    c.set_backdrop(pm, guide.make_camera(20.0, 3000.0, fov_x_deg=42.0))   # horizon y ~54
+    c.set_trace_mode(True)
+    c.resize(500, 560)
+    c.show()
+    QApplication.processEvents()
+    c.viewport().repaint()
+    c.set_floor([(60.0, 30.0), (330.0, 120.0), (360.0, 430.0), (30.0, 430.0)])   # 0 is bad
+    c.set_cutouts([{"i": 0, "pixmap": None, "rect": None, "contact": (200.0, 300.0),
+                    "label": "fg0 · z 1073", "bad": False, "locked": True}])
+    c.set_regions([{"i": 0, "quad": _GW_QUAD, "label": "door0 → 4005", "kind": "gateway",
+                    "warn": None}])
+    c.set_markers([{"pos": (0.0, 0.0, 2200.0), "label": "Mira", "kind": "npc"}])
+    QApplication.processEvents()
+    return c
+
+
+def _viewport_rgb(c):
+    img = c.viewport().grab().toImage()
+    return lambda x, y: img.pixelColor(x, y).getRgb()[:3], img.width(), img.height()
+
+
+def _label_rect(c, lab):
+    base = c.mapFromScene(lab["anchor"].pos())
+    p = lab["plate"].pos()
+    return QPointF(base.x() + p.x(), base.y() + p.y()), lab["w"], lab["h"]
+
+
+@pytest.mark.parametrize("theme", ["light", "dark", "mist", "dracula"])
+@pytest.mark.parametrize("art", list(_ARTS))
+def test_on_art_text_and_glyphs_hold_contrast_on_any_art(app, theme, art):
+    """P20: every label's ink clears 4.5:1 against what is actually painted behind it, and
+    every handle/glyph puts a pixel within 3:1-or-better reach of the art around it."""
+    from collections import Counter
+    c = _furnished(app, theme, _ARTS[art])
+    px, W, H = _viewport_rgb(c)
+    texts = [lab["text"].text() for lab in c._labels]
+    assert any("door0" in t for t in texts) and any("fg0" in t for t in texts)
+    assert any("Mira" in t for t in texts) and any("✕" in t for t in texts)
+    for lab in c._labels:
+        tl, w, h = _label_rect(c, lab)
+        x0, y0 = int(tl.x()) + 2, int(tl.y()) + 2
+        pts = [px(x, y) for y in range(y0, min(H, y0 + int(h) - 3))
+               for x in range(x0, min(W, x0 + int(w) - 3)) if x >= 0 and y >= 0]
+        assert pts, lab["text"].text()
+        ground = Counter(pts).most_common(1)[0][0]
+        ink = max(_cr(p, ground) for p in pts)
+        assert ink >= 4.5, f"{theme}/{art}: '{lab['text'].text()}' ink {ink:.2f}:1"
+    art_rgb = tuple(int(_ARTS[art][i:i + 2], 16) for i in (1, 3, 5))
+    for anchor, box in c._glyphs:
+        b = c.mapFromScene(anchor.pos())
+        ring = [px(int(b.x() + dx), int(b.y() + dy)) for dy in range(-9, 10)
+                for dx in range(-9, 10) if 0 <= b.x() + dx < W and 0 <= b.y() + dy < H]
+        assert max(_cr(p, art_rgb) for p in ring) >= 3.0, f"{theme}/{art}: a glyph vanishes"
+
+
+@pytest.mark.parametrize("theme", ["light", "dark", "mist", "dracula"])
+def test_every_on_art_stroke_clears_3_to_1_against_its_casing(app, theme):
+    """P20, the lines: a leg / outline / horizon / footprint edge is always adjacent to its own
+    casing, so THAT pair carries the 3:1 non-text floor, whatever the art does. And the casing
+    is really painted under the stroke (read from pixels on a mid-grey ground)."""
+    from PySide6.QtGui import QColor
+    c = _furnished(app, theme, "#808080")
+    for key in ("accent", "warn", "error"):
+        col = QColor(c.pal[key])
+        case = c._casing(col)
+        assert _cr(col.getRgb()[:3], case.getRgb()[:3]) >= 3.0, (theme, key)
+    px, W, H = _viewport_rgb(c)
+    a, b = (c.viewportTransform().map(QPointF(*p)) for p in ((360.0, 430.0), (30.0, 430.0)))
+    mx, my = int((a.x() + b.x()) / 2), int((a.y() + b.y()) / 2)   # the leg 2 -> 3 (horizontal)
+    column = [px(mx, y) for y in range(my - 4, my + 5)]
+    case = c._casing(QColor(c.pal["accent"])).getRgb()[:3]
+    grey = (128, 128, 128)                 # the casing pulls the leg's flank away from the art,
+    toward = (lambda p: _lum(p) < _lum(grey)) if _lum(case) < _lum(grey) else \
+        (lambda p: _lum(p) > _lum(grey))   # on the casing's side (antialiasing blends it)
+    assert any(toward(p) and _cr(p, grey) >= 2.0 for p in column), \
+        ("no casing under the leg", column, case)
+
+
+def test_labels_never_overprint_each_other_or_a_handle(app):
+    """P21: far-back zones compress to a few pixels; their labels used to pile into one
+    unreadable cluster under the corner handles. Labels now take free tiers."""
+    c, *_ = _region_canvas(app)
+    quads = [[(x - 150.0, 2600.0), (x + 150.0, 2600.0), (x + 150.0, 2900.0), (x - 150.0, 2900.0)]
+             for x in (-250.0, 0.0, 250.0)]
+    c.set_regions([{"i": n, "quad": q, "label": f"zone{n} → 40{n}5", "kind": "event",
+                    "warn": "over-trigger" if n == 1 else None} for n, q in enumerate(quads)])
+    c.set_markers([{"pos": (0.0, 0.0, 2750.0), "label": "Mira", "kind": "npc"}])
+    from PySide6.QtCore import QRectF
+    rects = []
+    for lab in c._labels:
+        tl, w, h = _label_rect(c, lab)
+        rects.append(QRectF(tl.x(), tl.y(), w, h))
+    assert len(rects) == 4
+    for a in range(len(rects)):
+        for b in range(a + 1, len(rects)):
+            assert not rects[a].intersects(rects[b]), (a, b)
+    for anchor, box in c._glyphs:
+        g = box.translated(c.mapFromScene(anchor.pos()).toPointF())
+        assert not any(r.intersects(g) for r in rects), "a label hides a handle"
+    assert not any(lab["text"].text() in "0123" for lab in c._labels)   # no corner indices
+    lines = [it.zValue() for it in c._scene.items() if it.data(0) in ("casing", "regionquad")]
+    assert all(lab["anchor"].zValue() > max(lines) for lab in c._labels)   # never struck out
+
+
+def test_markers_speak_their_kind_by_shape(app):
+    """P25: npc / prop / chest / spawn / arrival were five identical rings."""
+    from PySide6.QtWidgets import QGraphicsPathItem
+    c, _, _ = _place_canvas(app, [_RAMP])
+    kinds = ["npc", "prop", "chest", "spawn", "arrival"]
+    c.set_markers([{"pos": (-400.0 + 200 * n, 0.0, 1500.0), "label": k, "kind": k}
+                   for n, k in enumerate(kinds)])
+    shapes = {}
+    for k in c._kids:                                     # RETAINED wrappers only
+        if isinstance(k, QGraphicsPathItem) and k.data(2) == "marker" and \
+                k.pen().color().name() == "#ffffff":     # the glyph itself, not its halo
+            p = k.path()
+            br = p.boundingRect()
+            shapes[k.data(3)] = (round(br.width(), 1), round(br.height(), 1), p.elementCount())
+    assert sorted(shapes) == sorted(kinds)
+    assert len(set(shapes.values())) == len(kinds), shapes
+
+
+def test_an_invalid_vertex_differs_by_shape_not_only_colour(app):
+    """V13: a vertex above the horizon is a HOLLOW ring with a ✕ in its label."""
+    from PySide6.QtWidgets import QGraphicsEllipseItem
+    c, _, _ = _trace_canvas(app, pitch=20.0)                  # horizon y ~54
+    c.set_floor([(130.0, 30.0), (254.0, 200.0), (364.0, 440.0)])
+    dots = [k for k in c._kids if isinstance(k, QGraphicsEllipseItem)]
+    styles = [d.brush().style() for d in dots]
+    assert styles.count(Qt.BrushStyle.NoBrush) == 1 and styles.count(Qt.BrushStyle.SolidPattern) == 2
+    texts = sorted(lab["text"].text() for lab in c._labels if "horizon" not in lab["text"].text())
+    assert texts == ["0 ✕", "1", "2"]
