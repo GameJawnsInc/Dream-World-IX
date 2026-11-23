@@ -1383,6 +1383,55 @@ def test_the_cut_out_strip_shares_the_tools_row_when_it_fits(app, tmp_path, monk
     assert before - doc.canvas.height() < doc.fg_box.sizeHint().height() // 2
 
 
+def test_unsaved_trace_work_is_what_the_last_generate_has_not_seen(app, tmp_path, monkeypatch):
+    """Finding T25: the session lives only in memory until Generate writes it. has_unsaved is
+    the ONE predicate both guards (Open over it, the app closing) spend."""
+    pytest.importorskip("PIL")
+    doc, _ = _doc(app)
+    assert not doc.has_unsaved()                       # nothing loaded
+    doc.load_image(_photo(tmp_path))
+    assert not doc.has_unsaved()                       # a photo alone is no work
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    assert doc.has_unsaved()
+    doc.id_box.setText("30777")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    assert not doc.has_unsaved()                       # the record + project now hold it
+    doc.canvas._commit_floor([(120, 210), (254, 200), (364, 440), (20, 440)])
+    assert doc.has_unsaved()                           # an edit the project lacks
+
+
+def test_opening_another_image_over_unsaved_work_asks_first(app, tmp_path, monkeypatch):
+    """Open (and the 'Load <open field>' offer) used to clear the floor, regions and Undo history
+    with no question at all."""
+    pytest.importorskip("PIL")
+    doc, _ = _traced(app, tmp_path)
+    other = tmp_path / "elsewhere"
+    other.mkdir()
+    monkeypatch.setattr(doc, "_ask_image", lambda: str(_photo(other)))
+    asked = []
+    answer = {"v": False}
+
+    def ask():
+        asked.append(1)
+        return answer["v"]
+
+    monkeypatch.setattr(doc, "_ask_discard", ask)
+    floor = list(doc._floor)
+    doc.on_open()
+    assert asked and doc._floor == floor and doc._history   # declined: nothing touched
+    toml, _f = _built_project(tmp_path)
+    doc._offer_path = str(toml)
+    doc.on_offer()
+    assert len(asked) == 2 and doc._floor == floor          # the offer asks too
+    answer["v"] = True
+    doc.on_open()
+    assert doc._floor == [] and doc._image.parent == other  # accepted: the new photo
+    asked.clear()
+    doc.on_open()                                           # nothing unsaved now: no question
+    assert not asked
+
+
 def test_the_canvas_keeps_a_usable_minimum(app):
     """The canvas had no minimum of its own (66 px, the scroll area's). A floor ABOVE what the
     window can give overpaints the rows below, so it is modest: 96 px (measured natively, the

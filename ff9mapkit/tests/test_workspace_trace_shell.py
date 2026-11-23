@@ -499,6 +499,34 @@ def test_ctrl_z_on_the_floorplan_tab_undoes_the_floorplan_not_another_tabs_edit(
 
 
 # ------------------------------------------------------------- the job pipe speaks UTF-8 (E10)
+def test_closing_the_app_over_an_ungenerated_trace_asks_first(win, tmp_path, monkeypatch):
+    """Finding T25: closeEvent asked only about field documents, so a traced session (floor,
+    doors, event messages) was discarded with the window. Only CLOSING asks: an Editor file
+    switch does not touch the trace and must not question it."""
+    from PySide6.QtGui import QCloseEvent
+    td = win.trace_doc
+    td.load_image(_project(tmp_path)[0])
+    td.canvas._commit_floor(_FLOOR)
+    monkeypatch.setenv("QT_QPA_PLATFORM", "windows")   # read by the guard only: the app is built
+    asked = []
+    answer = {"v": False}
+
+    def confirm(title, text):
+        asked.append(title)
+        return answer["v"]
+
+    monkeypatch.setattr(win, "_confirm", confirm)
+    assert win._maybe_prompt_unsaved() and not asked   # a file switch: not the trace's business
+    ev = QCloseEvent()
+    win.closeEvent(ev)
+    assert asked and not ev.isAccepted()               # declined: the window stays
+    answer["v"] = True
+    monkeypatch.setattr(win.world_doc, "shutdown", lambda: None)
+    ev = QCloseEvent()
+    win.closeEvent(ev)
+    assert ev.isAccepted()
+
+
 def _run_real_job(win, app, code):
     """A REAL run_job: a Python child through the shell's own QProcess, waited out."""
     import sys

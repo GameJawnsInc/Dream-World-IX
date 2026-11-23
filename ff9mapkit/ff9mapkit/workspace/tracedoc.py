@@ -582,9 +582,35 @@ class TraceDoc(QWidget):
         self._refresh_cutouts()
         self._refresh(err if err else f"fg{i} re-anchored → z {z}", "error" if err else "")
 
+    # ------------------------------------------------------------------ unsaved work (T25)
+    def has_unsaved(self) -> bool:
+        """Traced work the last Generate has not seen: the session lives only in memory until
+        Generate writes its record, so this is what Open and closing the app would discard."""
+        if self._image is None or not (self._floor or self._fg or self._regions):
+            return False
+        return self._project is None or not self._stamped
+
+    def _ask_discard(self):
+        """Instance dialog behind a seam (a static execs in C++ past every test patch).
+        Headless never blocks, like the shell's own unsaved prompt."""
+        import os
+        if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+            return True
+        from PySide6.QtWidgets import QMessageBox
+        box = QMessageBox(self)
+        box.setWindowTitle("Discard the traced session?")
+        box.setText("This trace has work the last Generate has not written.")
+        box.setInformativeText("Opening something else discards it. Continue?")
+        box.setStandardButtons(QMessageBox.StandardButton.Discard
+                               | QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        return box.exec() == QMessageBox.StandardButton.Discard
+
     # ------------------------------------------------------------------ image
     def on_open(self):
         path = self._ask_image()
+        if path and self.has_unsaved() and not self._ask_discard():
+            return
         if path:
             try:
                 if str(path).endswith(".trace.json"):  # a generated project's session record
@@ -1234,6 +1260,8 @@ class TraceDoc(QWidget):
 
     def on_offer(self):
         if not self._offer_path:
+            return
+        if self.has_unsaved() and not self._ask_discard():
             return
         try:
             self.load_project(self._offer_path)
