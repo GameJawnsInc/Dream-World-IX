@@ -1,6 +1,10 @@
 # Cutscene, Place and Trace tabs — review
 
-**Date:** 2026-11-23 · **Reviewed at:** `master` 1d679b31 · **Status:** findings only, nothing fixed.
+**Date:** 2026-11-23 · **Reviewed at:** 1d679b31 (`origin/master`) · **Status:** findings only, nothing fixed.
+
+Local `master` (ea72ef8b) was 40 commits ahead when this was written. Those commits change none of the
+reviewed files (only `world-*` verbs in `cli.py` and world surfaces in `tools/gui_snap.py`), so every
+finding applies there too.
 
 **Scope.** The three Workspace tabs and what they drive: `workspace/cutscenedoc.py`, `cutscenescan.py`,
 `placedoc.py`, `tracedoc.py`, the shared click canvas `backdrop.py`, their wiring in `workspace/shell.py`,
