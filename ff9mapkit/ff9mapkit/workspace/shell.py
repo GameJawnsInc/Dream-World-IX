@@ -5227,14 +5227,22 @@ class Workspace(QMainWindow):
         return None
 
     def _trace_regenerated(self, toml):
-        """The Trace tab REWROTE ``toml`` in place (a clean regenerate). Reload it if it is open
-        here. Edits made while the job ran are never dropped without asking; whatever the answer,
-        Place's cached surface of that project (read from the old walkmesh) is forgotten."""
+        """A Trace regenerate of ``toml`` FINISHED (clean or not -- the job writes before it
+        reports, so the exit code does not say whether the file moved; the disk does). Reload it
+        if it is open here and no longer what this window last read or wrote. Edits made while the
+        job ran are never dropped without asking; whatever the answer, Place's cached surface of
+        that project (read from the old walkmesh) is forgotten."""
         if getattr(self, "place_doc", None) is not None:
             self.place_doc.forget_surface(toml)
         member = self._member_for_path(toml)
         if member is None or member not in self._docs:
             return                                     # not open (or never loaded): the next read is fresh
+        try:
+            on_disk = FieldDoc.load(self.member_paths[member]).data
+        except Exception:                              # noqa: BLE001 -- unreadable: _reload_member says so
+            on_disk = None
+        if on_disk is not None and on_disk == self._clean.get(member):
+            return                                     # the file is still what we hold: nothing moved
         pending_ok = self._commit_active_ck()          # a half-typed form is an edit too
         if not pending_ok or member in self._unsaved():
             name = Path(toml).name

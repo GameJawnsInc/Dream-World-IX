@@ -950,17 +950,19 @@ class TraceDoc(QWidget):
         ``toml`` was captured AT LAUNCH — reading the live ``self._project`` here would open
         whatever project the author switched to while the job ran.
 
-        A clean REGENERATE rewrote ``toml`` in place, and that file may be the one open in the
+        A REGENERATE rewrites ``toml`` in place, and that file may be the one open in the
         Editor: the shell is TOLD (``on_regenerated``), so it can reload the buffer it holds. It
         used to be told nothing, and the next Save All wrote the stale buffer over the
-        regenerated file — the new doors, events and camera gone, the new walkmesh kept."""
-        if code != 0:
-            return
+        regenerated file — the new doors, events and camera gone, the new walkmesh kept. It is
+        told on EVERY finish, clean or not: the job writes its files and only then prints, so a
+        job can rewrite the project and still exit non-zero (a console that cannot encode a
+        character in the report — finding E10). Whether the file moved is the disk's to say, not
+        the exit code's; the shell looks."""
         if not first:
             if self.on_regenerated is not None:
                 self.on_regenerated(str(toml))
             return
-        if self.on_generated is not None and Path(toml).is_file():
+        if code == 0 and self.on_generated is not None and Path(toml).is_file():
             self.on_generated(str(toml))
 
     def _write_trace_sidecar(self, out):

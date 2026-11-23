@@ -106,6 +106,33 @@ def test_a_regenerate_reloads_the_open_project_so_save_all_cannot_undo_it(win, t
     assert len(data["npc"]) == 1                                       # and so did the new edit
 
 
+def test_a_regenerate_that_wrote_the_file_but_reported_failure_still_reloads(win, tmp_path):
+    """The job writes its files and THEN prints its report; a console that cannot encode a
+    character in that report (review finding E10) makes a complete regenerate exit non-zero.
+    Whether the file moved is the disk's to say, not the exit code's."""
+    photo, toml = _project(tmp_path)
+    assert win.open_field(toml)
+    _regenerate(photo, toml, gateways=[_DOOR])
+    win.trace_doc._after_generate(1, False, str(toml))
+    assert [g["name"] for g in win._doc(_NAME).data["gateway"]] == ["traced_door0"]
+
+
+def test_a_regenerate_that_changed_nothing_keeps_the_buffer_and_its_history(win, tmp_path):
+    """A failed job that wrote nothing — or a regenerate whose toml came out identical — is not
+    a reason to throw the undo history away."""
+    _photo, toml = _project(tmp_path)
+    assert win.open_field(toml)
+    _place_an_npc(win)
+    win._save_all()
+    buffer = win._doc(_NAME)
+    steps = [r for r in win._undo_stack if r.member == _NAME]
+    assert steps
+    for code in (1, 0):
+        win.trace_doc._after_generate(code, False, str(toml))
+        assert win._doc(_NAME) is buffer
+        assert [r for r in win._undo_stack if r.member == _NAME] == steps
+
+
 def test_a_regenerate_of_a_file_that_is_not_open_changes_nothing_here(win, tmp_path):
     photo, toml = _project(tmp_path)
     (tmp_path / "other").mkdir()

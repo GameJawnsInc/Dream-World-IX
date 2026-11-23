@@ -947,10 +947,11 @@ def test_a_clean_regenerate_tells_the_shell_which_file_it_rewrote(app, tmp_path,
     assert opened == [str(toml)] and rewrote == []     # a first Generate is not a "regenerate"
     doc.on_generate()
     finish = run.calls[1][1]["on_finished"]
-    finish(1)                                          # a FAILED regenerate rewrote nothing
-    assert rewrote == []
     finish(0)
     assert rewrote == [str(toml)] and opened == [str(toml)]   # told; and never re-opened
+    finish(1)                                          # told on a FAILED finish too: the job writes
+    assert rewrote == [str(toml)] * 2                  # before it reports, so only the disk knows
+    assert opened == [str(toml)]                       # (a failure still never opens anything)
 
 
 def test_generate_asks_first_and_a_refusal_starts_nothing(app, tmp_path, monkeypatch):
