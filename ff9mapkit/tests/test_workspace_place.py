@@ -806,6 +806,30 @@ def test_a_camera_pick_the_room_no_longer_has_follows_the_clamp(app, tmp_path, m
     assert d._bundle()["n_cams"] == 1, "markers and regions still read the vanished camera's surface"
 
 
+def test_an_auto_walkmesh_under_camera_1_is_the_floor_the_build_ships(tmp_path):
+    """Review finding E4. The build frames an AUTO walkmesh with camera 0 (the primary camera
+    drives the walkmesh frame), but Place resolved it with the SELECTED camera: under camera 1 it
+    accepted clicks on a floor the game will not have. The floor is camera 0's under every
+    camera; the selected camera only draws it and casts the clicks."""
+    import re
+    from ff9mapkit import build as B
+    from ff9mapkit.scene import bgi
+    toml, _ = _compose_room(tmp_path)
+    txt = toml.read_text(encoding="utf-8")
+    cams = ('[[camera]]\nentry_settle = "auto"\npitch = 48.0\ndistance = 4482\nfov = 42.2\n\n'
+            '[[camera]]\npitch = 30.0\ndistance = 3000\nfov = 42.2\nyaw = 35\n')
+    txt = re.sub(r"\[camera\]\n(?:[^\[\n].*\n)*", cams + "\n", txt, count=1)
+    txt = txt.replace('[walkmesh]\nobj = "walkmesh.obj"', "[walkmesh]\nauto = true")
+    assert "auto = true" in txt and txt.count("[[camera]]") == 2
+    toml.write_text(txt, encoding="utf-8")
+    proj = B.FieldProject.load(str(toml))
+    shipped, _f = IF.mesh_world_tris(bgi.BgiWalkmesh.from_bytes(
+        B.resolve_walkmesh(proj, B.resolve_camera(proj))))
+    surf = P.build_surface_from_project(toml, 1)
+    assert surf["cam_index"] == 1 and surf["cam"].range == B.resolve_cameras(proj)[1].range
+    assert surf["tris"] == shipped, "Place's camera-1 floor is not the walkmesh the build ships"
+
+
 def test_load_of_a_donor_room_is_still_served_from_the_cache(app):
     """The donor's real room comes from the install, which does not change mid-session."""
     d, _ = _doc(app)

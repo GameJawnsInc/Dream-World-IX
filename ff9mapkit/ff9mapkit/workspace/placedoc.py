@@ -303,7 +303,9 @@ def build_surface_from_project(toml_path, cam_index: int = 0) -> dict:
     if not cams:
         raise imagefield.ImageFieldError(f"{_Path(toml_path).name}: no camera to place against")
     ci = max(0, min(int(cam_index), len(cams) - 1))
-    mesh = _bgi.BgiWalkmesh.from_bytes(_build.resolve_walkmesh(project, cams[ci]))
+    # The FLOOR is camera 0's under every camera, as the build frames it (an auto walkmesh differs
+    # per camera); the selected camera only draws it and casts the clicks (review finding E4).
+    mesh = _bgi.BgiWalkmesh.from_bytes(_build.resolve_walkmesh(project, cams[0]))
     tris, floors = imagefield.mesh_world_tris(mesh)
     return {"donor": None, "source": ("project", str(toml_path)), "cam_index": ci,
             "n_cams": len(cams), "cam": cams[ci],
