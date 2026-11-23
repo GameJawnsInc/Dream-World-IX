@@ -1230,8 +1230,8 @@ class Workspace(QMainWindow):
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.Yes) != QMessageBox.StandardButton.Yes:
             return
-        if not self._maybe_prompt_unsaved(closing=True):   # QApplication.quit() skips closeEvent -> guard here
-            return
+        if not self.close():                               # closeEvent is the ONE ask (fields + trace); the
+            return                                         # updater starts only once it is accepted
         launcher = (shutil.which("ff9mapkit-workspace")
                     or str(Path.home() / ".local" / "bin" / "ff9mapkit-workspace.exe"))
         try:
