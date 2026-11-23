@@ -618,6 +618,9 @@ def test_corner_and_whole_quad_drags_emit_once_each(app):
     assert c._begin_region_corner_drag(0, 2)
     tx, ty = IF.world_point_to_click(c.camera(), (350.0, 0.0, 1600.0))
     c._drag_canvas(tx, ty)
+    quad_case, edge_case = c._region_case_items[0]         # P20: the casings ride the drag
+    assert quad_case.polygon() == c._region_items[0].polygon()
+    assert edge_case.line() == c._region_edge_items[0].line()
     c._end_vertex_drag()
     assert len(changed) == 1
     i, quad = changed[0]
@@ -808,6 +811,12 @@ def test_ctrl0_from_a_zoomed_view_fits_like_the_first_paint(app, w):
     _ctrl_key(c, Qt.Key.Key_0)
     QApplication.processEvents()
     assert c.transform().m11() == pytest.approx(first, abs=1e-9)
+    # ...and in ONE step: the end state above is also reachable by a small fit that the
+    # scrollbars' later disappearance re-fits (T24), which hides a regressed measurement.
+    _ctrl_wheel(c, 120, n=4)
+    assert c.verticalScrollBar().maximum() > 0
+    c._fit()                                   # no event loop between: the fit alone
+    assert c._fit_zoom == pytest.approx(first, abs=1e-9)
 
 
 @pytest.mark.parametrize("w", [501, 500])
@@ -1164,3 +1173,118 @@ def test_an_invalid_vertex_differs_by_shape_not_only_colour(app):
     assert styles.count(Qt.BrushStyle.NoBrush) == 1 and styles.count(Qt.BrushStyle.SolidPattern) == 2
     texts = sorted(lab["text"].text() for lab in c._labels if "horizon" not in lab["text"].text())
     assert texts == ["0 ✕", "1", "2"]
+
+
+def test_an_invalid_contact_is_a_hollow_diamond(app):
+    """V13, the contact half: a contact with no floor under it is hollow, a good one filled."""
+    from PySide6.QtWidgets import QGraphicsPolygonItem
+    c, _, _ = _trace_canvas(app)
+    c.set_cutouts([{"i": 0, "pixmap": None, "rect": None, "contact": (120.0, 350.0),
+                    "label": "fg0", "bad": False, "locked": True},
+                   {"i": 1, "pixmap": None, "rect": None, "contact": (260.0, 350.0),
+                    "label": "fg1", "bad": True, "locked": True}])
+    styles = {k.data(3): k.brush().style() for k in c._kids
+              if isinstance(k, QGraphicsPolygonItem) and k.data(2) == "cutoutpt"}
+    assert styles == {0: Qt.BrushStyle.SolidPattern, 1: Qt.BrushStyle.NoBrush}
+
+
+def test_a_new_field_brings_the_hint_pill_back(app):
+    """P18: a click spends the pill; a NEW field (set_backdrop refit) teaches again, while a
+    camera re-feed of the same field (refit=False) does not."""
+    c, cam, _ = _trace_canvas(app)
+    _click(c, (200.0, 400.0))
+    assert not c._hint.isVisibleTo(c)
+    c.set_backdrop(c._pixmap, cam, refit=False)
+    assert not c._hint.isVisibleTo(c)
+    c.set_backdrop(c._pixmap, cam)
+    assert c._hint.isVisibleTo(c)
+
+
+def test_a_press_on_a_displaced_label_is_not_a_grab(app):
+    """P21, after review: a label pushed a tier or two off its dot is not that dot's handle.
+    A press on it used to start the vertex drag and snap the vertex to the cursor (one
+    commit moved it ~27 px); a no-travel click on it now reaches the floor like any click."""
+    c, cam, calls = _trace_canvas(app)
+    pts = [(150.0 + 6 * k, 380.0) for k in range(6)] + [(250.0, 420.0), (120.0, 420.0)]
+    c.set_floor(pts)
+    c._fit()
+    lab = max((lb for lb in c._labels if lb["anchor"].data(0) == "tracept"),
+              key=lambda lb: -lb["plate"].pos().y())           # the most displaced label
+    assert lab["plate"].pos().y() < lab["dy"] - 1               # really pushed off home
+    base = c.mapFromScene(lab["anchor"].pos())
+    pp = lab["plate"].pos()
+    press = c.mapToScene(QPoint(int(base.x() + pp.x() + lab["w"] / 2),
+                                int(base.y() + pp.y() + lab["h"] / 2)))
+    _mouse(c, "press", (press.x(), press.y()))
+    assert c._drag is None
+    _mouse(c, "move", (press.x() + 2, press.y()))
+    _mouse(c, "release", (press.x() + 2, press.y()))
+    assert not calls or calls[-1][:len(pts)] == pts             # no vertex moved
+    _click(c, (press.x(), press.y()))
+    assert c.floor()[:len(pts)] == pts and len(c.floor()) >= len(pts) + 1   # a floor click
+
+
+def _home(c, lab):
+    tl, w, h = _label_rect(c, lab)
+    return tl.y() - c.mapFromScene(lab["anchor"].pos()).y()
+
+
+def test_a_crowded_label_stays_near_its_anchor_and_on_screen(app):
+    """P21, after review: the tier search used to push a label up to six plates away (no
+    leader line says whose it is) and, when crowded, CLIPPED it off the viewport. Now it moves
+    at most _LABEL_TIERS tiers, and past that it overprints near home -- never off-screen."""
+    from ff9mapkit.workspace.backdrop import _LABEL_TIERS
+    assert _LABEL_TIERS <= 3
+    c, _, _ = _place_canvas(app, [_RAMP])
+    c._fit()
+    top = c.mapToScene(QPoint(c.viewport().width() // 2, 30))  # 30 px under the view's top
+    X, Z = IF.click_to_world(c.camera(), (top.x(), top.y()))
+    c.set_markers([{"pos": (X, 0.0, Z), "label": f"npc{n}", "kind": "npc"} for n in range(9)])
+    vp = c.viewport()
+    labs = [lab for lab in c._labels if lab["text"].text().startswith("npc")]
+    assert len(labs) == 9
+    for lab in labs:
+        tl, w, h = _label_rect(c, lab)
+        assert tl.y() >= 0 and tl.y() + h <= vp.height(), lab["text"].text()
+        step = lab["h"] + 1
+        assert abs(_home(c, lab) - (lab["dy"] - 1)) <= _LABEL_TIERS * step + 0.5, \
+            lab["text"].text()
+
+
+def test_a_label_at_the_right_edge_mirrors_inside_the_view(app):
+    c, _, _ = _place_canvas(app, [_RAMP])
+    c._fit()
+    vw = c.viewport().width()
+    edge = c.mapToScene(QPoint(vw - 6, 300))
+    X, Z = IF.click_to_world(c.camera(), (edge.x(), edge.y()))
+    c.set_markers([{"pos": (X, 0.0, Z), "label": "a long marker label", "kind": "npc"}])
+    lab = next(lb for lb in c._labels if lb["text"].text() == "a long marker label")
+    tl, w, h = _label_rect(c, lab)
+    assert tl.x() >= 0 and tl.x() + w <= vw
+
+
+def test_labels_renegotiate_on_a_ctrl_wheel_zoom(app):
+    """A zoom that spreads two anchors apart frees the bumped label: the tiers after a
+    Ctrl+wheel are what a fresh pass computes for the NEW transform (the scrollbars are
+    already up, so no viewport resize re-runs the pass behind the wheel's back)."""
+    c, _, _ = _place_canvas(app, [_RAMP])
+    c._fit()
+    _ctrl_wheel(c, 120, n=2)
+    assert c.verticalScrollBar().maximum() > 0
+    vp = c.viewport()
+    mid = c.mapToScene(QPoint(vp.width() // 2 - 40, vp.height() // 2))
+    c.set_markers([{"pos": (0.0, 0.0, 0.0), "label": "probe", "kind": "npc"}])
+    w = c._labels[-1]["w"]
+    gap = w / (c.transform().m11() * 1.07)                      # overlaps now, clear after 1.15x
+    pos = []
+    for dx in (0.0, gap):
+        X, Z = IF.click_to_world(c.camera(), (mid.x() + dx, mid.y()))
+        pos.append({"pos": (X, 0.0, Z), "label": "probe", "kind": "npc"})
+    c.set_markers(pos)
+    before = [_home(c, lab) for lab in c._labels]
+    assert before[0] != before[1]                               # one was bumped a tier
+    _ctrl_wheel(c, 120)
+    after = [_home(c, lab) for lab in c._labels]
+    c._decollide_labels()
+    assert [_home(c, lab) for lab in c._labels] == after        # already negotiated
+    assert after != before

@@ -53,6 +53,7 @@ def _contrast(a: QColor, b: QColor) -> float:
 _ZOOM_MIN, _ZOOM_MAX = 0.1, 8.0
 _CLICK_SLOP_PX = 4          # press->release travel at/under this = a click, past it = a pan
 _HANDLE_R = 4               # a trace vertex handle's screen radius (px, zoom-immune)
+_LABEL_TIERS = 3            # how far a label may be pushed from home, in plate heights
 
 
 class BackdropCanvas(QGraphicsView):
@@ -255,6 +256,10 @@ class BackdropCanvas(QGraphicsView):
         plate = self._child(sc.addPath(QPainterPath(), QPen(Qt.PenStyle.NoPen),
                                        QBrush(QColor(self.pal["surface"]))), anchor)
         t = self._child(sc.addSimpleText(str(text)), anchor)
+        for it in (plate, t):                      # a label is NOT its anchor's grab handle: it
+            it.setData(2, None)                    # can sit tiers away, and a press there would
+            it.setData(3, None)                    # snap the vertex to the cursor (P21, after
+                                                   # review); a click on it is a floor click
         t.setFont(self._font(8))
         t.setBrush(QBrush(QColor(ink)))
         br = t.boundingRect()
@@ -279,7 +284,7 @@ class BackdropCanvas(QGraphicsView):
         in plate units). Labels live in SCREEN px, so what collides depends on the transform:
         re-run after every rebuild, fit, zoom and resize. Anchors never move -- only each
         label's offset does, so the leader point stays honest."""
-        vw = self.viewport().width()
+        vw, vh = self.viewport().width(), self.viewport().height()
         placed = []                                # every glyph is an obstacle: a label must
         for a, box in self._glyphs:                # never hide a handle it happens to cross
             try:
@@ -296,21 +301,22 @@ class BackdropCanvas(QGraphicsView):
             if vw > 40 and base.x() + dx + w > vw - 2:
                 dx = -dx - w                       # off the right edge: mirror to the left
             x = base.x() + dx - 3
-            cands = [lab["dy"]] + [lab["dy"] - step * k for k in range(1, 7)]
-            cands += [lab["dy"] + step * k for k in range(1, 7)
+            # At most _LABEL_TIERS tiers either way: a label pushed further than that stops
+            # reading as its anchor's (no leader line says whose it is), so past the cap it
+            # overprints near home instead. Never off the viewport: a clipped label is LOST,
+            # an overprinted one is still there (P21, after review).
+            cands = [lab["dy"]] + [lab["dy"] - step * k for k in range(1, _LABEL_TIERS + 1)]
+            cands += [lab["dy"] + step * k for k in range(1, _LABEL_TIERS + 1)
                       if lab["dy"] + step * k >= 8]   # a DOWN tier clears the anchor's own glyph
-            pick = cands[0]
-            for onscreen_only in (True, False):    # prefer a tier that stays in the viewport;
-                found = False                      # overlap-free beats clipped
-                for dy in cands:
-                    r = QRectF(x, base.y() + dy - 1, w, h)
-                    if onscreen_only and r.top() < 1:
-                        continue
-                    if not any(r.intersects(p) for p in placed):
-                        pick, found = dy, True
-                        break
-                if found:
-                    break
+
+            def onscreen(dy):
+                r = QRectF(x, base.y() + dy - 1, w, h)
+                return r.top() >= 1 and (vh <= 40 or r.bottom() <= vh - 1)
+
+            visible = [dy for dy in cands if onscreen(dy)] or cands[:1]
+            pick = next((dy for dy in visible
+                         if not any(QRectF(x, base.y() + dy - 1, w, h).intersects(p)
+                                    for p in placed)), visible[0])
             self._set_label_pos(lab, dx, pick)
             placed.append(QRectF(x, base.y() + pick - 1, w, h))
 
