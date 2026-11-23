@@ -33,19 +33,27 @@ suspend the outset preview instead of silently mis-projecting).
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPolygonF, QTransform
+from PySide6.QtGui import (
+    QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF, QTransform,
+)
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem, QGraphicsPolygonItem, QGraphicsScene, QGraphicsSimpleTextItem,
     QGraphicsView, QLabel,
 )
 
 from .. import imagefield
+from ..editor.theme import _contrast as _hex_contrast, derive
 from ..scene import cam as _cam
 from .widgets import mark_grabbable
+
+
+def _contrast(a: QColor, b: QColor) -> float:
+    return _hex_contrast(a.name(), b.name())
 
 _ZOOM_MIN, _ZOOM_MAX = 0.1, 8.0
 _CLICK_SLOP_PX = 4          # press->release travel at/under this = a click, past it = a pan
 _HANDLE_R = 4               # a trace vertex handle's screen radius (px, zoom-immune)
+_LABEL_TIERS = 3            # how far a label may be pushed from home, in plate heights
 
 
 class BackdropCanvas(QGraphicsView):
@@ -75,6 +83,9 @@ class BackdropCanvas(QGraphicsView):
         self._pixmap = None
         self._zoom = 1.0
         self._fit_pending = False
+        self._fit_zoom = None                # the zoom the last fit chose: while the view still
+                                             # sits at it, a resize re-fits (a fitted view has no
+                                             # scroll range, so there is no pan to lose)
         self._press_pos = None
         self._trace_mode = False
         self._trace = []                     # [(cx, cy)] canvas px — the authoring truth
@@ -96,7 +107,11 @@ class BackdropCanvas(QGraphicsView):
         self._region_edge_items = {}         # i -> the walk-out edge line (gateways)
         self._region_law_items = {}          # i -> [spill/gap overlay items] (hidden mid-drag)
         self._region_label_items = {}        # i -> the label anchor (follows a live drag)
+        self._region_case_items = {}         # i -> the casings under its quad/edge (follow too)
         self._pending_region = []            # world (x, z) corners of the quad being drawn
+        self._labels = []                    # on-art labels, for the de-collision pass (P21)
+        self._glyphs = []                    # haloed glyphs: obstacles for that pass
+        self._ink = derive(palette)
         self._kids = []                      # STRONG refs to child items (labels/dots/glyphs):
                                              # a parented QGraphicsItem whose only Python wrapper
                                              # dies can be GC-DELETED on the C++ side mid-handler
@@ -113,7 +128,7 @@ class BackdropCanvas(QGraphicsView):
         self.setAccessibleDescription(
             "The field's background art under its camera: click the floor to get an exact "
             "world position; the dashed line is the camera's horizon, above which no floor exists")
-        self._hint = QLabel("Ctrl+scroll zooms · Ctrl+0 fits · click the floor", self.viewport())
+        self._hint = QLabel("", self.viewport())   # the mode's own words: _sync_hint
         self._hint.setObjectName("backdropHint")   # selector-scoped (the round-9 census law)
         self._hint.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self._coords = QLabel("", self.viewport())  # live world readout while a vertex drags
@@ -121,6 +136,26 @@ class BackdropCanvas(QGraphicsView):
         self._coords.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self._coords.hide()
         self._style_hint()
+        self._sync_hint()
+
+    def _sync_hint(self):
+        """The pill says what a click does in THIS mode (P18), and is shown again: called on a
+        mode change and a new field. The first click or drag hides it -- it covers the art's
+        bottom-right, where the near floor edge, doors and contacts live."""
+        if self._cam is None:
+            what = ""                              # nothing on this canvas resolves a click
+        elif self._region_mode:
+            what = "click 4 corners · Esc cancels"
+        elif self._contact_mode:
+            what = "click the object's base"
+        elif self._trace_mode:
+            what = "click the floor's outline"
+        else:
+            what = "click the floor"
+        self._hint.setText(f"{what} · Ctrl+scroll zooms" if what else
+                           "Ctrl+scroll zooms · Ctrl+0 fits")
+        self._hint.show()
+        self._place_hint()
 
     # -- text + geometry (CALIBRE) --
     def _font(self, pt, bold=False):
@@ -168,6 +203,123 @@ class BackdropCanvas(QGraphicsView):
         self._kids.append(item)
         return item
 
+    # -- ON-ART furniture: the art is an ARBITRARY ground (P20) --
+    # A hand-painted background spans every luminance, so no single UI token survives on it
+    # (accent on the tan fixture floor measured 1.11-1.83:1). Three rules, each one ground the
+    # furniture brings with it instead of borrowing the art:
+    #   TEXT sits on an opaque surface PLATE in an ink the theme already fences at 4.5:1 on its
+    #     surface (text / warn_text / error_text) -- the art never touches a glyph.
+    #   HANDLES + GLYPHS wear a two-tone halo, a white ring inside a black one: whatever the art,
+    #     one of the pair clears 4.5:1 against it (black/white straddle every luminance).
+    #   LINES ride a casing in black or white, whichever is further from the stroke; every
+    #     stroke token clears 3:1 against its own casing, the colour it is always adjacent to.
+    def _casing(self, color):
+        c = QColor(color)
+        return QColor(0, 0, 0) if _contrast(c, QColor(0, 0, 0)) >= _contrast(c, QColor(255, 255, 255)) \
+            else QColor(255, 255, 255)
+
+    def _cased_pen(self, color, width, dash=None):
+        """The (casing, stroke) pens of a cased line: the casing a solid 2 px wider underlay."""
+        stroke = QPen(QColor(color), width)
+        stroke.setCosmetic(True)
+        if dash:
+            stroke.setDashPattern(dash)
+        case = QPen(self._casing(color), width + 2.0)
+        case.setCosmetic(True)
+        return case, stroke
+
+    def _halo(self, anchor, path, grab=False, hollow=False):
+        """The black outer ring under a handle/glyph (added BEFORE it, so it paints below);
+        the glyph's own pen is the white inner ring. A tagged child, so a press on the rim
+        resolves like a press on the glyph."""
+        k = QColor(0, 0, 0)
+        pen = QPen(k, 4.4)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        under = self._child(self._scene.addPath(
+            path, pen, QBrush(Qt.BrushStyle.NoBrush) if hollow else QBrush(k)), anchor)
+        self._glyphs.append((anchor, path.boundingRect().adjusted(-2.2, -2.2, 2.2, 2.2)))
+        if grab:
+            mark_grabbable(under)
+        return under
+
+    @staticmethod
+    def _ring_pen():
+        return QPen(QColor(255, 255, 255), 1.4)
+
+    def _label(self, anchor, text, ink, dx=6, dy=None):
+        """On-art text: an opaque surface plate + an ink fenced on that surface, both children
+        of ``anchor`` (zoom-immune), registered for the de-collision pass (P21). By default the
+        plate sits up-right of the anchor with its bottom clear of the anchor's own glyph."""
+        sc = self._scene
+        anchor.setZValue(1)                        # over every leg / outline / ring: a line
+                                                   # drawn later must not strike the text out
+        plate = self._child(sc.addPath(QPainterPath(), QPen(Qt.PenStyle.NoPen),
+                                       QBrush(QColor(self.pal["surface"]))), anchor)
+        t = self._child(sc.addSimpleText(str(text)), anchor)
+        for it in (plate, t):                      # a label is NOT its anchor's grab handle: it
+            it.setData(2, None)                    # can sit tiers away, and a press there would
+            it.setData(3, None)                    # snap the vertex to the cursor (P21, after
+                                                   # review); a click on it is a floor click
+        t.setFont(self._font(8))
+        t.setBrush(QBrush(QColor(ink)))
+        br = t.boundingRect()
+        w, h = br.width() + 6, br.height() + 2
+        if dy is None:
+            dy = -h - 8                            # plate bottom at -9: clear of a r<=8 glyph
+        rr = QPainterPath()
+        rr.addRoundedRect(QRectF(0, 0, w, h), 3, 3)
+        plate.setPath(rr)
+        lab = {"anchor": anchor, "plate": plate, "text": t, "dx": dx, "dy": dy, "w": w, "h": h}
+        self._labels.append(lab)
+        self._set_label_pos(lab, dx, dy)
+        return t
+
+    @staticmethod
+    def _set_label_pos(lab, dx, dy):
+        lab["plate"].setPos(dx - 3, dy - 1)
+        lab["text"].setPos(dx, dy)
+
+    def _decollide_labels(self):
+        """Shuffle overlapping labels to free vertical tiers (behaviordoc.StageCanvas's pass,
+        in plate units). Labels live in SCREEN px, so what collides depends on the transform:
+        re-run after every rebuild, fit, zoom and resize. Anchors never move -- only each
+        label's offset does, so the leader point stays honest."""
+        vw, vh = self.viewport().width(), self.viewport().height()
+        placed = []                                # every glyph is an obstacle: a label must
+        for a, box in self._glyphs:                # never hide a handle it happens to cross
+            try:
+                placed.append(box.translated(self.mapFromScene(a.pos()).toPointF()))
+            except RuntimeError:
+                return
+        for lab in self._labels:
+            try:
+                base = self.mapFromScene(lab["anchor"].pos())
+            except RuntimeError:                   # scene rebuilt under a stale list
+                return
+            w, h, step = lab["w"], lab["h"], lab["h"] + 1
+            dx = lab["dx"]
+            if vw > 40 and base.x() + dx + w > vw - 2:
+                dx = -dx - w                       # off the right edge: mirror to the left
+            x = base.x() + dx - 3
+            # At most _LABEL_TIERS tiers either way: a label pushed further than that stops
+            # reading as its anchor's (no leader line says whose it is), so past the cap it
+            # overprints near home instead. Never off the viewport: a clipped label is LOST,
+            # an overprinted one is still there (P21, after review).
+            cands = [lab["dy"]] + [lab["dy"] - step * k for k in range(1, _LABEL_TIERS + 1)]
+            cands += [lab["dy"] + step * k for k in range(1, _LABEL_TIERS + 1)
+                      if lab["dy"] + step * k >= 8]   # a DOWN tier clears the anchor's own glyph
+
+            def onscreen(dy):
+                r = QRectF(x, base.y() + dy - 1, w, h)
+                return r.top() >= 1 and (vh <= 40 or r.bottom() <= vh - 1)
+
+            visible = [dy for dy in cands if onscreen(dy)] or cands[:1]
+            pick = next((dy for dy in visible
+                         if not any(QRectF(x, base.y() + dy - 1, w, h).intersects(p)
+                                    for p in placed)), visible[0])
+            self._set_label_pos(lab, dx, pick)
+            placed.append(QRectF(x, base.y() + pick - 1, w, h))
+
     def _place_hint(self):
         self._hint.adjustSize()                    # measure AFTER polish -- construction adjustSize lies
         vp = self.viewport()
@@ -187,6 +339,7 @@ class BackdropCanvas(QGraphicsView):
             self.resetTransform()
             self._zoom = 1.0
             self._fit_pending = True
+            self._sync_hint()                      # a new field: the pill teaches again
         self._rebuild()
 
     def camera(self):
@@ -202,6 +355,7 @@ class BackdropCanvas(QGraphicsView):
             self._place_mode = False           # one click semantics at a time
             self._contact_mode = False
             self._region_mode = False
+        self._sync_hint()
         self._rebuild()
 
     # -- public: Rung 3 place mode --
@@ -216,6 +370,7 @@ class BackdropCanvas(QGraphicsView):
             self._trace_mode = False
             self._contact_mode = False
             self._region_mode = False
+        self._sync_hint()
         self._rebuild()
 
     # -- public: Rung 2 contact mode --
@@ -233,6 +388,7 @@ class BackdropCanvas(QGraphicsView):
             self._trace_mode = False
             self._place_mode = False
             self._region_mode = False
+        self._sync_hint()
         self._rebuild()
 
     # -- public: Rung 4 region mode --
@@ -251,6 +407,7 @@ class BackdropCanvas(QGraphicsView):
             self._trace_mode = False
             self._place_mode = False
             self._contact_mode = False
+        self._sync_hint()
         self._rebuild()
 
     def set_regions(self, rows):
@@ -343,7 +500,11 @@ class BackdropCanvas(QGraphicsView):
         self._region_edge_items = {}
         self._region_law_items = {}
         self._region_label_items = {}
+        self._region_case_items = {}               # i -> [quad casing, edge casing?]
         self._kids = []                            # the old scene's children die WITH the clear
+        self._labels = []                          # every _label call, for the de-collision pass
+        self._glyphs = []                          # (anchor, screen box) of every haloed glyph
+        self._ink = derive(pal)                    # the *_text inks fenced on the plate's surface
         self._coords.hide()
         sc.clear()
         w, h = self._frame_wh()
@@ -366,6 +527,7 @@ class BackdropCanvas(QGraphicsView):
         self._draw_cutout_handles()                # grab furniture TOPMOST (the behaviordoc law)
         self._draw_region_handles()
         self._draw_markers()
+        self._decollide_labels()
 
     def _draw_horizon(self, w, h):
         """The refusal boundary, visible: a dashed line at ``horizon_canvas_y`` with a
@@ -376,19 +538,15 @@ class BackdropCanvas(QGraphicsView):
         hy = _cam.horizon_canvas_y(self._cam)
         if not 0 <= hy < h:
             return
-        pen = QPen(QColor(self.pal["warn"]), 1.6)
-        pen.setCosmetic(True)                      # must survive fit zoom (the atlas lesson)
-        pen.setDashPattern([6, 4])
+        case, pen = self._cased_pen(self.pal["warn"], 1.6, [6, 4])   # cosmetic: survives fit zoom
+        self._scene.addLine(0, hy, w, hy, case).setData(0, "casing")
         line = self._scene.addLine(0, hy, w, hy, pen)
         line.setData(0, "horizon")
         anchor = self._scene.addRect(QRectF(0, 0, 0, 0), QPen(Qt.PenStyle.NoPen))
         anchor.setPos(6, hy)
         anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
         anchor.setData(0, "horizonlabel")
-        t = self._child(self._scene.addSimpleText("horizon — no floor above"), anchor)
-        t.setFont(self._font(8))
-        t.setBrush(QColor(self.pal["warn"]))
-        t.setPos(0, -14)                           # screen px, riding the zoom-immune anchor
+        self._label(anchor, "horizon — no floor above", self._ink["warn_text"], dx=3)
 
     # -- Rung 3: the walkable footprint + placed-content markers --
     def _draw_surface(self):
@@ -400,18 +558,41 @@ class BackdropCanvas(QGraphicsView):
         acc = QColor(self.pal["accent"])
         fill = QColor(acc)
         fill.setAlpha(26)
-        edge = QColor(acc)
-        edge.setAlpha(130)
-        pen = QPen(edge, 1.0)
-        pen.setCosmetic(True)
+        case, pen = self._cased_pen(acc, 1.0)
+        polys = []
         for a, b, c in self._surface_tris:
             try:
                 pts = [imagefield.world_point_to_click(self._cam, p) for p in (a, b, c)]
             except imagefield.ImageFieldError:
                 continue
-            it = self._scene.addPolygon(QPolygonF([QPointF(x, y) for x, y in pts]),
-                                        pen, QBrush(fill))
+            polys.append(QPolygonF([QPointF(x, y) for x, y in pts]))
+        for poly in polys:                         # every casing first: a casing must never
+            self._scene.addPolygon(poly, case).setData(0, "casing")   # cut a neighbour's edge
+        for poly in polys:
+            it = self._scene.addPolygon(poly, pen, QBrush(fill))
             it.setData(0, "meshtri")
+
+    @staticmethod
+    def _marker_path(kind):
+        """Placed content speaks its KIND by shape (P25), not only through its label: npc a
+        circle, prop a square, chest a lidded box, spawn a triangle, arrival a diamond."""
+        p = QPainterPath()
+        if kind == "prop":
+            p.addRect(QRectF(-4.5, -4.5, 9, 9))
+        elif kind == "chest":
+            p.addRect(QRectF(-6, -4, 12, 8))
+            p.moveTo(-6, -1)
+            p.lineTo(6, -1)                        # the lid seam
+        elif kind == "spawn":
+            p.addPolygon(QPolygonF([QPointF(0, -6), QPointF(5.5, 4), QPointF(-5.5, 4)]))
+            p.closeSubpath()
+        elif kind == "arrival":
+            p.addPolygon(QPolygonF([QPointF(0, -6), QPointF(6, 0), QPointF(0, 6),
+                                    QPointF(-6, 0)]))
+            p.closeSubpath()
+        else:                                      # npc and anything unknown
+            p.addEllipse(QPointF(0, 0), 5, 5)
+        return p
 
     def _draw_markers(self):
         if not self._markers or self._cam is None:
@@ -426,17 +607,12 @@ class BackdropCanvas(QGraphicsView):
             anchor.setPos(cx, cy)
             anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
             anchor.setData(0, "marker")
-            ring = self._child(self._scene.addEllipse(-4, -4, 8, 8), anchor)
-            ring.setPen(QPen(color, 1.6))
-            ring.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-            dot = self._child(self._scene.addEllipse(-1.5, -1.5, 3, 3), anchor)
-            dot.setPen(QPen(Qt.PenStyle.NoPen))
-            dot.setBrush(QBrush(color))
+            anchor.setData(1, m.get("kind"))
+            path = self._marker_path(m.get("kind"))
+            self._halo(anchor, path)
+            self._child(self._scene.addPath(path, self._ring_pen(), QBrush(color)), anchor)
             if m.get("label"):
-                t = self._child(self._scene.addSimpleText(str(m["label"])), anchor)
-                t.setFont(self._font(8))
-                t.setBrush(QBrush(color))
-                t.setPos(7, -15)               # screen px, riding the zoom-immune anchor
+                self._label(anchor, m["label"], self.pal["text"], dx=8)
 
     # -- Rung 2: cut-out previews + their contact handles --
     def _draw_cutout_overlays(self, w, h):
@@ -464,7 +640,8 @@ class BackdropCanvas(QGraphicsView):
                     it.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
                 else:                              # the object's pixels grab; its sky doesn't
                     it.setShapeMode(QGraphicsPixmapItem.ShapeMode.MaskShape)
-                    mark_grabbable(it)             # the move cursor follows the opaque pixels
+                    if self._trace_mode or self._contact_mode:   # where a press drags it (V6)
+                        mark_grabbable(it)         # the move cursor follows the opaque pixels
                 self._cutout_items[c["i"]] = it
 
     def _draw_cutout_handles(self):
@@ -479,15 +656,24 @@ class BackdropCanvas(QGraphicsView):
             anchor.setData(0, "cutoutpt")
             anchor.setData(1, c["i"])
             dia = QPolygonF([QPointF(0, -5), QPointF(5, 0), QPointF(0, 5), QPointF(-5, 0)])
+            grab = self._trace_mode or self._contact_mode   # the press gate's modes only (V6)
+            halo = QPainterPath()
+            halo.addPolygon(dia)
+            halo.closeSubpath()
+            self._halo(anchor, halo, grab, hollow=bool(c.get("bad")))
             gl = self._child(self._scene.addPolygon(dia), anchor)
-            gl.setPen(QPen(color, 1.6))
-            gl.setBrush(QBrush(color))
-            mark_grabbable(gl)                     # the anchor re-tunes in trace + contact modes
+            gl.setPen(self._ring_pen())
+            if c.get("bad"):                       # INVALID speaks by shape too: hollow (V13)
+                gl.setPen(QPen(color, 2.2))
+                gl.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            else:
+                gl.setBrush(QBrush(color))
+            if grab:
+                mark_grabbable(gl)                 # the anchor re-tunes in trace + contact modes
             if c.get("label"):
-                t = self._child(self._scene.addSimpleText(str(c["label"])), anchor)
-                t.setFont(self._font(8))
-                t.setBrush(QBrush(color))
-                t.setPos(7, -16)                   # screen px, riding the zoom-immune anchor
+                self._label(anchor, str(c["label"]) + (" ✕" if c.get("bad") else ""),
+                            self._ink["error_text"] if c.get("bad") else self.pal["text"],
+                            dx=8)
             anchor.setToolTip("the floor-contact anchor — occlusion flips here; drag to re-anchor"
                               + (" (INVALID: no floor under it)" if c.get("bad") else ""))
             self._contact_items[c["i"]] = anchor
@@ -546,7 +732,6 @@ class BackdropCanvas(QGraphicsView):
         if not self._regions or self._cam is None:
             return
         sc, pal = self._scene, self.pal
-        from PySide6.QtGui import QPainterPath
         for r in self._regions:
             pts = self._region_pts_px(r["quad"])
             if pts is None or len(pts) < 4:
@@ -554,13 +739,14 @@ class BackdropCanvas(QGraphicsView):
             i = r["i"]
             warn = r.get("warn")
             color = QColor(pal["warn"] if warn else pal["accent"])
-            pen = QPen(color, 1.6)
-            pen.setCosmetic(True)
-            if r.get("kind") == "event":
-                pen.setDashPattern([5, 3])
+            case, pen = self._cased_pen(color, 1.6,
+                                        [5, 3] if r.get("kind") == "event" else None)
             fill = QColor(color)
             fill.setAlpha(22)
             poly = QPolygonF([QPointF(x, y) for x, y in pts])
+            cpoly = sc.addPolygon(poly, case)
+            cpoly.setData(0, "casing")
+            self._region_case_items[i] = [cpoly]
             it = sc.addPolygon(poly, pen, QBrush(fill))
             it.setData(0, "regionquad")
             it.setData(1, i)
@@ -611,8 +797,10 @@ class BackdropCanvas(QGraphicsView):
             self._region_law_items[i] = law_items
             if r.get("kind") == "gateway":
                 (x0, y0), (x1, y1) = pts[0], pts[1]
-                epen = QPen(color, 3.2)
-                epen.setCosmetic(True)
+                ecase, epen = self._cased_pen(color, 3.2)
+                cedge = sc.addLine(x0, y0, x1, y1, ecase)
+                cedge.setData(0, "casing")
+                self._region_case_items[i].append(cedge)
                 edge = sc.addLine(x0, y0, x1, y1, epen)
                 edge.setData(0, "regionedge")
                 edge.setData(1, i)
@@ -636,8 +824,12 @@ class BackdropCanvas(QGraphicsView):
                 chev = QPolygonF([QPointF(tipx, tipy),
                                   QPointF(4 * px - 2 * ux, 4 * py - 2 * uy),
                                   QPointF(-4 * px - 2 * ux, -4 * py - 2 * uy)])
+                halo = QPainterPath()
+                halo.addPolygon(chev)
+                halo.closeSubpath()
+                self._halo(anchor, halo)
                 gl = self._child(sc.addPolygon(chev), anchor)
-                gl.setPen(QPen(color, 1.2))
+                gl.setPen(self._ring_pen())
                 gl.setBrush(QBrush(color))
             # the label, zoom-immune at the quad's centre
             cx = sum(p[0] for p in pts) / len(pts)
@@ -647,11 +839,9 @@ class BackdropCanvas(QGraphicsView):
             lab.setFlag(lab.GraphicsItemFlag.ItemIgnoresTransformations)
             lab.setData(0, "regionlabel")
             lab.setData(1, i)
-            t = self._child(sc.addSimpleText(("⚠ " if warn else "") + str(r.get("label") or "")),
-                            lab)
-            t.setFont(self._font(8))
-            t.setBrush(QBrush(color))
-            t.setPos(6, -16)
+            if r.get("label") or warn:
+                self._label(lab, ("⚠ " if warn else "") + str(r.get("label") or ""),
+                            self._ink["warn_text"] if warn else pal["text"])
             self._region_items[i] = it
             self._region_label_items[i] = lab
 
@@ -664,9 +854,9 @@ class BackdropCanvas(QGraphicsView):
         pts = self._region_pts_px(self._pending_region)
         if pts is None:
             return
-        pen = QPen(QColor(pal["accent"]), 1.6)
-        pen.setCosmetic(True)
+        case, pen = self._cased_pen(pal["accent"], 1.6)
         for (ax, ay), (bx, by) in zip(pts, pts[1:]):
+            sc.addLine(ax, ay, bx, by, case).setData(0, "casing")
             ln = sc.addLine(ax, ay, bx, by, pen)
             ln.setData(0, "regionpending")
         for n, (x, y) in enumerate(pts):
@@ -674,19 +864,20 @@ class BackdropCanvas(QGraphicsView):
             anchor.setPos(x, y)
             anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
             anchor.setData(0, "regionpending")
-            dot = self._child(sc.addEllipse(-_HANDLE_R, -_HANDLE_R, 2 * _HANDLE_R,
-                                            2 * _HANDLE_R), anchor)
-            dot.setPen(QPen(QColor(pal["accent"]), 1.6))
+            box = QRectF(-_HANDLE_R, -_HANDLE_R, 2 * _HANDLE_R, 2 * _HANDLE_R)
+            halo = QPainterPath()
+            halo.addEllipse(box)
+            self._halo(anchor, halo)
+            dot = self._child(sc.addEllipse(box), anchor)
+            dot.setPen(self._ring_pen())
             dot.setBrush(QBrush(QColor(pal["accent"])))
-            t = self._child(sc.addSimpleText(str(n)), anchor)
-            t.setFont(self._font(8))
-            t.setBrush(QBrush(QColor(pal["accent"])))
-            t.setPos(6, -16)
+            self._label(anchor, str(n), pal["text"])
 
     def _draw_region_handles(self):
         """Corner handles, region mode only, TOPMOST (the handles-last law): squares (a
-        vertex-dot is a trace thing) with their corner INDEX — order is authored geometry
-        here, it decides the walk-out edge."""
+        vertex-dot is a trace thing). No corner INDEX labels: four per quad overprinted every
+        far-back zone into an unreadable cluster (P21), and the order they spoke for -- the
+        walk-out edge, corners 0->1 -- is already drawn, as the gateway's chevron edge."""
         if not self._region_mode or not self._regions or self._cam is None:
             return
         sc = self._scene
@@ -701,15 +892,14 @@ class BackdropCanvas(QGraphicsView):
                 anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
                 anchor.setData(0, "regionpt")
                 anchor.setData(1, (r["i"], ci))
-                sq = self._child(sc.addRect(QRectF(-_HANDLE_R, -_HANDLE_R, 2 * _HANDLE_R,
-                                                   2 * _HANDLE_R)), anchor)
-                sq.setPen(QPen(color, 1.6))
+                box = QRectF(-_HANDLE_R, -_HANDLE_R, 2 * _HANDLE_R, 2 * _HANDLE_R)
+                halo = QPainterPath()
+                halo.addRect(box)
+                self._halo(anchor, halo, grab=True)
+                sq = self._child(sc.addRect(box), anchor)
+                sq.setPen(self._ring_pen())
                 sq.setBrush(QBrush(color))
                 mark_grabbable(sq)
-                t = self._child(sc.addSimpleText(str(ci)), anchor)
-                t.setFont(self._font(8))
-                t.setBrush(QBrush(color))
-                t.setPos(6, -16)
                 self._region_handle_items[(r["i"], ci)] = anchor
 
     def _region_h_hint(self, quad):
@@ -756,10 +946,16 @@ class BackdropCanvas(QGraphicsView):
         pts = self._region_pts_px(quad)
         if pts is None:
             return
+        poly = QPolygonF([QPointF(x, y) for x, y in pts])
         if i in self._region_items:
-            self._region_items[i].setPolygon(QPolygonF([QPointF(x, y) for x, y in pts]))
+            self._region_items[i].setPolygon(poly)
         if i in self._region_edge_items:
             self._region_edge_items[i].setLine(pts[0][0], pts[0][1], pts[1][0], pts[1][1])
+        for k, case in enumerate(self._region_case_items.get(i, [])):   # casings ride along
+            if k == 0:
+                case.setPolygon(poly)
+            else:
+                case.setLine(pts[0][0], pts[0][1], pts[1][0], pts[1][1])
         for ci, (x, y) in enumerate(pts):
             a = self._region_handle_items.get((i, ci))
             if a is not None:
@@ -845,22 +1041,26 @@ class BackdropCanvas(QGraphicsView):
 
     def _draw_trace(self):
         self._trace_items = []
-        if not (self._trace_mode or self._contact_mode) or not self._trace:
-            return                             # contact mode keeps the polygon VISIBLE, inert
+        if not (self._trace_mode or self._contact_mode or self._region_mode) or not self._trace:
+            return                             # contact + region modes keep the polygon VISIBLE,
+                                               # inert: a door belongs on the walkable edge (T29)
         pal, sc = self.pal, self._scene
         worlds = self._trace_worlds()
-        pen = QPen(QColor(pal["accent"]), 1.6)
-        pen.setCosmetic(True)                      # legs must survive fit zoom (the atlas lesson)
+        case, pen = self._cased_pen(pal["accent"], 1.6)   # cosmetic: legs survive fit zoom
         pts = [QPointF(cx, cy) for cx, cy in self._trace]
-        for a, b in zip(pts, pts[1:]):
-            ln = sc.addLine(a.x(), a.y(), b.x(), b.y(), pen)
-            ln.setData(0, "traceline")
+        legs = [(a, b, pen) for a, b in zip(pts, pts[1:])]
         if len(pts) > 2:                           # the closing leg, dashed (the tracer's idiom)
             dash = QPen(pen)
             dash.setDashPattern([4, 4])
-            ln = sc.addLine(pts[-1].x(), pts[-1].y(), pts[0].x(), pts[0].y(), dash)
+            legs.append((pts[-1], pts[0], dash))
+        for a, b, _ in legs:                       # casings first, under every leg
+            sc.addLine(a.x(), a.y(), b.x(), b.y(), case).setData(0, "casing")
+        for a, b, p in legs:
+            ln = sc.addLine(a.x(), a.y(), b.x(), b.y(), p)
             ln.setData(0, "traceline")
         self._draw_outset(worlds)
+        if self._region_mode:
+            return                             # the edge only: dots + indices are trace furniture
         for i, (cx, cy) in enumerate(self._trace):
             bad = worlds[i] is None
             color = QColor(pal["error"] if bad else pal["accent"])
@@ -869,15 +1069,19 @@ class BackdropCanvas(QGraphicsView):
             anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
             anchor.setData(0, "tracept")
             anchor.setData(1, i)
-            dot = self._child(
-                self._scene.addEllipse(-_HANDLE_R, -_HANDLE_R, 2 * _HANDLE_R, 2 * _HANDLE_R),
-                anchor)
-            dot.setPen(QPen(color, 1.6))
-            dot.setBrush(QBrush(color))
-            t = self._child(self._scene.addSimpleText(str(i)), anchor)
-            t.setFont(self._font(8))
-            t.setBrush(QBrush(color))
-            t.setPos(6, -16)                       # screen px, riding the zoom-immune anchor
+            box = QRectF(-_HANDLE_R, -_HANDLE_R, 2 * _HANDLE_R, 2 * _HANDLE_R)
+            halo = QPainterPath()
+            halo.addEllipse(box)
+            self._halo(anchor, halo, grab=self._trace_mode, hollow=bad)
+            dot = self._child(self._scene.addEllipse(box), anchor)
+            if bad:                                # INVALID speaks by SHAPE as well as colour:
+                dot.setPen(QPen(color, 2.2))       # a hollow ring and a ✕ (V13)
+                dot.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            else:
+                dot.setPen(self._ring_pen())
+                dot.setBrush(QBrush(color))
+            self._label(anchor, f"{i} ✕" if bad else str(i),
+                        self._ink["error_text"] if bad else pal["text"])
             if self._trace_mode:                   # vertices drag only while TRACING (contact
                 mark_grabbable(dot)                # mode renders them inert context)
             if bad:
@@ -896,10 +1100,10 @@ class BackdropCanvas(QGraphicsView):
             ring = [imagefield.world_to_click(self._cam, g) for g in grown]
         except imagefield.ImageFieldError:
             return
-        pen = QPen(QColor(self.pal["muted"]), 1.2)
-        pen.setCosmetic(True)
-        pen.setDashPattern([2, 3])
-        it = self._scene.addPolygon(QPolygonF([QPointF(cx, cy) for cx, cy in ring]), pen)
+        poly = QPolygonF([QPointF(cx, cy) for cx, cy in ring])
+        case, pen = self._cased_pen(QColor(255, 255, 255), 1.2, [2, 3])   # a light line on a
+        self._scene.addPolygon(poly, case).setData(0, "casing")          # dark underlay
+        it = self._scene.addPolygon(poly, pen)
         it.setData(0, "outset")
         it.setToolTip(f"+{imagefield.COLLISION_OUTSET:g}u collision outset — the walkmesh "
                       f"edge the build emits so the player centre reaches the visual edge")
@@ -974,6 +1178,7 @@ class BackdropCanvas(QGraphicsView):
         self._coords.hide()
         if not d:
             return
+        self._hint.hide()                          # a drag, too, is the first gesture (P18)
         if d.get("kind") == "cpt":
             if d["pt"] != d["start"]:
                 self.contact_moved.emit(d["i"], round(d["pt"][0], 1), round(d["pt"][1], 1))
@@ -1052,16 +1257,24 @@ class BackdropCanvas(QGraphicsView):
 
     # -- view grammar (the atlas family's) --
     def _fit(self):
+        """Fit the frame to the view. Measured from ``maximumViewportSize()`` -- the viewport
+        as if no scrollbar had range -- never from the live viewport, which a zoomed
+        transform's scrollbars have shrunk (Ctrl+0 from a zoomed view fitted ~2% small, V4).
+        The fit is a STATE the view stays in (``_fit_zoom``) until the author picks their own
+        zoom, so a layout change re-fits instead of cropping the art (T24)."""
         r = self._scene.sceneRect()
         if r.isEmpty():
             return
-        vw, vh = max(1, self.viewport().width()), max(1, self.viewport().height())
+        m = self.maximumViewportSize()
+        vw, vh = max(1, m.width()), max(1, m.height())
         z = min(vw / max(1.0, r.width()), vh / max(1.0, r.height())) * 0.97
         z = max(_ZOOM_MIN, min(_ZOOM_MAX, z))
         self.resetTransform()
         self.scale(z, z)
         self._zoom = z
+        self._fit_zoom = z
         self.centerOn(r.center())
+        self._decollide_labels()                   # screen-px labels re-negotiate per zoom
 
     def paintEvent(self, ev):                      # noqa: N802 (Qt override)
         if self._fit_pending:                      # deferred to the first REAL paint: at set time
@@ -1071,20 +1284,37 @@ class BackdropCanvas(QGraphicsView):
 
     def resizeEvent(self, ev):                     # noqa: N802 (Qt override)
         super().resizeEvent(ev)
+        if self._zoom == self._fit_zoom and not self._fit_pending:   # still at the fit:
+            self._fit()                                              # follow the layout (T24)
+        else:
+            self._decollide_labels()               # the right-edge mirror reads the width
+        self._place_hint()
+
+    def scrollContentsBy(self, dx, dy):            # noqa: N802 (Qt override)
+        """The pills are viewport children and QWidget::scroll moves them with the art: re-pin
+        after every scroll (V2; floorplandoc's identical fix)."""
+        super().scrollContentsBy(dx, dy)
         self._place_hint()
 
     def wheelEvent(self, event):                   # noqa: N802 (Qt override)
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            f = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
-            z = max(_ZOOM_MIN, min(_ZOOM_MAX, self._zoom * f))
-            if z != self._zoom:
-                self.scale(z / self._zoom, z / self._zoom)
-                self._zoom = z
+            dy = event.angleDelta().y()            # a sideways wheel is not a zoom (V5), and a
+            if dy:                                 # touchpad's small deltas are a fraction of
+                f = 1.15 ** (dy / 120)             # one 120 detent, not one step each
+                z = max(_ZOOM_MIN, min(_ZOOM_MAX, self._zoom * f))
+                if z != self._zoom:
+                    self.scale(z / self._zoom, z / self._zoom)
+                    self._zoom = z
+                    self._decollide_labels()
             event.accept()
             return
         super().wheelEvent(event)
 
     def keyPressEvent(self, event):                # noqa: N802 (Qt override)
+        if event.key() == Qt.Key.Key_Escape and self._drag:
+            self._cancel_drag()                    # Esc aborts a live drag (V8)
+            event.accept()
+            return
         if (event.key() == Qt.Key.Key_Escape and self._region_mode
                 and self._pending_region):
             self._pending_region = []              # abandon the quad mid-draw
@@ -1099,6 +1329,7 @@ class BackdropCanvas(QGraphicsView):
             if event.key() == Qt.Key.Key_1:
                 self.resetTransform()
                 self._zoom = 1.0
+                self._decollide_labels()
                 event.accept()
                 return
         super().keyPressEvent(event)
@@ -1129,7 +1360,8 @@ class BackdropCanvas(QGraphicsView):
                     ci = self._resolve_data(it, "cutoutimg")
                     if ci is not None and self._begin_cutout_drag(
                             int(ci), self._widget_to_canvas(event.position())):
-                        event.accept()
+                        self._drag["press"] = event.position()   # a no-travel release may
+                        event.accept()                           # still be a click (V9)
                         return
             if self._region_mode and not self._pending_region:   # mid-draw, clicks are corners
                 for it in under:                   # corner handles out-rank the quad body
@@ -1142,12 +1374,22 @@ class BackdropCanvas(QGraphicsView):
                         ri = self._resolve_data(it, tag)
                         if ri is not None and self._begin_region_quad_drag(
                                 int(ri), self._widget_to_canvas(event.position())):
+                            self._drag["press"] = event.position()   # ...or a corner (P24)
                             event.accept()
                             return
             self._press_pos = event.position()
         super().mousePressEvent(event)             # the pan machinery still runs
 
+    def _cancel_drag(self):
+        """Abandon a live drag: the re-render redraws every item from the fed truth, which a
+        drag never touches before its release -- so this IS the restore (V3, V8)."""
+        self._coords.hide()
+        self._rebuild()                            # clears _drag with the scene
+
     def mouseMoveEvent(self, event):               # noqa: N802 (Qt override)
+        if self._drag and not event.buttons() & Qt.MouseButton.LeftButton:
+            self._cancel_drag()                    # its release was lost (a modal menu took it):
+                                                   # never let a drag follow the HOVER (V3)
         if self._drag:
             sp = self._widget_to_canvas(event.position())
             self._drag_canvas(sp.x(), sp.y())
@@ -1157,17 +1399,25 @@ class BackdropCanvas(QGraphicsView):
 
     def mouseReleaseEvent(self, event):            # noqa: N802 (Qt override)
         if self._drag and event.button() == Qt.MouseButton.LeftButton:
-            self._end_vertex_drag()
-            event.accept()
-            return
-        press, self._press_pos = self._press_pos, None
-        super().mouseReleaseEvent(event)
+            d = self._drag
+            press = d.get("press")                 # set only where a click competes with a grab
+            if (press is None or (event.position() - press).manhattanLength() > _CLICK_SLOP_PX
+                    or (d.get("kind") == "cimg" and not self._contact_mode)):
+                self._end_vertex_drag()
+                event.accept()
+                return
+            self._cancel_drag()                    # it never travelled: a CLICK, not a drag --
+            event.accept()                         # a contact on a snip's body (V9), the first
+        else:                                      # corner inside a drawn quad (P24)
+            press, self._press_pos = self._press_pos, None
+            super().mouseReleaseEvent(event)
         if (press is None or event.button() != Qt.MouseButton.LeftButton
                 or self._cam is None):
             return
         travel = (event.position() - press).manhattanLength()
         if travel > _CLICK_SLOP_PX:
             return                                 # it was a pan
+        self._hint.hide()                          # a click: the pill has been read (P18)
         if self._contact_mode:                     # Rung 2: the raw canvas pixel; the host judges it
             c = self._widget_to_canvas(event.position())
             self.contact_clicked.emit(c.x(), c.y())
