@@ -42,6 +42,10 @@ TRACED_GATEWAY_PREFIX = "traced_door"
 TRACED_EVENT_PREFIX = "traced_zone"
 GENERATED_TABLES = frozenset({"field", "camera", "walkmesh", "player", "layers",
                               "gateway", "event"})
+# What the generator itself writes on a region row. Every OTHER key on one (a reward, a flag
+# gate, a sound -- added in the Editor) is the human's and rides through a regenerate.
+_GEN_ROW_KEYS = {"gateway": ("name", "to", "entrance", "zone"), "event": ("name", "message", "zone")}
+_GEN_ROW_VALUES = {"gateway": (("to", None), ("entrance", 0)), "event": (("message", None),)}
 
 
 class ImageFieldError(ValueError):
@@ -897,6 +901,17 @@ def _zone_key(zone):
     return tuple(pts) if len(pts) == 4 else None
 
 
+def _camera_of(existing):
+    """The camera an existing project's toml records (pitch/distance/fov on the fixed canvas),
+    or None when it has none this generator could have written."""
+    cam = (existing or {}).get("camera")
+    try:
+        return _guide.make_camera(float(cam["pitch"]), float(cam["distance"]),
+                                  fov_x_deg=float(cam["fov"]), range_wh=(CANVAS_W, CANVAS_H))
+    except (TypeError, KeyError, ValueError):
+        return None
+
+
 def _is_generated_layer(image) -> bool:
     import re
     return bool(re.match(r"^art/(?:base|fg\d+)\.png$", str(image or "").replace("\\", "/")))
@@ -918,8 +933,12 @@ def load_project_tables(toml_path) -> dict | None:
             f"pass --force to discard it") from e
 
 
-def merge_project_toml(generated_text: str, existing: dict | None):
+def merge_project_toml(generated_text: str, existing: dict | None, *, twin_quads=None):
     """Regenerate WITHOUT destroying hand-authored content — ``(text, kept, retaken, removed)``.
+
+    ``twin_quads`` = ``{"gateway": {quad: traced name}, "event": {...}}``: the quads this run's
+    regions have under the EXISTING file's camera (:func:`build_image_field` supplies them), so
+    a pre-prefix row is still recognized as its twin after the pitch was changed.
 
     Three bands, floorplan.merge_room's grammar:
     - a top-level table outside :data:`GENERATED_TABLES` (``[[npc]]``, ``[[chest]]``,
@@ -934,7 +953,10 @@ def merge_project_toml(generated_text: str, existing: dict | None):
       A pre-prefix door0/zone0 on a file with no traced_ row is replaced by its traced_ twin
       when this run re-emits the SAME quad (a <= 1.0.0b19 project reopened from its sidecar
       regenerates pixel-exact; named in ``retaken``), and otherwise kept as a hand row: the
-      Place tab mints those names too, so nothing else can tell the two apart;
+      Place tab mints those names too, so nothing else can tell the two apart. A row that IS
+      re-emitted keeps every key the generator does not write (a reward, a flag gate — named
+      in ``kept``); where its ``to`` / ``entrance`` / ``message`` differed from the session's,
+      the session wins and ``retaken`` says which value went;
     - ``[field]``/``[camera]``/``[walkmesh]`` regenerate wholesale; each whose on-disk value
       differed is named in ``retaken``. ``[player]`` merges PER KEY: ``spawn`` is the
       generator's (the session's centroid wins, retaken when it differed) while every other
@@ -964,6 +986,8 @@ def merge_project_toml(generated_text: str, existing: dict | None):
                      for r in gen.get(k) or [] if isinstance(r, dict)}
                  for k in ("gateway", "event")}
     pre_prefix_file = not _has_traced_rows(existing)
+    twin_quads = twin_quads or {}
+    reemitted = {}                                     # (kind, traced name) -> the row it replaces
     for kind in ("gateway", "event"):
         for row in existing.get(kind) or []:
             if not isinstance(row, dict):
@@ -972,19 +996,35 @@ def merge_project_toml(generated_text: str, existing: dict | None):
             if is_generated_region(kind, name):        # provably ours: re-emitted, or gone
                 if (kind, str(name)) not in gen_names:
                     removed.append(f"[[{kind}]] {name or '?'}")
+                else:
+                    reemitted[(kind, str(name))] = row
                 continue
             quad = _zone_key(row.get("zone"))
-            twin = (gen_quads[kind].get(quad)
-                    if quad is not None and pre_prefix_file and _is_pre_prefix_name(kind, name)
-                    else None)
-            if twin:                                   # the same quad, re-emitted: one door, not two
+            twin = None
+            if quad is not None and pre_prefix_file and _is_pre_prefix_name(kind, name):
+                twin = gen_quads[kind].get(quad) or (twin_quads.get(kind) or {}).get(quad)
+            if twin and (kind, twin) not in reemitted:  # the same quad, re-emitted: one door, not two
                 renamed.append(f"[[{kind}]] {name} (now {twin})")
+                reemitted[(kind, twin)] = row
             else:
                 kept_rows[kind].append(row)            # unprovable -> the human's, never deleted
+    # A re-emitted row is the generator's in NAME and GEOMETRY only. Whatever else the author put
+    # on it rides onto the new row; where the session's own values replace different ones, say so.
+    carried, value_retakes, carried_kept = {}, [], []
+    for (kind, gname), old in reemitted.items():
+        new = next(r for r in gen.get(kind) or [] if isinstance(r, dict) and str(r.get("name")) == gname)
+        for key, default in _GEN_ROW_VALUES[kind]:
+            if old.get(key, default) != new.get(key, default):
+                value_retakes.append(f"[[{kind}]] {gname}.{key} (was {old.get(key, default)!r}, "
+                                     f"the session has {new.get(key, default)!r})")
+        extras = {k: v for k, v in old.items() if k not in _GEN_ROW_KEYS[kind]}
+        if extras:
+            carried[(kind, gname)] = {**new, **extras}
+            carried_kept += [f"[[{kind}]] {gname}.{k}" for k in extras]
     kept_layers = [row for row in existing.get("layers") or []
                    if isinstance(row, dict) and not _is_generated_layer(row.get("image"))]
     retaken = [k for k in ("field", "camera", "walkmesh")
-               if k in existing and existing.get(k) != gen.get(k)] + renamed
+               if k in existing and existing.get(k) != gen.get(k)] + renamed + value_retakes
     old_player = existing.get("player") if isinstance(existing.get("player"), dict) else {}
     player_extra = {k: v for k, v in (old_player or {}).items() if k != "spawn"}
     if old_player and old_player.get("spawn") != (gen.get("player") or {}).get("spawn"):
@@ -994,11 +1034,20 @@ def merge_project_toml(generated_text: str, existing: dict | None):
             + [f"[player].{k}" for k in player_extra]
             + [f"[[gateway]] {r.get('name') or '?'}" for r in kept_rows["gateway"]]
             + [f"[[event]] {r.get('name') or '?'}" for r in kept_rows["event"]]
-            + [f"[[layers]] {r.get('image') or '?'}" for r in kept_layers])
+            + [f"[[layers]] {r.get('image') or '?'}" for r in kept_layers] + carried_kept)
     if not kept:
         return generated_text, [], retaken, removed
     from .editor import model as _model
     text = generated_text.rstrip("\n")
+    for (kind, gname), row in carried.items():
+        # the generated block is exactly `[[kind]]`, `name = "..."`, then its own lines up to the
+        # blank that ends it: replaced by one dumps chunk of the same row plus the carried keys
+        pat = re.compile(rf'^\[\[{kind}\]\]\nname = "{re.escape(gname)}"\n(?:(?!\[)[^\n]+\n?)*', re.M)
+        block = _model.dumps({kind: [row]}).rstrip("\n") + "\n"
+        text, n = pat.subn(lambda _m, b=block: b, text, count=1)
+        if n != 1:                                     # the generated shape moved: fail LOUDLY --
+            raise ImageFieldError(                     # the silent alternative is dropping the keys
+                f"internal: the generated [[{kind}]] {gname} block was not found to merge")
     if player_extra:
         # PER-KEY [player]: the generated block is exactly two known lines, replaced with one
         # self-consistent dumps chunk (an appended second [player] header would be a TOML
@@ -1124,7 +1173,23 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
                   f"zone = {_zone_world(ev['zone_px'], f'event {nm}')}", ""]
         ev_manifest.append(ev)
 
-    text, kept, retaken, removed = merge_project_toml("\n".join(lines) + "\n", existing)
+    # A pre-prefix row's quad was written through the camera the FILE still records. Project this
+    # run's regions through that one too, so its twin is still recognized after a pitch change
+    # (through the new camera alone the same pixels land elsewhere and the old door was doubled).
+    twin_quads = {"gateway": {}, "event": {}}
+    old_cam = _camera_of(existing)
+    if old_cam is not None:
+        for kind, prefix, rows in (("gateway", TRACED_GATEWAY_PREFIX, gw_manifest),
+                                   ("event", TRACED_EVENT_PREFIX, ev_manifest)):
+            for i, spec in enumerate(rows):
+                try:
+                    key = _zone_key(unproject_floor(old_cam, spec["zone_px"]))
+                except (ImageFieldError, ValueError):
+                    continue
+                if key is not None:
+                    twin_quads[kind][key] = f"{prefix}{i}"
+    text, kept, retaken, removed = merge_project_toml("\n".join(lines) + "\n", existing,
+                                                     twin_quads=twin_quads)
 
     # every refusal has passed: NOW touch the disk
     (out / "art").mkdir(parents=True, exist_ok=True)

@@ -461,6 +461,14 @@ Prompted by a deliberate stress test: a 9762u-wide room composed into a camera a
 > claim rule `is_generated_region` is ONE owner spent by both the merge and the Trace tab's
 > session absorb). Every refusal fires before any artifact is written; `--force` discards.
 > Fenced in the package `test_imagefield.py`.
+> ⚠ **SUPERSEDED 2026-11-23 — the legacy claim is GONE** (review finding T1,
+> `studies/cutscene-place-trace-review/`). Gating it on "the session emits regions" (item 1
+> below) still left the moment a session adds its FIRST region: the file had no `traced_` row,
+> so Place's `door0`/`zone0` were claimed and deleted. `is_generated_region` is now the
+> `traced_` prefix alone and only a `traced_` row is ever deleted. A pre-prefix row is renamed
+> to its `traced_` twin only when the run re-emits its exact quad (through the new camera or
+> the one the file records), and is otherwise kept as a hand row; the absorb takes `traced_`
+> rows only. A re-emitted row keeps every key the generator does not write.
 > ★ **AN ADVERSARIAL PASS OVER THE MERGE FOUND THE SAME CLASSES 7c′'s PASS FOUND, again:**
 > (1) the legacy claim RECURRED — a no-regions session mints no traced_ row, so the file read
 > as legacy forever and a Place-drawn `door0` was re-claimed and re-deleted on EVERY

@@ -1119,8 +1119,9 @@ class TraceDoc(QWidget):
                 if not imagefield.is_generated_region(kind, e.get("name")):
                     continue
                 z = e.get("zone")
-                if not isinstance(z, (list, tuple)) or len(z) not in (4, 5):
-                    continue
+                if imagefield._zone_key(z) is None:    # not a 4-corner quad (a hand-edited 5-point
+                    continue                           # zone): the session cannot carry it, so it
+                #                                        stays file-side instead of failing Generate
                 pts = [tuple(map(float, p)) for p in z]
                 if len(pts) == 5 and pts[-1] == pts[-2]:
                     pts = pts[:4]                      # the IsInQuad-safe doubled stored form

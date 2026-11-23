@@ -12,6 +12,10 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   ever deleted now. A project made before 1.0.0b20 keeps its old `door0` / `zone0` rows: one whose exact quad the
   run draws again is renamed to its `traced_` twin (listed under "retook"), the rest stay as your own rows, and
   reopening such a project's `field.toml` no longer pulls them into the Trace session.
+- **Keys you add to a traced door or zone now survive a regenerate.** A reward, a flag gate or any other key
+  added in the Editor to a `traced_` row was dropped the next time Trace regenerated, with no notice. Those keys
+  now ride through (listed under "preserved"). The row's target, entrance and message still come from the
+  Trace session; when that replaces a different value in the file, the output names it under "retook".
 - **Two photos with the same file name no longer share a project folder.** The Trace tab's first Generate wrote to
   `<photo name>-field` whatever was already there, so a second `image.png` or `IMG_0001.jpg` replaced the first
   project's art, floor and session record — and merged into its `field.toml` when both kept the default name. A

@@ -892,6 +892,31 @@ def test_load_project_leaves_place_rows_file_side_on_a_regionless_project(app, t
     assert doc._regions == []
 
 
+def test_load_project_leaves_a_five_corner_traced_row_file_side(app, tmp_path):
+    """A hand-edited traced row with five DISTINCT corners is a legal zone the session cannot
+    carry (its quads are four clicks): absorbed, it made every Generate fail, and the next
+    reopen then dropped it and the regenerate deleted the door."""
+    pytest.importorskip("PIL")
+    import tomllib
+    from PIL import Image
+    from ff9mapkit import imagefield as IF
+    from ff9mapkit.editor import model as _model
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
+    floor = [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)]
+    man = IF.build_image_field(photo, floor, tmp_path / "proj", name="HALL6", field_id=30791,
+                               gateways=["4005@60,300;140,300;140,330;60,330",
+                                         "4006@250,300;330,300;330,330;250,330"])
+    toml = Path(man["toml"])
+    data = tomllib.loads(toml.read_text(encoding="utf-8"))
+    z = data["gateway"][0]["zone"]
+    data["gateway"][0]["zone"] = z + [[z[0][0] - 40, z[0][1] + 60]]      # a fifth, distinct corner
+    toml.write_text(_model.dumps(data), encoding="utf-8", newline="\n")
+    doc, _run = _doc(app)
+    doc.load_project(toml)
+    assert [r["to"] for r in doc._regions] == [4006]   # the four-corner door alone joins the session
+
+
 def test_first_generate_hands_the_project_to_the_shell_once(app, tmp_path, monkeypatch):
     """The Floorplan compose→open_campaign contract on the trace lane: a clean FIRST Generate
     opens the project in the Editor (which is what feeds Place, 7d); a REGENERATE never yanks
