@@ -469,6 +469,35 @@ def test_the_toolbar_undo_on_the_trace_tab_acts_on_the_trace(win, app, tmp_path)
     assert win.act_undo.toolTip().startswith("Undo place NPC")
 
 
+def test_ctrl_z_on_the_floorplan_tab_undoes_the_floorplan_not_another_tabs_edit(win, app, tmp_path):
+    """T26 on the OTHER doc-local-undo tab (review): Floorplan keeps its own history too, and a
+    real Ctrl+Z there reverted the open field's Place edit and jumped to the Place tab."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    _photo, toml = _project(tmp_path)
+    assert win.open_field(toml)
+    _place_an_npc(win)
+    fp = win.floorplan_doc
+    win.show()
+    win.activateWindow()
+    win.tabs.setCurrentWidget(fp)
+    fp._push_history()                                 # one floorplan gesture on its own stack
+    stack, npcs = list(win._undo_stack), len(win._doc(_NAME).data.get("npc") or [])
+    assert "floorplan" in win.act_undo.toolTip().lower() and not win.act_redo.isEnabled()
+    fp.setFocus()
+    app.processEvents()
+    QTest.keyClick(fp, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+    app.processEvents()
+    assert fp._history == []                           # the floorplan gesture is taken back ...
+    assert win.tabs.currentWidget() is fp              # ... where the author is looking
+    assert win._undo_stack == stack
+    assert len(win._doc(_NAME).data.get("npc") or []) == npcs
+    QTest.keyClick(fp, Qt.Key.Key_Z,
+                   Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
+    app.processEvents()
+    assert win._undo_stack == stack and win.tabs.currentWidget() is fp
+
+
 # ------------------------------------------------------------- the job pipe speaks UTF-8 (E10)
 def _run_real_job(win, app, code):
     """A REAL run_job: a Python child through the shell's own QProcess, waited out."""
