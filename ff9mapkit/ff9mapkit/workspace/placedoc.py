@@ -401,6 +401,8 @@ class PlaceDoc(QWidget):
         self._cam_pick = {}                     # surface source -> its chosen camera index
         self._region_rows_cache = []            # the last region_rows derivation (canvas feed)
         self._loading = None                    # (source, ci) in flight, else None
+        self._resume = set()                    # project sources the author loaded this session:
+        #                                         re-read, unasked, on the way back (_resume_room)
         self._loader = _SurfaceLoader()
         self._loader.loaded.connect(self._on_loaded)
         self._loader.failed.connect(self._on_load_failed)
@@ -581,6 +583,7 @@ class PlaceDoc(QWidget):
         else:
             self._sync_modes()
             self._refresh()
+            self._resume_room()
 
     # ★ A PROJECT SURFACE IS KEPT ONLY WHILE THE AUTHOR STAYS HERE, ON THAT ROOM (review finding P4).
     # Its files can be rewritten whenever the author is elsewhere (a Blender re-export, a Floorplan
@@ -593,6 +596,23 @@ class PlaceDoc(QWidget):
         if self._source is not None and self._source[0] == "project":
             self._clear_surface()
         super().hideEvent(e)
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(0, self._resume_room)    # after the shell's own re-feed, whichever is first
+
+    def _resume_room(self):
+        """Dropping a project room on the way out is what keeps a stale floor from being clicked;
+        making the author press Load again on every return would be the price. So a room they had
+        loaded is read again, unasked and off the GUI thread, when they are back on it -- always
+        from disk, never from the cache. Only while this tab is SHOWING (a hidden tab reads no
+        disk), and never again after a load of it failed (that one waits for a real click)."""
+        key = (self._source, self._cam_index())
+        if (self.isVisible() and self._blocked is None and self._data is not None
+                and self._source is not None and self._source in self._resume
+                and key not in self._bundles and self._loading != key):
+            self.on_load()
 
     def _drop_project_surfaces(self):
         for key in [k for k in self._bundles if k[0][0] == "project"]:
@@ -652,6 +672,8 @@ class PlaceDoc(QWidget):
             return
         if self._loading == key:
             return
+        if key[0][0] == "project":
+            self._resume.add(key[0])                # the author wants THIS room on the canvas
         self._loading = key
         self.load_btn.setEnabled(False)
         self._refresh(f"Loading field #{key[0]} (camera {key[1]}) — extracting + compositing…")
@@ -685,6 +707,7 @@ class PlaceDoc(QWidget):
             self._apply_bundle(bundle, refit=True)
 
     def _on_load_failed(self, key, msg):
+        self._resume.discard(key[0])               # do not retry a failing read on every re-feed
         if self._settle(key):
             # a failed re-read leaves no floor behind: the old one is not what is on disk (P4)
             self._bundles.pop(key, None)

@@ -854,14 +854,41 @@ def test_coming_back_to_place_does_not_rearm_a_project_room_changed_on_disk(app,
     d.show_field("A", data, toml)                       # an edit re-feed while staying keeps it
     assert d.canvas._place_mode and d.canvas._surface_tris
     d.hide()                                            # the author goes to another tab...
+    assert not d.canvas._surface_tris and d._bundle() is None   # (nothing is kept while away)
     _halve_walkmesh(toml)                               # ...and re-exports the floor
     d.show()
     d.show_field("A", data, toml)                       # the shell's re-feed on the way back
-    assert not d.canvas._place_mode and not d.canvas._surface_tris
-    assert d._bundle() is None and "Load the room" in d.status.text()
-    d.load_btn.click()
+    assert not d.canvas._place_mode and not d.canvas._surface_tris   # the OLD floor is never re-armed
+    # ...and the room they had loaded comes back by itself, read from disk again (no Load click)
     assert _wait(lambda: d._loading is None and d.canvas._surface_tris), d.status.text()
     assert _x_extent(d.canvas._surface_tris) == (round(x0 / 2), round(x1 / 2))
+
+
+def test_a_room_is_only_re_read_unasked_when_it_was_loaded_and_the_tab_is_showing(app, tmp_path):
+    """The automatic re-read on the way back has three guards, each with a reason: never for a
+    room the author did not load (a tab show reads no disk unasked), never while the tab is
+    hidden, and never again after a read of it FAILED (that one waits for a real click, or every
+    re-feed would retry it)."""
+    d, _ = _doc(app)
+    path = tmp_path / "ROOM.field.toml"
+    started = []
+    d._loader.start = lambda *key: started.append(key)
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)
+    assert started == []                               # never loaded by the author: nothing starts
+    d.load_btn.click()
+    key = (d._source, 0)
+    assert started == [key]
+    d._on_loaded(key, dict(_bundle(), source=d._source))
+    d.hide()
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)   # a re-feed while HIDDEN
+    assert started == [key]
+    d.show()
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)   # back on it, showing: read again
+    assert started == [key, key]
+    d._on_load_failed(key, "the file is gone")
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)
+    assert started == [key, key]                       # a failed read is not retried unasked
+    assert "Could not load" in d.status.text() or "Load the room" in d.status.text()
 
 
 def test_leaving_a_project_room_for_another_drops_its_surface(app, tmp_path):
