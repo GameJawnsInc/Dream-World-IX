@@ -75,6 +75,9 @@ class BackdropCanvas(QGraphicsView):
         self._pixmap = None
         self._zoom = 1.0
         self._fit_pending = False
+        self._fit_zoom = None                # the zoom the last fit chose: while the view still
+                                             # sits at it, a resize re-fits (a fitted view has no
+                                             # scroll range, so there is no pan to lose)
         self._press_pos = None
         self._trace_mode = False
         self._trace = []                     # [(cx, cy)] canvas px — the authoring truth
@@ -1052,15 +1055,22 @@ class BackdropCanvas(QGraphicsView):
 
     # -- view grammar (the atlas family's) --
     def _fit(self):
+        """Fit the frame to the view. Measured from ``maximumViewportSize()`` -- the viewport
+        as if no scrollbar had range -- never from the live viewport, which a zoomed
+        transform's scrollbars have shrunk (Ctrl+0 from a zoomed view fitted ~2% small, V4).
+        The fit is a STATE the view stays in (``_fit_zoom``) until the author picks their own
+        zoom, so a layout change re-fits instead of cropping the art (T24)."""
         r = self._scene.sceneRect()
         if r.isEmpty():
             return
-        vw, vh = max(1, self.viewport().width()), max(1, self.viewport().height())
+        m = self.maximumViewportSize()
+        vw, vh = max(1, m.width()), max(1, m.height())
         z = min(vw / max(1.0, r.width()), vh / max(1.0, r.height())) * 0.97
         z = max(_ZOOM_MIN, min(_ZOOM_MAX, z))
         self.resetTransform()
         self.scale(z, z)
         self._zoom = z
+        self._fit_zoom = z
         self.centerOn(r.center())
 
     def paintEvent(self, ev):                      # noqa: N802 (Qt override)
@@ -1071,15 +1081,25 @@ class BackdropCanvas(QGraphicsView):
 
     def resizeEvent(self, ev):                     # noqa: N802 (Qt override)
         super().resizeEvent(ev)
+        if self._zoom == self._fit_zoom and not self._fit_pending:   # still at the fit:
+            self._fit()                                              # follow the layout (T24)
+        self._place_hint()
+
+    def scrollContentsBy(self, dx, dy):            # noqa: N802 (Qt override)
+        """The pills are viewport children and QWidget::scroll moves them with the art: re-pin
+        after every scroll (V2; floorplandoc's identical fix)."""
+        super().scrollContentsBy(dx, dy)
         self._place_hint()
 
     def wheelEvent(self, event):                   # noqa: N802 (Qt override)
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            f = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
-            z = max(_ZOOM_MIN, min(_ZOOM_MAX, self._zoom * f))
-            if z != self._zoom:
-                self.scale(z / self._zoom, z / self._zoom)
-                self._zoom = z
+            dy = event.angleDelta().y()            # a sideways wheel is not a zoom (V5), and a
+            if dy:                                 # touchpad's small deltas are a fraction of
+                f = 1.15 ** (dy / 120)             # one 120 detent, not one step each
+                z = max(_ZOOM_MIN, min(_ZOOM_MAX, self._zoom * f))
+                if z != self._zoom:
+                    self.scale(z / self._zoom, z / self._zoom)
+                    self._zoom = z
             event.accept()
             return
         super().wheelEvent(event)

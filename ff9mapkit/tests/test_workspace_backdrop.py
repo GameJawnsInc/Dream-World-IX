@@ -721,3 +721,121 @@ def test_zone_corners_project_at_the_mesh_floor_height(app):
     off_px = IF.world_point_to_click(c.camera(), (5000.0, y, 2000.0))
     off = c._px_to_zone_world(QPointF(*off_px))
     assert math.hypot(off[0] - 5000.0, off[1] - 2000.0) < 1.0     # the plane at floor height
+
+
+# --------------------------------------------------------------------------- the view grammar
+# Every fence here delivers its input through QApplication.sendEvent(view.viewport(), ...), the
+# path Qt itself takes, and runs at an ODD and an EVEN width (the skill's parity trap).
+
+def _fitted(app, w, h=560):
+    """A canvas shown at (w, h) whose deferred first-paint fit has really run."""
+    c, cam = _canvas(app)
+    c.resize(w, h)
+    QApplication.processEvents()
+    c.viewport().repaint()                     # the deferred fit runs in the first REAL paint
+    QApplication.processEvents()
+    assert not c._fit_pending
+    return c, cam
+
+
+def _ctrl_wheel(c, dy, dx=0, n=1):
+    from PySide6.QtCore import QPoint as _P
+    from PySide6.QtGui import QWheelEvent
+    vp = c.viewport()
+    pos = QPointF(vp.width() / 2, vp.height() / 2)
+    for _ in range(n):
+        ev = QWheelEvent(pos, QPointF(vp.mapToGlobal(pos.toPoint())), _P(0, 0), _P(dx, dy),
+                         Qt.MouseButton.NoButton, Qt.KeyboardModifier.ControlModifier,
+                         Qt.ScrollPhase.NoScrollPhase, False)
+        QApplication.sendEvent(vp, ev)
+        QApplication.processEvents()           # the scrollbars' layout lands between steps,
+                                               # as it does for a real hand on a real wheel
+
+
+def _ctrl_key(c, key):
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QKeyEvent
+    QApplication.sendEvent(c, QKeyEvent(QEvent.Type.KeyPress, key,
+                                        Qt.KeyboardModifier.ControlModifier))
+    QApplication.processEvents()
+
+
+def _art_fits(c):
+    """The whole frame lies inside the viewport and neither scrollbar has a range."""
+    r = c.mapFromScene(c._scene.sceneRect()).boundingRect()
+    vp = c.viewport().rect()
+    return (vp.contains(r) and c.verticalScrollBar().maximum() == 0
+            and c.horizontalScrollBar().maximum() == 0)
+
+
+@pytest.mark.parametrize("w", [501, 500])
+def test_a_layout_shrink_refits_until_the_author_zooms(app, w):
+    """T24: the Trace cut-out strip appearing (any layout shrink) must not crop the art behind a
+    scrollbar while the author is still at the fit; once they have zoomed, their zoom stays."""
+    c, _ = _fitted(app, w)
+    assert _art_fits(c)
+    c.resize(w, 470)                           # the strip row arrives: ~90 px shorter
+    QApplication.processEvents()
+    assert _art_fits(c), "a shrink left the art cropped behind a scrollbar"
+    c.resize(w, 620)                           # and a grown window fills again
+    QApplication.processEvents()
+    grown = c.transform().m11()
+    c.resize(w, 560)
+    QApplication.processEvents()
+    assert c.transform().m11() < grown
+    _ctrl_wheel(c, 120)                        # the author zooms: from now on it is theirs
+    z = c.transform().m11()
+    c.resize(w, 470)
+    QApplication.processEvents()
+    assert c.transform().m11() == pytest.approx(z)
+    _ctrl_key(c, Qt.Key.Key_0)                 # Ctrl+0 is the way back to following the layout
+    c.resize(w, 560)
+    QApplication.processEvents()
+    assert _art_fits(c) and c.transform().m11() > z * 0.5
+    _ctrl_key(c, Qt.Key.Key_1)                 # 1:1 is a chosen zoom too
+    c.resize(w, 470)
+    QApplication.processEvents()
+    assert c.transform().m11() == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("w", [501, 500])
+def test_ctrl0_from_a_zoomed_view_fits_like_the_first_paint(app, w):
+    """V4: Ctrl+0 measured the scrollbar-reduced viewport and fitted ~2% small."""
+    c, _ = _fitted(app, w)
+    first = c.transform().m11()
+    _ctrl_wheel(c, 120, n=4)                   # in until the scrollbars show
+    assert c.verticalScrollBar().maximum() > 0
+    _ctrl_key(c, Qt.Key.Key_0)
+    QApplication.processEvents()
+    assert c.transform().m11() == pytest.approx(first, abs=1e-9)
+
+
+@pytest.mark.parametrize("w", [501, 500])
+def test_the_hint_pill_stays_in_its_corner_after_a_pan(app, w):
+    """V2: the pill is a viewport child; QGraphicsView scrolls the viewport, children and all."""
+    c, _ = _fitted(app, w)
+    _ctrl_wheel(c, 120, n=6)
+    sb = c.verticalScrollBar()
+    hb = c.horizontalScrollBar()
+    assert sb.maximum() > 0
+    sb.setValue(sb.maximum())                  # exactly what ScrollHandDrag does
+    hb.setValue(hb.maximum())
+    QApplication.processEvents()
+    vp, hint = c.viewport(), c._hint
+    want = (vp.width() - hint.width() - 10, vp.height() - hint.height() - 8)
+    assert (hint.x(), hint.y()) == want
+
+
+@pytest.mark.parametrize("w", [501, 500])
+def test_ctrl_wheel_zoom_follows_the_delta_and_ignores_a_sideways_wheel(app, w):
+    """V5: a precision touchpad splits one 120 detent into small deltas -- eight 15s are ONE
+    step, not eight; a horizontal Ctrl+wheel (dy == 0) is not a zoom-out."""
+    c, _ = _fitted(app, w)
+    z0 = c.transform().m11()
+    _ctrl_wheel(c, 15, n=8)
+    assert c.transform().m11() / z0 == pytest.approx(1.15, rel=1e-6)
+    z1 = c.transform().m11()
+    _ctrl_wheel(c, 0, dx=120)
+    assert c.transform().m11() == pytest.approx(z1)
+    _ctrl_wheel(c, -120)
+    assert c.transform().m11() / z1 == pytest.approx(1 / 1.15, rel=1e-6)
