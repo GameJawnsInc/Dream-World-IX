@@ -256,13 +256,19 @@ class TraceDoc(QWidget):
                                "dispatch on.")
         self.gw_ent_label.setBuddy(self.gw_ent)
         row.addWidget(self.gw_ent)
-        self.ev_msg = QLineEdit("...")
-        self.ev_msg.setMaximumWidth(180)
+        # labelled, uncapped, and no '...' pre-fill (left alone it shipped a literal ellipsis
+        # popup); an empty box still falls back to '...' at draw time (finding T31)
+        self.ev_msg_label = QLabel("Message")
+        row.addWidget(self.ev_msg_label)
+        self.ev_msg = QLineEdit()
+        self.ev_msg.setPlaceholderText("what the zone says on walk-in")
         self.ev_msg.setAccessibleName("Event message")
-        self.ev_msg.setToolTip("The message a drawn event zone shows on walk-in (captured per "
-                               "zone as you draw it — the photo lane regenerates its toml, so "
-                               "the words live in this session, not in the file).")
-        row.addWidget(self.ev_msg)
+        self.ev_msg.setToolTip("The line the NEXT event zone you draw shows on walk-in (captured "
+                               "per zone as you draw it; right-click a drawn zone to reword it). "
+                               "Generate writes it into the project's field.toml and keeps it in "
+                               "its .trace.json.")
+        self.ev_msg_label.setBuddy(self.ev_msg)
+        row.addWidget(self.ev_msg, 1)
         row.addStretch(1)
         self.undo_btn = QPushButton("Undo")
         self.undo_btn.setToolTip("Take back the last gesture (a vertex, cut-out or region).")
@@ -748,6 +754,7 @@ class TraceDoc(QWidget):
         for w in (self.gw_to_label, self.gw_to, self.gw_ent_label, self.gw_ent):
             w.setVisible(gw)
         self.ev_msg.setVisible(on and not gw)
+        self.ev_msg_label.setVisible(on and not gw)
 
     # ------------------------------------------------------------------ rung 4: trigger regions
     def _region_worlds(self, quad_px):

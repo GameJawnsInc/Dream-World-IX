@@ -1621,6 +1621,24 @@ def test_generate_while_another_job_runs_says_so(app, tmp_path, monkeypatch):
     assert doc.status.property("state") == "warn"
 
 
+def test_the_event_message_box_is_labelled_and_tells_the_truth(app, tmp_path):
+    """Finding T31: a bare box pre-filled with '...' (shipped as a literal ellipsis popup when
+    left alone), capped at 180 px, with no label -- and a tooltip saying the words were not
+    written to the file, when Generate writes them into [[event]] and the session record."""
+    pytest.importorskip("PIL")
+    doc, _ = _traced_doc(app, tmp_path)
+    doc.tools.set_current("regions")
+    doc.rkind_btns["event"].setChecked(True)
+    QApplication.processEvents()
+    assert doc.ev_msg_label.buddy() is doc.ev_msg and doc.ev_msg_label.isVisible()
+    assert doc.ev_msg.text() == "" and doc.ev_msg.placeholderText()
+    assert doc.ev_msg.maximumWidth() > 180
+    tip = doc.ev_msg.toolTip()
+    assert "not in the file" not in tip and "field.toml" in tip
+    doc.rkind_btns["gateway"].setChecked(True)
+    assert not doc.ev_msg_label.isVisible()            # the label follows its box
+
+
 def test_the_canvas_keeps_a_usable_minimum(app):
     """The canvas had no minimum of its own (66 px, the scroll area's). A floor ABOVE what the
     window can give overpaints the rows below, so it is modest: 96 px (measured natively, the
