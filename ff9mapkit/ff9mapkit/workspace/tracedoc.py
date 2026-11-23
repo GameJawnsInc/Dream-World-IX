@@ -1010,11 +1010,13 @@ class TraceDoc(QWidget):
                 self._attach_cutout(len(self._fg) - 1, str(fg_path))
         # regions: the compiled toml's WORLD zones invert to canvas px through the same camera.
         # Only the GENERATOR'S OWN rows join the session (one owner: is_generated_region —
-        # the same claim the regenerate merge makes); a hand/Place row stays file-side, where
-        # the merge preserves it verbatim.
+        # the same claim the regenerate merge makes, and it is the traced_ prefix alone); a
+        # hand/Place row stays file-side, where the merge preserves it verbatim. A pre-prefix
+        # door0 is NOT absorbed: the Place tab mints that name too, and absorbing one re-emits
+        # it as a traced_ row stripped to to/entrance/zone (review finding T1).
         for kind in ("gateway", "event"):
             for e in data.get(kind, []) or []:
-                if not imagefield.is_generated_region(data, kind, e.get("name")):
+                if not imagefield.is_generated_region(kind, e.get("name")):
                     continue
                 z = e.get("zone")
                 if not isinstance(z, (list, tuple)) or len(z) not in (4, 5):

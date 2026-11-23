@@ -862,28 +862,39 @@ def _has_traced_rows(data: dict) -> bool:
     return False
 
 
-def is_generated_region(data: dict, kind: str, name, *, allow_legacy: bool = True) -> bool:
-    """True when a ``[[gateway]]``/``[[event]]`` row is the GENERATOR'S OWN: the traced_ prefix,
-    or — on a LEGACY project that predates the prefix, i.e. one with no traced_ row anywhere —
-    the old enumeration names door0/zone0/…  Pre-merge, every such row in an image-field project
-    was generator-emitted (a regenerate destroyed the whole file, so no hand row ever survived
-    in one). Once a project has been regenerated under the prefix, door0-style names are a HAND
-    row (the Place tab mints them) and are preserved. ONE owner for both the merge and the
-    Trace tab's session absorb.
+def is_generated_region(kind: str, name) -> bool:
+    """True when a ``[[gateway]]``/``[[event]]`` row is PROVABLY the generator's own: it carries
+    the traced_ prefix, which nothing else mints. ONE owner for both the regenerate merge (which
+    may DELETE such a row) and the Trace tab's session absorb (which re-emits it).
 
-    ``allow_legacy=False`` turns the legacy branch off. The MERGE passes that when the session
-    is regenerating with NO regions at all: such a run emits no traced_ row, so the file would
-    read as legacy on every future regenerate too, and a Place-drawn door0 would be re-claimed
-    and re-deleted forever — the adversarial-review catch. A no-regions session cannot have
-    stale generator doors to replace, so the claim buys nothing there and costs real content."""
-    import re
+    A name is the only proof there is. This used to add a "legacy" claim — on a file with no
+    traced_ row, door0/zone0 were taken for a pre-prefix (<= 1.0.0b19) generator's rows — but a
+    project traced with NO regions has no traced_ row either, and the Place tab mints exactly
+    those names: the first region a session added then deleted every door and zone drawn in
+    Place (review finding T1). Absence of a marker is not evidence of age. The one case that
+    still IS provable — a pre-prefix row whose exact quad this run re-emits — is handled where
+    the proof exists, in :func:`merge_project_toml`."""
     n = str(name or "")
-    if n.startswith(TRACED_GATEWAY_PREFIX if kind == "gateway" else TRACED_EVENT_PREFIX):
-        return True
-    if not allow_legacy:
-        return False
-    pat = r"^door\d+$" if kind == "gateway" else r"^zone\d+$"
-    return not _has_traced_rows(data) and bool(re.match(pat, n))
+    return n.startswith(TRACED_GATEWAY_PREFIX if kind == "gateway" else TRACED_EVENT_PREFIX)
+
+
+def _is_pre_prefix_name(kind: str, name) -> bool:
+    """door0/zone0/… — what the generator called its rows before the traced_ prefix, and what
+    the Place tab calls its own to this day. Never proof of ownership by itself."""
+    import re
+    return bool(re.match(r"^door\d+$" if kind == "gateway" else r"^zone\d+$", str(name or "")))
+
+
+def _zone_key(zone):
+    """A stored zone as a comparable tuple of integer corners (the IsInQuad-safe doubled last
+    vertex dropped), or None when it is not a quad of numbers."""
+    try:
+        pts = [(int(round(float(p[0]))), int(round(float(p[1])))) for p in zone]
+    except (TypeError, ValueError, IndexError):
+        return None
+    if len(pts) == 5 and pts[-1] == pts[-2]:
+        pts = pts[:4]
+    return tuple(pts) if len(pts) == 4 else None
 
 
 def _is_generated_layer(image) -> bool:
@@ -917,10 +928,13 @@ def merge_project_toml(generated_text: str, existing: dict | None):
     - ``[[layers]]`` / ``[[gateway]]`` / ``[[event]]`` are generator-owned LISTS whose hand
       rows are appended after the generated ones — identified by :func:`is_generated_region`
       / the generated art paths, NOT merged by name, because a name merge cannot express
-      DELETION (drop a door from the session and its stale row must go). Every claimed row
+      DELETION (drop a door from the session and its stale row must go). Every traced_ row
       the session did not re-emit is named in ``removed`` — deletion is REPORTED, never
-      silent (floorplan.merge_room's own contract), and the legacy claim is OFF entirely on
-      a no-regions regenerate (see :func:`is_generated_region`);
+      silent (floorplan.merge_room's own contract) — and ONLY a traced_ row is ever deleted.
+      A pre-prefix door0/zone0 on a file with no traced_ row is replaced by its traced_ twin
+      when this run re-emits the SAME quad (a <= 1.0.0b19 project reopened from its sidecar
+      regenerates pixel-exact; named in ``retaken``), and otherwise kept as a hand row: the
+      Place tab mints those names too, so nothing else can tell the two apart;
     - ``[field]``/``[camera]``/``[walkmesh]`` regenerate wholesale; each whose on-disk value
       differed is named in ``retaken``. ``[player]`` merges PER KEY: ``spawn`` is the
       generator's (the session's centroid wins, retaken when it differed) while every other
@@ -932,10 +946,6 @@ def merge_project_toml(generated_text: str, existing: dict | None):
     if not existing:
         return generated_text, [], [], []
     gen = tomllib.loads(generated_text)
-    # THE LEGACY CLAIM IS GATED ON THE SESSION EMITTING REGIONS: a no-regions run mints no
-    # traced_ row, so the file would read as legacy forever and re-claim a Place door0 on
-    # every regenerate — recurring silent data loss, not a one-time migration.
-    allow_legacy = bool((gen.get("gateway") or []) or (gen.get("event") or []))
     kept_tables, scalars = {}, {}
     for key, val in existing.items():
         if key in GENERATED_TABLES:
@@ -946,22 +956,35 @@ def merge_project_toml(generated_text: str, existing: dict | None):
         else:
             scalars[key] = val                     # a bare key must precede the first [header]
     kept_rows = {"gateway": [], "event": []}
-    removed = []
+    removed, renamed = [], []
     gen_names = {(k, str(r.get("name"))) for k in ("gateway", "event")
                  for r in gen.get(k) or [] if isinstance(r, dict)}
+    # the quads THIS run emits, per kind -> the traced_ name each one carries (the twin lookup)
+    gen_quads = {k: {_zone_key(r.get("zone")): str(r.get("name"))
+                     for r in gen.get(k) or [] if isinstance(r, dict)}
+                 for k in ("gateway", "event")}
+    pre_prefix_file = not _has_traced_rows(existing)
     for kind in ("gateway", "event"):
         for row in existing.get(kind) or []:
             if not isinstance(row, dict):
                 continue
-            if is_generated_region(existing, kind, row.get("name"), allow_legacy=allow_legacy):
-                if (kind, str(row.get("name"))) not in gen_names:
-                    removed.append(f"[[{kind}]] {row.get('name') or '?'}")
+            name = row.get("name")
+            if is_generated_region(kind, name):        # provably ours: re-emitted, or gone
+                if (kind, str(name)) not in gen_names:
+                    removed.append(f"[[{kind}]] {name or '?'}")
+                continue
+            quad = _zone_key(row.get("zone"))
+            twin = (gen_quads[kind].get(quad)
+                    if quad is not None and pre_prefix_file and _is_pre_prefix_name(kind, name)
+                    else None)
+            if twin:                                   # the same quad, re-emitted: one door, not two
+                renamed.append(f"[[{kind}]] {name} (now {twin})")
             else:
-                kept_rows[kind].append(row)
+                kept_rows[kind].append(row)            # unprovable -> the human's, never deleted
     kept_layers = [row for row in existing.get("layers") or []
                    if isinstance(row, dict) and not _is_generated_layer(row.get("image"))]
     retaken = [k for k in ("field", "camera", "walkmesh")
-               if k in existing and existing.get(k) != gen.get(k)]
+               if k in existing and existing.get(k) != gen.get(k)] + renamed
     old_player = existing.get("player") if isinstance(existing.get("player"), dict) else {}
     player_extra = {k: v for k, v in (old_player or {}).items() if k != "spawn"}
     if old_player and old_player.get("spawn") != (gen.get("player") or {}).get("spawn"):

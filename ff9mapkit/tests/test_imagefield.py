@@ -607,13 +607,15 @@ def test_a_place_drawn_door0_on_a_current_project_is_preserved(tmp_path):
                          gateways=["4005@60,300;140,300;140,330;60,330"])
     data = tomllib.loads(toml.read_text(encoding="utf-8"))
     assert [g["name"] for g in data["gateway"]] == ["traced_door0", "door0"]
-    assert IF.is_generated_region(data, "gateway", "traced_door0")
-    assert not IF.is_generated_region(data, "gateway", "door0")
+    assert IF.is_generated_region("gateway", "traced_door0")
+    assert not IF.is_generated_region("gateway", "door0")
 
 
 def test_legacy_door_rows_are_claimed_once_not_duplicated(tmp_path):
-    """A pre-prefix project's own door0/zone0 rows (no traced_ row anywhere) are the
-    generator's -- the first merged regenerate replaces them instead of doubling them."""
+    """A pre-prefix project's own door0 row is replaced by its traced_ twin when the run
+    re-emits the same quad -- not doubled. Its zone0, which this run does NOT re-emit, is
+    KEPT: nothing distinguishes it from a zone the Place tab drew, and an unprovable row is
+    never deleted (it used to be, and that same rule ate real Place rows -- finding T1)."""
     pytest.importorskip("PIL")
     import tomllib
     toml, floor, _man = _merge_project(tmp_path)
@@ -623,16 +625,17 @@ def test_legacy_door_rows_are_claimed_once_not_duplicated(tmp_path):
         g["name"] = f"door{i}"
     for i, e in enumerate(data["event"]):
         e["name"] = f"zone{i}"
-    assert IF.is_generated_region(data, "gateway", "door0")      # the legacy claim
+    assert not IF.is_generated_region("gateway", "door0")        # a name alone proves nothing
     from ff9mapkit.editor import model as _model
     toml.write_text(_model.dumps(dict(data, npc=[{"name": "keeper", "preset": "vivi",
                                                   "pos": [0, 1500]}])),
                     encoding="utf-8", newline="\n")
-    IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
-                         gateways=["4005@60,300;140,300;140,330;60,330"])
+    man = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                               gateways=["4005@60,300;140,300;140,330;60,330"])
     data2 = tomllib.loads(toml.read_text(encoding="utf-8"))
-    assert [g["name"] for g in data2["gateway"]] == ["traced_door0"]   # claimed, not doubled
-    assert [e["name"] for e in data2.get("event", [])] == []
+    assert [g["name"] for g in data2["gateway"]] == ["traced_door0"]   # replaced, not doubled
+    assert [e["name"] for e in data2.get("event", [])] == ["zone0"]    # unprovable -> kept
+    assert "[[event]] zone0" in man["kept"] and man["removed"] == []
     assert data2["npc"][0]["name"] == "keeper"
 
 
@@ -724,6 +727,70 @@ def test_a_no_regions_regenerate_never_claims_place_rows(tmp_path):
         data = tomllib.loads(toml.read_text(encoding="utf-8"))
         assert [g["name"] for g in data["gateway"]] == ["door0"]
         assert man["removed"] == []
+
+
+_PLACE_ROWS = (
+    '\n[[gateway]]\nname = "door0"\nto = 301\nzone = [[-500, 900], [-400, 900], '
+    '[-400, 1000], [-500, 1000]]\n'
+    '\n[[event]]\nname = "zone0"\nmessage = "..."\nzone = [[100, 900], [200, 900], '
+    '[200, 1000], [100, 1000]]\n')
+
+
+@pytest.mark.parametrize("regions", [
+    {"events": ["It creaks.@200,340;300,340;300,380;200,380"]},
+    {"gateways": ["4005@60,300;140,300;140,330;60,330"]},
+    {"gateways": ["4005@60,300;140,300;140,330;60,330"],
+     "events": ["It creaks.@200,340;300,340;300,380;200,380"]},
+], ids=["first-event", "first-gateway", "both"])
+def test_the_first_region_a_session_adds_never_deletes_a_place_row(tmp_path, regions):
+    """THE TRANSITION the no-regions gate left open (review finding T1): trace a floor and
+    generate with NO regions, draw a door and a zone in the Place tab (it mints door0/zone0),
+    then add the session's FIRST region and regenerate. The file had no traced_ row, so it read
+    as a pre-prefix project and the hand rows were claimed and deleted. A row the generator
+    cannot PROVE it emitted is never deleted — whatever the session does next."""
+    pytest.importorskip("PIL")
+    import tomllib
+    from PIL import Image
+    Image.new("RGB", (384, 448), (90, 80, 70)).save(tmp_path / "src.png")
+    floor = [(130, 140), (254, 140), (364, 440), (20, 440)]
+    IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE")
+    toml = tmp_path / "out" / "MERGE.field.toml"
+    toml.write_text(toml.read_text(encoding="utf-8") + _PLACE_ROWS, encoding="utf-8", newline="\n")
+    for _ in range(2):                                 # the first regenerate with regions, and the next
+        man = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                                   **regions)
+        data = tomllib.loads(toml.read_text(encoding="utf-8"))
+        assert "door0" in [g["name"] for g in data["gateway"]]
+        assert "zone0" in [e["name"] for e in data["event"]]
+        assert next(g for g in data["gateway"] if g["name"] == "door0")["to"] == 301
+        assert man["removed"] == []
+        assert "[[gateway]] door0" in man["kept"] and "[[event]] zone0" in man["kept"]
+
+
+def test_a_pre_prefix_row_is_renamed_only_when_the_run_re_emits_its_exact_quad(tmp_path):
+    """The one thing that still proves a door0 is the OLD generator's: this run emits the very
+    same quad again (a b18/b19 project reopened from its sidecar regenerates px-exact). Then the
+    row is replaced by its traced_ twin — said out loud in retaken, never doubled. A pre-prefix
+    row whose quad the run does NOT re-emit stays: indistinguishable from a Place row, so kept."""
+    pytest.importorskip("PIL")
+    import tomllib
+    toml, floor, _man = _merge_project(tmp_path)       # one gateway + one event, traced_ names
+    data = tomllib.loads(toml.read_text(encoding="utf-8"))
+    data["gateway"][0]["name"] = "door0"               # the pre-prefix shape of the SAME rows
+    data["event"][0]["name"] = "zone0"
+    from ff9mapkit.editor import model as _model
+    toml.write_text(_model.dumps(data), encoding="utf-8", newline="\n")
+    man = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                               gateways=["4005@60,300;140,300;140,330;60,330"],
+                               events=["It creaks.@200,340;300,340;300,380;200,380"])
+    data2 = tomllib.loads(toml.read_text(encoding="utf-8"))
+    assert [g["name"] for g in data2["gateway"]] == ["traced_door0"]      # renamed, not doubled
+    assert [e["name"] for e in data2["event"]] == ["traced_zone0"]
+    assert man["removed"] == []                        # nothing was lost, so nothing is "removed"
+    retaken = "\n".join(man["retaken"])
+    assert "door0" in retaken and "traced_door0" in retaken
+    assert "zone0" in retaken and "traced_zone0" in retaken
+    retaken.encode("cp1252")                           # the CLI prints these under a cp1252 pipe
 
 
 def test_claimed_and_stale_rows_are_named_in_removed(tmp_path):

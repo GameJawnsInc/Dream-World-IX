@@ -5,6 +5,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — Trace, Place and the Editor: ways to lose work
+- **A Trace regenerate no longer deletes doors and zones drawn in the Place tab.** On a project traced with no
+  regions, the first region a session added made the regenerate take Place's `door0` / `zone0` for an old
+  generator's rows and delete them, with one "removed" line in Output as the only notice. Only a `traced_` row is
+  ever deleted now. A project made before 1.0.0b20 keeps its old `door0` / `zone0` rows: one whose exact quad the
+  run draws again is renamed to its `traced_` twin (listed under "retook"), the rest stay as your own rows, and
+  reopening such a project's `field.toml` no longer pulls them into the Trace session.
+
 ### Changed — World tab: faster, and the window no longer freezes while it works
 - **Undo, Redo and every Accept no longer reload the whole 3D map.** Only the blocks whose files changed are drawn
   again: Undo and Redo come back in under a second (8-11 s before), a forest Accept in about 5 s (22-25 s).

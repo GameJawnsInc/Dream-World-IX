@@ -846,6 +846,52 @@ def test_load_project_absorbs_only_the_generators_own_regions(app, tmp_path):
     assert doc._regions[0]["to"] == 4005
 
 
+def _regionless_project_with_place_rows(tmp_path):
+    """A project traced with NO regions, then given a door and a zone by the Place tab's OWN
+    ops and saved through the Editor's model -- whatever names Place mints today, verbatim."""
+    from PIL import Image
+    from ff9mapkit import imagefield as IF
+    from ff9mapkit.editor.model import FieldDoc
+    from ff9mapkit.workspace import placedoc
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
+    floor = [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)]
+    man = IF.build_image_field(photo, floor, tmp_path / "proj", name="HALL5", field_id=30787)
+    fd = FieldDoc.load(man["toml"])
+    placedoc.place_gateway(fd.data, [(-500, 900), (-400, 900), (-400, 1000), (-500, 1000)], 301)
+    placedoc.place_event(fd.data, [(100, 900), (200, 900), (200, 1000), (100, 1000)])
+    fd.save()
+    return photo, floor, Path(man["toml"]), [g["name"] for g in fd.data["gateway"]], \
+        [e["name"] for e in fd.data["event"]]
+
+
+def test_the_place_tabs_own_rows_survive_the_sessions_first_region(app, tmp_path):
+    """Review finding T1, through the REAL ops on both sides: the Place tab mints the names, the
+    Editor's model saves them, and the Trace lane's first region regenerates over them. The
+    rows used to be deleted, with one 'removed' line in the Output panel as the only notice."""
+    pytest.importorskip("PIL")
+    import tomllib
+    from ff9mapkit import imagefield as IF
+    photo, floor, toml, doors, zones = _regionless_project_with_place_rows(tmp_path)
+    man = IF.build_image_field(photo, floor, toml.parent, name="HALL5", field_id=30787,
+                               events=["It creaks.@200,340;300,340;300,380;200,380"])
+    data = tomllib.loads(toml.read_text(encoding="utf-8"))
+    assert man["removed"] == []
+    assert [g["name"] for g in data["gateway"]] == doors and data["gateway"][0]["to"] == 301
+    assert [e["name"] for e in data["event"]] == ["traced_zone0"] + zones
+
+
+def test_load_project_leaves_place_rows_file_side_on_a_regionless_project(app, tmp_path):
+    """The absorb half of T1: reopening a sidecar-less project must not pull a Place door into
+    the session -- an absorbed row is re-emitted as traced_door0 stripped to to/entrance/zone,
+    and the original is then the generator's to delete."""
+    pytest.importorskip("PIL")
+    _photo_, _floor, toml, _doors, _zones = _regionless_project_with_place_rows(tmp_path)
+    doc, _run = _doc(app)
+    doc.load_project(toml)
+    assert doc._regions == []
+
+
 def test_first_generate_hands_the_project_to_the_shell_once(app, tmp_path, monkeypatch):
     """The Floorplan compose→open_campaign contract on the trace lane: a clean FIRST Generate
     opens the project in the Editor (which is what feeds Place, 7d); a REGENERATE never yanks
