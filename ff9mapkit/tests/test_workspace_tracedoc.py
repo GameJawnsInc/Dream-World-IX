@@ -997,6 +997,10 @@ def test_the_status_settles_after_a_regenerate_and_a_failed_one_is_not_stamped(a
     run.calls[2][1]["on_finished"](2)                  # refused: the file did not move
     assert "failed" in doc.status.text() and "Generating" not in doc.status.text()
     assert "not stamped" in doc.status.text()
+    # the job writes walkmesh.obj + art BEFORE the toml, so an unmoved toml proves nothing about
+    # them: the status must not give the all-clear (review of T8)
+    assert "was not changed" not in doc.status.text()
+    assert "field.toml was not updated" in doc.status.text() and "may have been" in doc.status.text()
     doc.on_generate()                                  # a failure that DID write the file is
     toml.write_text('[field]\nid = 30789\nname = "PICTURE"\narea = 13\n', encoding="utf-8")
     run.calls[3][1]["on_finished"](1)                  # judged by the disk: it is stamped

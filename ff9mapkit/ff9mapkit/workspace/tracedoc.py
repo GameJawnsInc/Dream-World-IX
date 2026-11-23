@@ -1002,7 +1002,7 @@ class TraceDoc(QWidget):
         name, out = proj["name"], proj["out"]
         if first and not Path(toml).is_file():
             self._project = None
-            self._refresh("Generate failed — no project was written. See the Output panel, fix "
+            self._refresh("Generate failed — no field.toml was written. See the Output panel, fix "
                           "the cause, then Generate again.", "error")
         elif code == 0:
             self._refresh(f"{'Generated' if first else 'Regenerated'} {name} → {out}")
@@ -1010,9 +1010,10 @@ class TraceDoc(QWidget):
             self._refresh(f"{name} was written to {out}, but the job reported an error — see the "
                           f"Output panel.", "warn")
         else:
-            self._stamped = False
-            self._refresh(f"Regenerate failed — {name} was not changed. See the Output panel.",
-                          "error")
+            self._stamped = False                      # the job writes walkmesh + art BEFORE the toml,
+            self._refresh(f"Regenerate failed — {name}.field.toml was not updated (its walkmesh "
+                          f"and art may have been). See the Output panel, then Regenerate again.",
+                          "error")                     # so only the toml's own stat is known here
 
     def _write_trace_sidecar(self, out):
         """The tab's session as ``<out>/<image-stem>.trace.json`` — floor, pitch, cut-outs
