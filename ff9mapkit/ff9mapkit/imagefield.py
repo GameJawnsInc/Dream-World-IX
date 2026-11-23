@@ -961,8 +961,12 @@ def merge_project_toml(generated_text: str, existing: dict | None, *, twin_quads
       ``message`` the session replaced with a different value, and every hand-added key that
       went with the old row (traced_ names are positional, so carrying a key over could graft
       it onto a different door — see :data:`_GEN_ROW_KEYS`);
-    - ``[field]``/``[camera]``/``[walkmesh]`` regenerate wholesale; each whose on-disk value
-      differed is named in ``retaken``. ``[player]`` merges PER KEY: ``spawn`` is the
+    - ``[camera]``/``[walkmesh]`` regenerate wholesale; each whose on-disk value differed is
+      named in ``retaken``. ``[field]`` merges PER KEY: ``id``/``name``/``area`` are the
+      generator's (each one overwritten is named, ``field.area``), every other key -- the
+      Editor's Field form writes ``location``, ``title``, ``text_block``, ``borrow_bg`` there
+      -- rides through and is named in ``kept`` (finding T2); a kept ``borrow_bg`` keeps its
+      ``area`` too, since the two name the donor together. ``[player]`` merges PER KEY: ``spawn`` is the
       generator's (the session's centroid wins, retaken when it differed) while every other
       key — the Place tab's ``[[player.arrival]]`` rows above all — is the human's and rides
       through. The floorplan owns [player] wholesale because its composer GENERATES arrivals;
@@ -1026,14 +1030,23 @@ def merge_project_toml(generated_text: str, existing: dict | None, *, twin_quads
                           for k in old if k not in _GEN_ROW_KEYS[kind]]
     kept_layers = [row for row in existing.get("layers") or []
                    if isinstance(row, dict) and not _is_generated_layer(row.get("image"))]
-    retaken = [k for k in ("field", "camera", "walkmesh")
+    retaken = [k for k in ("camera", "walkmesh")
                if k in existing and existing.get(k) != gen.get(k)] + renamed + value_retakes
+    old_field = existing.get("field") if isinstance(existing.get("field"), dict) else {}
+    gen_field = gen.get("field") or {}
+    # borrow_bg resolves TOGETHER with area (FBG_N<area>_<borrow>): a kept borrow keeps its area,
+    # or the pair names a different donor (review of T2)
+    paired = {"area"} if "borrow_bg" in old_field and "area" in old_field else set()
+    retaken = [f"field.{k}" for k in gen_field
+               if k in old_field and k not in paired and old_field[k] != gen_field[k]] + retaken
+    field_extra = {k: v for k, v in old_field.items() if k not in gen_field or k in paired}
     old_player = existing.get("player") if isinstance(existing.get("player"), dict) else {}
     player_extra = {k: v for k, v in (old_player or {}).items() if k != "spawn"}
     if old_player and old_player.get("spawn") != (gen.get("player") or {}).get("spawn"):
         retaken.append("player.spawn")
     kept = ([f"[[{k}]] ×{len(v)}" if isinstance(v, list) else f"[{k}]"
              for k, v in kept_tables.items()] + [f"{k} = …" for k in scalars]
+            + [f"[field].{k}" for k in field_extra]
             + [f"[player].{k}" for k in player_extra]
             + [f"[[gateway]] {r.get('name') or '?'}" for r in kept_rows["gateway"]]
             + [f"[[event]] {r.get('name') or '?'}" for r in kept_rows["event"]]
@@ -1042,6 +1055,13 @@ def merge_project_toml(generated_text: str, existing: dict | None, *, twin_quads
         return generated_text, [], retaken, removed
     from .editor import model as _model
     text = generated_text.rstrip("\n")
+    if field_extra:
+        # PER-KEY [field], the [player] way: the generated block is exactly three known lines.
+        block = _model.dumps({"field": {**gen_field, **field_extra}}).rstrip("\n")
+        text, n = re.subn(r"\[field\]\nid = -?\d+\nname = .*\narea = -?\d+", lambda _m: block,
+                          text, count=1)
+        if n != 1:                                 # fail LOUDLY: the alternative drops hand keys
+            raise ImageFieldError("internal: the generated [field] block was not found to merge")
     if player_extra:
         # PER-KEY [player]: the generated block is exactly two known lines, replaced with one
         # self-consistent dumps chunk (an appended second [player] header would be a TOML
