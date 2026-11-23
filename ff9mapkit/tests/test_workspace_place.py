@@ -1143,3 +1143,45 @@ def test_an_npc_or_prop_drop_says_where_to_finish_it(app, mode):
     d.mode_btns[mode].setChecked(True)
     d._apply_hit({"xz": (0.0, 1500.0), "floor": 0})
     assert len(calls) == 1 and "Editor" in d.status.text(), d.status.text()
+
+
+def test_regions_status_speaks_of_the_kind_being_drawn(app):
+    """Review finding E8: 'draw a event zone', and the gateway walk-out lesson shown while
+    drawing events."""
+    d, _ = _regions_on(app, {"field": {"source_field": 351}})
+    assert "a gateway zone" in d.status.text() and "walk-out" in d.status.text()
+    d.rkind_btns["event"].setChecked(True)             # the radio alone re-says it
+    assert "an event zone" in d.status.text(), d.status.text()
+    assert "walk-out" not in d.status.text()
+
+
+def test_a_walk_out_rotate_is_undone_as_a_rotate(app, monkeypatch):
+    """Review finding E8: the rotate went through the generic reshape, so Undo read 'reshape
+    gateway zone' -- the same as a corner drag. Driven through the quad's own menu."""
+    import types
+
+    class _FakeMenu:                                    # the backdrop tests' seam: exec() returns
+        def __init__(self, parent=None):                # the walk-out rotate, no popup
+            self.acts = []
+
+        def addAction(self, text):
+            tok = types.SimpleNamespace(text=text)
+            self.acts.append(tok)
+            return tok
+
+        def exec(self, pos):
+            return next(a for a in self.acts if a.text.startswith("Walk-out"))
+
+    data = {"field": {"source_field": 351},
+            "gateway": [{"name": "door0", "to": 4005,
+                         "zone": [[0, 500], [100, 500], [100, 600], [0, 600]]}]}
+    d, calls = _regions_on(app, data)
+    monkeypatch.setattr("PySide6.QtWidgets.QMenu", _FakeMenu)
+    d.canvas._region_menu(0, QPoint(0, 0))
+    assert data["gateway"][0]["zone"][0] == [100, 500]          # the corners did rotate
+    assert calls == [("FORK", "rotate walk-out edge of door0")], calls
+    d._on_region_changed(0, [(10, 500), (110, 500), (110, 600), (10, 600)])   # a body drag
+    assert calls[-1] == ("FORK", "reshape gateway door0 zone"), calls
+    data["gateway"][0]["zone"] = [[0, 500], [100, 500], [100, 600], [0, 600], [0, 600]]
+    assert P.move_zone(data, "gateway", 0, [(100, 500), (100, 600), (0, 600), (0, 500)]) \
+        == "rotate walk-out edge of door0"              # the stored doubled form rotates too

@@ -150,8 +150,15 @@ def move_zone(data: dict, kind, index, quad) -> str:
     """Rewrite one row's zone from a canvas gesture (corner drag / whole-quad drag /
     walk-out rotate). Writes exactly the corners the canvas holds — a doubled 5th point
     was normalized away at feed time and the build re-doubles (``quad_zone``)."""
-    data.get(kind, [])[index]["zone"] = _zone_ints(quad)
-    return f"reshape {kind} zone"
+    row = data.get(kind, [])[index]
+    old = [tuple(p) for p in row.get("zone") or []]
+    if len(old) == 5 and old[-1] == old[-2]:           # the stored doubled form, as the canvas saw it
+        old = old[:4]
+    row["zone"] = _zone_ints(quad)
+    name = row.get("name") or f"{kind} {index}"
+    if len(old) >= 3 and row["zone"] == _zone_ints(old[1:] + old[:1]):   # the menu's rotate: the
+        return f"rotate walk-out edge of {name}"          # same corners, order turned by one
+    return f"reshape {kind} {name} zone"
 
 
 def delete_region(data: dict, kind, index) -> str:
@@ -483,7 +490,7 @@ class PlaceDoc(QWidget):
         for key, label in (("gateway", "Gateway"), ("event", "Event")):
             rb = QRadioButton(label)
             rb.setAccessibleName(f"Draw {label} zones")
-            rb.toggled.connect(lambda _on=False: self._sync_tool_clusters())
+            rb.toggled.connect(self._on_rkind_toggled)
             self.rkind_group.addButton(rb)
             self.rkind_btns[key] = rb
             row.addWidget(rb)
@@ -817,6 +824,11 @@ class PlaceDoc(QWidget):
             w.setVisible(gw)
         self._on_mode_toggled()
 
+    def _on_rkind_toggled(self, on=False):
+        self._sync_tool_clusters()
+        if on and getattr(self, "status", None) is not None:   # (construction checks one first)
+            self._refresh()                       # the status names the kind being drawn
+
     def _refresh_regions(self):
         """Re-derive the canvas's region feed from the OPEN doc (both region laws judged in
         ``region_rows`` — the overlap starvation and the engine-fan audit)."""
@@ -1028,12 +1040,16 @@ class PlaceDoc(QWidget):
         elif not note and self.tools.current() == "regions":
             n = len(self._region_rows_cache)
             warned = sum(1 for r in self._region_rows_cache if r.get("warn"))
-            kind = "gateway" if self.rkind_btns["gateway"].isChecked() else "event"
-            note = (f"Click 4 corners to draw a {kind} zone · {n} region"
-                    f"{'' if n == 1 else 's'}")
+            gateway = self.rkind_btns["gateway"].isChecked()
+            note = (f"Click 4 corners to draw {'a gateway' if gateway else 'an event'} zone · "
+                    f"{n} region{'' if n == 1 else 's'}")
             if warned:
                 note += f" · ⚠ {warned} with law warnings (hover a marked quad)"
-            note += " · corners 0→1 = a gateway's walk-out edge (right-click a quad to rotate/delete)"
+            if gateway:
+                note += (" · corners 0→1 = the walk-out edge (right-click a quad to rotate "
+                         "or delete it)")
+            else:
+                note += " · right-click a quad to set its message or delete it"
             if self._verbatim:
                 note += " · verbatim fork: new content seats below the donor's party band"
         elif not note:
