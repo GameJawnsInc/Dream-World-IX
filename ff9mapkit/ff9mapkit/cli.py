@@ -3611,7 +3611,8 @@ def _cmd_summon_rescore(args: argparse.Namespace) -> int:
 
 def _cmd_image_field(args: argparse.Namespace) -> int:
     """EXPERIMENTAL: synthesize a walkable FF9 field from an image + a hand-traced floor polygon."""
-    from pathlib import Path
+    _safe_console()        # the report prints AFTER every file is written: an arrow in a message or
+    from pathlib import Path   # a non-Latin path must not turn a complete project into exit 1 (E10)
 
     from . import imagefield
     if args.auto_floor and args.floor:

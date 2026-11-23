@@ -632,6 +632,35 @@ def test_a_moved_generated_field_block_fails_loudly_not_silently():
                                               "location": "Dali"}})
 
 
+# ---------------------------------------------------------------------------- the CLI's report (E10)
+def test_a_complete_build_is_not_reported_failed_on_a_cp1252_pipe(tmp_path):
+    """Finding E10: the CLI prints its report AFTER every file is written, and an arrow in an event
+    message raised UnicodeEncodeError on a cp1252 stdout -- exit 1 for a complete project, so the
+    Workspace said 'failed'. A REAL subprocess under a forced cp1252 stdout (the Workspace's pipe on
+    a Western Windows locale; forced so the fence holds on a UTF-8 host too)."""
+    pytest.importorskip("PIL")
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    import ff9mapkit
+    from PIL import Image
+    Image.new("RGB", (384, 448), (90, 80, 70)).save(tmp_path / "src.png")
+    env = dict(os.environ, PYTHONIOENCODING="cp1252")
+    env.pop("PYTHONUTF8", None)
+    pkg_root = Path(ff9mapkit.__file__).resolve().parent.parent
+    r = subprocess.run(
+        [sys.executable, "-m", "ff9mapkit", "image-field", str(tmp_path / "src.png"),
+         "--floor", "130,140 254,140 364,440 20,440", "--out", str(tmp_path / "out"),
+         "--name", "ARROW", "--event-zone", "Go → north@200,340;300,340;300,380;200,380"],
+        cwd=pkg_root, env=env, capture_output=True, timeout=120)
+    assert (tmp_path / "out" / "ARROW.field.toml").is_file()      # the project IS complete...
+    out = r.stdout.decode("cp1252", "replace") + r.stderr.decode("cp1252", "replace")
+    assert r.returncode == 0, out
+    assert "synthesized ARROW" in out and "Deploy + walk it" in out   # ...and the report finished
+
+
 def test_regenerate_deletes_its_own_stale_doors_and_keeps_yours(tmp_path):
     """Ownership by prefix, not by name-merge, because a name merge cannot express DELETION:
     a door dropped from the session must go, while the hand door stays."""

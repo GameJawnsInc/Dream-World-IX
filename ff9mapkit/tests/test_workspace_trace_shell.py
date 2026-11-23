@@ -408,3 +408,41 @@ def test_a_second_generate_click_does_not_lose_the_first_jobs_launch_record(win,
     _regenerate(photo, toml, gateways=[_DOOR])
     win.trace_doc._after_generate(0, False, str(toml))
     assert any("saved while Trace was regenerating" in v.headline for v in said)
+
+
+# ------------------------------------------------------------- the job pipe speaks UTF-8 (E10)
+def _run_real_job(win, app, code):
+    """A REAL run_job: a Python child through the shell's own QProcess, waited out."""
+    import sys
+    import time
+    done = []
+    assert win.run_job([sys.executable, "-c", code], subject="Pipe probe", on_finished=done.append)
+    deadline = time.monotonic() + 60
+    while not done and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    assert done, "the job never finished"
+    return done[0]
+
+
+def test_a_job_that_prints_beyond_cp1252_is_not_a_failure(win, app, monkeypatch):
+    """Finding E10, every verb at once: the shell's child wrote its stdout in the locale codepage
+    (cp1252 on a Western Windows -- forced here so a UTF-8 host reproduces it), so an arrow made
+    a finished job exit 1, and a plain e-acute came back as a replacement mark because the shell
+    decodes UTF-8. The child is told to write UTF-8, the encoding the shell reads."""
+    monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
+    monkeypatch.delenv("PYTHONUTF8", raising=False)
+    code = _run_real_job(win, app, "print('caf\\u00e9 \\u2192 north')")
+    assert code == 0, win.output.toPlainText()[-400:]
+    assert "café → north" in win.output.toPlainText()
+
+
+def test_a_character_split_across_two_reads_is_not_mangled(win, app):
+    """A pipe read can end inside a multi-byte character; decoding each read on its own turned
+    one arrow into two replacement marks."""
+    code = _run_real_job(win, app, (
+        "import sys, time; o = sys.stdout.buffer; o.write(b'A \\xe2'); o.flush(); "
+        "time.sleep(0.5); o.write(b'\\x86\\x92 B\\n'); o.flush()"))
+    assert code == 0
+    assert "A → B" in "".join(win._job_out)      # the verbatim record the failure anchor scans
+    assert "→ B" in win.output.toPlainText() and "�" not in win.output.toPlainText()

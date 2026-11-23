@@ -11,6 +11,7 @@ Launch:  ``py apps/ff9_workspace.pyw``  (or ``py -m ff9mapkit.workspace.shell``)
 
 from __future__ import annotations
 
+import codecs
 import collections
 import copy
 import html
@@ -22,7 +23,7 @@ import time
 import tomllib
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QElapsedTimer, QEvent, QObject, QProcess, QSize, QTimer, QUrl, Signal
+from PySide6.QtCore import Qt, QElapsedTimer, QEvent, QObject, QProcess, QProcessEnvironment, QSize, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QAction, QBrush, QColor, QDesktopServices, QFontMetricsF, QIcon, QKeySequence, QPainter, QPalette,
     QPixmap, QShortcut, QTextCharFormat, QTextCursor, QTextDocument,
@@ -9701,6 +9702,13 @@ class Workspace(QMainWindow):
         self._set_busy(True)                            # loading state: 'Working…' until _proc_done clears it
         self.act_lint_cli.setEnabled(False)
         self.proc = QProcess(self)
+        # The child writes UTF-8 because _drain_proc reads UTF-8. Left to the locale (cp1252 on a Western
+        # Windows), any arrow / CJK / non-Latin path in a report raised UnicodeEncodeError AFTER the work was
+        # done, and a finished job read as "failed" (E10). PYTHONIOENCODING touches only the std streams.
+        env = QProcessEnvironment.systemEnvironment()
+        env.insert("PYTHONIOENCODING", "utf-8")
+        self.proc.setProcessEnvironment(env)
+        self._job_dec = codecs.getincrementaldecoder("utf-8")("replace")   # a read may end mid-character
         self.proc.setProgram(str(argv[0]))
         self.proc.setArguments([str(a) for a in argv[1:]])
         self.proc.setWorkingDirectory(str(cwd or KIT))
@@ -9820,7 +9828,7 @@ class Workspace(QMainWindow):
         self.output.ensureCursorVisible()
 
     def _drain_proc(self):
-        raw = bytes(self.proc.readAllStandardOutput()).decode("utf-8", "replace")
+        raw = self._job_dec.decode(bytes(self.proc.readAllStandardOutput()))
         self._job_out.append(raw)                        # accumulate VERBATIM (unrstripped) so a chunk boundary
         text = raw.rstrip()                              # mid-line doesn't corrupt the joined anchor scan
         if text:
