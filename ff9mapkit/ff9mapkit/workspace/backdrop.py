@@ -467,7 +467,8 @@ class BackdropCanvas(QGraphicsView):
                     it.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
                 else:                              # the object's pixels grab; its sky doesn't
                     it.setShapeMode(QGraphicsPixmapItem.ShapeMode.MaskShape)
-                    mark_grabbable(it)             # the move cursor follows the opaque pixels
+                    if self._trace_mode or self._contact_mode:   # where a press drags it (V6)
+                        mark_grabbable(it)         # the move cursor follows the opaque pixels
                 self._cutout_items[c["i"]] = it
 
     def _draw_cutout_handles(self):
@@ -485,7 +486,8 @@ class BackdropCanvas(QGraphicsView):
             gl = self._child(self._scene.addPolygon(dia), anchor)
             gl.setPen(QPen(color, 1.6))
             gl.setBrush(QBrush(color))
-            mark_grabbable(gl)                     # the anchor re-tunes in trace + contact modes
+            if self._trace_mode or self._contact_mode:   # the press gate's modes, no others (V6)
+                mark_grabbable(gl)                 # the anchor re-tunes in trace + contact modes
             if c.get("label"):
                 t = self._child(self._scene.addSimpleText(str(c["label"])), anchor)
                 t.setFont(self._font(8))
@@ -1105,6 +1107,10 @@ class BackdropCanvas(QGraphicsView):
         super().wheelEvent(event)
 
     def keyPressEvent(self, event):                # noqa: N802 (Qt override)
+        if event.key() == Qt.Key.Key_Escape and self._drag:
+            self._cancel_drag()                    # Esc aborts a live drag (V8)
+            event.accept()
+            return
         if (event.key() == Qt.Key.Key_Escape and self._region_mode
                 and self._pending_region):
             self._pending_region = []              # abandon the quad mid-draw
@@ -1149,7 +1155,8 @@ class BackdropCanvas(QGraphicsView):
                     ci = self._resolve_data(it, "cutoutimg")
                     if ci is not None and self._begin_cutout_drag(
                             int(ci), self._widget_to_canvas(event.position())):
-                        event.accept()
+                        self._drag["press"] = event.position()   # a no-travel release may
+                        event.accept()                           # still be a click (V9)
                         return
             if self._region_mode and not self._pending_region:   # mid-draw, clicks are corners
                 for it in under:                   # corner handles out-rank the quad body
@@ -1162,12 +1169,22 @@ class BackdropCanvas(QGraphicsView):
                         ri = self._resolve_data(it, tag)
                         if ri is not None and self._begin_region_quad_drag(
                                 int(ri), self._widget_to_canvas(event.position())):
+                            self._drag["press"] = event.position()   # ...or a corner (P24)
                             event.accept()
                             return
             self._press_pos = event.position()
         super().mousePressEvent(event)             # the pan machinery still runs
 
+    def _cancel_drag(self):
+        """Abandon a live drag: the re-render redraws every item from the fed truth, which a
+        drag never touches before its release -- so this IS the restore (V3, V8)."""
+        self._coords.hide()
+        self._rebuild()                            # clears _drag with the scene
+
     def mouseMoveEvent(self, event):               # noqa: N802 (Qt override)
+        if self._drag and not event.buttons() & Qt.MouseButton.LeftButton:
+            self._cancel_drag()                    # its release was lost (a modal menu took it):
+                                                   # never let a drag follow the HOVER (V3)
         if self._drag:
             sp = self._widget_to_canvas(event.position())
             self._drag_canvas(sp.x(), sp.y())
@@ -1177,11 +1194,18 @@ class BackdropCanvas(QGraphicsView):
 
     def mouseReleaseEvent(self, event):            # noqa: N802 (Qt override)
         if self._drag and event.button() == Qt.MouseButton.LeftButton:
-            self._end_vertex_drag()
-            event.accept()
-            return
-        press, self._press_pos = self._press_pos, None
-        super().mouseReleaseEvent(event)
+            d = self._drag
+            press = d.get("press")                 # set only where a click competes with a grab
+            if (press is None or (event.position() - press).manhattanLength() > _CLICK_SLOP_PX
+                    or (d.get("kind") == "cimg" and not self._contact_mode)):
+                self._end_vertex_drag()
+                event.accept()
+                return
+            self._cancel_drag()                    # it never travelled: a CLICK, not a drag --
+            event.accept()                         # a contact on a snip's body (V9), the first
+        else:                                      # corner inside a drawn quad (P24)
+            press, self._press_pos = self._press_pos, None
+            super().mouseReleaseEvent(event)
         if (press is None or event.button() != Qt.MouseButton.LeftButton
                 or self._cam is None):
             return

@@ -839,3 +839,125 @@ def test_ctrl_wheel_zoom_follows_the_delta_and_ignores_a_sideways_wheel(app, w):
     assert c.transform().m11() == pytest.approx(z1)
     _ctrl_wheel(c, -120)
     assert c.transform().m11() / z1 == pytest.approx(1 / 1.15, rel=1e-6)
+
+
+# --------------------------------------------------------------------------- gestures, end to end
+# Delivered through QApplication.sendEvent(view.viewport(), ...) with explicit button state, so a
+# BUTTONLESS move really is buttonless (mouse tracking is on: AnchorUnderMouse turns it on).
+
+def _mouse(c, kind, canvas_pt, *, button=Qt.MouseButton.LeftButton, buttons=None):
+    """One mouse event at a CANVAS point. ``kind`` = press / move / release."""
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QMouseEvent
+    t = {"press": QEvent.Type.MouseButtonPress, "move": QEvent.Type.MouseMove,
+         "release": QEvent.Type.MouseButtonRelease}[kind]
+    vp = c.viewport()
+    wpt = c.viewportTransform().map(QPointF(*canvas_pt))
+    pos = QPointF(round(wpt.x()), round(wpt.y()))
+    if buttons is None:
+        buttons = button if kind != "release" else Qt.MouseButton.NoButton
+    btn = Qt.MouseButton.NoButton if kind == "move" else button
+    ev = QMouseEvent(t, pos, QPointF(vp.mapToGlobal(pos.toPoint())), btn, buttons,
+                     Qt.KeyboardModifier.NoModifier)
+    QApplication.sendEvent(vp, ev)
+
+
+def _click(c, canvas_pt):
+    _mouse(c, "press", canvas_pt)
+    _mouse(c, "release", canvas_pt)
+
+
+_TRI = [(100.0, 300.0), (300.0, 300.0), (200.0, 430.0)]
+
+
+def test_a_drag_whose_release_was_lost_ends_on_the_next_buttonless_move(app):
+    """V3: a release lost to a modal menu left the vertex following the HOVER, and the next
+    ordinary click committed it at that stray spot."""
+    c, cam, calls = _trace_canvas(app)
+    c._commit_floor(_TRI)
+    n0 = len(calls)
+    _mouse(c, "press", _TRI[0])
+    assert c._drag and c._drag["kind"] == "vertex"
+    _mouse(c, "move", (130.0, 320.0))                        # still held: the vertex follows
+    assert c._drag and c._drag["pt"] != _TRI[0]
+    _mouse(c, "move", (220.0, 330.0), buttons=Qt.MouseButton.NoButton)   # the release never came
+    assert c._drag is None and c.floor() == _TRI and len(calls) == n0
+    a = c._trace_items[0]["anchor"]                          # the RETAINED wrapper
+    assert (a.pos().x(), a.pos().y()) == _TRI[0]             # the handle went home
+    _click(c, (220.0, 330.0))                                # the next click is just a click
+    assert len(c.floor()) == 4 and c.floor()[0] == _TRI[0]
+
+
+def test_escape_aborts_a_live_drag(app):
+    """V8: Esc mid-drag puts the vertex back; the release then commits nothing."""
+    c, cam, calls = _trace_canvas(app)
+    c._commit_floor(_TRI)
+    n0 = len(calls)
+    _mouse(c, "press", _TRI[1])
+    _mouse(c, "move", (320.0, 340.0))
+    assert c._drag
+    QTest.keyClick(c, Qt.Key.Key_Escape)
+    assert c._drag is None and not c._coords.isVisible()
+    _mouse(c, "release", (320.0, 340.0))
+    assert c.floor() == _TRI and len(calls) == n0
+    a = c._trace_items[1]["anchor"]
+    assert (a.pos().x(), a.pos().y()) == _TRI[1]
+
+
+def _snip(c, locked=False):
+    pm = QPixmap(40, 30)
+    pm.fill(Qt.GlobalColor.red)
+    c.set_cutouts([{"i": 0, "pixmap": pm, "rect": (100.0, 320.0, 40.0, 30.0),
+                    "contact": (120.0, 350.0), "label": "fg0", "bad": False, "locked": locked}])
+
+
+def test_snips_and_contacts_show_move_only_where_a_press_drags_them(app):
+    """V6: in the Regions tool a press on a snip pans or places a corner, so no Move cursor."""
+    from PySide6.QtWidgets import QGraphicsPolygonItem
+    c, cam, _ = _trace_canvas(app)
+    _snip(c)
+    c.set_region_mode(True)
+    snip = c._cutout_items[0]
+    assert not snip.hasCursor()
+    assert not any(k.hasCursor() for k in c._kids if isinstance(k, QGraphicsPolygonItem))
+    c.set_contact_mode(True)                                 # the Cut-outs tool: they drag again
+    assert c._cutout_items[0].hasCursor()
+
+
+def test_a_contact_click_on_a_snip_body_marks_a_contact(app):
+    """V9: in contact mode a click that does not travel is a contact, even over a snip's
+    opaque pixels; a press that travels still drags the snip."""
+    c, cam, _ = _trace_canvas(app)
+    _snip(c)
+    c.set_contact_mode(True)
+    got, moved = [], []
+    c.contact_clicked.connect(lambda x, y: got.append((x, y)))
+    c.cutout_moved.connect(lambda i, x, y: moved.append((i, x, y)))
+    _click(c, (110.0, 330.0))                                # ON the snip's red body
+    assert len(got) == 1 and not moved
+    assert abs(got[0][0] - 110.0) <= 1.0 and abs(got[0][1] - 330.0) <= 1.0
+    _mouse(c, "press", (110.0, 330.0))
+    _mouse(c, "move", (150.0, 360.0))
+    _mouse(c, "release", (150.0, 360.0))
+    assert len(moved) == 1 and len(got) == 1
+    c.set_trace_mode(True)                                   # tracing: a snip body is a grab,
+    n = len(c.floor())                                       # never a vertex
+    _click(c, (110.0, 330.0))                                # (no host re-fed the moved rect)
+    assert len(c.floor()) == n and len(got) == 1
+
+
+def test_a_first_corner_can_start_inside_an_existing_region(app):
+    """P24: a click inside a drawn quad (no corners pending) is the first corner of a new one;
+    a press that travels still moves the quad."""
+    c, drawn, changed, _, refused = _region_canvas(app)
+    c.set_regions([{"i": 0, "quad": _GW_QUAD, "label": "door0", "kind": "gateway",
+                    "warn": None}])
+    inside = IF.world_point_to_click(c.camera(), (0.0, 0.0, 1200.0))
+    _click(c, inside)
+    assert len(c._pending_region) == 1 and not changed and not refused
+    QTest.keyClick(c, Qt.Key.Key_Escape)
+    assert not c._pending_region
+    _mouse(c, "press", inside)
+    _mouse(c, "move", (inside[0] + 20, inside[1] + 10))
+    _mouse(c, "release", (inside[0] + 20, inside[1] + 10))
+    assert len(changed) == 1 and not c._pending_region
