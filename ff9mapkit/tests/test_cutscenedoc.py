@@ -652,6 +652,40 @@ def _small_mesh_bytes() -> bytes:
     return bgi.build(verts, [(0, 1, 2), (0, 2, 3)]).to_bytes()
 
 
+def test_pick_on_the_stage_shows_it_is_armed_and_never_outlives_its_step(doc, tmp_path):
+    """E2: the pick stayed armed after Apply, after Edit on another row and after a kind change,
+    with no sign -- and silently stole the next stage press (a handle drag, a pan) into the
+    editor's value."""
+    from PySide6.QtCore import Qt as _Qt
+
+    def armed():
+        return doc.canvas.on_sim_click is not None
+
+    def crosshair():
+        return doc.canvas.viewport().cursor().shape() == _Qt.CursorShape.CrossCursor
+
+    _fed(doc, tmp_path)
+    doc._edit_step(0)                                  # the walk
+    doc.editor.pick_btn.click()
+    assert armed() and doc.editor.pick_btn.isChecked() and crosshair(), "armed must SHOW"
+    doc.editor.pick_btn.click()                        # a second press cancels
+    assert not armed() and not doc.editor.pick_btn.isChecked() and not crosshair()
+    doc.editor.pick_btn.click()
+    doc._apply_step()
+    assert not armed() and not doc.editor.pick_btn.isChecked() and not crosshair(), \
+        "Apply left the pick armed"
+    doc.editor.pick_btn.click()
+    doc._edit_step(2)                                  # another row (a say)
+    assert not armed() and not doc.editor.pick_btn.isChecked(), "Edit on another row left it armed"
+    doc._edit_step(0)
+    doc.editor.pick_btn.click()
+    doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("teleport"))
+    assert not armed(), "a kind change left it armed"
+    doc.editor.pick_btn.click()
+    doc._add_step()
+    assert not armed(), "Add step left it armed"
+
+
 def test_a_warm_mesh_rejudges_without_touching_disk(doc, tmp_path, monkeypatch):
     _fed(doc, tmp_path)
     doc.stage_now(sync=True)

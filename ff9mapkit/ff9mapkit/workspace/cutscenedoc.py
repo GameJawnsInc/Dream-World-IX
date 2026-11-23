@@ -239,7 +239,7 @@ class StepEditor(QFrame):
         self.on_apply = on_apply
         self.on_close = on_close
         self.pick_anim = pick_anim                 # (current_text) -> picked | None
-        self.on_pick_stage = on_pick_stage         # arm a one-shot canvas click -> value
+        self.on_pick_stage = on_pick_stage         # (on) arm/disarm a one-shot canvas click
         self.scene = None                          # the open (scene, step) target; insert_at
         self.step_i = None                         # not None = ADD mode (insert at that row)
         self.insert_at = None
@@ -284,8 +284,10 @@ class StepEditor(QFrame):
         self.pick_btn = QPushButton("Pick on the stage")
         self.pick_btn.setProperty("role", "quiet")
         self.pick_btn.setAccessibleName("Pick this movement target by clicking the stage")
-        self.pick_btn.setToolTip("Click a point on the stage below — it lands here as x, z.")
-        self.pick_btn.clicked.connect(lambda: self.on_pick_stage and self.on_pick_stage())
+        self.pick_btn.setToolTip("Click a point on the stage below — it lands here as x, z. "
+                                 "Press again to cancel.")
+        self.pick_btn.setCheckable(True)           # checked = armed: the next stage press is taken
+        self.pick_btn.clicked.connect(lambda on: self.on_pick_stage and self.on_pick_stage(on))
         vrow.addWidget(self.pick_btn)
         v.addLayout(vrow)
         self.value_text = QPlainTextEdit()
@@ -362,6 +364,9 @@ class StepEditor(QFrame):
 
     def _on_kind(self, _i=0):
         k = self.current_kind()
+        if self.pick_btn.isChecked() and self.on_pick_stage:
+            self.on_pick_stage(False)              # a new kind / a newly opened step: the armed
+        #                                            pick belonged to the old one
         self.hint.setText(forms.STEP_HELP.get(k, ""))
         text = self._is_text()
         valueless = forms.STEP_KIND.get(k) == forms.BOOL
@@ -1285,6 +1290,7 @@ class CutsceneDoc(QWidget):
         k = self.editor.scene
         self.editor.note.setText("")
         widgets.set_state(self.editor.note, "")
+        self._disarm_stage_pick()                  # Apply ends the pick (it would steal a drag)
         if self.editor.insert_at is not None:      # ADD: insert, then ADVANCE -- the next Apply
             at = self.editor.insert_at             # lands the NEXT line. The conversation loop
             label = cutscenescan.add_step(self._raw, k, at, step)   # the old form's
@@ -1336,14 +1342,22 @@ class CutsceneDoc(QWidget):
             return self.pick_anim(self._member, actor, self._cast(), current)
         return None
 
-    def _arm_stage_pick(self):
+    def _arm_stage_pick(self, on=True):
+        """The pick button's toggle. Armed SHOWS: the button stays pressed and the stage wears a
+        crosshair, because the next left press on the stage is taken (not a drag, not a pan)."""
+        if not on:
+            self._disarm_stage_pick()
+            return
         self.canvas.on_sim_click = self._stage_picked
         self.canvas.set_sim_mode(True)             # the base canvas's one-click input lane
+        self.canvas.viewport().setCursor(Qt.CursorShape.CrossCursor)
 
     def _disarm_stage_pick(self):
+        self.editor.pick_btn.setChecked(False)
         if self.canvas.on_sim_click is not None:
             self.canvas.on_sim_click = None
             self.canvas.set_sim_mode(False)
+            self.canvas.viewport().setCursor(Qt.CursorShape.OpenHandCursor)   # the pan's own
 
     def _stage_picked(self, x, z):
         self._disarm_stage_pick()
