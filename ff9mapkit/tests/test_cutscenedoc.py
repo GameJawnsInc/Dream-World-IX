@@ -1095,6 +1095,18 @@ def test_apply_writes_to_the_scene_the_editor_opened_not_the_selected_one(doc, t
     assert raw["cutscene"][0]["steps"][2]["say"] == "Made it to the altar."
 
 
+def test_a_field_switch_drops_the_doc_held_verdict_rows(doc, tmp_path):
+    """C1: the verdicts live on the doc and every render repaints them, so a field switch that
+    kept the rows would paint the old field's stall on the new field's stage."""
+    (tmp_path / "a").mkdir()
+    _fed(doc, tmp_path / "a", FIELD_TOML.replace('walk = "altar"', "walk = [2000, 2000]"))
+    doc.stage_now(sync=True)
+    assert doc._verdicts and _tags(doc.canvas)["verdict"] >= 1
+    doc.show_field("GLEN", tomllib.loads(FIELD_TOML), make_cutscene_field(tmp_path / "b"))
+    assert doc._verdicts == []
+    assert _tags(doc.canvas)["verdict"] == 0, "the old field's stall painted on the new field"
+
+
 def test_a_failed_explicit_reload_drops_the_warm_mesh_and_the_auto_rejudge(doc, tmp_path):
     """C4 (after review): the button's reload failed (a broken .bgi) and said so, but the OLD warm
     mesh stayed armed -- the next edit's automatic re-judge painted the old floor's checkmark
