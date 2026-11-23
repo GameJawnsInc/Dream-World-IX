@@ -49,6 +49,15 @@ def _same_file(a, b) -> bool:
         return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
 
 
+def _file_stamp(path):
+    """``(mtime_ns, size)`` of ``path``, or None when it is absent: did a job write it?"""
+    try:
+        st = Path(path).stat()
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size)
+
+
 def may_generate_into(out, image, name) -> bool:
     """May a FRESH session (``image`` traced as field ``name``) write its project into ``out``?
 
@@ -943,6 +952,9 @@ class TraceDoc(QWidget):
             argv += ["--fov", f"{self._fov:g}"]               # through its OWN rig, not the
         if float(self._distance) != imagefield.DEFAULT_DISTANCE:   # default one
             argv += ["--distance", f"{self._distance:g}"]
+        toml = out / f"{name}.field.toml"
+        proj = {"out": str(out), "name": name, "fid": int(fid)}
+        before = _file_stamp(toml)                     # the disk, not the exit code, says what moved
         started = self._run(
             argv, cwd=str(self.kit), subject="Image → field",
             ok_headline=f"{name} generated → {out}",
@@ -950,15 +962,15 @@ class TraceDoc(QWidget):
                     f"--id {fid} — then ~ → Warp to field → {fid}.",
             fail_hint="See the Output panel — the usual causes are a vertex above the horizon "
                       "or a floor larger than the Int16 world bound.",
-            on_finished=lambda code, _t=str(out / f"{name}.field.toml"):
-                self._after_generate(code, first, _t))
+            on_finished=lambda code, _t=str(toml):
+                self._after_generate(code, first, _t, proj=proj, before=before))
         if started:
-            self._project = {"out": str(out), "name": name, "fid": int(fid)}
+            self._project = proj
             self._stamped = True                       # the project now matches the session
             self._write_trace_sidecar(out)             # the re-editable session record
             self._refresh(f"{moved}Generating {name} → {out} …")
 
-    def _after_generate(self, code, first, toml):
+    def _after_generate(self, code, first, toml, *, proj=None, before=None):
         """A clean FIRST Generate opens the project in the Editor (through the shell's own
         ``open_field`` — which is what feeds the Place tab, rung 7d, so 'trace it → place
         content on it' is one flow). Regenerates never yank; failures never open anything.
@@ -972,13 +984,35 @@ class TraceDoc(QWidget):
         told on EVERY finish, clean or not: the job writes its files and only then prints, so a
         job can rewrite the project and still exit non-zero (a console that cannot encode a
         character in the report — finding E10). Whether the file moved is the disk's to say, not
-        the exit code's; the shell looks."""
+        the exit code's; the shell looks.
+
+        Then the tab settles (finding T8) -- unless the author moved on to another session while
+        the job ran (``proj`` is the launch's own record, compared by identity): the status says how
+        it ended; a FIRST Generate that wrote no project disarms, so the retry is a first Generate
+        again (it goes back into the same folder, which holds only this session's record); a
+        regenerate that failed and left the file as it was (``before``, its stat at launch) is not
+        stamped."""
         if not first:
             if self.on_regenerated is not None:
                 self.on_regenerated(str(toml))
-            return
-        if code == 0 and self.on_generated is not None and Path(toml).is_file():
+        elif code == 0 and self.on_generated is not None and Path(toml).is_file():
             self.on_generated(str(toml))
+        if proj is None or self._project is not proj:
+            return
+        name, out = proj["name"], proj["out"]
+        if first and not Path(toml).is_file():
+            self._project = None
+            self._refresh("Generate failed — no project was written. See the Output panel, fix "
+                          "the cause, then Generate again.", "error")
+        elif code == 0:
+            self._refresh(f"{'Generated' if first else 'Regenerated'} {name} → {out}")
+        elif _file_stamp(toml) != before:
+            self._refresh(f"{name} was written to {out}, but the job reported an error — see the "
+                          f"Output panel.", "warn")
+        else:
+            self._stamped = False
+            self._refresh(f"Regenerate failed — {name} was not changed. See the Output panel.",
+                          "error")
 
     def _write_trace_sidecar(self, out):
         """The tab's session as ``<out>/<image-stem>.trace.json`` — floor, pitch, cut-outs
