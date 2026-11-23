@@ -534,3 +534,25 @@ def test_a_character_split_across_two_reads_is_not_mangled(win, app):
     assert code == 0
     assert "A → B" in "".join(win._job_out)      # the verbatim record the failure anchor scans
     assert "→ B" in win.output.toPlainText() and "�" not in win.output.toPlainText()
+
+
+def test_a_reload_keeps_a_step_editor_whose_step_is_still_there(win, tmp_path):
+    """A regenerate that changes the file reloads the buffer. The Cutscene tab used to be blanked
+    with it, closing the step editor and dropping the line being typed -- for a step the
+    regenerate never touched. It is fed the new buffer instead and rebinds by itself."""
+    photo, toml = _project(tmp_path)
+    toml.write_text(toml.read_text(encoding="utf-8")
+                    + '\n[cutscene]\nsteps = [ { say = "first" } ]\n', encoding="utf-8")
+    assert win.open_field(toml)
+    win.tabs.setCurrentWidget(win.cutscene_doc)
+    cd = win.cutscene_doc
+    cd._edit_step(0)
+    cd.editor.value_text.setPlainText("typed, not yet applied")
+    cd._wmesh = object()
+    _regenerate(photo, toml, gateways=[_DOOR])         # the file changes; its [cutscene] does not
+    win.trace_doc._after_generate(0, False, str(toml))
+    assert [g["name"] for g in win._doc(_NAME).data["gateway"]] == ["traced_door0"]   # reloaded
+    assert cd.editor.step_i == 0 and cd.editor.value_text.toPlainText() == "typed, not yet applied"
+    assert cd._wmesh is None                           # the old floor is not kept
+    cd._apply_step()
+    assert win._doc(_NAME).data["cutscene"]["steps"][0]["say"] == "typed, not yet applied"

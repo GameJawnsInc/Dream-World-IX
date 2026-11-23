@@ -592,9 +592,16 @@ class PlaceDoc(QWidget):
     # edit re-feeds (one per placed click) happen while staying, so they keep it. A donor room's
     # surface is the install's and stays cached for the session.
     def hideEvent(self, e):
-        self._drop_project_surfaces()
-        if self._source is not None and self._source[0] == "project":
-            self._clear_surface()
+        if not e.spontaneous():                    # the author LEFT the tab. (A minimised window is a
+            #                                        spontaneous hide: nobody went anywhere, and
+            #                                        dropping the room there threw away a half-drawn
+            #                                        region quad for nothing.)
+            self._drop_project_surfaces()
+            if self._loading is not None and self._loading[0][0] == "project":
+                self._stale_load = self._loading   # ...and a read still in flight lands on a hidden
+            #                                        tab: it must not be cached and re-armed on return
+            if self._source is not None and self._source[0] == "project":
+                self._clear_surface(keep_view=True)
         super().hideEvent(e)
 
     def showEvent(self, e):
@@ -612,15 +619,18 @@ class PlaceDoc(QWidget):
         if (self.isVisible() and self._blocked is None and self._data is not None
                 and self._source is not None and self._source in self._resume
                 and key not in self._bundles and self._loading != key):
+            self._resumed = key                        # the same room again: keep the author's view
             self.on_load()
 
     def _drop_project_surfaces(self):
         for key in [k for k in self._bundles if k[0][0] == "project"]:
             del self._bundles[key]
 
-    def _clear_surface(self):
-        """Nothing drawn and nothing clickable: no floor stays armed that this doc cannot vouch for."""
-        self.canvas.set_backdrop(None, None)
+    def _clear_surface(self, *, keep_view=False):
+        """Nothing drawn and nothing clickable: no floor stays armed that this doc cannot vouch for.
+        ``keep_view``: the same room is about to be read again (a tab round trip), so the author's
+        zoom and pan stay where they were."""
+        self.canvas.set_backdrop(None, None, refit=not keep_view)
         self.canvas.set_surface([])
         self.canvas.set_markers([])
         self.canvas.set_regions([])
@@ -676,7 +686,8 @@ class PlaceDoc(QWidget):
             self._resume.add(key[0])                # the author wants THIS room on the canvas
         self._loading = key
         self.load_btn.setEnabled(False)
-        self._refresh(f"Loading field #{key[0]} (camera {key[1]}) — extracting + compositing…")
+        what = f"field #{key[0][1]}" if key[0][0] == "real" else str(self._member)
+        self._refresh(f"Loading {what} (camera {key[1]}) — extracting + compositing…")
         self._loader.start(*key)
 
     def _settle(self, key) -> bool:
@@ -699,12 +710,14 @@ class PlaceDoc(QWidget):
             if mine:
                 self._refresh("The room changed on disk while it was loading — press Load the "
                               "room again.", "warn")
+            self._resume_room()                     # (a room the author had loaded is simply read again)
             return                                  # never cached
         self._bundles[(bundle["source"], bundle["cam_index"])] = bundle
         if mine:                                    # (any other: cached, not applied)
             # a pick the room no longer has came back clamped: the pick follows it
             self._cam_pick[self._source] = bundle["cam_index"]
-            self._apply_bundle(bundle, refit=True)
+            resumed, self._resumed = getattr(self, "_resumed", None) == key, None
+            self._apply_bundle(bundle, refit=not resumed)
 
     def _on_load_failed(self, key, msg):
         self._resume.discard(key[0])               # do not retry a failing read on every re-feed

@@ -991,3 +991,88 @@ def test_load_of_a_donor_room_is_still_served_from_the_cache(app):
     d._loader.start = lambda *a: started.append(a)
     d.load_btn.click()
     assert started == [] and d.canvas._surface_tris
+
+
+# --------------------------------------------------------------- batch 2, the final review
+def _loaded_project_room(app, tmp_path):
+    """A project room the author loaded, with the loader replaced by a recorder (no thread)."""
+    d, _ = _doc(app)
+    path = tmp_path / "ROOM.field.toml"
+    started = []
+    d._loader.start = lambda *key: started.append(key)
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)
+    d.load_btn.click()
+    key = (d._source, 0)
+    d._on_loaded(key, dict(_bundle(), source=d._source))
+    assert started == [key] and d.canvas._surface_tris
+    return d, path, key, started
+
+
+def test_coming_back_to_the_tab_re_reads_the_room_without_any_re_feed(app, tmp_path):
+    """The shell usually re-feeds on a tab change, but the SHOW itself is what says "the author
+    is back": the room is read again on showEvent alone."""
+    d, _path, key, started = _loaded_project_room(app, tmp_path)
+    d.hide()
+    assert not d.canvas._surface_tris and key not in d._bundles
+    d.show()
+    QApplication.processEvents()                       # the deferred resume
+    assert started == [key, key]
+
+
+def test_a_load_that_lands_while_the_tab_is_hidden_is_not_kept(app, tmp_path):
+    """Load, leave before it lands: the result was cached and armed on the hidden tab, so the
+    way back found a cached floor and never re-read the files that changed meanwhile."""
+    d, _ = _doc(app)
+    path = tmp_path / "ROOM.field.toml"
+    started = []
+    d._loader.start = lambda *key: started.append(key)
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)
+    d.load_btn.click()
+    key = (d._source, 0)
+    d.hide()                                           # the author leaves; the read is in flight
+    d._on_loaded(key, dict(_bundle(), source=d._source))
+    assert key not in d._bundles and not d.canvas._surface_tris and not d.canvas._place_mode
+    d.show()
+    QApplication.processEvents()
+    assert started == [key, key]                       # back on it: read again, from disk
+
+
+def test_a_room_that_comes_back_keeps_the_view_and_names_itself_plainly(app, tmp_path):
+    """A tab round trip is not a new room: the re-read must not reset the author's zoom and pan
+    (it did, on every return), and its status must not print a Python tuple."""
+    d, path, key, _started = _loaded_project_room(app, tmp_path)
+    refits = []
+    apply = d._apply_bundle
+    d._apply_bundle = lambda bundle, *, refit: (refits.append(refit), apply(bundle, refit=refit))[1]
+    d.canvas.repaint()                                 # the first paint runs the room's one fit ...
+    assert not d.canvas._fit_pending
+    d.canvas.scale(2.0, 2.0)                           # ... and THEN the author zooms in
+    d.canvas._zoom = 2.0
+    d.hide()
+    d.show()
+    QApplication.processEvents()
+    assert "('project'" not in d.status.text() and "ROOM" in d.status.text(), d.status.text()
+    d._on_loaded(key, dict(_bundle(), source=d._source))
+    assert refits == [False] and d.canvas._zoom == 2.0
+    d.load_btn.click()                                 # an explicit Load still fits the room
+    d._on_loaded(key, dict(_bundle(), source=d._source))
+    assert refits == [False, True]
+
+
+def test_minimising_the_window_does_not_drop_the_room(app, tmp_path):
+    """A minimised window is a SPONTANEOUS hide: nobody left the tab. Dropping the room there
+    threw away a half-drawn region quad and re-read the room for nothing."""
+    from PySide6.QtGui import QHideEvent
+
+    class _Minimised(QHideEvent):
+        def spontaneous(self):
+            return True
+
+    d, _path, key, started = _loaded_project_room(app, tmp_path)
+    d.canvas._pending_region = [(0.0, 600.0), (100.0, 600.0)]      # two corners of a quad, mid-draw
+    d.hideEvent(_Minimised())
+    assert key in d._bundles and d.canvas._surface_tris
+    assert d.canvas._pending_region == [(0.0, 600.0), (100.0, 600.0)]
+    assert started == [key]
+    d.hideEvent(QHideEvent())                          # ...whereas leaving the tab does drop it
+    assert key not in d._bundles and not d.canvas._surface_tris

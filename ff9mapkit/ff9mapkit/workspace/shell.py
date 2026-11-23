@@ -5338,13 +5338,12 @@ class Workspace(QMainWindow):
             bd._reset_sweep()
 
     def _refresh_field_tabs(self, member):
-        """Drop the Behavior / Cutscene / Place tabs' per-field state for ``member`` and feed them
-        again: a warm walkmesh, an armed surface, an open step editor all describe files that may
-        just have been replaced. Cheap by contract (the feeds read no disk)."""
-        for tab in (getattr(self, "behavior_doc", None), getattr(self, "cutscene_doc", None),
-                    getattr(self, "place_doc", None)):
-            if tab is not None and getattr(tab, "_member", None) == member:
-                tab.show_none()
+        """``member``'s buffer was REPLACED (a reload from disk): drop what the three tabs read
+        from its old floor and art, then feed them the new buffer. The Cutscene and Behavior tabs
+        are fed, not blanked: each rebinds what it has open against the new document by itself (a
+        step editor whose step is still there keeps the line being typed; one whose step is gone
+        closes). Cheap by contract (the feeds read no disk)."""
+        self._forget_field_floor(member)
         self._feed_behavior()
         self._feed_cutscene()
         self._feed_place()

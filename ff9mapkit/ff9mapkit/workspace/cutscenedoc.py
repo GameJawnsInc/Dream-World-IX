@@ -1149,6 +1149,9 @@ class CutsceneDoc(QWidget):
             self._render()
         if self.on_edit and self._member:
             self.on_edit(self._member, label)
+        if self._stage_busy:
+            self._stage_moved = True               # a check in flight judged the OLD scenes: its rows
+        #                                            must not paint (see _finish_stage)
         if self._stage_armed and self._wmesh is not None:
             self._restage_timer.start()            # the armed lane: re-judge on the warm mesh
 
@@ -1298,22 +1301,34 @@ class CutsceneDoc(QWidget):
         return None if i is None else (k, i)
 
     def _rebind_editor(self, raw):
-        """A NEW buffer (undo / redo / reload) holds copies, so identity is lost: re-find the
-        editor's scene as one EQUAL to the scene it opened on (its own index first). Edit mode
-        also keeps a scene whose row still holds an equal step. Else unbind -- the caller closes."""
+        """A NEW buffer (undo / redo / reload) holds copies, so identity is lost and the editor's
+        scene must be re-found by its contents. ITS OWN INDEX FIRST, and under both rules: the
+        scene there is still equal to the one it opened on, or (edit mode) its row still holds an
+        equal step. Only when its own index fails both may it move, and then only to the ONE
+        other scene equal to it -- with duplicated scenes about ("Duplicate scene" makes them
+        routine), "some equal scene" used to carry the editor into a scene the author never
+        opened, and Apply wrote their line there. Otherwise unbind: the caller closes."""
         blocks = forms.all_blocks((raw or {}).get("cutscene"))
         k0, i = self.editor.scene, self.editor.step_i
-        order = [k0] + [n for n in range(len(blocks)) if n != k0]
-        k = next((n for n in order if 0 <= n < len(blocks) and blocks[n] == self._ed_block), None)
-        if k is None and self.editor.insert_at is None and 0 <= k0 < len(blocks):
-            st = blocks[k0].get("steps") if isinstance(blocks[k0].get("steps"), list) else []
-            if 0 <= i < len(st) and st[i] == self._ed_step:
-                k = k0
+        add = self.editor.insert_at is not None
+
+        def own(n):
+            if not 0 <= n < len(blocks):
+                return False
+            if blocks[n] == self._ed_block:
+                return True
+            st = blocks[n].get("steps") if isinstance(blocks[n].get("steps"), list) else []
+            return (not add) and 0 <= i < len(st) and st[i] == self._ed_step
+
+        k = k0 if own(k0) else None
+        if k is None:
+            equal = [n for n in range(len(blocks)) if n != k0 and blocks[n] == self._ed_block]
+            k = equal[0] if len(equal) == 1 else None
         if k is None:
             self._ed_block = self._ed_step = None
             return
         self._ed_block = blocks[k]
-        if self.editor.insert_at is None:
+        if not add:
             self._ed_step = self._ed_block["steps"][i]
 
     def _apply_step(self):
@@ -1561,6 +1576,7 @@ class CutsceneDoc(QWidget):
             widgets.set_state(self.stage_note, "warn")
             return
         self._stage_busy = True
+        self._stage_moved = False
         self.stage_btn.setEnabled(False)
         self.stage_btn.setText("Checking…")
         import copy as _copy
@@ -1625,6 +1641,11 @@ class CutsceneDoc(QWidget):
             self.stage_list.addItem(f"? {lbl} not checked — {why}")
         self.stage_list.setVisible(self.stage_list.count() > 0)
         self._verdicts = list(rows or [])
+        if getattr(self, "_stage_moved", False):   # the scenes were edited while this ran: a stall
+            self._stage_moved = False              # would paint on whichever scene now has its
+            self._verdicts = []                    # number. Paint nothing; judge the doc as it is.
+            if self._stage_armed and self._wmesh is not None:
+                self._restage_timer.start()
         self._paint_verdicts()
         if self.board_btn.isChecked():
             self._refresh_board()                  # the warm mesh upgrades straight legs to routes

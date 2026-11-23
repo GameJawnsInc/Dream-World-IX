@@ -1181,3 +1181,94 @@ def test_retheme_and_set_scale_survive_both_pages(doc, tmp_path):
     doc.set_scale(150)
     assert doc.board_slider.minimumWidth() == 180
     assert doc.crumb_label() == "Cutscene — GLEN"
+
+
+# --------------------------------------------------------------- batch 2, the final review
+def test_a_swapped_buffer_never_carries_the_editor_into_a_look_alike_scene(doc, tmp_path):
+    """After an undo the editor's scene must be re-found by its contents -- its OWN index first.
+    'Some scene equal to the one it opened on' carried it into a duplicate (Duplicate scene makes
+    those routine) whenever its own scene had changed under it, and Apply wrote the author's
+    line into a scene they never opened. Also fences the own-row fallback: without it the open
+    step's typed text is dropped by every undo of an edit elsewhere in its scene."""
+    import copy
+    raw, path = _fed(doc, tmp_path)
+    raw["cutscene"][1] = copy.deepcopy(raw["cutscene"][0])        # scene #1 is now a twin of #0
+    doc.show_field("GLEN", raw, path)
+    doc.rail.setCurrentRow(0)
+    doc._edit_step(2)                                  # the say "Made it to the altar." of scene #0
+    doc.editor.value_text.setPlainText("typed, not yet applied")
+    swapped = copy.deepcopy(raw)                       # an undo: a NEW buffer in which a SIBLING step
+    swapped["cutscene"][0]["steps"][0]["walk"] = [5, 5]            # of scene #0 differs
+    doc.show_field("GLEN", swapped, path)
+    assert doc.editor.scene == 0 and doc.editor.step_i == 2, "the editor left its own scene"
+    assert doc.editor.value_text.toPlainText() == "typed, not yet applied"
+    doc._apply_step()
+    assert swapped["cutscene"][0]["steps"][2]["say"] == "typed, not yet applied"
+    assert swapped["cutscene"][1]["steps"][2]["say"] == "Made it to the altar."   # the twin: untouched
+
+
+def test_a_waypoint_added_or_removed_on_the_open_route_survives_apply(doc, tmp_path):
+    """The stage's insert / delete of a path point rewrote the step, but the open editor kept the
+    old route in its box; the next Apply (even a speed-only change) wrote it back."""
+    raw, path = _fed(doc, tmp_path)
+    raw["cutscene"][0]["steps"][0] = {"path": [[0, 400], [200, 400]], "actor": "Cid"}
+    doc.show_field("GLEN", raw, path)
+    doc.rail.setCurrentRow(0)
+    doc._edit_step(0)
+    doc._on_stage_insert(("leg", 0, 0, 0))             # a point after the first
+    assert len(raw["cutscene"][0]["steps"][0]["path"]) == 3
+    doc.editor.x_speed.setText("12")
+    doc._apply_step()
+    step = raw["cutscene"][0]["steps"][0]
+    assert step["path"] == [[0, 400], [100, 400], [200, 400]] and step["speed"] == 12
+    doc._on_stage_delete(("leg", 0, 0, 1))             # and take it out again
+    doc.editor.x_speed.setText("14")
+    doc._apply_step()
+    step = raw["cutscene"][0]["steps"][0]
+    assert step["path"] == [[0, 400], [200, 400]] and step["speed"] == 14
+
+
+def test_a_flag_the_campaign_owns_is_not_called_unknown(app, tmp_path):
+    """A member's scene may set a flag its CAMPAIGN defines. The tab's unknown-name check must be
+    handed the campaign's names, or every shared flag is a false problem."""
+    for names, clean in (({"bridge_out": 8713}, True), ({}, False)):
+        d = CutsceneDoc(pick_palette("dark"), flag_names_fn=lambda n=names: n)
+        try:
+            raw, path = _fed(d, tmp_path)
+            assert "No structural problems." in d.problems_lbl.text()      # the premise: clean before
+            raw["cutscene"][0]["steps"].append({"set_flag": ["bridge_out", 1]})
+            d.show_field("GLEN", raw, path)
+            assert ("No structural problems." in d.problems_lbl.text()) is clean, d.problems_lbl.text()
+        finally:
+            d.hide()
+            d.instruments.setParent(None)
+
+
+def test_adding_or_duplicating_a_scene_closes_the_step_editor(doc, tmp_path):
+    """The selection moves to the new scene; an editor left open would still be aimed at a step
+    of the old one while the ladder shows another."""
+    _fed(doc, tmp_path)
+    for act in (doc._add_scene, doc._dup_scene):
+        doc.rail.setCurrentRow(0)
+        doc._edit_step(0)
+        assert doc.editor.scene is not None
+        act()
+        assert doc.editor.scene is None, f"{act.__name__} left the step editor open"
+
+
+def test_a_check_that_was_running_while_the_scenes_changed_paints_nothing(doc, tmp_path):
+    """Its rows are numbered by the scenes as they WERE: after a scene is deleted mid-check, the
+    stall would paint on whichever scene now has that number. They are dropped and the document
+    is judged again as it is."""
+    _fed(doc, tmp_path)
+    doc.stage_now(sync=True)                           # arms the lane: a warm mesh, a real result
+    assert doc._stage_armed and doc._wmesh is not None
+    doc._stage_busy = True                             # a check is in flight ...
+    doc._stage_moved = False
+    doc.rail.setCurrentRow(1)
+    doc._del_scene()                                   # ... and the author deletes a scene
+    stale_rows = [{"scene": 0, "step": 0, "kind": "stall", "pts": [(0, 0), (1, 1)], "label": "x"}]
+    doc._restage_timer.stop()
+    doc._finish_stage((doc._stage_gen, doc._last_stage, stale_rows, doc._wmesh))
+    assert doc._verdicts == [], "rows judged against the old scene layout were painted"
+    assert doc._restage_timer.isActive(), "the document must be judged again as it now is"
