@@ -544,7 +544,9 @@ def _hand_author(toml_path):
     """What a Place-tab session (or a hand editor) adds to a generated project."""
     text = toml_path.read_text(encoding="utf-8")
     lines = text.splitlines()
-    lines.insert(1, "text_block = 30058")             # a bare key must precede [field]
+    # under [field], where the Editor's Field form writes it and build.py reads it (finding T2:
+    # the fixture once put it top-level, a place nothing writes, so the wipe went unseen)
+    lines.insert(lines.index("[field]") + 1, "text_block = 30058")
     text = "\n".join(lines) + "\n" + (
         '\n[[npc]]\nname = "mist_porter"\npreset = "vivi"\npos = [0, 1500]\n'
         '\n[[gateway]]\nname = "west_gate"\nto = 301\nzone = [[-500, 900], [-400, 900], '
@@ -565,7 +567,7 @@ def test_regenerate_preserves_hand_authored_content(tmp_path):
                                 gateways=["4005@60,300;140,300;140,330;60,330"],
                                 events=["It creaks.@200,340;300,340;300,380;200,380"])
     data = tomllib.loads(toml.read_text(encoding="utf-8"))
-    assert data["text_block"] == 30058
+    assert data["field"]["text_block"] == 30058
     assert data["npc"][0]["name"] == "mist_porter" and data["npc"][0]["pos"] == [0, 1500]
     assert data["music"]["song"] == 39
     names = [g["name"] for g in data["gateway"]]
@@ -574,7 +576,60 @@ def test_regenerate_preserves_hand_authored_content(tmp_path):
     assert data["event"][0]["name"] == "traced_zone0"
     kept = "\n".join(man2["kept"])
     assert "west_gate" in kept and "[[npc]]" in kept and "[music]" in kept
-    assert "painted_arch" in kept and "text_block" in kept
+    assert "painted_arch" in kept and "[field].text_block" in kept
+
+
+def test_the_editors_field_form_keys_ride_through_a_regenerate(tmp_path):
+    """[field] merges PER KEY (finding T2): the generator owns id/name/area, while the Editor's
+    Field form writes location, title, text_block and borrow_bg into the same table -- and a
+    wholesale band erased them, reporting only 'retaken: field'. Driven through FieldDoc, the
+    Editor's own model, so the keys sit exactly where the form saves them."""
+    pytest.importorskip("PIL")
+    import tomllib
+    from ff9mapkit.editor.model import FieldDoc
+    toml, floor, _man = _merge_project(tmp_path)
+    doc = FieldDoc.load(toml)
+    doc.field.update({"location": "Mog's Hut", "title": "my notes", "text_block": 30058,
+                      "hide_area_title": True})
+    doc.save()
+    man2 = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                                gateways=["4005@60,300;140,300;140,330;60,330"],
+                                events=["It creaks.@200,340;300,340;300,380;200,380"])
+    field = tomllib.loads(toml.read_text(encoding="utf-8"))["field"]
+    assert field["location"] == "Mog's Hut" and field["title"] == "my notes"
+    assert field["text_block"] == 30058 and field["hide_area_title"] is True
+    assert (field["id"], field["name"], field["area"]) == (4003, "MERGE", 11)
+    kept = man2["kept"]
+    for k in ("location", "title", "text_block", "hide_area_title"):
+        assert f"[field].{k}" in kept
+    assert not [r for r in man2["retaken"] if r.startswith("field")]   # untouched: no retake
+
+
+def test_a_hand_changed_generator_field_key_is_retaken_by_name(tmp_path):
+    """id/name/area stay the generator's: a hand-changed one is overwritten by the session and
+    named key by key in retaken, beside the hand keys that rode through."""
+    pytest.importorskip("PIL")
+    import tomllib
+    from ff9mapkit.editor.model import FieldDoc
+    toml, floor, _man = _merge_project(tmp_path)
+    doc = FieldDoc.load(toml)
+    doc.field.update({"area": 12, "location": "Dali"})
+    doc.save()
+    man2 = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                                gateways=["4005@60,300;140,300;140,330;60,330"],
+                                events=["It creaks.@200,340;300,340;300,380;200,380"])
+    field = tomllib.loads(toml.read_text(encoding="utf-8"))["field"]
+    assert field["area"] == 11 and field["location"] == "Dali"
+    assert [r for r in man2["retaken"] if r.startswith("field")] == ["field.area"]
+
+
+def test_a_moved_generated_field_block_fails_loudly_not_silently():
+    """If the generator's [field] lines ever change shape, the per-key merge must refuse --
+    the quiet alternative is a regenerate that drops the Editor's keys again (T2)."""
+    gen = '# x\n[field]\nid = 4003\narea = 11\nname = "M"\n\n[player]\nspawn = [0, 0]\n'
+    with pytest.raises(IF.ImageFieldError, match=r"\[field\] block"):
+        IF.merge_project_toml(gen, {"field": {"id": 4003, "name": "M", "area": 11,
+                                              "location": "Dali"}})
 
 
 def test_regenerate_deletes_its_own_stale_doors_and_keeps_yours(tmp_path):
