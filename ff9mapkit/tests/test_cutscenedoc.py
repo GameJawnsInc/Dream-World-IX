@@ -408,7 +408,7 @@ def test_live_problems_show_a_dispatch_collision_and_a_bad_target(doc, tmp_path)
     assert "the same gate" in doc.problems_lbl.text()
     bad2 = FIELD_TOML.replace('walk = "altar"', 'walk = "ghost"')
     _fed(doc, tmp_path, bad2)
-    assert 'walk target "ghost"' in doc.problems_lbl.text()
+    assert "step 0: movement target 'ghost'" in doc.problems_lbl.text()   # the build's sentence
     _fed(doc, tmp_path)
     assert doc.problems_lbl.text() == "No structural problems."
 

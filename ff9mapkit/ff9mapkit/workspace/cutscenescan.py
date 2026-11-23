@@ -257,7 +257,8 @@ def _target_names(raw) -> set:
 
 
 def scene_problems(raw, flag_names=None) -> list:
-    """The always-on PROBLEMS lane: cheap raw-only structural checks in plain sentences (the shell's
+    """The always-on PROBLEMS lane: structural checks in plain sentences -- a cast scene through the
+    build's own conductor validator, a narration scene through its mirrored rules (the shell's
     ``_node_problems`` speaks HTML; the instruments pane speaks text). Pass the MERGED doc — a
     scene.toml field keeps its markers/NPC positions there. 0-based ``scene #k`` prefixes on a
     dispatch, the GUI's own convention. ``flag_names`` = the campaign's shared flag names (the
@@ -265,8 +266,6 @@ def scene_problems(raw, flag_names=None) -> list:
     out = []
     blocks = _blocks(raw)
     names = _target_names(raw)
-    npc_names = {str(n["name"]) for n in (raw or {}).get("npc") or []
-                 if isinstance(n, dict) and n.get("name")}
 
     def _bad_name(v):
         if not isinstance(v, str):
@@ -277,17 +276,20 @@ def scene_problems(raw, flag_names=None) -> list:
     for k, b in enumerate(blocks):
         tag = f"scene #{k}: " if len(blocks) > 1 else ""
         cast = ([str(a) for a in b["actors"]] if isinstance(b.get("actors"), list) else [])
-        for a in cast:
-            if a != "player" and a not in npc_names:
-                out.append(f'{tag}cast member "{a}" is not an [[npc]] on this field (or "player")')
         steps = b.get("steps") if isinstance(b.get("steps"), list) else []
+        out += _text_window_problems(steps, tag, cast)
+        if cast:
+            # A CAST scene is the build's conductor: its rules (cast names, per-step actors --
+            # "player" included --, with_prev groups, move targets, animation names, empty steps)
+            # have ONE owner, build._validate_conductor, called here rather than re-derived.
+            out += _conductor_problems(raw, b, tag)
+            continue
+        if not steps:                              # the narration branch of build.validate
+            out.append(f"{tag}needs a non-empty steps = [ {{say=...}}, {{wait=...}}, ... ] list")
         for i, s in enumerate(steps):
             if not isinstance(s, dict):
                 continue
             kk = _forms.step_key(s)
-            actor = s.get("actor")
-            if actor and cast and actor not in cast:
-                out.append(f'{tag}step {i} actor "{actor}" is not in the cast ({", ".join(cast)})')
             if kk in _forms.ACTOR_STEPS and not cast:
                 out.append(f'{tag}step {i} ({kk}) needs a cast -- add actors = ["<npc name>"]')
             if s.get("with_prev"):
@@ -305,6 +307,43 @@ def scene_problems(raw, flag_names=None) -> list:
                         out.append(f'{tag}step {i} path point {j} "{leg}" is not a known '
                                    f'marker/NPC/player')
     return out + _flag_name_problems(raw, blocks, flag_names) + _flag_band_problems(raw, blocks)
+
+
+def _conductor_problems(raw, block, tag) -> list:
+    """A cast scene through the BUILD'S OWN conductor validator, its sentences verbatim behind
+    the tab's ``scene #k:`` prefix. Never raises: a half-typed scene is this lane's normal input,
+    and the full Check still runs the same rule."""
+    from .. import build as _build
+    probs = []
+    try:
+        project = _build.FieldProject(copy.deepcopy(raw) if isinstance(raw, dict) else {}, ".")
+        _build._validate_conductor(project, copy.deepcopy(block), probs, lbl="")
+    except Exception:                              # noqa: BLE001 -- the render loop must survive
+        return []
+    return [tag + p.strip() for p in probs]
+
+
+def _text_window_problems(steps, tag, cast) -> list:
+    """The two window keys of a say/open line the build's window-attribute sweep refuses: an
+    unknown ``tail`` code and an unknown ``style``. Each verdict comes from the rule's owner
+    (``text.TAIL_CODES`` / ``text.resolve_style``); a cast scene's tail is already the conductor
+    validator's, so it is judged only on narration here."""
+    from ..content import text as _text
+    out = []
+    for i, s in enumerate(steps):
+        if not isinstance(s, dict) or _forms.step_key(s) not in _forms.TEXT_STEPS:
+            continue
+        t = s.get("tail")
+        if not cast and t is not None and t not in _text.TAIL_CODES:
+            out.append(f"{tag}step {i} tail {t!r} is not a valid TAIL code "
+                       f"({', '.join(sorted(_text.TAIL_CODES))})")
+        try:
+            _text.resolve_style(s.get("style"))
+        except ValueError as e:
+            out.append(f"{tag}step {i} {e}")
+        except Exception:                          # noqa: BLE001 -- a half-typed doc is normal here
+            pass
+    return out
 
 
 def _flag_name_problems(raw, blocks, flag_names) -> list:
