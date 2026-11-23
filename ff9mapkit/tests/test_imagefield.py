@@ -153,6 +153,29 @@ def test_a_zone_beyond_the_int16_world_is_refused_before_anything_is_written(tmp
                          gateways=["4005@60,300;140,300;140,330;60,330"])
 
 
+def test_the_cli_band_checks_the_id_and_its_deploy_hint_names_it(tmp_path, capsys):
+    """Finding T18: the success print hard-coded '--id 30058' whatever --id was, so a copied hint
+    deployed into somebody else's scratch slot; and --id was never band-checked (9000-9012, real
+    ids and ids past 32767 all generated). The path in the hint is quoted (T22: spaces)."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    from ff9mapkit import cli
+    (tmp_path / "my photos").mkdir()
+    src = tmp_path / "my photos" / "src.png"
+    Image.new("RGB", (384, 448), (90, 80, 70)).save(src)
+    base = ["image-field", str(src), "--floor", "130,140 254,140 364,440 20,440", "--name", "ROOM"]
+    for bad in ("9005", "100", "40000"):
+        out = tmp_path / f"bad{bad}"
+        assert cli.main(base + ["--out", str(out), "--id", bad]) == 2
+        assert not out.exists()
+        assert bad in capsys.readouterr().err
+    out = tmp_path / "my photos" / "room-field"
+    assert cli.main(base + ["--out", str(out), "--id", "30777"]) == 0
+    said = capsys.readouterr().out
+    assert "30058" not in said and "--id 30777" in said and "Warp 30777" in said
+    assert f'"{out / "ROOM.field.toml"}"' in said
+
+
 # ---------------------------------------------------------------- anchored occluders (contact -> Z)
 
 def test_occluder_z_is_actor_depth_at_contact():
