@@ -1051,6 +1051,9 @@ class TraceDoc(QWidget):
             self._stamped = True                       # the project now matches the session
             self._write_trace_sidecar(out)             # the re-editable session record
             self._refresh(f"{moved}Generating {name} → {out} …")
+        else:                                          # run_job refuses while a job runs (T30)
+            self._refresh("Another job is running — Generate after it finishes (the Output "
+                          "panel shows it).", "warn")
 
     def _after_generate(self, code, first, toml, *, proj=None, before=None):
         """A clean FIRST Generate opens the project in the Editor (through the shell's own

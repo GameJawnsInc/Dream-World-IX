@@ -1607,6 +1607,20 @@ def test_a_new_photo_does_not_inherit_the_last_projects_name_and_id(app, tmp_pat
     assert len(run.calls) == 1                          # no id: refused, nothing launched
 
 
+def test_generate_while_another_job_runs_says_so(app, tmp_path, monkeypatch):
+    """Finding T30: run_job refuses (returns False) while another job runs, and Generate had no
+    else -- the click did nothing at all, with no word."""
+    pytest.importorskip("PIL")
+    doc, run = _traced(app, tmp_path)
+    doc.id_box.setText("30777")
+    monkeypatch.setattr(doc, "_run", lambda argv, **kw: False)
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    assert doc._project is None
+    assert "Another job is running" in doc.status.text()
+    assert doc.status.property("state") == "warn"
+
+
 def test_the_canvas_keeps_a_usable_minimum(app):
     """The canvas had no minimum of its own (66 px, the scroll area's). A floor ABOVE what the
     window can give overpaints the rows below, so it is modest: 96 px (measured natively, the
