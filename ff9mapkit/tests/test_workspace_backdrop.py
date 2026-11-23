@@ -961,3 +961,46 @@ def test_a_first_corner_can_start_inside_an_existing_region(app):
     _mouse(c, "move", (inside[0] + 20, inside[1] + 10))
     _mouse(c, "release", (inside[0] + 20, inside[1] + 10))
     assert len(changed) == 1 and not c._pending_region
+
+
+def test_the_hint_pill_speaks_the_current_tool_then_gets_out_of_the_way(app):
+    """P18: the pill said 'click the floor' in every mode and sat over the art's bottom-right
+    for good. It now says what THIS mode's click does, and hides after the first gesture
+    (a mode change or a new field brings it back)."""
+    c, cam, _ = _trace_canvas(app)
+    hint = c._hint
+    assert "outline" in hint.text() and hint.isVisibleTo(c)
+    c.set_region_mode(True)
+    assert "4 corners" in hint.text() and "Esc" in hint.text()
+    assert "click the floor" not in hint.text()
+    c.set_contact_mode(True)
+    assert "base" in hint.text() and "click the floor" not in hint.text()
+    c.set_place_mode(True)
+    assert "click the floor" in hint.text()
+    c.set_region_mode(True)
+    _click(c, IF.world_point_to_click(cam, (0.0, 0.0, 1200.0)))   # one corner placed
+    assert len(c._pending_region) == 1 and not hint.isVisibleTo(c)
+    c.set_trace_mode(True)
+    assert hint.isVisibleTo(c) and "outline" in hint.text()
+    c.set_floor(_TRI)
+    assert c._begin_vertex_drag(0)                           # a drag spends it too
+    c._drag_canvas(110.0, 310.0)
+    c._end_vertex_drag()
+    assert not hint.isVisibleTo(c)
+    bare =BackdropCanvas(pick_palette("dark"))
+    bare.set_backdrop(None, None)
+    assert "click" not in bare._hint.text()                  # no camera: nothing to click
+
+
+def test_the_regions_tool_shows_the_traced_floor_edge(app):
+    """T29: doors belong on the walkable edge, so the Regions tool keeps the floor outline and
+    its outset ring in view -- inert, and without the vertex handles (a trace thing)."""
+    c, cam, calls = _trace_canvas(app)
+    c._commit_floor([(130.0, 200.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)])
+    c.set_region_mode(True)
+    tags = _tags(c)
+    assert "traceline" in tags and "outset" in tags
+    assert "tracept" not in tags                             # no vertex furniture to collide with
+    n0 = len(calls)                                          # corners, not vertices
+    _click(c, (200.0, 300.0))
+    assert len(calls) == n0 and len(c._pending_region) == 1

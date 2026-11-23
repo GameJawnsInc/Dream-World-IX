@@ -116,7 +116,7 @@ class BackdropCanvas(QGraphicsView):
         self.setAccessibleDescription(
             "The field's background art under its camera: click the floor to get an exact "
             "world position; the dashed line is the camera's horizon, above which no floor exists")
-        self._hint = QLabel("Ctrl+scroll zooms · Ctrl+0 fits · click the floor", self.viewport())
+        self._hint = QLabel("", self.viewport())   # the mode's own words: _sync_hint
         self._hint.setObjectName("backdropHint")   # selector-scoped (the round-9 census law)
         self._hint.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self._coords = QLabel("", self.viewport())  # live world readout while a vertex drags
@@ -124,6 +124,25 @@ class BackdropCanvas(QGraphicsView):
         self._coords.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self._coords.hide()
         self._style_hint()
+        self._sync_hint()
+
+    def _sync_hint(self):
+        """The pill says what a click does in THIS mode (P18), and is shown again: called on a
+        mode change and a new field. The first click or drag hides it -- it covers the art's
+        bottom-right, where the near floor edge, doors and contacts live."""
+        if self._cam is None:
+            what = ""                              # nothing on this canvas resolves a click
+        elif self._region_mode:
+            what = "click 4 corners · Esc cancels · right-click a zone for its menu"
+        elif self._contact_mode:
+            what = "click the object's base"
+        elif self._trace_mode:
+            what = "click the floor's outline · drag a dot to move it"
+        else:
+            what = "click the floor"
+        self._hint.setText(" · ".join(t for t in (what, "Ctrl+scroll zooms · Ctrl+0 fits") if t))
+        self._hint.show()
+        self._place_hint()
 
     # -- text + geometry (CALIBRE) --
     def _font(self, pt, bold=False):
@@ -190,6 +209,7 @@ class BackdropCanvas(QGraphicsView):
             self.resetTransform()
             self._zoom = 1.0
             self._fit_pending = True
+            self._sync_hint()                      # a new field: the pill teaches again
         self._rebuild()
 
     def camera(self):
@@ -205,6 +225,7 @@ class BackdropCanvas(QGraphicsView):
             self._place_mode = False           # one click semantics at a time
             self._contact_mode = False
             self._region_mode = False
+        self._sync_hint()
         self._rebuild()
 
     # -- public: Rung 3 place mode --
@@ -219,6 +240,7 @@ class BackdropCanvas(QGraphicsView):
             self._trace_mode = False
             self._contact_mode = False
             self._region_mode = False
+        self._sync_hint()
         self._rebuild()
 
     # -- public: Rung 2 contact mode --
@@ -236,6 +258,7 @@ class BackdropCanvas(QGraphicsView):
             self._trace_mode = False
             self._place_mode = False
             self._region_mode = False
+        self._sync_hint()
         self._rebuild()
 
     # -- public: Rung 4 region mode --
@@ -254,6 +277,7 @@ class BackdropCanvas(QGraphicsView):
             self._trace_mode = False
             self._place_mode = False
             self._contact_mode = False
+        self._sync_hint()
         self._rebuild()
 
     def set_regions(self, rows):
@@ -850,8 +874,9 @@ class BackdropCanvas(QGraphicsView):
 
     def _draw_trace(self):
         self._trace_items = []
-        if not (self._trace_mode or self._contact_mode) or not self._trace:
-            return                             # contact mode keeps the polygon VISIBLE, inert
+        if not (self._trace_mode or self._contact_mode or self._region_mode) or not self._trace:
+            return                             # contact + region modes keep the polygon VISIBLE,
+                                               # inert: a door belongs on the walkable edge (T29)
         pal, sc = self.pal, self._scene
         worlds = self._trace_worlds()
         pen = QPen(QColor(pal["accent"]), 1.6)
@@ -866,6 +891,8 @@ class BackdropCanvas(QGraphicsView):
             ln = sc.addLine(pts[-1].x(), pts[-1].y(), pts[0].x(), pts[0].y(), dash)
             ln.setData(0, "traceline")
         self._draw_outset(worlds)
+        if self._region_mode:
+            return                             # the edge only: dots + indices are trace furniture
         for i, (cx, cy) in enumerate(self._trace):
             bad = worlds[i] is None
             color = QColor(pal["error"] if bad else pal["accent"])
@@ -979,6 +1006,7 @@ class BackdropCanvas(QGraphicsView):
         self._coords.hide()
         if not d:
             return
+        self._hint.hide()                          # a drag, too, is the first gesture (P18)
         if d.get("kind") == "cpt":
             if d["pt"] != d["start"]:
                 self.contact_moved.emit(d["i"], round(d["pt"][0], 1), round(d["pt"][1], 1))
@@ -1212,6 +1240,7 @@ class BackdropCanvas(QGraphicsView):
         travel = (event.position() - press).manhattanLength()
         if travel > _CLICK_SLOP_PX:
             return                                 # it was a pan
+        self._hint.hide()                          # a click: the pill has been read (P18)
         if self._contact_mode:                     # Rung 2: the raw canvas pixel; the host judges it
             c = self._widget_to_canvas(event.position())
             self.contact_clicked.emit(c.x(), c.y())
