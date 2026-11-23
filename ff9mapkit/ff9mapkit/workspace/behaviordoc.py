@@ -1614,8 +1614,9 @@ class BehaviorDoc(QWidget):
 
     def show_field(self, member, raw, path=None, *, dirty=False):
         """Render the OPEN field's parsed dict. ``path`` (the saved file) feeds the Compile
-        lane; ``dirty`` labels which truth the instruments would read."""
-        same_field = member == self._member
+        lane; ``dirty`` labels which truth the instruments would read. "Same field" is the
+        member AND its file: a same-named copy must not inherit the other file's sweep mesh."""
+        same_field = member == self._member and path == self._path
         if not same_field and self.sim_btn.isChecked():
             self.sim_btn.setChecked(False)         # another field: the timeline is void
         self._member, self._raw, self._path, self._dirty = member, raw, path, dirty
@@ -2124,11 +2125,14 @@ class BehaviorDoc(QWidget):
     # is the doc's other user-invoked disk touch (the SAVED field's walkmesh); once armed,
     # every committed edit re-judges the OPEN geometry on the warm mesh, debounced, on a
     # worker -- the two-truths split, stated on the button.
-    def sweep_now(self, *, sync=False):
+    def sweep_now(self, *, sync=False, warm=False):
+        """Sweep the routes. An explicit press reads the SAVED walkmesh every time (its tooltip
+        says so; a regenerate may have replaced it); only the automatic re-judge rides warm."""
         src = self._view if self._view is not None else self._raw
         if self._sweep_busy or src is None or not behaviorscan.has_behavior(src):
             return
-        if self._wmesh is None and not self._path:
+        wmesh = self._wmesh if warm else None
+        if wmesh is None and not self._path:
             self.sweep_note.setText("This document has no saved file yet — the walkmesh "
                                     "comes from disk, so save first, then sweep.")
             widgets.set_state(self.sweep_note, "warn")
@@ -2139,7 +2143,7 @@ class BehaviorDoc(QWidget):
         import copy as _copy
         raw = _copy.deepcopy(src)                  # the worker must never race the GUI's dict;
         #                                            a [siege] view sweeps its GENERATED routes
-        gen, path, wmesh = self._sweep_gen, self._path, self._wmesh
+        gen, path = self._sweep_gen, self._path
         if sync:                                   # the deterministic test/snap lane
             self._finish_sweep((gen, *self._sweep_work(path, raw, wmesh)))
             return
@@ -2196,7 +2200,7 @@ class BehaviorDoc(QWidget):
         if self._sweep_busy:
             self._resweep_timer.start()            # let the in-flight run land first
             return
-        self.sweep_now()
+        self.sweep_now(warm=True)
 
     def _reset_sweep(self):
         """Field switch / project close: another field's mesh or verdicts must not linger."""

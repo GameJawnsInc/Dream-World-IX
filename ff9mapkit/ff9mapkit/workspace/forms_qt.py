@@ -157,7 +157,8 @@ def _wrap_preview_panel(line_edit, get_text, wrap_width):
 
     line_edit.textChanged.connect(refresh)
     refresh()
-    return panel
+    panel.refresh = refresh                        # a host whose OTHER inputs shape the line (the
+    return panel                                   # cutscene editor's speaker) re-runs it
 
 
 def _is_model_scoped(field) -> bool:

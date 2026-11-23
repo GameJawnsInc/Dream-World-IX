@@ -362,14 +362,14 @@ SECTION_HELP = {
 
 # cutscene steps: each is a dict with exactly one action key.
 STEP_KIND = {
-    "say": STR, "wait": INT, "set_flag": PAIR,                    # any cutscene
+    "say": STR, "wait": INT, "set_flag": FLAGPAIR,                # any cutscene
     "open": STR, "close": INT, "wait_window": INT,               # any cutscene (multi-window)
     "raise": BOOL, "set_signal": INT, "wait_signal": INT,       # any cutscene (windows + text signals)
     "walk": POINT, "path": PATH, "teleport": POINT,              # actor only (movement)
     "animation": ANIM, "turn": INT, "face_player": BOOL,        # actor only (anim/facing)
 }
 STEP_LABEL = {
-    "say": "Say (dialogue)", "wait": "Wait (frames)", "set_flag": "Set flag (idx, val)",
+    "say": "Say (dialogue)", "wait": "Wait (frames)", "set_flag": "Set flag (name/idx, val)",
     "open": "Open a window (async)", "close": "Close a window", "wait_window": "Wait for a window",
     "raise": "Raise windows above a fade", "set_signal": "Set text signal",
     "wait_signal": "Wait for text signal",
@@ -380,7 +380,8 @@ STEP_LABEL = {
 STEP_HELP = {
     "say": "dialogue text shown in a window (blocks until dismissed)",
     "wait": "frames to pause (30 ≈ 1 second)",
-    "set_flag": "story flag as \"index, value\" -- e.g. 8712, 1 (custom flags live in 8712+)",
+    "set_flag": "story flag as \"name, value\" (a [[flag]] name) or \"index, value\" -- e.g. "
+                "boss_dead, 1 or 8712, 1 (raw custom indices live in 8712+)",
     "open": "dialogue text in a window that STAYS UP while the scene runs on -- close it later with "
             "'Close a window'. Set Window to keep two on screen at once",
     "close": "the window id to dispose (the number you opened it with)",
