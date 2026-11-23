@@ -846,6 +846,82 @@ def test_load_project_absorbs_only_the_generators_own_regions(app, tmp_path):
     assert doc._regions[0]["to"] == 4005
 
 
+def _regionless_project_with_place_rows(tmp_path):
+    """A project traced with NO regions, then given a door and a zone by the Place tab's OWN
+    ops and saved through the Editor's model -- whatever names Place mints today, verbatim."""
+    from PIL import Image
+    from ff9mapkit import imagefield as IF
+    from ff9mapkit.editor.model import FieldDoc
+    from ff9mapkit.workspace import placedoc
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
+    floor = [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)]
+    man = IF.build_image_field(photo, floor, tmp_path / "proj", name="HALL5", field_id=30787)
+    fd = FieldDoc.load(man["toml"])
+    placedoc.place_gateway(fd.data, [(-500, 900), (-400, 900), (-400, 1000), (-500, 1000)], 301)
+    placedoc.place_event(fd.data, [(100, 900), (200, 900), (200, 1000), (100, 1000)])
+    fd.save()
+    return photo, floor, Path(man["toml"]), [g["name"] for g in fd.data["gateway"]], \
+        [e["name"] for e in fd.data["event"]]
+
+
+def test_the_place_tabs_own_rows_survive_the_sessions_first_region(app, tmp_path):
+    """Review finding T1, through the REAL ops on both sides: the Place tab mints the names, the
+    Editor's model saves them, and the Trace lane's first region regenerates over them. The
+    rows used to be deleted, with one 'removed' line in the Output panel as the only notice."""
+    pytest.importorskip("PIL")
+    import tomllib
+    from ff9mapkit import imagefield as IF
+    photo, floor, toml, doors, zones = _regionless_project_with_place_rows(tmp_path)
+    man = IF.build_image_field(photo, floor, toml.parent, name="HALL5", field_id=30787,
+                               events=["It creaks.@200,340;300,340;300,380;200,380"])
+    data = tomllib.loads(toml.read_text(encoding="utf-8"))
+    assert man["removed"] == []
+    assert [g["name"] for g in data["gateway"]] == doors and data["gateway"][0]["to"] == 301
+    assert [e["name"] for e in data["event"]] == ["traced_zone0"] + zones
+
+
+def test_load_project_leaves_place_rows_file_side_on_a_regionless_project(app, tmp_path):
+    """The absorb half of T1: reopening a sidecar-less project must not pull a Place door into
+    the session -- an absorbed row is re-emitted as traced_door0 stripped to to/entrance/zone,
+    and the original is then the generator's to delete."""
+    pytest.importorskip("PIL")
+    _photo_, _floor, toml, _doors, _zones = _regionless_project_with_place_rows(tmp_path)
+    doc, _run = _doc(app)
+    doc.load_project(toml)
+    assert doc._regions == []
+
+
+def test_load_project_refuses_a_traced_row_the_session_cannot_carry(app, tmp_path):
+    """A hand-edited traced row with five DISTINCT corners is a legal zone the session cannot
+    hold (its quads are four clicks). Absorbed, it made every Generate fail; skipped, the next
+    Generate DELETED it and renumbered every traced row after it. So the session does not arm
+    at all, and says the way out -- before any state lands."""
+    pytest.importorskip("PIL")
+    import tomllib
+    from PIL import Image
+    from ff9mapkit import imagefield as IF
+    from ff9mapkit.editor import model as _model
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
+    floor = [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)]
+    man = IF.build_image_field(photo, floor, tmp_path / "proj", name="HALL6", field_id=30791,
+                               gateways=["4005@60,300;140,300;140,330;60,330",
+                                         "4006@250,300;330,300;330,330;250,330"])
+    toml = Path(man["toml"])
+    data = tomllib.loads(toml.read_text(encoding="utf-8"))
+    z = data["gateway"][0]["zone"]
+    data["gateway"][0]["zone"] = z + [[z[0][0] - 40, z[0][1] + 60]]      # a fifth, distinct corner
+    toml.write_text(_model.dumps(data), encoding="utf-8", newline="\n")
+    before = toml.read_bytes()
+    doc, run = _doc(app)
+    with pytest.raises(ValueError, match="not four corners"):
+        doc.load_project(toml)
+    assert doc._image is None and doc._project is None  # refused BEFORE any state landed
+    doc.on_generate()                                  # ...so there is nothing to generate over it
+    assert run.calls == [] and toml.read_bytes() == before
+
+
 def test_first_generate_hands_the_project_to_the_shell_once(app, tmp_path, monkeypatch):
     """The Floorplan compose→open_campaign contract on the trace lane: a clean FIRST Generate
     opens the project in the Editor (which is what feeds Place, 7d); a REGENERATE never yanks
@@ -871,6 +947,267 @@ def test_first_generate_hands_the_project_to_the_shell_once(app, tmp_path, monke
     _argv2, kw2 = run.calls[1]
     kw2["on_finished"](0)                              # a clean REGENERATE stays put
     assert opened == [str(toml)]
+
+
+def _armed(app, tmp_path, monkeypatch, **hooks):
+    """A session whose FIRST Generate finished cleanly: the next Generate is an in-place
+    regenerate. Returns (doc, run, the project's field.toml)."""
+    run = _Run()
+    doc = TraceDoc(pick_palette("dark"), KIT, run=run, **hooks)
+    doc.load_image(_photo(tmp_path))
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    doc.id_box.setText("30789")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    toml = tmp_path / "photo-field" / "PICTURE.field.toml"
+    toml.parent.mkdir(parents=True, exist_ok=True)
+    toml.write_text('[field]\nid = 30789\nname = "PICTURE"\narea = 11\n', encoding="utf-8")
+    run.calls[0][1]["on_finished"](0)
+    return doc, run, toml
+
+
+def test_a_clean_regenerate_tells_the_shell_which_file_it_rewrote(app, tmp_path, monkeypatch):
+    """The other half of the hand-off (review finding T38): the FIRST Generate opens the project;
+    every later one rewrites the same file in place and must SAY so, or the shell's open buffer
+    goes stale and the next Save All writes it back over the regenerated file."""
+    pytest.importorskip("PIL")
+    opened, rewrote = [], []
+    doc, run, toml = _armed(app, tmp_path, monkeypatch, on_generated=opened.append,
+                            on_regenerated=rewrote.append)
+    assert opened == [str(toml)] and rewrote == []     # a first Generate is not a "regenerate"
+    doc.on_generate()
+    finish = run.calls[1][1]["on_finished"]
+    finish(0)
+    assert rewrote == [str(toml)] and opened == [str(toml)]   # told; and never re-opened
+    finish(1)                                          # told on a FAILED finish too: the job writes
+    assert rewrote == [str(toml)] * 2                  # before it reports, so only the disk knows
+    assert opened == [str(toml)]                       # (a failure still never opens anything)
+
+
+def test_generate_asks_first_and_a_refusal_starts_nothing(app, tmp_path, monkeypatch):
+    """``can_generate`` is asked before EVERY Generate with the file it would write; a refusal
+    launches no job, rewrites no session record, and puts the reason on the status line."""
+    pytest.importorskip("PIL")
+    asked, verdict = [], {"why": None}
+
+    def can(toml):
+        asked.append(toml)
+        return verdict["why"]
+
+    doc, run, toml = _armed(app, tmp_path, monkeypatch, can_generate=can)
+    assert asked == [str(toml)]                        # the FIRST Generate asked too
+    side = toml.parent / "photo.trace.json"
+    before = side.read_bytes()
+    doc.canvas._commit_floor([(120, 210), (254, 200), (364, 440), (20, 440)])   # a new session state
+    verdict["why"] = "PICTURE has unsaved edits — Save All first."
+    doc.on_generate()
+    assert len(run.calls) == 1 and asked[-1] == str(toml)
+    assert side.read_bytes() == before                 # the record still matches the project
+    assert doc.status.text().startswith("PICTURE has unsaved edits")
+    verdict["why"] = None
+    doc.on_generate()
+    assert len(run.calls) == 2 and side.read_bytes() != before
+
+
+def test_renaming_an_armed_project_is_refused_not_written_beside_it(app, tmp_path, monkeypatch):
+    """The folder holds ONE floor and ONE set of art. A regenerate under a new Name wrote a
+    second field.toml beside the first and replaced the walkmesh and art under it: the first
+    field kept its old [camera] over a floor that no longer matched, and nothing was told."""
+    pytest.importorskip("PIL")
+    doc, run, toml = _armed(app, tmp_path, monkeypatch)
+    doc.name_box.setText("ATTIC")
+    doc.on_generate()
+    assert len(run.calls) == 1                         # nothing launched under the new name
+    assert "PICTURE.field.toml" in doc.status.text() and "one field per folder" in doc.status.text()
+    doc.name_box.setText("PICTURE")
+    doc.on_generate()
+    assert len(run.calls) == 2 and run.calls[1][0][run.calls[1][0].index("--name") + 1] == "PICTURE"
+
+
+def test_a_field_renamed_in_the_editor_cannot_regenerate_into_a_second_file(app, tmp_path):
+    """The project file is HALL7.field.toml but its [field] name is now GREAT (renamed in the
+    Editor). The session arms from the NAME, so Generate aimed at GREAT.field.toml -- a second
+    file over the same floor and art, past the unsaved-edits guard (which was asked about a file
+    that did not exist). One field per folder, whatever the Name box says."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    from ff9mapkit import imagefield as IF
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
+    floor = [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)]
+    man = IF.build_image_field(photo, floor, tmp_path / "proj", name="HALL7", field_id=30792)
+    toml = Path(man["toml"])
+    toml.write_text(toml.read_text(encoding="utf-8").replace('name = "HALL7"', 'name = "GREAT"'),
+                    encoding="utf-8")
+    doc, run = _doc(app)
+    doc.load_project(toml)
+    assert doc.name_box.text() == "GREAT"
+    doc.on_generate()
+    assert run.calls == [] and "HALL7.field.toml" in doc.status.text()
+    doc.name_box.setText("HALL7")
+    doc.on_generate()
+    assert len(run.calls) == 1
+
+
+# ---------------------------------------------------------------------------- the first Generate's folder
+# The folder used to be <parent>/<photo stem>-field, unconditionally. The walkmesh, the base art
+# and the session record are each ONE file in it, so a second photo with the same file name
+# (image.png, photo.jpg, IMG_0001.jpg) silently replaced the first project's art and sidecar
+# (review finding E9). One project per folder; the fences below pin who may reuse one.
+
+def _first_generate(app, photo, parent, monkeypatch, name=None):
+    """A fresh session's FIRST Generate into ``parent``; returns (doc, the --out it chose)."""
+    doc, run = _doc(app)
+    doc.load_image(photo)
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    doc.id_box.setText("30788")
+    if name:
+        doc.name_box.setText(name)
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(parent))
+    doc.on_generate()
+    argv, _kw = run.calls[-1]
+    return doc, Path(argv[argv.index("--out") + 1])
+
+
+def _as_generated(out, name):
+    """What the job writes beside the sidecar the tab already wrote at launch."""
+    (out / "art").mkdir(parents=True, exist_ok=True)
+    (out / "art" / "base.png").write_bytes(b"first project's art")
+    (out / "walkmesh.obj").write_text("v 0 0 0\n", encoding="utf-8")
+    (out / f"{name}.field.toml").write_text(
+        f'[field]\nid = 30788\nname = "{name}"\narea = 11\n', encoding="utf-8")
+
+
+def _two_photos_named_alike(tmp_path):
+    for d in ("day1", "day2", "projects"):
+        (tmp_path / d).mkdir()
+    return (_photo(tmp_path / "day1"), _photo(tmp_path / "day2", size=(640, 480)),
+            tmp_path / "projects")
+
+
+def test_a_second_photo_with_the_same_file_name_gets_its_own_folder(app, tmp_path, monkeypatch):
+    pytest.importorskip("PIL")
+    import json
+    photo_a, photo_b, parent = _two_photos_named_alike(tmp_path)
+    _doc_a, out_a = _first_generate(app, photo_a, parent, monkeypatch, name="CELLAR")
+    assert out_a == parent / "photo-field"
+    _as_generated(out_a, "CELLAR")
+    side_a = out_a / "photo.trace.json"
+    before = side_a.read_bytes()
+    doc_b, out_b = _first_generate(app, photo_b, parent, monkeypatch, name="ATTIC")
+    assert out_b == parent / "photo-field-2"           # NOT the first project's folder
+    assert side_a.read_bytes() == before               # its session record is untouched
+    assert json.loads(side_a.read_text(encoding="utf-8"))["name"] == "CELLAR"
+    assert json.loads((out_b / "photo.trace.json").read_text(encoding="utf-8"))["name"] == "ATTIC"
+    assert doc_b.status.text().startswith("photo-field is already in use")
+    _as_generated(out_b, "ATTIC")
+    _doc_c, out_c = _first_generate(app, photo_b.parent.parent / "day1" / "photo.png", parent,
+                                    monkeypatch, name="LOFT")
+    assert out_c == parent / "photo-field-3"           # ...and the next one counts on
+
+
+def test_a_same_named_photo_does_not_merge_into_the_default_named_project(app, tmp_path,
+                                                                          monkeypatch):
+    """The likeliest collision of all: BOTH sessions keep the default name. The second photo
+    would MERGE into the first project's PICTURE.field.toml, keeping its hand content while
+    swapping the art and the floor under it."""
+    pytest.importorskip("PIL")
+    photo_a, photo_b, parent = _two_photos_named_alike(tmp_path)
+    _doc_a, out_a = _first_generate(app, photo_a, parent, monkeypatch)
+    _as_generated(out_a, "PICTURE")
+    _doc_b, out_b = _first_generate(app, photo_b, parent, monkeypatch)
+    assert out_b == parent / "photo-field-2"
+
+
+def test_a_fresh_session_never_writes_into_this_photos_own_existing_project(app, tmp_path,
+                                                                             monkeypatch):
+    """Not even the SAME photo under the SAME name. A fresh session knows nothing of that
+    project's doors, zones and cut-outs: regenerating over it would strip every traced_ row,
+    replace the floor and overwrite the session record -- and the file may be open in the
+    Editor, where this path would also slip past the regenerate's reload. To update a project
+    you open the project; a photo opened fresh starts a new one."""
+    pytest.importorskip("PIL")
+    (tmp_path / "projects").mkdir()
+    photo = _photo(tmp_path)
+    _doc_a, out_a = _first_generate(app, photo, tmp_path / "projects", monkeypatch, name="CELLAR")
+    _as_generated(out_a, "CELLAR")
+    before = {q.name: q.read_bytes() for q in out_a.rglob("*") if q.is_file()}
+    doc_b, out_b = _first_generate(app, photo, tmp_path / "projects", monkeypatch, name="CELLAR")
+    assert out_b == tmp_path / "projects" / "photo-field-2"
+    assert {q.name: q.read_bytes() for q in out_a.rglob("*") if q.is_file()} == before
+    assert doc_b.status.text().startswith("photo-field is already in use")
+
+
+@pytest.mark.parametrize("record", [
+    '{"image": "%s", "name": "ATTIC"}',                # this photo's failed attempt, ANOTHER name
+    '{"image": 7, "name": "PICTURE"}',                 # not a path at all
+    '["not", "an", "object"]',
+    '{ this is not json',
+], ids=["other-name", "image-not-a-path", "not-an-object", "not-json"])
+def test_a_folder_holding_someone_elses_record_is_not_ours(app, tmp_path, monkeypatch, record):
+    """A sidecar-only folder is reused ONLY for this very session's retry; any other record --
+    another name's, a malformed one -- is not ours to overwrite, and never raises."""
+    pytest.importorskip("PIL")
+    photo = _photo(tmp_path)
+    parent = tmp_path / "projects"
+    (parent / "photo-field").mkdir(parents=True)
+    side = parent / "photo-field" / "photo.trace.json"
+    if "%s" in record:                                 # a VALID record of this very photo: only
+        import json                                    # the name differs (or the case is vacuous)
+        record = json.dumps({"image": str(photo), "name": "ATTIC"})
+        assert json.loads(record)["image"] == str(photo)
+    side.write_text(record, encoding="utf-8")
+    before = side.read_bytes()
+    _doc_a, out = _first_generate(app, photo, parent, monkeypatch)
+    assert out == parent / "photo-field-2" and side.read_bytes() == before
+
+
+def test_a_file_squatting_on_the_folder_name_is_stepped_over(app, tmp_path, monkeypatch):
+    pytest.importorskip("PIL")
+    photo = _photo(tmp_path)
+    parent = tmp_path / "projects"
+    parent.mkdir()
+    (parent / "photo-field").write_text("a file, not a folder", encoding="utf-8")
+    _doc_a, out = _first_generate(app, photo, parent, monkeypatch)
+    assert out == parent / "photo-field-2"
+
+
+def test_the_same_photo_under_a_new_name_does_not_share_a_folder(app, tmp_path, monkeypatch):
+    """One walkmesh.obj and one base.png per folder: a second FIELD traced from the same photo
+    into the same folder would replace the floor under the first field's toml."""
+    pytest.importorskip("PIL")
+    (tmp_path / "projects").mkdir()
+    photo = _photo(tmp_path)
+    _doc_a, out_a = _first_generate(app, photo, tmp_path / "projects", monkeypatch, name="CELLAR")
+    _as_generated(out_a, "CELLAR")
+    _doc_b, out_b = _first_generate(app, photo, tmp_path / "projects", monkeypatch, name="ATTIC")
+    assert out_b == tmp_path / "projects" / "photo-field-2"
+
+
+def test_a_folder_that_is_not_this_photos_project_is_never_written_into(app, tmp_path,
+                                                                        monkeypatch):
+    pytest.importorskip("PIL")
+    photo = _photo(tmp_path)
+    parent = tmp_path / "projects"
+    (parent / "photo-field").mkdir(parents=True)
+    (parent / "photo-field" / "notes.txt").write_text("mine", encoding="utf-8")
+    _doc_a, out = _first_generate(app, photo, parent, monkeypatch)
+    assert out == parent / "photo-field-2"
+    assert sorted(p.name for p in (parent / "photo-field").iterdir()) == ["notes.txt"]
+
+
+def test_an_empty_folder_and_a_failed_first_attempt_are_reused(app, tmp_path, monkeypatch):
+    """No litter: an empty folder is free, and a first Generate that FAILED left only this
+    photo's sidecar behind -- the retry goes back into the same folder, not into -2."""
+    pytest.importorskip("PIL")
+    photo = _photo(tmp_path)
+    parent = tmp_path / "projects"
+    (parent / "photo-field").mkdir(parents=True)
+    _doc_a, out_a = _first_generate(app, photo, parent, monkeypatch)
+    assert out_a == parent / "photo-field"             # empty -> free
+    assert (out_a / "photo.trace.json").is_file()      # the launch wrote the session record
+    _doc_b, out_b = _first_generate(app, photo, parent, monkeypatch)
+    assert out_b == out_a                              # only OUR sidecar in it -> ours to retry
 
 
 def test_after_generate_opens_the_toml_captured_at_launch(app, tmp_path, monkeypatch):

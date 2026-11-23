@@ -572,6 +572,8 @@ class Workspace(QMainWindow):
         self._loose = None                         # the open standalone field's name (loose mode), else None
         self._docs = {}                            # member name -> loaded FieldDoc (cached, edited in place)
         self._clean = {}                           # member name -> deepcopy(doc.data) at load/last-save (dirty baseline)
+        self._clean_rows = {}                      # member -> {list section: [the LIVE row objects, in the
+        #                                            saved order]} -- see _note_clean_rows / _ctx_base_row
         self._touched = set()                      # members with in-progress (typed-but-uncommitted) edits
         self._name_valid = {}                      # (catalog, value) -> bool, memoized (the catalogs are static)
         self._logic_maps = {}                      # member -> (eb signature, logic_map.LogicMap) -- see _logic_node
@@ -1783,7 +1785,9 @@ class Workspace(QMainWindow):
         # generate a walkable field — the image→field on-ramp as a first-class surface. Streams
         # the same `image-field` CLI through run_job; touches no disk until Open/Generate.
         self.trace_doc = TraceDoc(self.pal, KIT, run=self.run_job, problems=self._show_problems,
-                                  scale=self._text_scale, on_generated=self.open_field)
+                                  scale=self._text_scale, on_generated=self.open_field,
+                                  can_generate=self._trace_can_generate,
+                                  on_regenerated=self._trace_regenerated)
         self.tabs.addTab(self.trace_doc, "Trace")
         # the multiplayer ghost-sync front door: host/join a session point-and-click (wraps `ff9mapkit coop`;
         # the setup streams through run_job, the ws->wss bridge runs in-process inside this app).
@@ -4244,6 +4248,8 @@ class Workspace(QMainWindow):
         self.member_paths = {name: path.resolve()}
         self._docs = {name: doc}
         self._clean = {name: copy.deepcopy(doc.data)}
+        self._clean_rows = {}
+        self._note_clean_rows(name)
         self._touched = set()                      # fresh open -> nothing in-progress
         self._drift_reset()        # a different project -> a different 'last deploy'
         self._logic_maps = {}                      # same-named member as a prior project -> don't reuse its map
@@ -4595,6 +4601,7 @@ class Workspace(QMainWindow):
         if member not in self._docs:
             self._docs[member] = FieldDoc.load(self.member_paths[member])
             self._clean[member] = copy.deepcopy(self._docs[member].data)   # dirty baseline
+            self._note_clean_rows(member)
             self._seed_undo_base(member)                                   # undo-history baseline (loaded state)
         return self._docs[member]
 
@@ -4602,8 +4609,17 @@ class Workspace(QMainWindow):
         """Snapshot a member's doc as the saved baseline (so _dirty_members no longer flags it)."""
         if member in self._docs:
             self._clean[member] = copy.deepcopy(self._docs[member].data)
+            self._note_clean_rows(member)
         self._touched.discard(member)              # a save clears the in-progress flag too
         self._refresh_dirty_marks()
+
+    def _note_clean_rows(self, member):
+        """Remember WHICH live row each saved row is. Taken at the very instant the saved baseline
+        is (a load, a save), when the two lists line up index for index; afterwards rows are added,
+        removed and renamed, and only the row OBJECT still says which saved row it was."""
+        doc = self._docs.get(member)
+        self._clean_rows[member] = ({k: list(v) for k, v in doc.data.items() if isinstance(v, list)}
+                                    if doc is not None else {})
 
     def _dirty_members(self):
         """Cached members whose in-memory doc differs from its load/last-save baseline."""
@@ -4635,9 +4651,8 @@ class Workspace(QMainWindow):
         if ctx["single"]:
             base = _single_block(clean, ctx["section"])      # a PLURAL section: compare against block 0
         else:
-            lst = clean.get(ctx["section"], []) or []
-            idx = ctx.get("idx")
-            base = lst[idx] if idx is not None and idx < len(lst) else {}
+            i = self._ctx_idx(ctx)                 # the saved copy of THE ROW ON SCREEN (see _ctx_base_row)
+            base = (self._ctx_base_row(ctx, i) if i is not None else None) or {}
         return forms.build_entity(ctx["spec"], forms.entity_to_values(ctx["spec"], base)) == entity
 
     def _unsaved(self):
@@ -4960,6 +4975,17 @@ class Workspace(QMainWindow):
         if not hasattr(self, "tabs"):
             return
         w = self.tabs.currentWidget()
+        # Behavior / Cutscene / Place edit the SAME document an Editor form may still be holding
+        # open. Fold that form in before one of them is shown: its typed values become an edit of
+        # their own (one undo step), not something a later fold writes over what the tab changed --
+        # or, with a row deleted there, into a different row altogether (review finding P1). A value
+        # that will not fold keeps the user on the Editor, the tree's own rule (Problems says why).
+        if (w is not None and w in (getattr(self, "behavior_doc", None),
+                                    getattr(self, "cutscene_doc", None),
+                                    getattr(self, "place_doc", None))
+                and not self._commit_active_ck()):
+            self.tabs.setCurrentWidget(self.doc_scroll)    # re-enters this handler for the Editor
+            return
         self._mount_behavior_instruments(w is getattr(self, "behavior_doc", None))
         self._mount_cutscene_instruments(w is getattr(self, "cutscene_doc", None))
         if w in (self.doc_scroll, self.map):
@@ -5019,6 +5045,7 @@ class Workspace(QMainWindow):
         real baseline."""
         self._touch(member)
         self._checkpoint(member, label, "behavior")
+        self._resync_mounted_form(member)              # an Editor form over the same doc follows it
         self._feed_behavior()
 
     def _mount_behavior_instruments(self, on):
@@ -5048,6 +5075,7 @@ class Workspace(QMainWindow):
         and _goto_focus would yank undo to the wrong surface), and re-feed."""
         self._touch(member)
         self._checkpoint(member, label, "cutscene_tab")
+        self._resync_mounted_form(member)              # an Editor form over the same doc follows it
         self._feed_cutscene()
 
     def _mount_cutscene_instruments(self, on):
@@ -5148,9 +5176,29 @@ class Workspace(QMainWindow):
         self._touch(member)
         self._checkpoint(member, label, "place")
         if member in getattr(self, "_member_items", {}):
+            mi = self._member_items[member]
+            cur = self.tree.currentItem()              # a CHILD row is about to be rebuilt away; the
+            on_child = (cur is not None and cur is not mi          # member row itself survives, and a
+                        and self._ancestor_field(cur) is mi)       # selection parked there must stay put
             self.tree.blockSignals(True)
             self._refresh_objects(member)
+            had = self._save_ctx
+            self._resync_mounted_form(member)          # the Editor form behind this tab follows its row
+            ctx = self._save_ctx                       # ...and the tree lands back on that row (the
+            if on_child and ctx and ctx.get("member") == member:   # rebuilt rows are NEW items; signals
+                it = self._object_item(member, ctx["key"])   # are blocked, so nothing re-mounts or folds)
+                if it is not None:
+                    self.tree.setCurrentItem(it)
             self.tree.blockSignals(False)
+            if on_child and had and had.get("member") == member and self._save_ctx is None:
+                # its row was deleted on the art: land on that list's group row, UNblocked, so the
+                # Inspector, breadcrumb and Editor stop describing a row that no longer exists
+                node = (self._object_item(member, had["section"], kind="group")
+                        or self._member_items.get(member))
+                if node is not None:
+                    self.tree.setCurrentItem(node)
+        else:
+            self._resync_mounted_form(member)
         self._feed_place()
 
     def _feed_place(self):
@@ -5167,6 +5215,182 @@ class Workspace(QMainWindow):
             return
         doc.show_field(member, fd.data, self.member_paths.get(member),
                        dirty=member in set(self._dirty_members()))
+
+    # ---- the Trace lane and the project that is OPEN here (review finding T38) ----
+    # A Trace regenerate rewrites <name>.field.toml IN PLACE, merging with the file ON DISK, while
+    # this window may hold that same file as an open, editable buffer. Two things must then be
+    # true, and neither used to be: the merge must not run while the buffer has edits the disk has
+    # not seen (they would be left out of the regenerate and later saved back OVER it), and the
+    # buffer must not outlive the rewrite (Save All then writes the old file back -- the session's
+    # new doors, events and camera gone, the regenerated walkmesh kept, so floor and camera no
+    # longer agree).
+
+    def _member_for_path(self, path):
+        """The open member whose field.toml IS ``path``, or None when that file is not open here."""
+        for member, p in (getattr(self, "member_paths", None) or {}).items():
+            try:
+                if os.path.samefile(p, path):
+                    return member
+            except OSError:
+                if os.path.normcase(os.path.abspath(str(p))) == os.path.normcase(os.path.abspath(str(path))):
+                    return member
+        return None
+
+    def _fold_form_of(self, member) -> bool:
+        """Fold the mounted Editor form IF it is ``member``'s (a half-typed form is an edit of that
+        field). False only when it is that member's and will not fold. A form on ANOTHER member is
+        none of this field's business: folding it here blamed a clean field for someone else's
+        bad value, and a "No" to the question that followed kept this field's stale buffer."""
+        ctx = self._save_ctx
+        if not ctx or ctx.get("member") != member:
+            return True
+        return self._commit_active_ck()
+
+    def _trace_can_generate(self, toml):
+        """Asked by the Trace tab before EVERY Generate: a refusal sentence, or None to proceed.
+        Refuses while the target file is open here with edits the disk has not seen (its own
+        pending form counts -- it is folded first, the way Save All and Check fold it). "Edits"
+        means the buffer DIFFERS from the last save: a field merely touched and put back by hand
+        is clean, and Save All (which writes only real differences) could never clear a refusal
+        that counted it."""
+        busy = (getattr(self, "proc", None) is not None
+                and self.proc.state() != QProcess.ProcessState.NotRunning)
+        if not busy:                               # a job in flight keeps ITS record: a second click
+            self._trace_launch = None              # (which starts nothing) must not rewrite or drop it
+        member = self._member_for_path(toml)
+        if member is None or member not in self._docs:
+            return None
+        if not self._fold_form_of(member):
+            return (f"{member} has an invalid value in its open Editor form — fix it (see Problems), "
+                    f"then Generate.")
+        if member in self._dirty_members():
+            return (f"{member} has unsaved edits — Save All first (Ctrl+Shift+S). Generate merges "
+                    f"with the file on disk, so unsaved edits would be left out of it and then "
+                    f"saved back over it.")
+        # what this window had saved when the job was let go: a save DURING the job moves it, and
+        # then neither the file nor the buffer can be trusted to hold both writes (_trace_regenerated)
+        if not busy:
+            self._trace_launch = (member, copy.deepcopy(self._clean.get(member)))
+        return None
+
+    def _trace_regenerated(self, toml):
+        """A Trace regenerate of ``toml`` FINISHED (clean or not -- the job writes before it
+        reports, so the exit code does not say whether the file moved; the disk does). Reload it
+        if it is open here and no longer what this window last read or wrote. Edits made while the
+        job ran are never dropped without asking. Whatever happens to the buffer, every tab's
+        view of that field is rebuilt: the job may have replaced walkmesh.obj and the art under a
+        toml that came out identical, and Place's surface and the staging mesh are read from those."""
+        launch, self._trace_launch = getattr(self, "_trace_launch", None), None
+        if getattr(self, "place_doc", None) is not None:
+            self.place_doc.forget_surface(toml)
+        member = self._member_for_path(toml)
+        if member is None or member not in self._docs:
+            return                                     # not open (or never loaded): the next read is fresh
+        try:
+            on_disk = FieldDoc.load(self.member_paths[member]).data
+        except Exception:                              # noqa: BLE001 -- unreadable: _reload_member says so
+            on_disk = None
+        saved_mid_job = (launch is not None and launch[0] == member
+                         and launch[1] != self._clean.get(member))
+        if on_disk is not None and on_disk == self._clean.get(member) and not saved_mid_job:
+            self._forget_field_floor(member)           # the toml did not move; its floor and art may have
+            return
+        name = Path(toml).name
+        if not self._fold_form_of(member) or member in self._dirty_members():
+            if not self._confirm(
+                    "Regenerated on disk",
+                    f"Trace regenerated {name} while {member} had unsaved edits here.\n\n"
+                    f"Reload it from disk and drop those edits?\n\n"
+                    f"No keeps your edits — but saving them will overwrite the regenerated file."):
+                self._forget_field_floor(member)
+                self._show_problems(
+                    fb.Verdict(fb.WARN, f"{member}: kept your unsaved edits over a regenerated file",
+                               f"{name} on disk is the regenerated one; Save All will overwrite it"), [])
+                return
+        self._reload_member(member)
+        if saved_mid_job:                              # the two writers raced: say so, never guess
+            self._show_problems(
+                fb.Verdict(fb.WARN, f"{member} was saved while Trace was regenerating it",
+                           f"one of the two may have overwritten the other — {name} was reloaded "
+                           f"from disk; check it, then Regenerate again"), [])
+
+    def _forget_field_floor(self, member):
+        """The job may have replaced walkmesh.obj and the art while the DOCUMENT stayed as it was
+        (the toml came out identical, the job failed, or the author kept their edits). Drop only
+        what was read from those files -- Place's armed room, the Cutscene staging mesh, the
+        Behavior sweep mesh. Nothing the author typed is touched: an open step editor, a
+        selection and a simulation all describe a document that did not move."""
+        pd = getattr(self, "place_doc", None)
+        if pd is not None and getattr(pd, "_member", None) == member:
+            pd.show_none()                             # (Place holds no typed text: just the old room)
+            self._feed_place()
+        cd = getattr(self, "cutscene_doc", None)
+        if cd is not None and getattr(cd, "_member", None) == member:
+            cd._reset_stage()
+        bd = getattr(self, "behavior_doc", None)
+        if bd is not None and getattr(bd, "_member", None) == member:
+            bd._reset_sweep()
+
+    def _refresh_field_tabs(self, member):
+        """Drop the Behavior / Cutscene / Place tabs' per-field state for ``member`` and feed them
+        again: a warm walkmesh, an armed surface, an open step editor all describe files that may
+        just have been replaced. Cheap by contract (the feeds read no disk)."""
+        for tab in (getattr(self, "behavior_doc", None), getattr(self, "cutscene_doc", None),
+                    getattr(self, "place_doc", None)):
+            if tab is not None and getattr(tab, "_member", None) == member:
+                tab.show_none()
+        self._feed_behavior()
+        self._feed_cutscene()
+        self._feed_place()
+
+    def _reload_member(self, member) -> bool:
+        """Replace ``member``'s buffer with its file AS IT IS ON DISK NOW (an out-of-band writer
+        moved it), and make every surface that showed the old buffer follow: the mounted form, the
+        tree rows, the three doc tabs' per-field state. The member's undo history goes too -- each
+        step is a snapshot of the WHOLE pre-rewrite document, so one Undo and a Save All would
+        write the old file back as surely as the stale buffer did. Stays on the current tab."""
+        try:
+            doc = FieldDoc.load(self.member_paths[member])
+        except Exception as e:                         # noqa: BLE001
+            self._show_problems(fb.Verdict(fb.ERROR, f"Could not reload {member} from disk"),
+                                [fb.Problem(fb.ERROR, str(e))])
+            return False
+        item = self.tree.currentItem()
+        fa = self._ancestor_field(item) if item is not None else None
+        on_member = fa is not None and (self._payload(fa) or (None, None))[1] == member
+        sel = None
+        if on_member and item is not fa:
+            p = self._payload(item)
+            if p and p[0] in ("object", "group"):
+                sel = (p[0], p[2])                     # the row to land back on (rebuilt rows are NEW items)
+        if self._save_ctx and self._save_ctx.get("member") == member:
+            self._clear_doc()                          # its getters read a form built from the old rows
+        self._docs[member] = doc
+        self._clean[member] = copy.deepcopy(doc.data)
+        self._note_clean_rows(member)
+        self._touched.discard(member)
+        self._undo_stack[:] = [r for r in self._undo_stack if r.member != member]
+        self._redo_stack[:] = [r for r in self._redo_stack if r.member != member]
+        self._seed_undo_base(member)
+        self._logic_maps.pop(member, None)
+        self._scene_names.pop(member, None)
+        mi = getattr(self, "_member_items", {}).get(member)
+        if mi is not None and not (mi.childCount()
+                                   and (self._payload(mi.child(0)) or (None,))[0] == "__lazy__"):
+            self.tree.blockSignals(True)               # (a never-expanded member reads fresh on expand)
+            self._refresh_objects(member)
+            self.tree.blockSignals(False)
+        self._refresh_dirty_marks()
+        self._refresh_undo_actions()
+        if on_member and mi is not None:
+            node = (self._object_item(member, sel[1], kind=sel[0]) if sel else None) or mi
+            if self.tree.currentItem() is node:
+                self._on_select()                      # selection unchanged -> remount manually
+            else:
+                self.tree.setCurrentItem(node)         # -> _on_select remounts + re-feeds the showing tab
+        self._refresh_field_tabs(member)
+        self.statusBar().showMessage(f"{member} reloaded from disk — Trace regenerated it", 5000)
+        return True
 
     def _activate_group(self, gi, *, switch=True):
         """Show workspace group ``gi``'s tabs (hiding the rest) + check its rail segment. ``switch`` True (a
@@ -5470,6 +5694,7 @@ class Workspace(QMainWindow):
             self._refresh_undo_actions()
             return
         self._docs[member].data = copy.deepcopy(data)
+        self._clean_rows.pop(member, None)            # every row is a NEW object now: identities are gone
         self._undo_base[member] = copy.deepcopy(data)   # the next edit diffs against the restored state
         self._touched.discard(member)
         self._clear_doc()                             # drop the stale form BEFORE refreshing (no spurious fold)
@@ -5612,7 +5837,7 @@ class Workspace(QMainWindow):
         ctx = self._save_ctx
         if not ctx:
             return
-        member, section, key = ctx["member"], ctx["section"], ctx["key"]
+        member, section = ctx["member"], ctx["section"]
         clean = self._clean.get(member, {})
         doc = self._doc(member)
         if ctx["single"]:
@@ -5621,11 +5846,21 @@ class Workspace(QMainWindow):
             else:
                 doc.data.pop(section, None)                    # it didn't exist at last save -> drop it
         else:
-            idx = ctx["idx"]
-            base = clean.get(section, [])
-            cur = doc.data.get(section, [])
-            if idx is not None and idx < len(base) and idx < len(cur):
-                cur[idx] = copy.deepcopy(base[idx])
+            i = self._ctx_idx(ctx)                             # the row on screen (heals ctx["key"])
+            if i is None:
+                self._row_gone(_LIST_SINGULAR.get(section, section))
+                return
+            src = self._ctx_base_row(ctx, i)
+            if src is None:                                    # never paste a neighbour's values
+                self._show_problems(
+                    fb.Verdict(fb.WARN, "Nothing to reset this to",
+                               "it has no saved copy that can be told apart (added since the last "
+                               "save, or changed under an Undo) — use Undo (Ctrl+Z) instead"), [])
+                return
+            row = doc.data[section][i]                         # ITS saved copy -- not whatever row now
+            row.clear()                                        # sits at the index it was mounted at.
+            row.update(copy.deepcopy(src))                     # In place: the row keeps its identity
+        key = ctx["key"]
         self._touched.discard(member)
         self._checkpoint(member, f"reset {section}", key)     # a Reset is itself an undoable change
         self._open_editor(member, "object", key)              # re-mount from the restored data
@@ -7450,12 +7685,16 @@ class Workspace(QMainWindow):
         self.doc_host_lay.addWidget(form)
         self._save_ctx = {"member": member, "key": key, "spec": spec, "getters": getters,
                           "single": single, "section": section, "idx": idx,
+                          # WHICH row a list form edits is this OBJECT, not ``idx``: another tab can
+                          # delete an earlier row of the same list and every index after it moves
+                          # (see _ctx_idx -- idx/key are only its last-known position)
+                          "row": None if single else entity,
+                          "mounted_key": key,           # what the form's own header + buttons were built for
                           "mounted": read(getters)}     # at-mount baseline -> an UNCHANGED form needs no fold
         delete = None
         if not single:                                         # a list entity (npc/gateway/event/marker)
             lbl = _LIST_SINGULAR.get(section, section)
-            delete = (f"Delete {lbl}",
-                      lambda: self._delete_object(member, section, single=False, idx=idx, label=lbl))
+            delete = (f"Delete {lbl}", lambda: self._delete_mounted_row(member, section, lbl))
         elif section != "field" and section in self._doc(member).data:   # an OPTIONAL single that exists
             delete = (f"Remove {section}",
                       lambda: self._delete_object(member, section, single=True, label=section))
@@ -7530,11 +7769,119 @@ class Workspace(QMainWindow):
         # NB: mounting a form no longer steals the active tab -- single-click selection stays put
         # (you reach the Editor via the tab or a double-click; see _on_tree_double).
 
+    # ---- the mounted list form and ITS row (review finding P1) ----
+    # A list form used to know its row only as the index it was mounted at. Switching to the Place
+    # tab neither committed the form nor told it anything, and Place deletes and reshapes rows of
+    # the same lists: the next fold then wrote the form's values into list[old index] -- with an
+    # earlier row deleted, a DIFFERENT row (one gateway destroyed, another doubled). Save, Delete
+    # and Reset carried the same index. The row is now the OBJECT the form was mounted on.
+
+    def _ctx_idx(self, ctx):
+        """Where a mounted LIST form's row is NOW, found by identity -- or None when it is gone
+        (or the form is a single section's). Heals the ctx's last-known ``idx``/``key`` on the
+        way, so labels, undo focus and the tree-row lookup follow the row too. A sub-editor
+        mounted without a row object (a choice) is still addressed by its index."""
+        if not ctx or ctx.get("single"):
+            return None
+        doc = self._docs.get(ctx["member"])
+        lst = (doc.data.get(ctx["section"]) or []) if doc is not None else []
+        row = ctx.get("row")
+        if row is None:
+            i = ctx.get("idx")
+            return i if i is not None and 0 <= i < len(lst) else None
+        i = next((n for n, r in enumerate(lst) if r is row), None)
+        if i is not None and i != ctx.get("idx"):
+            ctx["idx"] = i
+            ctx["key"] = f"{ctx['section']}:{i}"
+        return i
+
+    def _ctx_base_row(self, ctx, i):
+        """The LAST-SAVED copy of the row a list form is mounted on (live index ``i``), or None
+        when there is none that can be told apart.
+
+        Neither an index nor a name can say which saved row a live row was: a Place delete shifts
+        every index after it, a delete followed by a draw gives back a same-LENGTH list that is
+        shifted, and a row's name is one of the things Reset is there to put back. What does say
+        is the row OBJECT -- ``_note_clean_rows`` recorded, at the instant of the save, which live
+        object each saved row was. A row that is not among them was added since (no saved copy).
+        After an undo or redo the whole document is a fresh copy and those identities are gone;
+        then only a name that is unique on both sides will do, and failing that, None -- Reset
+        says so rather than paste a neighbour's values."""
+        member, section = ctx["member"], ctx["section"]
+        base = self._clean.get(member, {}).get(section, []) or []
+        cur = self._docs[member].data.get(section, []) or []
+        known = self._clean_rows.get(member)
+        if known is not None:
+            j = next((n for n, r in enumerate(known.get(section, [])) if r is cur[i]), None)
+            return base[j] if j is not None and j < len(base) else None
+        name = cur[i].get("name") if isinstance(cur[i], dict) else None
+        if name is None or sum(1 for r in cur if isinstance(r, dict) and r.get("name") == name) != 1:
+            return None
+        hits = [r for r in base if isinstance(r, dict) and r.get("name") == name]
+        return hits[0] if len(hits) == 1 else None
+
+    def _row_gone(self, what="item"):
+        self._show_problems(
+            fb.Verdict(fb.ERROR, f"This {what} no longer exists"),
+            [fb.Problem(fb.ERROR, "It was removed in another tab. Pick a row in the tree.")])
+
+    def _delete_mounted_row(self, member, section, label):
+        """The mounted list form's Delete button: delete the row ON SCREEN, wherever it now sits."""
+        ctx = self._save_ctx
+        idx = (self._ctx_idx(ctx) if ctx and ctx.get("member") == member
+               and ctx.get("section") == section else None)
+        if idx is None:
+            self._row_gone(label)
+            return
+        self._delete_object(member, section, single=False, idx=idx, label=label)
+
+    def _resync_mounted_form(self, member):
+        """A tab other than the Editor just changed ``member``'s document while an Editor form for
+        it is still mounted behind that tab. Rebuild the form when what it shows is no longer what
+        the doc holds (its row moved, or its values changed), and replace it when its row is gone
+        -- a form left showing stale values writes them back the next time it is edited. Never
+        rebuilds over typed-but-unfolded text (entering those tabs folds the form first, so there
+        is none; this is the belt)."""
+        ctx = self._save_ctx
+        if not ctx or ctx.get("member") != member or "mounted" not in ctx:
+            return
+        doc = self._docs.get(member)
+        if doc is None:
+            return
+        try:
+            now = read(ctx["getters"])
+            if now != ctx["mounted"]:
+                return
+            shown = forms.build_entity(ctx["spec"], now)
+        except (ValueError, RuntimeError):             # unparseable text / a form already torn down
+            return
+        if ctx["single"]:
+            target, moved = _single_block(doc.data, ctx["section"]), False
+        else:
+            i = self._ctx_idx(ctx)                     # heals ctx["key"] to where the row is now
+            if i is None:
+                what = _LIST_SINGULAR.get(ctx["section"], ctx["section"])
+                self._doc_placeholder(f"That {what} was removed on another tab.")
+                return
+            target = doc.data[ctx["section"]][i]
+            moved = ctx["key"] != ctx.get("mounted_key", ctx["key"])   # its header names the old slot
+        if not moved and forms.build_entity(
+                ctx["spec"], forms.entity_to_values(ctx["spec"], target)) == shown:
+            return                                     # the form already shows the doc: leave it be
+        self._open_editor(member, "object", ctx["key"])
+
     def _save(self):
         ctx = self._save_ctx
-        if ctx:
-            self._commit(ctx["member"], ctx["section"], ctx["spec"], ctx["getters"],
-                         single=ctx["single"], idx=ctx["idx"], key=ctx["key"])
+        if not ctx:
+            return
+        idx = None
+        if not ctx["single"]:
+            idx = self._ctx_idx(ctx)                   # the row on screen, wherever it now sits
+            if idx is None:
+                self._row_gone(_LIST_SINGULAR.get(ctx["section"], ctx["section"]))
+                return
+        self._commit(ctx["member"], ctx["section"], ctx["spec"], ctx["getters"],
+                     single=ctx["single"], idx=idx, key=ctx["key"])
 
     def _commit(self, member, section, spec, getters, *, single, idx=None, key=None) -> bool:
         """Apply a form's values to the doc (clear the spec's keys, keep scene/unknown ones) + save.
@@ -7608,16 +7955,21 @@ class Workspace(QMainWindow):
             target = _single_block(doc.data, ctx["section"], create=True)   # a PLURAL section: block 0
         else:
             lst = doc.data.get(ctx["section"], []) or []
-            if ctx["idx"] is None or ctx["idx"] >= len(lst):
-                return True
-            target = lst[ctx["idx"]]
+            i = self._ctx_idx(ctx)                 # by IDENTITY: the index it was mounted at may now
+            if i is None:                          # be another row (a Place delete) -- or none at all,
+                return True                        # in which case the form's edits have nowhere to go
+            target = lst[i]
         # No-op fold guard: if the form's entity matches the target's NORMALIZED content, writing would only
         # drop default-equal BOOLs (build_entity omits e.g. once=true) and falsely dirty a merely-VIEWED node.
-        if forms.build_entity(ctx["spec"], forms.entity_to_values(ctx["spec"], target)) == entity:
-            return True
-        for f in ctx["spec"]:
-            target.pop(f.key, None)
-        target.update(entity)
+        if forms.build_entity(ctx["spec"], forms.entity_to_values(ctx["spec"], target)) != entity:
+            for f in ctx["spec"]:
+                target.pop(f.key, None)
+            target.update(entity)
+        if "mounted" in ctx:
+            # FOLDED: the form now holds nothing the doc lacks, so it is "unchanged" again. A form that
+            # STAYS mounted after a fold (a tab switch, Save All, Check) must not write these same
+            # values a second time over whatever another tab changes in the meantime.
+            ctx["mounted"] = read(ctx["getters"])
         return True
 
     def _ensure_saved(self) -> bool:

@@ -42,6 +42,13 @@ TRACED_GATEWAY_PREFIX = "traced_door"
 TRACED_EVENT_PREFIX = "traced_zone"
 GENERATED_TABLES = frozenset({"field", "camera", "walkmesh", "player", "layers",
                               "gateway", "event"})
+# What the generator itself writes on a region row. A traced_ row is regenerated WHOLE, so any
+# other key on one (a reward, a flag gate -- added in the Editor) does not survive; the merge
+# names each one it drops. (They cannot simply be carried over: traced_ names are positional,
+# so after a session region is deleted "traced_door0" is a DIFFERENT door, and its predecessor's
+# reward would be grafted onto it.)
+_GEN_ROW_KEYS = {"gateway": ("name", "to", "entrance", "zone"), "event": ("name", "message", "zone")}
+_GEN_ROW_VALUES = {"gateway": (("to", None), ("entrance", 0)), "event": (("message", None),)}
 
 
 class ImageFieldError(ValueError):
@@ -862,28 +869,50 @@ def _has_traced_rows(data: dict) -> bool:
     return False
 
 
-def is_generated_region(data: dict, kind: str, name, *, allow_legacy: bool = True) -> bool:
-    """True when a ``[[gateway]]``/``[[event]]`` row is the GENERATOR'S OWN: the traced_ prefix,
-    or — on a LEGACY project that predates the prefix, i.e. one with no traced_ row anywhere —
-    the old enumeration names door0/zone0/…  Pre-merge, every such row in an image-field project
-    was generator-emitted (a regenerate destroyed the whole file, so no hand row ever survived
-    in one). Once a project has been regenerated under the prefix, door0-style names are a HAND
-    row (the Place tab mints them) and are preserved. ONE owner for both the merge and the
-    Trace tab's session absorb.
+def is_generated_region(kind: str, name) -> bool:
+    """True when a ``[[gateway]]``/``[[event]]`` row is PROVABLY the generator's own: it carries
+    the traced_ prefix, which nothing else mints. ONE owner for both the regenerate merge (which
+    may DELETE such a row) and the Trace tab's session absorb (which re-emits it).
 
-    ``allow_legacy=False`` turns the legacy branch off. The MERGE passes that when the session
-    is regenerating with NO regions at all: such a run emits no traced_ row, so the file would
-    read as legacy on every future regenerate too, and a Place-drawn door0 would be re-claimed
-    and re-deleted forever — the adversarial-review catch. A no-regions session cannot have
-    stale generator doors to replace, so the claim buys nothing there and costs real content."""
-    import re
+    A name is the only proof there is. This used to add a "legacy" claim — on a file with no
+    traced_ row, door0/zone0 were taken for a pre-prefix (<= 1.0.0b19) generator's rows — but a
+    project traced with NO regions has no traced_ row either, and the Place tab mints exactly
+    those names: the first region a session added then deleted every door and zone drawn in
+    Place (review finding T1). Absence of a marker is not evidence of age. The one case that
+    still IS provable — a pre-prefix row whose exact quad this run re-emits — is handled where
+    the proof exists, in :func:`merge_project_toml`."""
     n = str(name or "")
-    if n.startswith(TRACED_GATEWAY_PREFIX if kind == "gateway" else TRACED_EVENT_PREFIX):
-        return True
-    if not allow_legacy:
-        return False
-    pat = r"^door\d+$" if kind == "gateway" else r"^zone\d+$"
-    return not _has_traced_rows(data) and bool(re.match(pat, n))
+    return n.startswith(TRACED_GATEWAY_PREFIX if kind == "gateway" else TRACED_EVENT_PREFIX)
+
+
+def _is_pre_prefix_name(kind: str, name) -> bool:
+    """door0/zone0/… — what the generator called its rows before the traced_ prefix, and what
+    the Place tab calls its own to this day. Never proof of ownership by itself."""
+    import re
+    return bool(re.match(r"^door\d+$" if kind == "gateway" else r"^zone\d+$", str(name or "")))
+
+
+def _zone_key(zone):
+    """A stored zone as a comparable tuple of integer corners (the IsInQuad-safe doubled last
+    vertex dropped), or None when it is not a quad of numbers."""
+    try:
+        pts = [(int(round(float(p[0]))), int(round(float(p[1])))) for p in zone]
+    except (TypeError, ValueError, IndexError):
+        return None
+    if len(pts) == 5 and pts[-1] == pts[-2]:
+        pts = pts[:4]
+    return tuple(pts) if len(pts) == 4 else None
+
+
+def _camera_of(existing):
+    """The camera an existing project's toml records (pitch/distance/fov on the fixed canvas),
+    or None when it has none this generator could have written."""
+    cam = (existing or {}).get("camera")
+    try:
+        return _guide.make_camera(float(cam["pitch"]), float(cam["distance"]),
+                                  fov_x_deg=float(cam["fov"]), range_wh=(CANVAS_W, CANVAS_H))
+    except (TypeError, KeyError, ValueError):
+        return None
 
 
 def _is_generated_layer(image) -> bool:
@@ -907,8 +936,12 @@ def load_project_tables(toml_path) -> dict | None:
             f"pass --force to discard it") from e
 
 
-def merge_project_toml(generated_text: str, existing: dict | None):
+def merge_project_toml(generated_text: str, existing: dict | None, *, twin_quads=None):
     """Regenerate WITHOUT destroying hand-authored content — ``(text, kept, retaken, removed)``.
+
+    ``twin_quads`` = ``{"gateway": {quad: traced name}, "event": {...}}``: the quads this run's
+    regions have under the EXISTING file's camera (:func:`build_image_field` supplies them), so
+    a pre-prefix row is still recognized as its twin after the pitch was changed.
 
     Three bands, floorplan.merge_room's grammar:
     - a top-level table outside :data:`GENERATED_TABLES` (``[[npc]]``, ``[[chest]]``,
@@ -917,10 +950,17 @@ def merge_project_toml(generated_text: str, existing: dict | None):
     - ``[[layers]]`` / ``[[gateway]]`` / ``[[event]]`` are generator-owned LISTS whose hand
       rows are appended after the generated ones — identified by :func:`is_generated_region`
       / the generated art paths, NOT merged by name, because a name merge cannot express
-      DELETION (drop a door from the session and its stale row must go). Every claimed row
+      DELETION (drop a door from the session and its stale row must go). Every traced_ row
       the session did not re-emit is named in ``removed`` — deletion is REPORTED, never
-      silent (floorplan.merge_room's own contract), and the legacy claim is OFF entirely on
-      a no-regions regenerate (see :func:`is_generated_region`);
+      silent (floorplan.merge_room's own contract) — and ONLY a traced_ row is ever deleted.
+      A pre-prefix door0/zone0 on a file with no traced_ row is replaced by its traced_ twin
+      when this run re-emits the SAME quad (a <= 1.0.0b19 project reopened from its sidecar
+      regenerates pixel-exact; named in ``retaken``), and otherwise kept as a hand row: the
+      Place tab mints those names too, so nothing else can tell the two apart. A row that IS
+      re-emitted is regenerated whole: ``retaken`` names every ``to`` / ``entrance`` /
+      ``message`` the session replaced with a different value, and every hand-added key that
+      went with the old row (traced_ names are positional, so carrying a key over could graft
+      it onto a different door — see :data:`_GEN_ROW_KEYS`);
     - ``[field]``/``[camera]``/``[walkmesh]`` regenerate wholesale; each whose on-disk value
       differed is named in ``retaken``. ``[player]`` merges PER KEY: ``spawn`` is the
       generator's (the session's centroid wins, retaken when it differed) while every other
@@ -932,10 +972,6 @@ def merge_project_toml(generated_text: str, existing: dict | None):
     if not existing:
         return generated_text, [], [], []
     gen = tomllib.loads(generated_text)
-    # THE LEGACY CLAIM IS GATED ON THE SESSION EMITTING REGIONS: a no-regions run mints no
-    # traced_ row, so the file would read as legacy forever and re-claim a Place door0 on
-    # every regenerate — recurring silent data loss, not a one-time migration.
-    allow_legacy = bool((gen.get("gateway") or []) or (gen.get("event") or []))
     kept_tables, scalars = {}, {}
     for key, val in existing.items():
         if key in GENERATED_TABLES:
@@ -946,22 +982,52 @@ def merge_project_toml(generated_text: str, existing: dict | None):
         else:
             scalars[key] = val                     # a bare key must precede the first [header]
     kept_rows = {"gateway": [], "event": []}
-    removed = []
+    removed, renamed = [], []
     gen_names = {(k, str(r.get("name"))) for k in ("gateway", "event")
                  for r in gen.get(k) or [] if isinstance(r, dict)}
+    # the quads THIS run emits, per kind -> the traced_ name each one carries (the twin lookup)
+    gen_quads = {k: {_zone_key(r.get("zone")): str(r.get("name"))
+                     for r in gen.get(k) or [] if isinstance(r, dict)}
+                 for k in ("gateway", "event")}
+    pre_prefix_file = not _has_traced_rows(existing)
+    twin_quads = twin_quads or {}
+    reemitted = {}                                     # (kind, traced name) -> the row it replaces
     for kind in ("gateway", "event"):
         for row in existing.get(kind) or []:
             if not isinstance(row, dict):
                 continue
-            if is_generated_region(existing, kind, row.get("name"), allow_legacy=allow_legacy):
-                if (kind, str(row.get("name"))) not in gen_names:
-                    removed.append(f"[[{kind}]] {row.get('name') or '?'}")
+            name = row.get("name")
+            if is_generated_region(kind, name):        # provably ours: re-emitted, or gone
+                if (kind, str(name)) not in gen_names:
+                    removed.append(f"[[{kind}]] {name or '?'}")
+                else:
+                    reemitted[(kind, str(name))] = row
+                continue
+            quad = _zone_key(row.get("zone"))
+            twin = None
+            if quad is not None and pre_prefix_file and _is_pre_prefix_name(kind, name):
+                twin = gen_quads[kind].get(quad) or (twin_quads.get(kind) or {}).get(quad)
+            if twin and (kind, twin) not in reemitted:  # the same quad, re-emitted: one door, not two
+                renamed.append(f"[[{kind}]] {name} (now {twin})")
+                reemitted[(kind, twin)] = row
             else:
-                kept_rows[kind].append(row)
+                kept_rows[kind].append(row)            # unprovable -> the human's, never deleted
+    # A re-emitted row is regenerated whole. Say everything that went with the old one: a value
+    # the session replaced with a different one, and every key the generator does not write.
+    value_retakes = []
+    for (kind, gname), old in reemitted.items():
+        new = next(r for r in gen.get(kind) or [] if isinstance(r, dict) and str(r.get("name")) == gname)
+        for key, default in _GEN_ROW_VALUES[kind]:
+            if old.get(key, default) != new.get(key, default):
+                value_retakes.append(f"[[{kind}]] {gname}.{key} (was {old.get(key, default)!r}, "
+                                     f"the session has {new.get(key, default)!r})")
+        value_retakes += [f"[[{kind}]] {gname}.{k} (a hand-added key, dropped: a traced_ row is "
+                          f"regenerated whole -- keep it on a row of your own)"
+                          for k in old if k not in _GEN_ROW_KEYS[kind]]
     kept_layers = [row for row in existing.get("layers") or []
                    if isinstance(row, dict) and not _is_generated_layer(row.get("image"))]
     retaken = [k for k in ("field", "camera", "walkmesh")
-               if k in existing and existing.get(k) != gen.get(k)]
+               if k in existing and existing.get(k) != gen.get(k)] + renamed + value_retakes
     old_player = existing.get("player") if isinstance(existing.get("player"), dict) else {}
     player_extra = {k: v for k, v in (old_player or {}).items() if k != "spawn"}
     if old_player and old_player.get("spawn") != (gen.get("player") or {}).get("spawn"):
@@ -1101,7 +1167,23 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
                   f"zone = {_zone_world(ev['zone_px'], f'event {nm}')}", ""]
         ev_manifest.append(ev)
 
-    text, kept, retaken, removed = merge_project_toml("\n".join(lines) + "\n", existing)
+    # A pre-prefix row's quad was written through the camera the FILE still records. Project this
+    # run's regions through that one too, so its twin is still recognized after a pitch change
+    # (through the new camera alone the same pixels land elsewhere and the old door was doubled).
+    twin_quads = {"gateway": {}, "event": {}}
+    old_cam = _camera_of(existing)
+    if old_cam is not None:
+        for kind, prefix, rows in (("gateway", TRACED_GATEWAY_PREFIX, gw_manifest),
+                                   ("event", TRACED_EVENT_PREFIX, ev_manifest)):
+            for i, spec in enumerate(rows):
+                try:
+                    key = _zone_key(unproject_floor(old_cam, spec["zone_px"]))
+                except (ImageFieldError, ValueError):
+                    continue
+                if key is not None:
+                    twin_quads[kind][key] = f"{prefix}{i}"
+    text, kept, retaken, removed = merge_project_toml("\n".join(lines) + "\n", existing,
+                                                     twin_quads=twin_quads)
 
     # every refusal has passed: NOW touch the disk
     (out / "art").mkdir(parents=True, exist_ok=True)

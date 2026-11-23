@@ -39,10 +39,73 @@ PITCH_BAND = (6, 48)             # the tracer's slider band (vanilla room pitche
 _HISTORY_CAP = 100
 
 
+def _same_file(a, b) -> bool:
+    """True when two paths name one file (``samefile`` when both exist; else a case-folded
+    absolute compare, so a recorded photo that has since moved still compares sanely)."""
+    import os
+    try:
+        return os.path.samefile(a, b)
+    except (OSError, ValueError):
+        return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+
+def may_generate_into(out, image, name) -> bool:
+    """May a FRESH session (``image`` traced as field ``name``) write its project into ``out``?
+
+    One project per folder: ``walkmesh.obj``, ``art/base.png`` and the session record are each a
+    SINGLE file in it. Free = absent, empty, or holding nothing but the record of THIS session's
+    own failed first attempt (the tab writes ``<stem>.trace.json`` at launch, so a job that then
+    fails leaves exactly that behind: same photo, same name, no field.toml) -- the retry goes
+    back where it started instead of scattering -2, -3 folders.
+
+    A folder that holds a generated project is NEVER free, not even this photo's own: a fresh
+    session knows nothing of that project's doors, zones and cut-outs, so "updating" it would
+    regenerate them away and replace its floor -- and the file may be open in the Editor. To
+    update a project, open ITS field.toml or .trace.json; this tab then regenerates in place."""
+    import json
+    out = Path(out)
+    if not out.exists():
+        return True
+    if not out.is_dir():
+        return False
+    entries = list(out.iterdir())
+    if not entries:
+        return True
+    if any(not e.name.endswith(".trace.json") for e in entries):
+        return False                           # a project, or somebody's files: not ours
+    for side in entries:
+        try:
+            rec = json.loads(side.read_text(encoding="utf-8"))
+            if (isinstance(rec, dict) and isinstance(rec.get("image"), str)
+                    and _same_file(rec["image"], image) and str(rec.get("name")) == str(name)):
+                continue
+        except (OSError, ValueError):
+            pass
+        return False                           # another session's record (or an unreadable one)
+    return True
+
+
+def first_out(parent, image, name) -> Path:
+    """The folder a session's FIRST Generate writes: ``<parent>/<photo stem>-field``, or — when
+    that one is not free (:func:`may_generate_into`) — the first free ``…-field-2``, ``-3``, …
+    It used to be the bare stem unconditionally, so a second photo with the same file name
+    (image.png, photo.jpg, IMG_0001.jpg) silently replaced the first project's art and session
+    record, and merged into its field.toml when both kept the default name (finding E9)."""
+    import itertools
+    base = Path(parent) / f"{Path(image).stem}-field"
+    if may_generate_into(base, image, name):
+        return base
+    for n in itertools.count(2):
+        out = base.with_name(f"{base.name}-{n}")
+        if may_generate_into(out, image, name):
+            return out
+
+
 class TraceDoc(QWidget):
     """Trace a photo into a walkable field, entirely on the art. ``run`` = ``shell.run_job``."""
 
-    def __init__(self, pal, kit_root, *, run, problems=None, scale=100, on_generated=None):
+    def __init__(self, pal, kit_root, *, run, problems=None, scale=100, on_generated=None,
+                 can_generate=None, on_regenerated=None):
         super().__init__()
         self.pal = pal
         self.kit = Path(kit_root)                     # `-m ff9mapkit` cwd (this checkout's package)
@@ -51,6 +114,14 @@ class TraceDoc(QWidget):
         self.on_generated = on_generated              # a clean FIRST Generate hands the project
         #                                               to the shell (the Floorplan compose →
         #                                               open_campaign contract, on this lane)
+        # The project this tab writes may be OPEN in the shell, and Generate merges with the file
+        # ON DISK. Two seams keep the two from diverging (review finding T38):
+        self.can_generate = can_generate              # (toml) -> a refusal sentence, or None: asked
+        #                                               before EVERY Generate (the shell refuses
+        #                                               while that file has unsaved edits here)
+        self.on_regenerated = on_regenerated          # (toml): an IN-PLACE regenerate FINISHED,
+        #                                               clean or not -- the shell looks at the disk
+        #                                               and reloads the buffer it holds if it moved
         # Default output base: the repo parent for a checkout; an installed copy writes to a
         # discoverable user folder instead (ImportDoc's own rule, same reason).
         self.proj_base = (self.kit.parent if (self.kit / "pyproject.toml").is_file()
@@ -824,13 +895,32 @@ class TraceDoc(QWidget):
         first = self._project is None                  # only the FIRST Generate opens the
         #                                                result in the Editor; a regenerate
         #                                                never yanks the author off this canvas
+        moved = ""
         if self._project is not None:                  # set up once -> every later Generate is
             out = Path(self._project["out"])           # IN PLACE (owner-asked; no dialog)
+            own = f"{name}.field.toml".lower()
+            others = sorted(q.name for q in out.glob("*.field.toml") if q.name.lower() != own)
+            if others:
+                # the folder holds ONE floor and ONE set of art. Whatever the Name box (or a field
+                # renamed in the Editor) says, writing <name>.field.toml beside another field's file
+                # would replace the walkmesh and art under THAT one, which keeps its old [camera]
+                self._refresh(f"This folder already holds {others[0]} — one field per folder "
+                              f"(a second would share its floor and art). Set Name to "
+                              f"{others[0][:-len('.field.toml')]} to regenerate that one.", "error")
+                return
         else:
             parent = self._ask_out()
             if not parent:
                 return
-            out = Path(parent) / f"{self._image.stem}-field"
+            out = first_out(parent, self._image, name)   # never another project's folder (E9)
+            wanted = Path(parent) / f"{self._image.stem}-field"
+            if out != wanted:                          # said FIRST: the status line clips its tail
+                moved = f"{wanted.name} is already in use — this one goes to {out.name}. "
+        if self.can_generate is not None:              # the file may be open in the Editor with
+            why = self.can_generate(str(out / f"{name}.field.toml"))   # unsaved edits the merge
+            if why:                                    # (which reads DISK) would never see
+                self._refresh(why, "error")
+                return
         argv = [sys.executable, "-m", "ff9mapkit", "image-field", str(self._image),
                 "--floor", " ".join(f"{x:g},{y:g}" for x, y in self._floor),
                 "--out", str(out), "--name", name, "--id", str(fid)]
@@ -866,17 +956,28 @@ class TraceDoc(QWidget):
             self._project = {"out": str(out), "name": name, "fid": int(fid)}
             self._stamped = True                       # the project now matches the session
             self._write_trace_sidecar(out)             # the re-editable session record
-            self._refresh(f"Generating {name} → {out} …")
+            self._refresh(f"{moved}Generating {name} → {out} …")
 
     def _after_generate(self, code, first, toml):
         """A clean FIRST Generate opens the project in the Editor (through the shell's own
         ``open_field`` — which is what feeds the Place tab, rung 7d, so 'trace it → place
         content on it' is one flow). Regenerates never yank; failures never open anything.
         ``toml`` was captured AT LAUNCH — reading the live ``self._project`` here would open
-        whatever project the author switched to while the job ran."""
-        if code != 0 or not first or self.on_generated is None:
+        whatever project the author switched to while the job ran.
+
+        A REGENERATE rewrites ``toml`` in place, and that file may be the one open in the
+        Editor: the shell is TOLD (``on_regenerated``), so it can reload the buffer it holds. It
+        used to be told nothing, and the next Save All wrote the stale buffer over the
+        regenerated file — the new doors, events and camera gone, the new walkmesh kept. It is
+        told on EVERY finish, clean or not: the job writes its files and only then prints, so a
+        job can rewrite the project and still exit non-zero (a console that cannot encode a
+        character in the report — finding E10). Whether the file moved is the disk's to say, not
+        the exit code's; the shell looks."""
+        if not first:
+            if self.on_regenerated is not None:
+                self.on_regenerated(str(toml))
             return
-        if Path(toml).is_file():
+        if code == 0 and self.on_generated is not None and Path(toml).is_file():
             self.on_generated(str(toml))
 
     def _write_trace_sidecar(self, out):
@@ -982,6 +1083,16 @@ class TraceDoc(QWidget):
             raise ValueError("a scrolling room — the Trace canvas serves the fixed "
                              f"{imagefield.CANVAS_W}×{imagefield.CANVAS_H} frame; reshape it in "
                              "the Floorplan tab, or place content on it in the Place tab")
+        for kind in ("gateway", "event"):              # a traced_ row the session cannot carry
+            for e in data.get(kind, []) or []:         # (a zone edited by hand into five corners):
+                if (isinstance(e, dict) and imagefield.is_generated_region(kind, e.get("name"))
+                        and imagefield._zone_key(e.get("zone")) is None):
+                    # left out of the session it would be DELETED by the next Generate, and every
+                    # traced_ row after it renumbered -- so refuse to arm at all, and say the way out
+                    raise ValueError(f"{e.get('name')} has a zone that is not four corners — the "
+                                     f"Trace session cannot carry it, and regenerating would "
+                                     f"delete it. Rename it in the Editor (drop the traced_ "
+                                     f"prefix) to keep it as your own row, then reopen")
         self.load_image(path.parent / base_rel)        # the flattened base IS the photo, 1:1
         self._distance = float(cam_tbl.get("distance", imagefield.DEFAULT_DISTANCE))
         self._fov = float(cam_tbl.get("fov", imagefield.DEFAULT_FOV))
@@ -1010,15 +1121,18 @@ class TraceDoc(QWidget):
                 self._attach_cutout(len(self._fg) - 1, str(fg_path))
         # regions: the compiled toml's WORLD zones invert to canvas px through the same camera.
         # Only the GENERATOR'S OWN rows join the session (one owner: is_generated_region —
-        # the same claim the regenerate merge makes); a hand/Place row stays file-side, where
-        # the merge preserves it verbatim.
+        # the same claim the regenerate merge makes, and it is the traced_ prefix alone); a
+        # hand/Place row stays file-side, where the merge preserves it verbatim. A pre-prefix
+        # door0 is NOT absorbed: the Place tab mints that name too, and absorbing one re-emits
+        # it as a traced_ row stripped to to/entrance/zone (review finding T1).
         for kind in ("gateway", "event"):
             for e in data.get(kind, []) or []:
-                if not imagefield.is_generated_region(data, kind, e.get("name")):
+                if not imagefield.is_generated_region(kind, e.get("name")):
                     continue
                 z = e.get("zone")
-                if not isinstance(z, (list, tuple)) or len(z) not in (4, 5):
-                    continue
+                if imagefield._zone_key(z) is None:    # not a 4-corner quad (a hand-edited 5-point
+                    continue                           # zone): the session cannot carry it, so it
+                #                                        stays file-side instead of failing Generate
                 pts = [tuple(map(float, p)) for p in z]
                 if len(pts) == 5 and pts[-1] == pts[-2]:
                     pts = pts[:4]                      # the IsInQuad-safe doubled stored form

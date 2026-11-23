@@ -3689,8 +3689,8 @@ def _cmd_image_field(args: argparse.Namespace) -> int:
     if man.get("retaken"):
         print(f"  retook (generator-owned, the session wins): {', '.join(man['retaken'])}")
     for r in man.get("removed", []):
-        print(f"  removed (a generator row the session no longer has): {r} — if that was YOUR "
-              f"door, re-add it in the Place tab; regenerates keep hand rows")
+        print(f"  removed (a traced_ row the session no longer draws): {r} — if you had edited "
+              f"it by hand, re-add it in the Place tab; rows without the traced_ name are kept")
     print(f"Deploy + walk it: py tools/deploy_field.py {man['toml']} --id 30058   (then ~ -> Warp 30058)")
     print("HAND-TRACED FLOOR: the polygon must outline the floor in the FINAL 384x448 canvas (top-left, "
           "Y-down), below the horizon. Only the human can confirm it lands on the art in-game (CLAUDE.md).")

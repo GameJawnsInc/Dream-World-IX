@@ -607,13 +607,15 @@ def test_a_place_drawn_door0_on_a_current_project_is_preserved(tmp_path):
                          gateways=["4005@60,300;140,300;140,330;60,330"])
     data = tomllib.loads(toml.read_text(encoding="utf-8"))
     assert [g["name"] for g in data["gateway"]] == ["traced_door0", "door0"]
-    assert IF.is_generated_region(data, "gateway", "traced_door0")
-    assert not IF.is_generated_region(data, "gateway", "door0")
+    assert IF.is_generated_region("gateway", "traced_door0")
+    assert not IF.is_generated_region("gateway", "door0")
 
 
 def test_legacy_door_rows_are_claimed_once_not_duplicated(tmp_path):
-    """A pre-prefix project's own door0/zone0 rows (no traced_ row anywhere) are the
-    generator's -- the first merged regenerate replaces them instead of doubling them."""
+    """A pre-prefix project's own door0 row is replaced by its traced_ twin when the run
+    re-emits the same quad -- not doubled. Its zone0, which this run does NOT re-emit, is
+    KEPT: nothing distinguishes it from a zone the Place tab drew, and an unprovable row is
+    never deleted (it used to be, and that same rule ate real Place rows -- finding T1)."""
     pytest.importorskip("PIL")
     import tomllib
     toml, floor, _man = _merge_project(tmp_path)
@@ -623,16 +625,17 @@ def test_legacy_door_rows_are_claimed_once_not_duplicated(tmp_path):
         g["name"] = f"door{i}"
     for i, e in enumerate(data["event"]):
         e["name"] = f"zone{i}"
-    assert IF.is_generated_region(data, "gateway", "door0")      # the legacy claim
+    assert not IF.is_generated_region("gateway", "door0")        # a name alone proves nothing
     from ff9mapkit.editor import model as _model
     toml.write_text(_model.dumps(dict(data, npc=[{"name": "keeper", "preset": "vivi",
                                                   "pos": [0, 1500]}])),
                     encoding="utf-8", newline="\n")
-    IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
-                         gateways=["4005@60,300;140,300;140,330;60,330"])
+    man = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                               gateways=["4005@60,300;140,300;140,330;60,330"])
     data2 = tomllib.loads(toml.read_text(encoding="utf-8"))
-    assert [g["name"] for g in data2["gateway"]] == ["traced_door0"]   # claimed, not doubled
-    assert [e["name"] for e in data2.get("event", [])] == []
+    assert [g["name"] for g in data2["gateway"]] == ["traced_door0"]   # replaced, not doubled
+    assert [e["name"] for e in data2.get("event", [])] == ["zone0"]    # unprovable -> kept
+    assert "[[event]] zone0" in man["kept"] and man["removed"] == []
     assert data2["npc"][0]["name"] == "keeper"
 
 
@@ -726,9 +729,211 @@ def test_a_no_regions_regenerate_never_claims_place_rows(tmp_path):
         assert man["removed"] == []
 
 
+_PLACE_ROWS = (
+    '\n[[gateway]]\nname = "door0"\nto = 301\nzone = [[-500, 900], [-400, 900], '
+    '[-400, 1000], [-500, 1000]]\n'
+    '\n[[event]]\nname = "zone0"\nmessage = "..."\nzone = [[100, 900], [200, 900], '
+    '[200, 1000], [100, 1000]]\n')
+
+
+@pytest.mark.parametrize("regions", [
+    {"events": ["It creaks.@200,340;300,340;300,380;200,380"]},
+    {"gateways": ["4005@60,300;140,300;140,330;60,330"]},
+    {"gateways": ["4005@60,300;140,300;140,330;60,330"],
+     "events": ["It creaks.@200,340;300,340;300,380;200,380"]},
+], ids=["first-event", "first-gateway", "both"])
+def test_the_first_region_a_session_adds_never_deletes_a_place_row(tmp_path, regions):
+    """THE TRANSITION the no-regions gate left open (review finding T1): trace a floor and
+    generate with NO regions, draw a door and a zone in the Place tab (it mints door0/zone0),
+    then add the session's FIRST region and regenerate. The file had no traced_ row, so it read
+    as a pre-prefix project and the hand rows were claimed and deleted. A row the generator
+    cannot PROVE it emitted is never deleted — whatever the session does next."""
+    pytest.importorskip("PIL")
+    import tomllib
+    from PIL import Image
+    Image.new("RGB", (384, 448), (90, 80, 70)).save(tmp_path / "src.png")
+    floor = [(130, 140), (254, 140), (364, 440), (20, 440)]
+    IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE")
+    toml = tmp_path / "out" / "MERGE.field.toml"
+    toml.write_text(toml.read_text(encoding="utf-8") + _PLACE_ROWS, encoding="utf-8", newline="\n")
+    for _ in range(2):                                 # the first regenerate with regions, and the next
+        man = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                                   **regions)
+        data = tomllib.loads(toml.read_text(encoding="utf-8"))
+        assert "door0" in [g["name"] for g in data["gateway"]]
+        assert "zone0" in [e["name"] for e in data["event"]]
+        assert next(g for g in data["gateway"] if g["name"] == "door0")["to"] == 301
+        assert man["removed"] == []
+        assert "[[gateway]] door0" in man["kept"] and "[[event]] zone0" in man["kept"]
+
+
+def test_a_pre_prefix_row_is_renamed_only_when_the_run_re_emits_its_exact_quad(tmp_path):
+    """The one thing that still proves a door0 is the OLD generator's: this run emits the very
+    same quad again (a b18/b19 project reopened from its sidecar regenerates px-exact). Then the
+    row is replaced by its traced_ twin — said out loud in retaken, never doubled. A pre-prefix
+    row whose quad the run does NOT re-emit stays: indistinguishable from a Place row, so kept."""
+    pytest.importorskip("PIL")
+    import tomllib
+    toml, floor, _man = _merge_project(tmp_path)       # one gateway + one event, traced_ names
+    data = tomllib.loads(toml.read_text(encoding="utf-8"))
+    data["gateway"][0]["name"] = "door0"               # the pre-prefix shape of the SAME rows
+    data["event"][0]["name"] = "zone0"
+    from ff9mapkit.editor import model as _model
+    toml.write_text(_model.dumps(data), encoding="utf-8", newline="\n")
+    man = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                               gateways=["4005@60,300;140,300;140,330;60,330"],
+                               events=["It creaks.@200,340;300,340;300,380;200,380"])
+    data2 = tomllib.loads(toml.read_text(encoding="utf-8"))
+    assert [g["name"] for g in data2["gateway"]] == ["traced_door0"]      # renamed, not doubled
+    assert [e["name"] for e in data2["event"]] == ["traced_zone0"]
+    assert man["removed"] == []                        # nothing was lost, so nothing is "removed"
+    retaken = "\n".join(man["retaken"])
+    assert "door0" in retaken and "traced_door0" in retaken
+    assert "zone0" in retaken and "traced_zone0" in retaken
+    retaken.encode("cp1252")                           # the CLI prints these under a cp1252 pipe
+
+
+_GW = "4005@60,300;140,300;140,330;60,330"
+_EV = "It creaks.@200,340;300,340;300,380;200,380"
+
+
+def _rewrite(toml, edit):
+    """Load the project's toml, let ``edit(data)`` change it, write it back the Editor's way."""
+    import tomllib
+    from ff9mapkit.editor import model as _model
+    data = tomllib.loads(toml.read_text(encoding="utf-8"))
+    edit(data)
+    toml.write_text(_model.dumps(data), encoding="utf-8", newline="\n")
+
+
+def _regen(tmp_path, floor, **kw):
+    import tomllib
+    man = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE", **kw)
+    return man, tomllib.loads((tmp_path / "out" / "MERGE.field.toml").read_text(encoding="utf-8"))
+
+
+def test_the_twin_rename_is_fenced_on_every_side(tmp_path):
+    """The rename may only ever take a PRE-PREFIX-NAMED row of the SAME KIND on a file with NO
+    traced_ row. Each guard, loosened, deletes a row somebody drew -- so each has a row here."""
+    pytest.importorskip("PIL")
+    toml, floor, _man = _merge_project(tmp_path)       # traced_door0 + traced_zone0
+
+    # (1) a CURRENT project (it has traced_ rows): a Place door0 on the traced door's exact quad
+    _rewrite(toml, lambda d: d["gateway"].append(dict(d["gateway"][0], name="door0", to=301)))
+    man, data = _regen(tmp_path, floor, gateways=[_GW], events=[_EV])
+    assert [(g["name"], g["to"]) for g in data["gateway"]] == [("traced_door0", 4005), ("door0", 301)]
+    assert man["removed"] == []
+
+    # (2)-(4) a PRE-PREFIX file: only door<N>/zone<N> of the right kind are candidates
+    def legacy(d):
+        quad = d["gateway"][0]["zone"]
+        d["gateway"] = [dict(d["gateway"][0], name="west_gate", to=11),
+                        dict(d["gateway"][0], name="door_west", to=12)]
+        d["event"] = [{"name": "zone0", "message": "mine", "zone": quad}]   # an EVENT on the door's quad
+    _rewrite(toml, legacy)
+    man, data = _regen(tmp_path, floor, gateways=[_GW])
+    assert sorted(g["name"] for g in data["gateway"]) == ["door_west", "traced_door0", "west_gate"]
+    assert [e["name"] for e in data["event"]] == ["zone0"] and man["removed"] == []
+
+
+def test_a_pre_prefix_row_stored_with_a_doubled_last_vertex_is_still_its_twin(tmp_path):
+    """The IsInQuad-safe stored form repeats the last corner; it is the same quad."""
+    pytest.importorskip("PIL")
+    toml, floor, _man = _merge_project(tmp_path)
+
+    def legacy(d):
+        g = d["gateway"][0]
+        d["gateway"] = [dict(g, name="door0", zone=g["zone"] + [g["zone"][-1]])]
+        d.pop("event")
+    _rewrite(toml, legacy)
+    _man2, data = _regen(tmp_path, floor, gateways=[_GW])
+    assert [g["name"] for g in data["gateway"]] == ["traced_door0"]
+
+
+def test_a_pre_prefix_door_is_still_recognized_after_the_pitch_is_changed(tmp_path):
+    """The old row's quad was written through the camera the FILE records. Through the new
+    camera alone the same pixels land elsewhere: the twin was missed and the old door stayed as
+    a second, live gateway at its old spot (the adversarial pass's regression on the T1 fix)."""
+    pytest.importorskip("PIL")
+    toml, floor, _man = _merge_project(tmp_path)
+
+    def legacy(d):
+        d["gateway"][0]["name"] = "door0"
+        d["event"][0]["name"] = "zone0"
+    _rewrite(toml, legacy)
+    man, data = _regen(tmp_path, floor, gateways=[_GW], events=[_EV], pitch=30.0)
+    assert [g["name"] for g in data["gateway"]] == ["traced_door0"]      # one door, not two
+    assert [e["name"] for e in data["event"]] == ["traced_zone0"]
+    assert data["camera"]["pitch"] == 30 and man["removed"] == []
+
+
+def test_what_a_regenerate_takes_from_a_traced_row_is_said_out_loud(tmp_path):
+    """A traced row is regenerated WHOLE. A retarget made in Place and a reward added in the
+    Editor used to vanish silently; both are now named. (They are deliberately NOT carried over:
+    see the next test.)"""
+    pytest.importorskip("PIL")
+    toml, floor, _man = _merge_project(tmp_path)
+
+    def author(d):
+        d["event"][0].update(give_item=[236, 1], message="MY OWN WORDS")
+        d["gateway"][0].update(to=2222, requires_flag="met_cid")
+    _rewrite(toml, author)
+    man, data = _regen(tmp_path, floor, gateways=[_GW], events=[_EV])
+    assert data["event"][0] == {k: v for k, v in data["event"][0].items() if k in ("name", "message", "zone")}
+    assert data["event"][0]["message"] == "It creaks." and data["gateway"][0]["to"] == 4005
+    retaken = "\n".join(man["retaken"])
+    assert "traced_door0.to (was 2222" in retaken and "traced_zone0.message" in retaken
+    assert "traced_zone0.give_item (a hand-added key, dropped" in retaken
+    assert "traced_door0.requires_flag (a hand-added key, dropped" in retaken
+    retaken.encode("cp1252")
+    man2, _data2 = _regen(tmp_path, floor, gateways=[_GW], events=[_EV])
+    assert not [r for r in man2["retaken"] if "traced_" in r]             # said once, not forever
+
+
+def test_a_hand_key_is_never_grafted_onto_the_door_that_inherits_the_name(tmp_path):
+    """traced_ names are POSITIONAL. Delete session door A and door B becomes traced_door0: A's
+    reward and flag gate must not land on B's quad (the second adversarial pass's catch on a
+    follow-up that carried such keys over by name)."""
+    pytest.importorskip("PIL")
+    door_b = "4007@250,300;330,300;330,330;250,330"
+    toml, floor, _man = _merge_project(tmp_path, gateways=(_GW, door_b))
+    _rewrite(toml, lambda d: d["gateway"][0].update(reward={"item": "Elixir"}, requires_flag=9000))
+    man, data = _regen(tmp_path, floor, gateways=[door_b])                 # door A deleted in the session
+    assert len(data["gateway"]) == 1
+    row = data["gateway"][0]
+    assert (row["name"], row["to"]) == ("traced_door0", 4007)
+    assert "reward" not in row and "requires_flag" not in row
+    assert any("traced_door0.reward" in r and "dropped" in r for r in man["retaken"])
+
+
+def test_only_one_pre_prefix_row_can_take_a_traced_name(tmp_path):
+    """A pitch change gives a region TWO quads a pre-prefix row could sit on: the one under the
+    file's old camera and the one under the new. Two rows, one on each, must not both be claimed
+    as the same door -- one is renamed, the other is somebody's and stays exactly as it was."""
+    pytest.importorskip("PIL")
+    import tomllib
+    toml, floor, _man = _merge_project(tmp_path, gateways=(_GW,))
+    old_quad = tomllib.loads(toml.read_text(encoding="utf-8"))["gateway"][0]["zone"]
+    _man30, data30 = _regen(tmp_path, floor, gateways=[_GW], pitch=30.0)   # learn the new-camera quad
+    new_quad = data30["gateway"][0]["zone"]
+    assert new_quad != old_quad
+
+    def legacy(d):                                     # back to the pitch-26 file, pre-prefix shape
+        d["camera"]["pitch"] = 26
+        d["gateway"] = [{"name": "door0", "to": 4005, "zone": old_quad},
+                        {"name": "door1", "to": 4999, "zone": new_quad, "note": "mine"}]
+        d.pop("event", None)
+    _rewrite(toml, legacy)
+    man, data = _regen(tmp_path, floor, gateways=[_GW], pitch=30.0)
+    rows = {g["name"]: g for g in data["gateway"]}
+    assert sorted(rows) == ["door1", "traced_door0"]
+    assert rows["door1"] == {"name": "door1", "to": 4999, "zone": new_quad, "note": "mine"}
+    assert man["removed"] == []
+
+
 def test_claimed_and_stale_rows_are_named_in_removed(tmp_path):
     """Deletion is REPORTED, never silent (floorplan.merge_room's own contract): a stale
-    traced_ door dropped from the session and a legacy-claimed door0 both land in removed,
+    traced_ door and a traced_ zone dropped from the session both land in removed,
     and the manifest carries the list the CLI prints."""
     pytest.importorskip("PIL")
     toml, floor, _man = _merge_project(

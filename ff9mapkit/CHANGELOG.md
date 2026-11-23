@@ -58,6 +58,41 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   (`studies/overworld-editor/PREFABS.md`). It needs `--seed` and does not combine with `--beach`. Off (the
   default), every mint and carry writes exactly what it did before, so saved recipes replay unchanged.
 
+### Fixed — Trace, Place and the Editor: ways to lose work
+- **A Trace regenerate no longer deletes doors and zones drawn in the Place tab.** On a project traced with no
+  regions, the first region a session added made the regenerate take Place's `door0` / `zone0` for an old
+  generator's rows and delete them, with one "removed" line in Output as the only notice. Only a `traced_` row is
+  ever deleted now. A project made before 1.0.0b20 keeps its old `door0` / `zone0` rows: one whose exact quad the
+  run draws again is renamed to its `traced_` twin (listed under "retook"), the rest stay as your own rows, and
+  reopening such a project's `field.toml` no longer pulls them into the Trace session.
+- **A regenerate now says what it takes from a traced door or zone.** A `traced_` row is regenerated whole, so a
+  target changed in Place, or a reward or flag gate added to it in the Editor, was replaced with no notice. Each
+  value and key that goes is now named under "retook". (Keep such keys on a row of your own: any door or zone
+  without the `traced_` name is never touched.)
+- **Two photos with the same file name no longer share a project folder.** The Trace tab's first Generate wrote to
+  `<photo name>-field` whatever was already there, so a second `image.png` or `IMG_0001.jpg` replaced the first
+  project's art, floor and session record — and merged into its `field.toml` when both kept the default name. A
+  photo opened fresh now never writes into a folder that already holds a project, not even its own: it goes to
+  `<photo name>-field-2` (then `-3`, ...) and the status line says so. To update a project, open its `field.toml`
+  or `.trace.json`.
+- **Regenerating from Trace no longer leaves a stale copy of the project open.** A regenerate rewrote the open
+  project's `field.toml` and the window kept its old copy, so the next Save All wrote the old file back: the doors,
+  events and camera the regenerate added were gone, while its new floor stayed. When a regenerate finishes, the
+  window now reloads the project if its file changed (the undo history for that field goes with the old copy) and
+  the Behavior, Cutscene and Place tabs drop the old floor. Generate refuses while the open project has unsaved
+  edits and says to Save All first; edits made while the job ran are kept or dropped only on your answer; a save
+  that lands while the job runs is reported instead of silently winning or losing.
+- **A traced project can no longer be regenerated into a second file.** Changing the Name box of an open Trace
+  project (or renaming the field in the Editor) and regenerating wrote a second `field.toml` beside the first, over
+  the same floor and art. Generate now refuses while the folder holds another field's file, and names it.
+- **An Editor form can no longer write into the wrong row after an edit in the Place tab.** With an unsaved change
+  typed into a gateway, event or NPC form, deleting an earlier row of the same kind in Place made the next click
+  write the form over a different row: one destroyed, another doubled. The form's Save, Delete and Reset buttons
+  aimed at the same wrong row, and a zone dragged in Place could be written back to its old shape. A form now
+  follows its own row wherever it moves; opening the Behavior, Cutscene or Place tab first commits what you typed
+  (one Undo step; a value that cannot be read keeps you on the form, and Problems says why); and a form left open
+  behind those tabs is rebuilt when they change its row.
+
 ### Changed — World tab: faster, and the window no longer freezes while it works
 - **Undo, Redo and every Accept no longer reload the whole 3D map.** Only the blocks whose files changed are drawn
   again: Undo and Redo come back in under a second (8-11 s before), a forest Accept in about 5 s (22-25 s).
