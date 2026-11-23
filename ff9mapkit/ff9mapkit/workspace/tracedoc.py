@@ -45,7 +45,7 @@ def _same_file(a, b) -> bool:
     import os
     try:
         return os.path.samefile(a, b)
-    except OSError:
+    except (OSError, ValueError):
         return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
 
 
@@ -53,31 +53,36 @@ def may_generate_into(out, image, name) -> bool:
     """May a FRESH session (``image`` traced as field ``name``) write its project into ``out``?
 
     One project per folder: ``walkmesh.obj``, ``art/base.png`` and the session record are each a
-    SINGLE file in it, so two sessions sharing a folder overwrite each other's floor and art.
-    Free = absent, empty, or already THIS photo's own project under THIS name — a re-trace
-    updates that project in place (the merge keeps its hand content), and a failed first attempt
-    (which leaves only this photo's sidecar behind) is retried where it started. Anything else —
-    another photo's project, the same photo's project under another field name, a folder of
-    unrelated files — is not ours to write into."""
+    SINGLE file in it. Free = absent, empty, or holding nothing but the record of THIS session's
+    own failed first attempt (the tab writes ``<stem>.trace.json`` at launch, so a job that then
+    fails leaves exactly that behind: same photo, same name, no field.toml) -- the retry goes
+    back where it started instead of scattering -2, -3 folders.
+
+    A folder that holds a generated project is NEVER free, not even this photo's own: a fresh
+    session knows nothing of that project's doors, zones and cut-outs, so "updating" it would
+    regenerate them away and replace its floor -- and the file may be open in the Editor. To
+    update a project, open ITS field.toml or .trace.json; this tab then regenerates in place."""
     import json
     out = Path(out)
     if not out.exists():
         return True
     if not out.is_dir():
         return False
-    if not any(out.iterdir()):
+    entries = list(out.iterdir())
+    if not entries:
         return True
-    own_toml = f"{name}.field.toml".lower()
-    if any(t.name.lower() != own_toml for t in out.glob("*.field.toml")):
-        return False                           # another field lives here: one floor per folder
-    for side in out.glob("*.trace.json"):
+    if any(not e.name.endswith(".trace.json") for e in entries):
+        return False                           # a project, or somebody's files: not ours
+    for side in entries:
         try:
-            recorded = json.loads(side.read_text(encoding="utf-8")).get("image")
-        except (OSError, ValueError, AttributeError):
-            continue
-        if recorded and _same_file(recorded, image):
-            return True
-    return False
+            rec = json.loads(side.read_text(encoding="utf-8"))
+            if (isinstance(rec, dict) and isinstance(rec.get("image"), str)
+                    and _same_file(rec["image"], image) and str(rec.get("name")) == str(name)):
+                continue
+        except (OSError, ValueError):
+            pass
+        return False                           # another session's record (or an unreadable one)
+    return True
 
 
 def first_out(parent, image, name) -> Path:
@@ -899,8 +904,7 @@ class TraceDoc(QWidget):
             out = first_out(parent, self._image, name)   # never another project's folder (E9)
             wanted = Path(parent) / f"{self._image.stem}-field"
             if out != wanted:                          # said FIRST: the status line clips its tail
-                moved = (f"{wanted.name} already holds another project — this one goes to "
-                         f"{out.name}. ")
+                moved = f"{wanted.name} is already in use — this one goes to {out.name}. "
         if self.can_generate is not None:              # the file may be open in the Editor with
             why = self.can_generate(str(out / f"{name}.field.toml"))   # unsaved edits the merge
             if why:                                    # (which reads DISK) would never see

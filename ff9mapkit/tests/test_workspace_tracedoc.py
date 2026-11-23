@@ -1029,7 +1029,7 @@ def test_a_second_photo_with_the_same_file_name_gets_its_own_folder(app, tmp_pat
     assert side_a.read_bytes() == before               # its session record is untouched
     assert json.loads(side_a.read_text(encoding="utf-8"))["name"] == "CELLAR"
     assert json.loads((out_b / "photo.trace.json").read_text(encoding="utf-8"))["name"] == "ATTIC"
-    assert "photo-field" in doc_b.status.text() and "another project" in doc_b.status.text()
+    assert doc_b.status.text().startswith("photo-field is already in use")
     _as_generated(out_b, "ATTIC")
     _doc_c, out_c = _first_generate(app, photo_b.parent.parent / "day1" / "photo.png", parent,
                                     monkeypatch, name="LOFT")
@@ -1049,18 +1049,57 @@ def test_a_same_named_photo_does_not_merge_into_the_default_named_project(app, t
     assert out_b == parent / "photo-field-2"
 
 
-def test_re_tracing_the_same_photo_under_the_same_name_updates_its_project(app, tmp_path,
-                                                                           monkeypatch):
-    """A fresh session on the SAME photo and name is a re-trace: it regenerates the project in
-    its own folder (the merge keeps hand content) instead of scattering -2, -3 copies."""
+def test_a_fresh_session_never_writes_into_this_photos_own_existing_project(app, tmp_path,
+                                                                             monkeypatch):
+    """Not even the SAME photo under the SAME name. A fresh session knows nothing of that
+    project's doors, zones and cut-outs: regenerating over it would strip every traced_ row,
+    replace the floor and overwrite the session record -- and the file may be open in the
+    Editor, where this path would also slip past the regenerate's reload. To update a project
+    you open the project; a photo opened fresh starts a new one."""
     pytest.importorskip("PIL")
     (tmp_path / "projects").mkdir()
     photo = _photo(tmp_path)
     _doc_a, out_a = _first_generate(app, photo, tmp_path / "projects", monkeypatch, name="CELLAR")
     _as_generated(out_a, "CELLAR")
+    before = {q.name: q.read_bytes() for q in out_a.rglob("*") if q.is_file()}
     doc_b, out_b = _first_generate(app, photo, tmp_path / "projects", monkeypatch, name="CELLAR")
-    assert out_b == out_a
-    assert "another project" not in doc_b.status.text()
+    assert out_b == tmp_path / "projects" / "photo-field-2"
+    assert {q.name: q.read_bytes() for q in out_a.rglob("*") if q.is_file()} == before
+    assert doc_b.status.text().startswith("photo-field is already in use")
+
+
+@pytest.mark.parametrize("record", [
+    '{"image": "%s", "name": "ATTIC"}',                # this photo's failed attempt, ANOTHER name
+    '{"image": 7, "name": "PICTURE"}',                 # not a path at all
+    '["not", "an", "object"]',
+    '{ this is not json',
+], ids=["other-name", "image-not-a-path", "not-an-object", "not-json"])
+def test_a_folder_holding_someone_elses_record_is_not_ours(app, tmp_path, monkeypatch, record):
+    """A sidecar-only folder is reused ONLY for this very session's retry; any other record --
+    another name's, a malformed one -- is not ours to overwrite, and never raises."""
+    pytest.importorskip("PIL")
+    photo = _photo(tmp_path)
+    parent = tmp_path / "projects"
+    (parent / "photo-field").mkdir(parents=True)
+    side = parent / "photo-field" / "photo.trace.json"
+    if "%s" in record:                                 # a VALID record of this very photo: only
+        import json                                    # the name differs (or the case is vacuous)
+        record = json.dumps({"image": str(photo), "name": "ATTIC"})
+        assert json.loads(record)["image"] == str(photo)
+    side.write_text(record, encoding="utf-8")
+    before = side.read_bytes()
+    _doc_a, out = _first_generate(app, photo, parent, monkeypatch)
+    assert out == parent / "photo-field-2" and side.read_bytes() == before
+
+
+def test_a_file_squatting_on_the_folder_name_is_stepped_over(app, tmp_path, monkeypatch):
+    pytest.importorskip("PIL")
+    photo = _photo(tmp_path)
+    parent = tmp_path / "projects"
+    parent.mkdir()
+    (parent / "photo-field").write_text("a file, not a folder", encoding="utf-8")
+    _doc_a, out = _first_generate(app, photo, parent, monkeypatch)
+    assert out == parent / "photo-field-2"
 
 
 def test_the_same_photo_under_a_new_name_does_not_share_a_folder(app, tmp_path, monkeypatch):
