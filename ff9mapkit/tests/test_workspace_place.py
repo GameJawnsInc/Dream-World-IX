@@ -1090,3 +1090,27 @@ def test_a_prop_placed_after_a_delete_never_reuses_a_live_name():
     names = [p["name"] for p in data["prop"]]
     assert len(set(names)) == len(names), names
     assert data["prop"][-1]["name"] in label            # the undo label says WHICH prop
+
+
+def _regions_on(app, data, path="C:/somewhere/FORK.field.toml"):
+    d, calls = _doc(app)
+    d.show_field("FORK", data, Path(path))
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    d.tools.set_current("regions")
+    return d, calls
+
+
+@pytest.mark.parametrize("typed", ["", "   "])
+def test_set_message_refuses_a_blank_line(app, monkeypatch, typed):
+    """Review finding P10. Clearing the Set message box wrote message='' -- an event the build
+    accepts (the key is present) that shows nothing in-game. A blank line is refused, the old
+    words stay, and the status says why."""
+    data = {"field": {"source_field": 351},
+            "event": [{"name": "zone0", "message": "Watch your step.",
+                       "zone": [[0, 500], [100, 500], [100, 600], [0, 600]]}]}
+    d, calls = _regions_on(app, data)
+    monkeypatch.setattr(d, "_ask_message", lambda cur: typed)
+    d._on_region_reword(0)
+    assert calls == [] and data["event"][0]["message"] == "Watch your step."
+    assert "empty" in d.status.text() and d.status.property("state") == "warn"

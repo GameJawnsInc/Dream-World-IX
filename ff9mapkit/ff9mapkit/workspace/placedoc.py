@@ -877,6 +877,10 @@ class PlaceDoc(QWidget):
         text = self._ask_message("" if cur == "..." else cur)
         if text is None:
             return
+        if not text.strip():                        # '' builds clean and shows nothing in-game
+            self._refresh(f"Kept {r['label']}'s message — an empty line shows nothing when the "
+                          "player walks in. Type the words, or Cancel.", "warn")
+            return
         label = set_event_message(self._data, r["index"], text)
         if self.on_edit:
             self.on_edit(self._member, label)
