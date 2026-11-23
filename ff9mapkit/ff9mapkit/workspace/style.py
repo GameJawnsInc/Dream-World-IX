@@ -836,6 +836,10 @@ _QSS = Template(
        `background`, so there was nothing to lose.) */
     QToolButton#railSeg:pressed { color: $pressed_fg; background: $pressed; }
     QToolButton#railSeg:focus   { border: 1px solid $focus; }
+    /* LAST, for the same tie reason as :pressed: the id-scoped base rule out-ranks the generic
+       QToolButton:disabled, whose muted ink is the resting segment's own colour anyway -- so a disabled
+       ToolStrip tool rendered pixel-identical to a clickable one (T28). text_subtle is the dimmer tier. */
+    QToolButton#railSeg:disabled { color: $text_subtle; background: transparent; }
 
     /* progressive-disclosure toggle (widgets.disclosure): a flat, left-aligned 'advanced' section header */
     /* The border is reserved TRANSPARENT so the focus ring costs no layout (same move as #consoleToggle
