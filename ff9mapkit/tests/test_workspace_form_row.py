@@ -408,3 +408,27 @@ def test_a_place_edit_leaves_a_selection_on_the_field_row_where_it_was(win):
     pd = _arm_place(win)
     pd._on_region_deleted(_row(pd, "g0"))
     assert win.tree.currentItem() is mi
+
+
+def test_a_place_drop_updates_the_inspector_contents_beside_the_tree(win):
+    """Review finding P30. A Place drop rebuilt the tree's rows ('Props (1)') but never re-ran
+    the Inspector, so CONTENTS on the same screen kept the old tally until the next selection."""
+    mi = win._member_items[_M]
+    win.tree.setCurrentItem(mi)
+    win._on_select()
+    assert "3 gateways" in win.insp_body.text() and "prop" not in win.insp_body.text()
+    win.tabs.setCurrentWidget(win.place_doc)
+    pd = _arm_place(win)
+    pd.mode_btns["prop"].setChecked(True)
+    pd._apply_hit({"xz": (0.0, 1500.0), "floor": 0})   # the drop the canvas click lands
+    assert "1 prop" in win.insp_body.text(), win.insp_body.text()
+    pd._on_region_deleted(_row(pd, "g0"))
+    assert "2 gateways" in win.insp_body.text(), win.insp_body.text()
+    # ...and by Ctrl+Z / Ctrl+Y (review of P30): undo lands through _apply_history ->
+    # _goto_focus('place'), which with the field row already current only re-feeds Place
+    win._undo()
+    assert "3 gateways" in win.insp_body.text(), win.insp_body.text()
+    win._undo()
+    assert "prop" not in win.insp_body.text(), win.insp_body.text()
+    win._redo()
+    assert "1 prop" in win.insp_body.text(), win.insp_body.text()
