@@ -324,41 +324,65 @@ def build_surface_from_project(toml_path, cam_index: int = 0) -> dict:
     tris, floors = imagefield.mesh_world_tris(mesh)
     return {"donor": None, "source": ("project", str(toml_path)), "cam_index": ci,
             "n_cams": len(cams), "cam": cams[ci],
-            "png": _project_backdrop(project, cams[ci]), "tris": tris, "floors": floors}
+            "png": _project_backdrop(project, cams[ci], ci), "tris": tris, "floors": floors}
 
 
-def _project_backdrop(project, camera):
-    """The field's own ``[[layers]]`` composited back-to-front into one PNG, or None.
+def _project_backdrop(project, camera, cam_index: int = 0):
+    """The picked camera's ``[[layers]]`` composited back-to-front into one PNG, or None.
+
+    Laid out the way the build ships them: :func:`build.build_overlays` owns each layer's
+    ``position``, ``size`` (default: the camera's whole frame), ``camera`` and ``shader``, so
+    only ``cam_index``'s layers are drawn, each scaled to its size at its position on a canvas
+    the size of the camera frame -- never the accumulator resized to a later layer (review
+    finding P3: an ``import --editable`` fork's tight depth crops each became the whole room).
+    A blend-shader layer (light, glow) is left out: the floor reads without it, and painted
+    opaque it would hide the room.
 
     ★ BACK TO FRONT IS DESCENDING z: FF9 sorts by OT depth with SMALLER IN FRONT, so the largest z
     is the furthest layer and must be painted first. Getting this backwards puts the floor under
-    the backdrop and the author places content against a slab of flat colour."""
-    from pathlib import Path as _Path
+    the backdrop and the author places content against a slab of flat colour.
+
+    Written to the kit's cache, keyed per file and camera -- never into the author's project
+    folder (finding P9)."""
+    import hashlib
     try:
         from PIL import Image
     except ImportError:
         return None
-    layers = project.raw.get("layers") or []
-    imgs = []
-    for spec in sorted(layers, key=lambda s: -float(s.get("z", 0))):
-        ref = spec.get("image")
-        if not ref:
+    from .. import build as _build, provision
+    from ..scene import bgx as _bgx
+    fw, fh = (int(v) for v in (camera.range or (imagefield.CANVAS_W, imagefield.CANVAS_H)))
+    try:
+        overlays = _build.build_overlays(project, range_wh=(fw, fh))
+    except (KeyError, TypeError, ValueError, IndexError):    # a malformed layer: the mesh still places
+        return None
+    picked = []
+    for spec, ov in zip(project.raw.get("layers") or [], overlays):
+        if ov.camera_id != int(cam_index) or ov.shader != _bgx.DEFAULT_SHADER:
             continue
         try:
-            p = project.path(ref)
+            p = project.path(spec["image"])
         except Exception:                              # noqa: BLE001 -- a bad ref is not fatal here
             continue
         if p.is_file():
-            imgs.append(p)
-    if not imgs:
+            picked.append((ov, p))
+    if not picked:
         return None
-    out = None
-    for p in imgs:
-        im = Image.open(p).convert("RGBA")
-        out = im if out is None else Image.alpha_composite(out.resize(im.size), im)
-    if out is None:
-        return None
-    dest = _Path(project.path(".")) / ".place_backdrop.png"
+    picked.sort(key=lambda t: -t[0].position[2])
+    ims = [(ov, Image.open(p).convert("RGBA")) for ov, p in picked]
+    # the art's own resolution: a full-cover painting larger than the frame keeps its detail
+    k = max(1.0, min(4.0, max(im.width / max(1, ov.size[0]) for ov, im in ims)))
+    out = Image.new("RGBA", (round(fw * k), round(fh * k)), (0, 0, 0, 0))
+    for ov, im in ims:
+        w, h = max(1, round(ov.size[0] * k)), max(1, round(ov.size[1] * k))
+        layer = Image.new("RGBA", out.size, (0, 0, 0, 0))
+        layer.paste(im.resize((w, h)) if im.size != (w, h) else im,
+                    (round(ov.position[0] * k), round(ov.position[1] * k)))
+        out = Image.alpha_composite(out, layer)
+    src = str(project.toml_path or project.path("."))
+    key = hashlib.sha1(os.path.normcase(os.path.abspath(src)).encode("utf-8")).hexdigest()[:12]
+    dest = provision.cache_dir() / "place" / f"project_{key}_cam{int(cam_index)}.png"
+    dest.parent.mkdir(parents=True, exist_ok=True)
     out.save(dest)
     return str(dest)
 

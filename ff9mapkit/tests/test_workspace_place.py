@@ -511,6 +511,14 @@ def test_place_reword_routes_by_row(app, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _private_cache(tmp_path, monkeypatch):
+    """A project room's composited backdrop goes to the kit cache (finding P9): never the
+    developer's real one from a test."""
+    from ff9mapkit import provision
+    monkeypatch.setattr(provision, "cache_dir", lambda: tmp_path / "_kit_cache")
+
+
+@pytest.fixture(autouse=True)
 def _deterministic_qt_teardown(qt_drain):
     """Widgets die HERE, not in a forced GC pass (THE GC-CHILD LAW's teardown half)."""
     yield
@@ -1180,6 +1188,53 @@ def test_set_gateway_target_leaves_a_world_map_door_alone(app, monkeypatch):
     d._on_region_retarget(0)
     assert asked == [] and calls == [] and data["gateway"][0]["to"] == "worldmap"
     assert "world map" in d.status.text() and "Editor" in d.status.text(), d.status.text()
+
+
+def _layered_project(tmp_path):
+    """An `import --editable`-shaped project: a full-cover back layer per camera, and a tight
+    crop with its own position/size on camera 0 (extract._render_depth_groups writes exactly
+    this), plus an additive light layer."""
+    from PIL import Image
+    from ff9mapkit import build as B
+    proj_dir = tmp_path / "proj"
+    proj_dir.mkdir()
+    Image.new("RGBA", (384, 448), (200, 40, 40, 255)).save(proj_dir / "back0.png")
+    Image.new("RGBA", (384, 448), (40, 40, 200, 255)).save(proj_dir / "back1.png")
+    Image.new("RGBA", (32, 48), (40, 200, 40, 255)).save(proj_dir / "crop.png")
+    Image.new("RGBA", (384, 448), (255, 255, 255, 255)).save(proj_dir / "glow.png")
+    raw = {"field": {"id": 30990, "source_field": 2507},
+           "layers": [{"image": "back0.png", "z": 4000},
+                      {"image": "back1.png", "z": 4000, "camera": 1},
+                      {"image": "crop.png", "z": 100, "position": [200, 300], "size": [32, 48]},
+                      {"image": "glow.png", "z": 50, "shader": "PSX/FieldMap_Abr_1"}]}
+    toml = proj_dir / "EDIT.field.toml"
+    toml.write_text("", encoding="utf-8")
+    return B.FieldProject(raw, proj_dir, toml_path=toml), proj_dir
+
+
+def test_the_project_backdrop_honours_each_layers_place_and_camera(tmp_path, monkeypatch):
+    """Review findings P3 + P9. The composite resized the whole accumulator to each later layer
+    and pasted it at (0, 0): an editable fork showed one 32x48 crop stretched over the frame,
+    and camera 1's art painted over camera 0's. It also wrote .place_backdrop.png into the
+    author's project folder, one name for every camera."""
+    from PIL import Image
+    from ff9mapkit import provision
+    cache = tmp_path / "cache"
+    monkeypatch.setattr(provision, "cache_dir", lambda: cache)
+    project, proj_dir = _layered_project(tmp_path)
+    cam = guide.make_camera(26.0, 3000.0, fov_x_deg=42.0)
+    before = sorted(p.name for p in proj_dir.iterdir())
+    png0 = P._project_backdrop(project, cam, 0)
+    png1 = P._project_backdrop(project, cam, 1)
+    assert sorted(p.name for p in proj_dir.iterdir()) == before, "wrote into the project folder"
+    assert png0 and png1 and png0 != png1 and Path(png0).parent.parent == cache
+    im0, im1 = Image.open(png0).convert("RGBA"), Image.open(png1).convert("RGBA")
+    assert im0.size == (384, 448), im0.size                # the camera's frame, not the crop
+    assert im0.getpixel((10, 10)) == (200, 40, 40, 255)    # camera 0's own back layer
+    assert im0.getpixel((210, 320)) == (40, 200, 40, 255)  # the crop, at ITS position
+    assert im0.getpixel((190, 320)) == (200, 40, 40, 255)  # ...and only there
+    assert im1.getpixel((10, 10)) == (40, 40, 200, 255)    # camera 1 shows only its own art
+    assert im1.getpixel((210, 320)) == (40, 40, 200, 255)
 
 
 def test_place_speaks_of_every_lane_not_only_forks(app):
