@@ -1432,6 +1432,29 @@ def test_opening_another_image_over_unsaved_work_asks_first(app, tmp_path, monke
     assert not asked
 
 
+def test_a_region_lifted_above_the_horizon_says_how_to_get_it_back(app, tmp_path):
+    """Finding T6: a pitch change that puts a zone's corner above the horizon takes the quad off
+    the canvas, yet the Generate tooltip said to right-click it. It stays in the session (Generate
+    stays off, nothing is dropped) and the pitch brings it back -- so that is what is said."""
+    pytest.importorskip("PIL")
+    from ff9mapkit import imagefield as IF
+    doc, _ = _traced(app, tmp_path)
+    doc.tools.set_current("regions")
+    doc.rkind_btns["event"].setChecked(True)
+    cam = doc.canvas.camera()
+    doc._on_region_drawn([IF.click_to_world(cam, p) for p in
+                          [(60.0, 100.0), (140.0, 100.0), (140.0, 140.0), (60.0, 140.0)]])
+    assert len(doc.canvas._regions) == 1
+    doc.pitch.setValue(10)
+    assert doc.canvas._regions == [] and len(doc._regions) == 1   # hidden, never dropped
+    assert not doc.gen_btn.isEnabled()
+    tip = doc.gen_btn.toolTip()
+    assert "right-click" not in tip and "pitch" in tip and "Undo" in tip
+    assert "slide the pitch back" in doc.status.text()
+    doc.pitch.setValue(26)
+    assert len(doc.canvas._regions) == 1                          # the pitch restores it
+
+
 def test_the_canvas_keeps_a_usable_minimum(app):
     """The canvas had no minimum of its own (66 px, the scroll area's). A floor ABOVE what the
     window can give overpaints the rows below, so it is modest: 96 px (measured natively, the

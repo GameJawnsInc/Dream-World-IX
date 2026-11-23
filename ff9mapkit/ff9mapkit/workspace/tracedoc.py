@@ -463,8 +463,10 @@ class TraceDoc(QWidget):
             tip = ("A drawn door has NO target field — it would compile to Field(0), a "
                    "guaranteed black screen. Right-click the quad → Set gateway target.")
         elif rg_bad:
-            tip = ("A region has a corner above the horizon at this pitch — reshape or delete "
-                   "it (right-click the quad).")
+            # its quad cannot be drawn above the horizon, so there is nothing to right-click:
+            # the pitch that made it is the way back (finding T6)
+            tip = ("A region has a corner above the horizon at this pitch, so it is hidden from "
+                   "the canvas — slide the pitch back to see it again (or Undo the change).")
         else:
             tip = "Needs an open image and at least 3 traced vertices, all below the horizon."
         self.gen_btn.setToolTip(tip)
@@ -500,7 +502,9 @@ class TraceDoc(QWidget):
                     if warned:
                         warns.append(f"⚠ {warned} with law warnings")
                     if rg_bad:
-                        note += f" · {rg_bad} above the horizon"
+                        warns.append(f"⚠ {rg_bad} region{'' if rg_bad == 1 else 's'} above the "
+                                     f"horizon, hidden — slide the pitch back to see "
+                                     f"{'it' if rg_bad == 1 else 'them'}")
                 note = " · ".join(warns + [note])
         if self._project and not self._stamped:        # edits the project on disk doesn't have
             stamp = f"⚠ not stamped — Regenerate {self._project['name']} to update the project"
