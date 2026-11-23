@@ -474,7 +474,9 @@ class PlaceDoc(QWidget):
         row = QHBoxLayout(lead)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
-        self.field_label = widgets.ElideLabel("no field", "muted", min_ch=10)
+        # min_ch 24: the lead stays narrower than the tail (the floor is unchanged), but the row
+        # spills before the name is cut -- at 10 it read 'hut_int — d…' in a 1280 window
+        self.field_label = widgets.ElideLabel("no field", "muted", min_ch=24)
         # Preferred, not ElideLabel's Ignored: it takes its whole text when there is room and
         # yields to min_ch when there is not, so Load stays beside it instead of at the far end
         self.field_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
