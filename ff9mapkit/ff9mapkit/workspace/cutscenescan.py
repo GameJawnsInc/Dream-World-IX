@@ -322,6 +322,15 @@ def wrap_width(raw):
         return _text.DEFAULT_WRAP_WIDTH
 
 
+def say_as_built(speaker, text) -> str:
+    """The line the BUILD hands its wrapper for a say/open step (the build's text pass:
+    ``with_speaker(step.speaker, text)``, then ``wrap_text``): the speaker's name line, the curly
+    quotes, ``{colour}`` markup expanded to zero-width tags. The step editor's preview and the
+    storyboard strip both wrap THIS, so neither can show a line the game will not."""
+    from ..content import text as _text
+    return _text.with_speaker(speaker or None, "" if text is None else str(text))
+
+
 # --------------------------------------------------------------------- stage / storyboard
 def stage_model(raw, scene_idx: int) -> dict:
     """The CHEAP stage lane: what the canvas can draw from the raw dict alone — no walkmesh, no
@@ -442,12 +451,13 @@ def storyboard(raw, base_dir, wmesh, scene_idx: int) -> dict:
                 pos[name] = (int(anpc["pos"][0]), int(anpc["pos"][1]))
         safe = [s if isinstance(s, dict) else {} for s in steps]
         for gk, grp in enumerate(_conductor.group_parallel(safe)):
-            say, say_who, legs = None, "", []
+            say, say_who, say_spk, legs = None, "", None, []
             for i, s in grp:
                 kk = _forms.step_key(s)
                 if kk in _forms.TEXT_STEPS and say is None:
                     say = s.get(kk)
                     say_who = s.get("speaker") or s.get("actor") or ""
+                    say_spk = s.get("speaker")     # what the build attributes the line with
                 actor = s.get("actor")
                 if not actor or actor not in pos:
                     continue
@@ -467,7 +477,7 @@ def storyboard(raw, base_dir, wmesh, scene_idx: int) -> dict:
                                  "points": [pos[actor]] + pts})
                     pos[actor] = pts[-1]
             out["beats"].append({"k": gk, "step_idxs": [i for i, _s in grp],
-                                 "say": say, "say_actor": say_who,
+                                 "say": say, "say_actor": say_who, "say_speaker": say_spk,
                                  "positions": dict(pos), "legs": legs})
         # THE HONESTY LEDGER -- on the strip's face, not in a docstring.
         out["notes"] = [

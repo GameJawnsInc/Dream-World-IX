@@ -269,13 +269,46 @@ def test_the_storyboard_scrubs_beats_and_wraps_the_say_line(doc, tmp_path):
     assert doc.board_slider.maximum() == 1
     doc._show_beat(1)
     assert "beat 2 of 2" in doc.board_pos.text()
-    assert "Cid:" in doc.board_say.text()               # the speaker attribution
-    assert "Made it to the altar." in doc.board_say.text()
+    # E1: the strip shows the line the BUILD emits (name line, quotes, the build's wrap) --
+    # not an invented "Cid:" prefix
+    assert doc.board_say.text() == _as_built("Cid", "Made it to the altar.")
     assert doc.ladder._beat_marks == {2}                # ▶ sweeps the ladder
     t = _tags(doc.canvas)
     assert t["beatpos"] >= 1                            # storyboard mode draws positions
     doc.board_btn.setChecked(False)
     assert doc.ladder._beat_marks == set()
+
+
+def _preview(doc):
+    from PySide6.QtWidgets import QPlainTextEdit
+    return doc.editor.say_preview.findChild(QPlainTextEdit).toPlainText()
+
+
+def _as_built(speaker, text, raw=None):
+    """What the BUILD puts in the window for a say step: build._add's own two calls."""
+    from ff9mapkit.content import text as _text
+    from ff9mapkit import dialogue as _dlg
+    return _dlg.wrap_preview(_text.with_speaker(speaker, text),
+                             cutscenescan.wrap_width(raw or _raw()))
+
+
+def test_the_editor_preview_shows_what_the_build_emits(doc, tmp_path):
+    """E1: the preview wrapped the RAW typed text -- no speaker name line, no quotes, {colour}
+    markup measured as visible text, a typed \\n shown literally -- so it broke lines where the
+    game does not, and its 'fits' note judged a different line."""
+    _fed(doc, tmp_path)
+    doc._edit_step(2)                                  # say "Made it to the altar.", speaker Cid
+    assert _preview(doc) == _as_built("Cid", "Made it to the altar.")
+    long = "We crossed the whole glen before the dusk light faded out over the {item}hills{/}"
+    doc.editor.value_text.setPlainText(long)
+    assert _preview(doc) == _as_built("Cid", long)
+    doc.editor.x_speaker.setText("Mira")               # the speaker alone changed: re-run
+    assert _preview(doc) == _as_built("Mira", long), "the preview ignored a speaker change"
+    doc.editor.x_speaker.clear()
+    doc.editor.value_text.setPlainText("First line here\\nSecond line")   # a TYPED backslash-n
+    assert _preview(doc) == "First line here\nSecond line"
+    doc._apply_step()
+    assert doc._steps()[2]["say"] == "First line here\nSecond line", "read_step agrees"
 
 
 def test_the_storyboard_error_lane_renders_instead_of_raising(doc, tmp_path):

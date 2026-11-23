@@ -299,9 +299,8 @@ class StepEditor(QFrame):
         self.value_text.setToolTip('Multi-line: press Enter for a line break ("\\n" also works). '
                                    "Use [PAGE] for a new window.")
         v.addWidget(self.value_text)
-        self.say_preview = forms_qt._wrap_preview_panel(
-            self.value_text, lambda: self.value_text.toPlainText(),
-            wrap_width_fn or (lambda: None))
+        self.say_preview = forms_qt._wrap_preview_panel(   # what the BUILD emits, not the raw text
+            self.value_text, self._preview_text, wrap_width_fn or (lambda: None))
         v.addWidget(self.say_preview)
         self.hint = widgets.caption("")
         v.addWidget(self.hint)
@@ -331,6 +330,7 @@ class StepEditor(QFrame):
 
         self.x_speaker = _erow("speaker", "Speaker name:", QLineEdit(),
                                "optional name before the line, e.g. Vivi (or [VIVI])")
+        self.x_speaker.textChanged.connect(self.say_preview.refresh)   # the name line re-wraps
         self.x_tail = _erow("tail", "Window tail:", QLineEdit(),
                             "speech-bubble pointer corner (UPR/UPL/LOR/LOC/…); blank = default")
         self.x_style = _erow("style", "Window style:", QLineEdit(),
@@ -361,6 +361,17 @@ class StepEditor(QFrame):
 
     def _is_text(self):
         return self.current_kind() in forms.TEXT_STEPS
+
+    def _typed_text(self):
+        """The dialogue as the step will hold it: a typed backslash-n is a line break."""
+        return self.value_text.toPlainText().replace("\\n", "\n")
+
+    def _preview_text(self):
+        text = self._typed_text()
+        if not text:
+            return ""
+        sp = self.x_speaker.text().strip() if hasattr(self, "x_speaker") else ""
+        return cutscenescan.say_as_built(sp, text)
 
     def _on_kind(self, _i=0):
         k = self.current_kind()
@@ -452,8 +463,7 @@ class StepEditor(QFrame):
     def read_step(self) -> dict:
         """The step the widgets describe. Raises ValueError with the field named."""
         k = self.current_kind()
-        raw = (self.value_text.toPlainText().replace("\\n", "\n") if self._is_text()
-               else self.value_line.text())
+        raw = self._typed_text() if self._is_text() else self.value_line.text()
         step = forms.make_step(k, raw)
         a = self.actor.currentText().strip()
         if a:
@@ -1476,9 +1486,8 @@ class CutsceneDoc(QWidget):
         self.board_pos.setText(f"beat {k + 1} of {len(beats)}")
         if b["say"] is not None:
             ww = cutscenescan.wrap_width(self._merged())
-            line = _dlg.wrap_preview(b["say"], ww) if ww is not None else b["say"]
-            who = f"{b['say_actor']}:\n" if b["say_actor"] else ""
-            self.board_say.setText(who + line)
+            line = cutscenescan.say_as_built(b["say_speaker"], b["say"])   # the build's line
+            self.board_say.setText(_dlg.wrap_preview(line, ww) if ww is not None else line)
         else:
             self.board_say.setText("(no line this beat)")
         self.ladder.set_beat_marks(set(b["step_idxs"]))
