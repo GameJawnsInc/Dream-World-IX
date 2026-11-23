@@ -1547,6 +1547,35 @@ def test_a_broken_project_is_refused_before_any_state_lands(app, tmp_path):
     assert "HALL3" in doc2.status.text() and "walkmesh.obj" in doc2.status.text()
 
 
+def test_clear_acts_on_the_active_tool_and_says_so(app, tmp_path, monkeypatch):
+    """Finding T12: Clear emptied the FLOOR whatever tool was showing -- with the Regions tool
+    active it wiped the floor and left every zone. It now clears what the tool owns, its label
+    says which, and it is one undoable gesture."""
+    pytest.importorskip("PIL")
+    from ff9mapkit import imagefield as IF
+    doc, _ = _traced(app, tmp_path)
+    assert doc.clear_btn.text() == "Clear floor"
+    doc.tools.set_current("regions")
+    cam = doc.canvas.camera()
+    doc._on_region_drawn([IF.click_to_world(cam, p) for p in
+                          [(60.0, 300.0), (140.0, 300.0), (140.0, 330.0), (60.0, 330.0)]])
+    assert doc.clear_btn.text() == "Clear regions" and doc.clear_btn.isEnabled()
+    assert "region" in doc.clear_btn.toolTip()
+    floor = list(doc._floor)
+    doc.clear_btn.click()
+    assert doc._regions == [] and doc.canvas._regions == [] and doc._floor == floor
+    doc.on_undo()
+    assert len(doc._regions) == 1
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: None)
+    doc.tools.set_current("cutout")
+    doc._on_contact(230.0, 320.0)                      # (the tool returns to Floor after a contact)
+    doc.tools.set_current("cutout")
+    assert doc.clear_btn.text() == "Clear cut-outs"
+    doc.clear_btn.click()
+    assert doc._fg == [] and len(doc._regions) == 1 and doc._floor == floor
+    assert "region" in doc.undo_btn.toolTip()
+
+
 def test_the_canvas_keeps_a_usable_minimum(app):
     """The canvas had no minimum of its own (66 px, the scroll area's). A floor ABOVE what the
     window can give overpaints the rows below, so it is modest: 96 px (measured natively, the

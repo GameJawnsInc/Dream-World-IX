@@ -265,11 +265,10 @@ class TraceDoc(QWidget):
         row.addWidget(self.ev_msg)
         row.addStretch(1)
         self.undo_btn = QPushButton("Undo")
-        self.undo_btn.setToolTip("Take back the last vertex or cut-out gesture.")
+        self.undo_btn.setToolTip("Take back the last gesture (a vertex, cut-out or region).")
         self.undo_btn.clicked.connect(self.on_undo)
         row.addWidget(self.undo_btn)
-        self.clear_btn = QPushButton("Clear")
-        self.clear_btn.setToolTip("Remove every traced vertex (one Undo brings them back).")
+        self.clear_btn = QPushButton("Clear floor")      # label + tip follow the tool (_refresh)
         self.clear_btn.clicked.connect(self.on_clear)
         row.addWidget(self.clear_btn)
 
@@ -471,7 +470,10 @@ class TraceDoc(QWidget):
             tip = "Needs an open image and at least 3 traced vertices, all below the horizon."
         self.gen_btn.setToolTip(tip)
         self.undo_btn.setEnabled(bool(self._history))
-        self.clear_btn.setEnabled(bool(self._floor))
+        what, attr, tip = self._CLEARS[self.tools.current()]
+        self.clear_btn.setText(f"Clear {what}")
+        self.clear_btn.setToolTip(f"{tip} (one Undo brings them back).")
+        self.clear_btn.setEnabled(bool(getattr(self, attr)))
         for key in ("cutout", "regions"):
             self.tools.button(key).setEnabled(self._image is not None)
         self._refresh_fg_strip()
@@ -691,12 +693,21 @@ class TraceDoc(QWidget):
         self._refresh_regions()
         self._refresh()
 
+    # Clear empties what the ACTIVE tool owns -- it used to empty the floor whatever tool was
+    # showing, so with Regions active it wiped the floor and kept every zone (finding T12)
+    _CLEARS = {"floor": ("floor", "_floor", "Remove every traced floor vertex"),
+               "cutout": ("cut-outs", "_fg", "Remove every marked cut-out"),
+               "regions": ("regions", "_regions", "Remove every drawn region (gateways and events)")}
+
     def on_clear(self):
-        if not self._floor:
+        _what, attr, _tip = self._CLEARS[self.tools.current()]
+        if not getattr(self, attr):
             return
-        self._push_history()
-        self._floor = []
-        self.canvas.set_floor([])
+        self._push_history()                           # one undoable gesture
+        setattr(self, attr, [])
+        self.canvas.set_floor(self._floor)             # the host write path: no on_floor echo
+        self._refresh_cutouts()
+        self._refresh_regions()
         self._refresh()
 
     # ------------------------------------------------------------------ the tool strip
