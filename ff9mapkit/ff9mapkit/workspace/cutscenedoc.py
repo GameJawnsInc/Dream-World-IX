@@ -995,6 +995,15 @@ class CutsceneDoc(QWidget):
             if self.settings_btn.isChecked():
                 self.settings_btn.setChecked(False)
             self._close_editor()
+        elif raw is not self._raw and self.editor.scene is not None:
+            # a NEW buffer for the same field (undo / redo / reload): the editor's (scene, row)
+            # survives only if that row still holds the step it opened; else Apply would write
+            # its stale content over a different step (or raise on a row that is gone)
+            old, new = self._editor_steps(self._raw), self._editor_steps(raw)
+            i = self.editor.step_i
+            if new is None or (self.editor.insert_at is None
+                               and (old is None or new[i] != old[i])):
+                self._close_editor()
         self._member, self._raw, self._path = member, raw, path
         self._merged_fn, self._dirty = merged_fn, dirty
         if not cutscenescan.scene_rows(raw):
@@ -1008,6 +1017,8 @@ class CutsceneDoc(QWidget):
             self._reset_stage()
         self._stack.setCurrentWidget(self._content)
         self._render(refit=not same_field)
+        if same_field and self._stage_armed and self._wmesh is not None:
+            self._restage_timer.start()            # undo / redo / another tab's edit re-judge too
 
     def _merged(self) -> dict:
         return self._merged_fn() if self._merged_fn else (self._raw or {})
@@ -1245,6 +1256,18 @@ class CutsceneDoc(QWidget):
         self.editor.scene = self.editor.step_i = self.editor.insert_at = None
         self._disarm_stage_pick()
 
+    def _editor_steps(self, raw):
+        """The step list the open editor targets in ``raw``, or None when its scene -- or, in
+        edit mode, its row -- is not there."""
+        blocks = forms.all_blocks((raw or {}).get("cutscene"))
+        k = self.editor.scene
+        if k is None or not 0 <= k < len(blocks):
+            return None
+        st = blocks[k].get("steps") if isinstance(blocks[k].get("steps"), list) else []
+        if self.editor.insert_at is None and not 0 <= (self.editor.step_i or 0) < len(st):
+            return None
+        return st
+
     def _apply_step(self):
         if self._raw is None:
             return
@@ -1254,11 +1277,17 @@ class CutsceneDoc(QWidget):
             self.editor.note.setText(str(e))
             widgets.set_state(self.editor.note, "error")
             return
+        if self._editor_steps(self._raw) is None:  # an in-place writer removed the row/scene
+            self.editor.note.setText("This step is no longer in the scene (it was moved or "
+                                     "removed elsewhere) — Close, then open the step again.")
+            widgets.set_state(self.editor.note, "error")
+            return
+        k = self.editor.scene
         self.editor.note.setText("")
         widgets.set_state(self.editor.note, "")
         if self.editor.insert_at is not None:      # ADD: insert, then ADVANCE -- the next Apply
             at = self.editor.insert_at             # lands the NEXT line. The conversation loop
-            label = cutscenescan.add_step(self._raw, self._scene, at, step)   # the old form's
+            label = cutscenescan.add_step(self._raw, k, at, step)   # the old form's
             self.editor.insert_at = at + 1         # same-kind overwrite made impossible.
             self.editor.title.setText(f"New step — lands at row {self.editor.insert_at}")
             self._selected_step = at
@@ -1268,7 +1297,7 @@ class CutsceneDoc(QWidget):
             self._reveal_editor()                  # the panel just advanced a row -- keep it in view
         else:
             i = self.editor.step_i
-            label = cutscenescan.update_step(self._raw, self._scene, i, step,
+            label = cutscenescan.update_step(self._raw, k, i, step,
                                              managed=STEP_EDITOR_KEYS)
             self._selected_step = i
             self._after_edit(label)

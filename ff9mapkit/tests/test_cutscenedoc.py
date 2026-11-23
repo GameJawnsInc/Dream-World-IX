@@ -815,6 +815,105 @@ def test_settings_and_the_editor_are_mutually_exclusive(doc, tmp_path):
 
 
 # ------------------------------------------------------------------ shell: undo + one-writer
+def _glen_on_tab(win, tmp_path):
+    win.open_field(make_cutscene_field(tmp_path))
+    win.tabs.setCurrentWidget(win.cutscene_doc)
+    doc = win.cutscene_doc
+    doc.rail.setCurrentRow(1)                          # narration: [say "Dusk…", wait 30]
+    return doc
+
+
+def _scene1(win):
+    return win._doc("GLEN").data["cutscene"][1]["steps"]
+
+
+def test_undo_under_an_open_editor_never_overwrites_another_step(win, tmp_path):
+    """C2: Ctrl+Z swaps in a NEW buffer. The editor stayed aimed at its old (scene, row), so the
+    next Apply wrote its stale content over whichever step now held that row -- one step lost,
+    another duplicated -- with no sign anything had changed."""
+    doc = _glen_on_tab(win, tmp_path)
+    doc._move_step(0, +1)                              # [wait, say] -- one undo step
+    doc._edit_step(0)                                  # the editor holds the WAIT
+    assert doc.editor.value_line.text() == "30"
+    win._undo()                                        # Ctrl+Z: [say, wait] again
+    assert win.tabs.currentWidget() is doc
+    assert [forms.step_key(s) for s in _scene1(win)] == ["say", "wait"]
+    assert doc.editor.scene is None, "the editor still claims row 0, which is now another step"
+    doc._apply_step()                                  # a stray Apply must not write anything
+    assert [forms.step_key(s) for s in _scene1(win)] == ["say", "wait"]
+
+
+def test_undo_that_removes_the_edited_row_closes_the_editor(win, tmp_path):
+    """C2: the row the editor is on no longer exists -- Apply raised IndexError out of the slot
+    and the user saw nothing happen."""
+    doc = _glen_on_tab(win, tmp_path)
+    doc._add_step()
+    doc.editor.value_text.setPlainText("a third line")
+    doc._apply_step()                                  # lands at row 2 (one undo step)
+    doc._close_editor()
+    doc._edit_step(2)
+    win._undo()                                        # row 2 is gone
+    assert len(_scene1(win)) == 2
+    assert doc.editor.scene is None
+    doc._apply_step()                                  # no IndexError out of the slot
+
+
+def test_an_undo_that_leaves_the_edited_step_alone_keeps_the_editor(win, tmp_path):
+    """The other half of C2: a buffer swap that did not touch the editor's step (here an undo
+    of a Behavior-tab edit) must not throw the author's half-typed line away."""
+    doc = _glen_on_tab(win, tmp_path)
+    doc._edit_step(0)
+    doc.editor.value_text.setPlainText("half-typed rewrite")
+    data = win._doc("GLEN").data
+    data.setdefault("marker", []).append({"name": "well", "pos": [-100, -100]})
+    win._on_behavior_edit("GLEN", "add a marker")      # a real checkpointed edit elsewhere
+    win._undo()
+    win.tabs.setCurrentWidget(doc)                     # back on the tab: the feed sees the swap
+    assert doc._raw is win._doc("GLEN").data, "the doc follows the restored buffer"
+    assert doc.editor.scene == 1 and doc.editor.step_i == 0, "the editor was closed needlessly"
+    assert doc.editor.value_text.toPlainText() == "half-typed rewrite"
+    doc._apply_step()
+    assert _scene1(win)[0]["say"] == "half-typed rewrite", "Apply lands in the RESTORED buffer"
+    assert "wait" in _scene1(win)[1]
+
+
+def test_undo_re_judges_an_armed_staging(win, tmp_path):
+    """C3: once the staging is armed, Ctrl+Z brought the stalling walk back while the inspector
+    still said every walk reaches its target -- a same-field re-feed never re-judged."""
+    p = make_cutscene_field(tmp_path)
+    p.write_text(FIELD_TOML.replace('walk = "altar"', "walk = [2000, 2000]"), encoding="utf-8")
+    win.open_field(p)
+    win.tabs.setCurrentWidget(win.cutscene_doc)
+    doc = win.cutscene_doc
+    doc.stage_now(sync=True)
+    assert "staging problem" in doc.stage_note.text()
+    doc._edit_step(0)
+    doc.editor.value_line.setText("altar")             # the fix, through the editor
+    doc._apply_step()
+    doc._restage_timer.stop()
+    doc.stage_now(sync=True, warm=True)
+    assert "✓" in doc.stage_note.text()
+    win._undo()                                        # the stall is back in the document
+    assert win._doc("GLEN").data["cutscene"][0]["steps"][0]["walk"] == [2000, 2000]
+    assert doc._restage_timer.isActive(), "the undo did not re-judge the armed staging"
+    doc._restage_timer.stop()
+    doc._restage()                                     # what the debounce fires
+    _wait_stage(doc)
+    assert "staging problem" in doc.stage_note.text()
+
+
+def test_apply_refuses_when_an_in_place_writer_removed_its_row(doc, tmp_path):
+    """C2's last guard: a writer that edits the SAME buffer in place (the Editor tree's delete)
+    gives show_field no buffer swap to notice; Apply itself must refuse, and say so."""
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc._edit_step(1)                                  # the wait
+    cutscenescan.remove_step(doc._raw, 1, 1)           # the in-place writer
+    doc._apply_step()                                  # must not raise IndexError
+    assert len(doc._steps()) == 1 and "say" in doc._steps()[0]
+    assert doc.editor.note.text(), "the refusal is SAID"
+
+
 def test_a_doc_edit_lands_by_reference_dirty_and_one_undo_step(win, tmp_path):
     p = make_cutscene_field(tmp_path)
     win.open_field(p)
