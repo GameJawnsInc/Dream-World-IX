@@ -1076,3 +1076,17 @@ def test_minimising_the_window_does_not_drop_the_room(app, tmp_path):
     assert started == [key]
     d.hideEvent(QHideEvent())                          # ...whereas leaving the tab does drop it
     assert key not in d._bundles and not d.canvas._surface_tris
+
+
+# --------------------------------------------------------------- batch 3
+def test_a_prop_placed_after_a_delete_never_reuses_a_live_name():
+    """Review finding P13. place_prop named by len(): two props, delete prop0, place again ->
+    two rows called prop1, which neither the tree nor the undo label could tell apart."""
+    data = {}
+    P.place_prop(data, 0, 0)
+    P.place_prop(data, 10, 10)
+    del data["prop"][0]
+    label = P.place_prop(data, 20, 20)
+    names = [p["name"] for p in data["prop"]]
+    assert len(set(names)) == len(names), names
+    assert data["prop"][-1]["name"] in label            # the undo label says WHICH prop

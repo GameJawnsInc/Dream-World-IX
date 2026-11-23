@@ -72,9 +72,10 @@ def place_npc(data: dict, x, z) -> str:
 
 def place_prop(data: dict, x, z) -> str:
     lst = data.setdefault("prop", [])
-    lst.append({"name": f"prop{len(lst)}", "prop": _DEFAULT_PROP,
+    nm = _fresh_name("prop", lst)                   # never len(): after a delete that is a live name
+    lst.append({"name": nm, "prop": _DEFAULT_PROP,
                 "pos": [int(round(x)), int(round(z))]})
-    return "place prop"
+    return f"place prop {nm}"
 
 
 def set_spawn(data: dict, x, z) -> str:
