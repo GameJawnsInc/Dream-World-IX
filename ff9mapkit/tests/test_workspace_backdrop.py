@@ -1288,3 +1288,66 @@ def test_labels_renegotiate_on_a_ctrl_wheel_zoom(app):
     c._decollide_labels()
     assert [_home(c, lab) for lab in c._labels] == after        # already negotiated
     assert after != before
+
+
+# --------------------------------------------------------------- batch 3, the final review
+def test_a_right_click_on_a_zone_label_opens_that_zones_menu(app, monkeypatch):
+    """Making labels non-grabbable (P21) took the 'regionlabel' tag off them too, so the context
+    menu's own label branch was dead: a right-click on the label a NO TARGET warning is written
+    on did nothing (or opened whichever quad lay under it). A zone label keeps its tag -- no
+    press loop resolves it, so it is still not a grab handle -- and carries the zone's tooltip,
+    since the warning mark is drawn on the label and the label may sit outside its quad."""
+    from PySide6.QtGui import QContextMenuEvent
+    c, *_ = _region_canvas(app)
+    thin = [(-300.0, 2600.0), (300.0, 2600.0), (300.0, 2700.0), (-300.0, 2700.0)]
+    c.set_regions([{"i": 0, "quad": thin, "label": "door0", "kind": "gateway",
+                    "warn": "NO TARGET"}])
+    c._fit()
+    lab = next(lb for lb in c._labels if lb["anchor"].data(0) == "regionlabel")
+    tl, w, h = _label_rect(c, lab)
+    pos = QPoint(int(tl.x() + w / 2), int(tl.y() + h / 2))
+    under = [it.data(0) for it in c.items(pos)]
+    assert not {"regionquad", "regionedge", "regionpt"} & set(under), under   # the premise: the
+    #                                                     label sits OUTSIDE its own thin quad
+    opened = []
+    monkeypatch.setattr(c, "_region_menu", lambda i, gp: opened.append(i))
+    c.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Reason.Mouse, pos, c.mapToGlobal(pos)))
+    assert opened == [0]
+    assert "NO TARGET" in lab["plate"].toolTip() and "NO TARGET" in lab["text"].toolTip()
+    sp = c.mapToScene(pos)                             # ...and a LEFT press on it grabs nothing
+    _mouse(c, "press", (sp.x(), sp.y()))
+    assert c._drag is None or c._drag.get("kind") not in ("regionpt", "regionquad")
+    _mouse(c, "release", (sp.x(), sp.y()))
+
+
+def test_a_marker_label_stays_beside_its_own_marker(app):
+    """P21: with only two markers on the art, the NPC's name was lifted a tier and landed beside
+    the PROP -- nearer the prop's square than its own circle, so the square read as 'Mira'. A
+    label whose home spot is taken tries the other side of its own glyph before it climbs."""
+    c, _, _ = _place_canvas(app, [_LOWER])
+    c._fit()
+
+    def world_at(sx, sy):
+        s = c.mapToScene(QPoint(int(sx), int(sy)))
+        x, z = IF.click_to_world(c.camera(), (s.x(), s.y()))
+        return (x, 0.0, z)
+
+    npc = {"pos": world_at(220, 330), "label": "Mira", "kind": "npc"}
+    c.set_markers([npc])
+    tl, w, h = _label_rect(c, c._labels[0])            # Mira's home plate, alone on the art...
+    prop = {"pos": world_at(tl.x() + w / 2, tl.y() + h / 2), "label": "prop0", "kind": "prop"}
+    c.set_markers([npc, prop])                         # ...and a prop set right where it sat
+    labs = {lb["text"].text(): lb for lb in c._labels}
+    tl, w, h = _label_rect(c, labs["Mira"])
+    centre = QPointF(tl.x() + w / 2, tl.y() + h / 2)
+    own = c.mapFromScene(labs["Mira"]["anchor"].pos())
+    other = c.mapFromScene(labs["prop0"]["anchor"].pos())
+
+    def dist(a, b):
+        return math.hypot(a.x() - b.x(), a.y() - b.y())
+
+    assert dist(centre, own) < dist(centre, other), (dist(centre, own), dist(centre, other))
+    from PySide6.QtCore import QRectF
+    plate = QRectF(tl.x(), tl.y(), w, h)
+    for anchor, box in c._glyphs:                      # and it still hides no handle
+        assert not plate.intersects(box.translated(c.mapFromScene(anchor.pos()).toPointF()))

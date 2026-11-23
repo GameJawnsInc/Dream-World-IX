@@ -347,3 +347,42 @@ def test_a_disabled_tool_segment_looks_disabled(app, theme):
 
     assert ink_contrast(b) < ink_contrast(a), theme
     host.hide()
+
+
+# --------------------------------------------------------------- batch 3, the final review
+@pytest.mark.parametrize("theme", ["light", "dark", "mist", "dracula"])
+@pytest.mark.parametrize("kind", ["radio", "check"])
+def test_a_disabled_radio_or_checkbox_label_looks_disabled(app, theme, kind):
+    """Beside a dimmed tool segment (T28), a disabled NPC / Prop radio kept its label at full
+    contrast: only the indicator dimmed, so the row read 'Place is off' and 'NPC is ready' at
+    once. Measured on the LABEL alone (the indicator already differed)."""
+    from PySide6.QtCore import QPoint, QRect
+    from PySide6.QtWidgets import QCheckBox, QRadioButton, QVBoxLayout, QWidget
+
+    from ff9mapkit.editor.theme import _contrast as contrast
+    from ff9mapkit.workspace.shell import _apply_app_theme
+    from ff9mapkit.workspace.style import qss
+
+    pal = pick_palette(theme)
+    _apply_app_theme(app, pal)
+    host = QWidget()
+    host.setStyleSheet(qss(pal))
+    lay = QVBoxLayout(host)
+    cls = QRadioButton if kind == "radio" else QCheckBox
+    on, off = cls("Arrival"), cls("Arrival")
+    off.setEnabled(False)
+    lay.addWidget(on)
+    lay.addWidget(off)
+    host.show()
+    app.processEvents()
+
+    def label_ink(w):
+        left = w.height() + 8                          # past the indicator and its spacing
+        img = host.grab(QRect(w.mapTo(host, QPoint(left, 0)),
+                              w.size() - type(w.size())(left, 0))).toImage()
+        ground = img.pixelColor(img.width() - 2, img.height() // 2)
+        return max(contrast(img.pixelColor(x, y).name(), ground.name())
+                   for y in range(img.height()) for x in range(img.width()))
+
+    assert label_ink(off) < label_ink(on) - 1.0, (theme, kind, label_ink(on), label_ink(off))
+    host.hide()

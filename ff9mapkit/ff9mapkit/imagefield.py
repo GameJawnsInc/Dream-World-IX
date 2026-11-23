@@ -572,6 +572,18 @@ def open_rgb(path):
         return im.convert("RGB")
 
 
+def exif_turned(path) -> bool:
+    """True when the photo carries an EXIF orientation that turns it. :func:`open_rgb` shows and
+    builds such a photo upright; the kit before it used the raw, unturned pixels -- so a session
+    record written back then holds its coordinates in a frame the photo no longer opens in."""
+    from PIL import Image
+    try:
+        with Image.open(path) as src:
+            return src.getexif().get(0x0112, 1) not in (0, 1)
+    except (OSError, ValueError):
+        return False
+
+
 def _cover_crop(img, w: int, h: int):
     """Cover-crop ``img`` to exactly w x h: scale to fill the aspect, centre-crop the overflow."""
     from PIL import Image
@@ -846,7 +858,6 @@ def write_trace_html(image_path, out_html, *, pitch: float = DEFAULT_PITCH, fov:
     import base64
     import io
     import json
-    from PIL import Image
     src = open_rgb(image_path)
     disp = _cover_crop(src, CANVAS_W * 2, CANVAS_H * 2)     # the same crop geometry, at display res
     buf = io.BytesIO()
@@ -1113,7 +1124,7 @@ def check_field_name(name) -> str:
     from .hub import _NAME_RE
     if not isinstance(name, str) or not _NAME_RE.match(name):
         raise ImageFieldError(f"field name {name!r} must be letters, digits and underscores only "
-                              f"(it names <name>.field.toml and the field's EVT_/FBG_ files)")
+                              f"(it becomes the project's file name)")
     return name
 
 
@@ -1133,9 +1144,11 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
     MERGES (:func:`merge_project_toml`) — hand-authored tables survive; ``force`` discards them.
     Returns a manifest dict (incl. ``kept``/``retaken`` from the merge)."""
     from PIL import Image
-    check_field_name(name)                          # before any write (finding T7)
     out = Path(out_dir)
     toml_path = out / f"{name}.field.toml"
+    if not toml_path.is_file():                     # before any write (finding T7) -- and only for
+        check_field_name(name)                      # a name that MINTS a file: a project built
+        #                                             before the rule keeps the name it has
     # The unparseable-refusal fires HERE — and EVERY write below is deferred until every
     # refusal (this one, the Int16 bound, a zone above the horizon, the merge itself) has
     # passed: a refusal must never leave a half-rewritten project (the floorplan emit's rule,

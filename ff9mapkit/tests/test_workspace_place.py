@@ -1535,3 +1535,67 @@ def test_a_walk_out_rotate_is_undone_as_a_rotate(app, monkeypatch):
     data["gateway"][0]["zone"] = [[0, 500], [100, 500], [100, 600], [0, 600], [0, 600]]
     assert P.move_zone(data, "gateway", 0, [(100, 500), (100, 600), (0, 600), (0, 500)]) \
         == "rotate walk-out edge of door0"              # the stored doubled form rotates too
+
+
+# --------------------------------------------------------------- batch 3, the final review
+def test_the_blender_refusals_speak_in_words_not_toml_keys(app, tmp_path):
+    """The refusals for a Blender-owned row printed the raw key (\"door0's to comes from the
+    scene.toml\", '[player] spawn comes from...') and called an unnamed zone 'this one'."""
+    d, _ = _doc(app)
+    assert "door0's target" in d._scene_refusal(
+        {"scene": {"name": "door0", "to": 4005}, "data_index": 0}, "to")
+    assert "'s to " not in d._scene_refusal(
+        {"scene": {"name": "door0", "to": 4005}, "data_index": 0}, "to")
+    assert "this zone" in d._scene_refusal({"scene": None, "data_index": None}, "zone")
+    for key in ("spawn", "arrival"):
+        words = d._blender_says(d._PLAYER_WORDS[key])
+        assert "[player]" not in words and "scene wins" not in words, words
+
+
+def test_the_regions_status_names_what_is_drawn(app, tmp_path):
+    """The canvas no longer numbers a finished quad's corners, and the status still said
+    'corners 0\u21921 = the walk-out edge'; it also called one thing a zone, a region and a quad
+    in a single line."""
+    d, _ = _doc(app)
+    d.show_field("FORK", {"field": {"source_field": 351},
+                          "gateway": [{"name": "door0", "to": 4005,
+                                       "zone": [[-300, 900], [300, 900], [300, 1500], [-300, 1500]]}]},
+                 Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    d.tools.set_current("regions")
+    d.rkind_btns["gateway"].setChecked(True)
+    QApplication.processEvents()
+    text = d.status.text()
+    assert "walk-out" in text and "first two corners" in text, text
+    assert "corners 0" not in text and "quad" not in text and "region" not in text, text
+    assert "1 zone" in text, text
+
+
+def test_a_world_map_id_warning_and_door_read_plainly(app, tmp_path):
+    """The reserved-id warning quoted the engine's table names, and the world-map door refusal
+    printed a Python repr."""
+    row = P.region_rows({"gateway": [{"name": "d", "to": 9005,
+                                      "zone": [[-300, 900], [300, 900], [300, 1500], [-300, 1500]]}]})[0]
+    assert "world-map hole" in row["warn"]
+    assert "EventDB" not in row["warn"] and "EVT_" not in row["warn"], row["warn"]
+    d, _ = _doc(app)
+    data = {"field": {"source_field": 351},
+            "gateway": [{"name": "out", "to": "worldmap",
+                         "zone": [[-300, 900], [300, 900], [300, 1500], [-300, 1500]]}]}
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    d.tools.set_current("regions")
+    QApplication.processEvents()
+    d._on_region_retarget(0)
+    assert "world map" in d.status.text() and "'worldmap'" not in d.status.text(), d.status.text()
+
+
+def test_each_place_tool_says_the_shape_it_draws(app):
+    """Markers speak their kind by shape (P25), and nothing in the app said which shape is
+    which: the tool's own tooltip does."""
+    d, _ = _doc(app)
+    for key, shape in (("npc", "circle"), ("prop", "square"), ("spawn", "triangle"),
+                       ("arrival", "diamond")):
+        assert shape in d.mode_btns[key].toolTip(), (key, d.mode_btns[key].toolTip())

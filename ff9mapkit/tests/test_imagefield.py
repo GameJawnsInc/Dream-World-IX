@@ -1163,3 +1163,44 @@ def test_claimed_and_stale_rows_are_named_in_removed(tmp_path):
                                gateways=["4005@60,300;140,300;140,330;60,330"])
     assert "[[gateway]] traced_door1" in man["removed"]
     assert "[[event]] traced_zone0" in man["removed"]  # the session dropped its event too
+
+
+# --------------------------------------------------------------- batch 3, the final review
+def test_an_existing_project_keeps_its_name_through_a_regenerate(tmp_path):
+    """The name rule (T7) guards the mint of a new <name>.field.toml. A project built before the
+    rule may be named attic-room; refusing its own name made it impossible to regenerate. A NEW
+    file under such a name is still refused before anything is written."""
+    from pathlib import Path
+
+    from PIL import Image
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (800, 600), (90, 80, 70)).save(photo)
+    floor = [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)]
+    out = tmp_path / "proj"
+    made = Path(IF.build_image_field(photo, floor, out, name="ATTIC", field_id=30779)["toml"])
+    old = made.with_name("attic-room.field.toml")
+    old.write_text(made.read_text(encoding="utf-8").replace('name = "ATTIC"', 'name = "attic-room"'),
+                   encoding="utf-8")
+    made.unlink()
+    moved = [(120.0, 210.0)] + floor[1:]
+    man = IF.build_image_field(photo, moved, out, name="attic-room", field_id=30779)
+    assert Path(man["toml"]) == old and old.is_file()
+    with pytest.raises(IF.ImageFieldError, match="letters, digits and underscores"):
+        IF.build_image_field(photo, floor, tmp_path / "fresh", name="attic-room", field_id=30779)
+    assert not (tmp_path / "fresh").exists()
+
+
+def test_exif_turned_reads_the_orientation_tag(tmp_path):
+    from PIL import Image
+    plain = tmp_path / "plain.png"
+    Image.new("RGB", (8, 6)).save(plain)
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    turned = tmp_path / "turned.jpg"
+    Image.new("RGB", (8, 6)).save(turned, exif=exif)
+    exif[0x0112] = 1
+    upright = tmp_path / "upright.jpg"
+    Image.new("RGB", (8, 6)).save(upright, exif=exif)
+    assert IF.exif_turned(turned) is True
+    assert IF.exif_turned(plain) is False and IF.exif_turned(upright) is False
+    assert IF.exif_turned(tmp_path / "gone.jpg") is False

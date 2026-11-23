@@ -267,8 +267,9 @@ class TraceDoc(QWidget):
                                "per zone as you draw it; right-click a drawn zone to reword it). "
                                "Generate writes it into the project's field.toml and keeps it in "
                                "its .trace.json.")
-        row.addWidget(self.ev_msg, 4)                  # takes most of the spare width (a line)
-        row.addStretch(1)
+        row.addWidget(self.ev_msg, 4)                  # takes the spare width (a line of words);
+        row.addStretch(0)                              # the zero-stretch spacer only fills the
+        #                                                row when the box is hidden (Gateway mode)
 
         # the TAIL: rung 2's cut-out strip (hidden until one exists — canvas height is precious)
         # + the gesture verbs. Undo/Clear ride here too, so the row's floor is the wider HALF,
@@ -318,7 +319,6 @@ class TraceDoc(QWidget):
         fg_row.addWidget(self.clear_btn)
         self.tool_row = widgets.SpillRow(lead, self._fg_tail, margins=(0, 0, 0, 0))
         root.addWidget(self.tool_row)
-        self.tool_row.installEventFilter(self)         # its height moves the canvas: re-fit
         self._fg_widgets = (self.fg_box, self.fg_attach_btn, self.fg_remove_btn, self.fg_show)
 
         self.canvas = BackdropCanvas(pal, scale=scale, on_floor=self._on_floor)
@@ -718,6 +718,7 @@ class TraceDoc(QWidget):
         if not self._history:
             return
         snap = self._history.pop()
+        self._stamped = False                          # the canvas left what the last Generate wrote
         self._floor = list(snap["floor"])
         self._fg = [dict(f) for f in snap["fg"]]
         self._regions = [dict(r) for r in snap.get("regions", [])]
@@ -730,7 +731,7 @@ class TraceDoc(QWidget):
     # showing, so with Regions active it wiped the floor and kept every zone (finding T12)
     _CLEARS = {"floor": ("floor", "_floor", "Remove every traced floor vertex"),
                "cutout": ("cut-outs", "_fg", "Remove every marked cut-out"),
-               "regions": ("regions", "_regions", "Remove every drawn region (gateways and events)")}
+               "regions": ("regions", "_regions", "Remove every drawn zone, gateways and events")}
 
     def on_clear(self):
         _what, attr, _tip = self._CLEARS[self.tools.current()]
@@ -771,17 +772,6 @@ class TraceDoc(QWidget):
         for w in (self.gw_to_label, self.gw_to, self.gw_ent_label, self.gw_ent):
             w.setVisible(gw)
         self.ev_msg.setVisible(on and not gw)
-
-    def eventFilter(self, obj, ev):                # noqa: N802 (Qt override)
-        """The tools row changed HEIGHT (a tool switch or the cut-out strip spilled it onto a
-        second line, or back): the canvas gained or lost that height but kept its old fit, and
-        the zones at the foot of the art fell out of view (review of T23) -- re-fit the frame."""
-        from PySide6.QtCore import QEvent
-        if (obj is getattr(self, "tool_row", None) and ev.type() == QEvent.Type.Resize
-                and getattr(self, "canvas", None) is not None
-                and ev.oldSize().height() > 0 and ev.oldSize().height() != ev.size().height()):
-            self.canvas.set_backdrop(self._pixmap, self._camera(), refit=True)
-        return super().eventFilter(obj, ev)
 
     # ------------------------------------------------------------------ rung 4: trigger regions
     def _region_worlds(self, quad_px):
@@ -840,8 +830,8 @@ class TraceDoc(QWidget):
         if any(not (-32767 <= c <= 32767) for w in quad_world for c in w):
             # the build packs zone corners as Int16 (the floor's own bound): refuse at the click,
             # not after a Generate (finding T9)
-            self._refresh("That zone reaches past the Int16 world bound (too far up the photo at "
-                          "this pitch) — draw it lower, or raise the pitch.", "warn")
+            self._refresh("That zone reaches too far up the photo for the game's world at this "
+                          "pitch — draw it lower, or raise the pitch.", "warn")
             return
         quad_px = [tuple(round(v, 1) for v in imagefield.world_to_click(cam, w))
                    for w in quad_world]
@@ -855,6 +845,8 @@ class TraceDoc(QWidget):
         note = "drew a gateway zone" if kind == "gateway" else "drew an event zone"
         if kind == "gateway" and not self.gw_to.value():
             note += " — set its target field id (the 'to field' box)"
+        elif kind == "event" and not self.ev_msg.text().strip():
+            note += " — it has no words yet: right-click it → Set message"
         self._refresh(note)
 
     def _on_region_changed(self, i, quad_world):
@@ -1007,11 +999,16 @@ class TraceDoc(QWidget):
             self._refresh(str(e), "error")
             return
         name = self.name_box.text().strip() or "PICTURE"
-        try:
-            imagefield.check_field_name(name)          # the backend's own rule, asked first (T7)
-        except imagefield.ImageFieldError as e:
-            self._refresh(str(e), "error")
-            return
+        if self._project is None or name != self._project["name"]:
+            # the backend's own rule, asked first (T7) -- for a name that would MINT a file. A
+            # project built before the rule may be called attic-room: refusing its own name left
+            # it with no Name that could regenerate it (the one-field-per-folder refusal below
+            # refuses every other)
+            try:
+                imagefield.check_field_name(name)
+            except imagefield.ImageFieldError as e:
+                self._refresh(str(e), "error")
+                return
         first = self._project is None                 # only the FIRST Generate opens the
         #                                                result in the Editor; a regenerate
         #                                                never yanks the author off this canvas
@@ -1152,7 +1149,7 @@ class TraceDoc(QWidget):
                   for f in self._fg]
             held = sorted(Path(out).glob("*.trace.json"))
             (held[0] if held else Path(out) / f"{self._image.stem}.trace.json").write_text(json.dumps({
-                "image": str(self._image), "pitch": self.pitch.value(),
+                "image": str(self._image), "upright": True, "pitch": self.pitch.value(),
                 "distance": self._distance, "fov": self._fov,
                 "floor": [list(p) for p in self._floor], "fg": fg,
                 "regions": [{"kind": r["kind"], "to": r.get("to", 0),
@@ -1171,14 +1168,26 @@ class TraceDoc(QWidget):
         import json
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         photo = Path(str(data.get("image") or ""))
-        if not photo.is_file():                        # moved, deleted, another machine (T10):
-            tomls = sorted(Path(path).parent.glob("*.field.toml"))   # the project's own art is
-            if not tomls:                                           # the exact crop -- rebuild
-                raise ValueError(f"its source photo {photo} is missing (moved or deleted), and "
-                                 f"this folder has no field.toml to rebuild the session from")
-            self.load_project(tomls[0], sidecar=False,
-                              lead=f"⚠ the source photo {photo.name} is missing — reopened from "
-                                   f"the project's own art (art/base.png).")
+        why = lead = ""
+        if not photo.is_file():                        # moved, deleted, another machine (T10)
+            why = f"its source photo {photo} is missing (moved or deleted)"
+            lead = (f"⚠ the source photo {photo.name} is missing — reopened from the project's "
+                    f"own art (art/base.png).")
+        elif not data.get("upright") and imagefield.exif_turned(photo):
+            # A record from before the kit turned phone photos upright (T19) holds its floor,
+            # zones and contacts in the photo's RAW, sideways frame. Under the turned photo they
+            # land on the wrong part of the picture, armed as in sync, and the next Generate
+            # would rotate the art under an unchanged walkmesh.
+            why = f"it was traced on {photo.name} before the kit turned sideways photos upright"
+            lead = (f"⚠ {photo.name} is stored sideways, and this project was traced before the "
+                    f"kit turned such photos upright — reopened from the project's own art "
+                    f"(art/base.png), so the floor stays where you drew it.")
+        if why:                                        # the project's own art IS the frame the
+            tomls = sorted(Path(path).parent.glob("*.field.toml"))   # record was traced on
+            if not tomls:
+                raise ValueError(f"{why}, and this folder has no field.toml to rebuild the "
+                                 f"session from")
+            self.load_project(tomls[0], sidecar=False, lead=lead)
             return
         self.load_image(photo)                         # clears floor/fg/history/project
         self._distance = float(data.get("distance", imagefield.DEFAULT_DISTANCE))

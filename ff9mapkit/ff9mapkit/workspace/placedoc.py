@@ -36,13 +36,12 @@ and the surface matches what the build ships) and touches no game install.
 
 from __future__ import annotations
 
-import math
 import os
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QSize, Qt, Signal
-from PySide6.QtGui import QCursor, QFontMetricsF, QPixmap
+from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtGui import QCursor, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup, QComboBox, QHBoxLayout, QLabel, QMenu, QPushButton, QRadioButton,
     QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
@@ -214,7 +213,8 @@ def region_rows(data: dict) -> list:
                 try:                                 # the band owner judges a custom id (a REAL
                     pack.check_custom_id(to, "target")   # field id below the band is a legal target)
                 except ValueError as e:
-                    warns.append(f"{str(e).split(' -- ')[0]} — the door black-screens in-game; "
+                    why = str(e).split(" -- ")[0].split(" (")[0]   # the band, not the engine's
+                    warns.append(f"{why} — the door black-screens in-game; "   # own table names
                                  "right-click it → Set gateway target")
         else:
             ev = (data.get("event", []) or [])[r["index"]]
@@ -263,18 +263,6 @@ def content_markers(data: dict) -> list:
 # The render-frame height resolver moved to the pure home (the canvas needs it too, for
 # projecting zone corners); the name stays importable here — call sites and fences hold.
 floor_y_at = imagefield.floor_y_at
-
-
-class _FieldLabel(widgets.ElideLabel):
-    """The control row's field name. ElideLabel's sizeHint is the ROUNDED integer advance, but
-    its elide tests the real (fractional) one against that width: at 150% Segoe UI the hint was
-    305+2 while elidedText needed 306, so the label got exactly its hint and still read
-    'donor field #3…' with hundreds of px free (review of P17). Ask for the ceiling instead."""
-
-    def sizeHint(self):
-        hint = super().sizeHint()
-        adv = QFontMetricsF(self.font()).horizontalAdvance(self.fullText())
-        return QSize(max(hint.width(), math.ceil(adv) + 3), hint.height())
 
 
 # --------------------------------------------------------------------- the async surface load
@@ -440,14 +428,14 @@ class PlaceDoc(QWidget):
 
     MODES = (("npc", "NPC"), ("prop", "Prop"), ("spawn", "Spawn"), ("arrival", "Arrival"))
     MODE_TIPS = {
-        "npc": "Click the floor to stand an NPC there. It starts as a silent Vivi; give it a "
-               "model and words in the Editor (NPCs).",
-        "prop": "Click the floor to set a prop there. It starts as a barrel; pick its model in "
-                "the Editor (Props).",
+        "npc": "Click the floor to stand an NPC there, drawn as a circle. It starts as a silent "
+               "Vivi; give it a model and words in the Editor (NPCs).",
+        "prop": "Click the floor to set a prop there, drawn as a square. It starts as a barrel; "
+                "pick its model in the Editor (Props).",
         "spawn": "Where the player stands when the field loads without coming through a door "
-                 "(New Game, a warp): the default entry point.",
+                 "(New Game, a warp): the default entry point. Drawn as a triangle.",
         "arrival": "Where the player lands coming in through a door: one spot per entrance "
-                   "number, the number the source field's gateway sends.",
+                   "number, the number the source field's gateway sends. Drawn as a diamond.",
     }
 
     def __init__(self, pal, *, on_edit, scale=100):
@@ -489,7 +477,7 @@ class PlaceDoc(QWidget):
         row.setSpacing(8)
         # min_ch 24: the lead stays narrower than the tail (the floor is unchanged), but the row
         # spills before the name is cut -- at 10 it read 'hut_int — d…' in a 1280 window
-        self.field_label = _FieldLabel("no field", "muted", min_ch=24)
+        self.field_label = widgets.ElideLabel("no field", "muted", min_ch=24)
         # Preferred, not ElideLabel's Ignored: it takes its whole text when there is room and
         # yields to min_ch when there is not, so Load stays beside it instead of at the far end
         self.field_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
@@ -927,10 +915,14 @@ class PlaceDoc(QWidget):
         pl = self._scene.get("player")
         return isinstance(pl, dict) and key in pl
 
+    # the author's words for what a scene.toml key sets (never the key itself)
+    _SCENE_WORDS = {"to": "target", "zone": "zone", "message": "message", "entrance": "entrance"}
+    _PLAYER_WORDS = {"spawn": "the spawn point", "arrival": "the arrival points"}
+
     @staticmethod
     def _blender_says(what):
-        return (f"Placed in Blender — {what} comes from the scene.toml (scene wins at build). "
-                "Change it in Blender and re-export; F5 to refresh.")
+        return (f"Placed in Blender — the scene.toml sets {what}, so a change here would not "
+                "ship. Change it in Blender and re-export, then press F5.")
 
     def _scene_refusal(self, r, key):
         """Why Place must not write ``key`` of canvas row ``r`` (None = delete it), else None."""
@@ -938,18 +930,18 @@ class PlaceDoc(QWidget):
         # No field.toml row to write, named or NOT: the add-on writes no name= for an unnamed
         # gateway or event, so a scene-only row need not match a scene name (review of P2).
         if r.get("data_index") is None:
-            name = (srow or {}).get("name") or "this one"
+            name = (srow or {}).get("name") or "this zone"
             return (f"Placed in Blender — {name} lives only in the scene.toml; change or delete "
-                    "it in Blender and re-export (F5 to refresh).")
+                    "it in Blender and re-export, then press F5.")
         if srow is None:
             return None
         name = srow.get("name")
         if key is None:
             return (f"Placed in Blender — {name}'s zone comes from the scene.toml, so deleting it "
-                    "here would still ship the scene's one. Delete it in Blender and re-export; "
-                    "F5 to refresh.")
+                    "here would still ship the scene's one. Delete it in Blender and re-export, "
+                    "then press F5.")
         if key in srow:
-            return self._blender_says(f"{name}'s {key}")
+            return self._blender_says(f"{name}'s {self._SCENE_WORDS.get(key, key)}")
         return None
 
     def _refuse_for_scene(self, r, key) -> bool:
@@ -1035,8 +1027,8 @@ class PlaceDoc(QWidget):
             return
         cur = (self._data.get("gateway", []) or [])[r["data_index"]].get("to")
         if cur is not None and not isinstance(cur, int):   # "worldmap" (or any non-id): the id
-            self._refresh(f"{r['label']} goes to the world map ({cur!r}), not a field — change "   # dialog
-                          "where it leads in the Editor form (Gateways).", "warn")   # cannot say it
+            self._refresh(f"{r['label']} leads to the world map, not a field — change where it "
+                          "leads in the Editor form (Gateways).", "warn")   # (the id dialog cannot say it)
             return
         to = self._ask_field_id(cur or 0)
         if to is None:
@@ -1117,7 +1109,7 @@ class PlaceDoc(QWidget):
             for key in ("spawn", "arrival"):
                 if self._scene_player(key):
                     self.mode_btns[key].setEnabled(False)
-                    self.mode_btns[key].setToolTip(self._blender_says(f"[player] {key}"))
+                    self.mode_btns[key].setToolTip(self._blender_says(self._PLAYER_WORDS[key]))
                     if self._mode() == key:
                         self.mode_btns["npc"].setChecked(True)
         self._on_mode_toggled()
@@ -1156,7 +1148,7 @@ class PlaceDoc(QWidget):
         x, z = row["xz"]
         mode = self._mode()
         if mode in ("spawn", "arrival") and self._scene_player(mode):
-            self._refresh(self._blender_says(f"[player] {mode}"), "warn")
+            self._refresh(self._blender_says(self._PLAYER_WORDS[mode]), "warn")
             return
         if mode == "npc":
             label = place_npc(self._data, x, z, taken=self._scene_names("npc"))
@@ -1220,14 +1212,14 @@ class PlaceDoc(QWidget):
             warned = sum(1 for r in self._region_rows_cache if r.get("warn"))
             gateway = self.rkind_btns["gateway"].isChecked()
             note = (f"Click 4 corners to draw {'a gateway' if gateway else 'an event'} zone · "
-                    f"{n} region{'' if n == 1 else 's'}")
+                    f"{n} zone{'' if n == 1 else 's'}")
             if warned:
-                note += f" · ⚠ {warned} with law warnings (hover a marked quad)"
+                note += f" · ⚠ {warned} with law warnings (hover a marked zone)"
             if gateway:
-                note += (" · corners 0→1 = the walk-out edge (right-click a quad to rotate "
-                         "or delete it)")
+                note += (" · your first two corners make the walk-out edge, drawn thick with an "
+                         "arrow (right-click a zone to rotate or delete it)")
             else:
-                note += " · right-click a quad to set its message or delete it"
+                note += " · right-click a zone to set its message or delete it"
             if self._verbatim:
                 note += " · verbatim fork: new content seats below the donor's party band"
         elif not note:

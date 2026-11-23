@@ -246,10 +246,11 @@ class BackdropCanvas(QGraphicsView):
     def _ring_pen():
         return QPen(QColor(255, 255, 255), 1.4)
 
-    def _label(self, anchor, text, ink, dx=6, dy=None):
+    def _label(self, anchor, text, ink, dx=6, dy=None, tip=None):
         """On-art text: an opaque surface plate + an ink fenced on that surface, both children
         of ``anchor`` (zoom-immune), registered for the de-collision pass (P21). By default the
-        plate sits up-right of the anchor with its bottom clear of the anchor's own glyph."""
+        plate sits up-right of the anchor with its bottom clear of the anchor's own glyph.
+        ``tip``: the tooltip of the thing it names, for a label that may sit outside it."""
         sc = self._scene
         anchor.setZValue(1)                        # over every leg / outline / ring: a line
                                                    # drawn later must not strike the text out
@@ -257,9 +258,12 @@ class BackdropCanvas(QGraphicsView):
                                        QBrush(QColor(self.pal["surface"]))), anchor)
         t = self._child(sc.addSimpleText(str(text)), anchor)
         for it in (plate, t):                      # a label is NOT its anchor's grab handle: it
-            it.setData(2, None)                    # can sit tiers away, and a press there would
-            it.setData(3, None)                    # snap the vertex to the cursor (P21, after
-                                                   # review); a click on it is a floor click
+            if anchor.data(0) != "regionlabel":    # can sit tiers away, and a press there would
+                it.setData(2, None)                # snap the vertex to the cursor (P21, after
+                it.setData(3, None)                # review); a click on it is a floor click. A
+            if tip:                                # ZONE label keeps its tag: no press resolves
+                it.setToolTip(tip)                 # it, only the right-click menu does -- and the
+                                                   # warning it carries says "right-click it"
         t.setFont(self._font(8))
         t.setBrush(QBrush(QColor(ink)))
         br = t.boundingRect()
@@ -298,27 +302,34 @@ class BackdropCanvas(QGraphicsView):
                 return
             w, h, step = lab["w"], lab["h"], lab["h"] + 1
             dx = lab["dx"]
-            if vw > 40 and base.x() + dx + w > vw - 2:
+            mirrored = vw > 40 and base.x() + dx + w > vw - 2
+            if mirrored:
                 dx = -dx - w                       # off the right edge: mirror to the left
-            x = base.x() + dx - 3
             # At most _LABEL_TIERS tiers either way: a label pushed further than that stops
             # reading as its anchor's (no leader line says whose it is), so past the cap it
             # overprints near home instead. Never off the viewport: a clipped label is LOST,
             # an overprinted one is still there (P21, after review).
-            cands = [lab["dy"]] + [lab["dy"] - step * k for k in range(1, _LABEL_TIERS + 1)]
-            cands += [lab["dy"] + step * k for k in range(1, _LABEL_TIERS + 1)
+            # The OTHER side of its own glyph comes before any tier: a label lifted off a
+            # neighbour's glyph landed beside that neighbour, and read as its name.
+            cands = [(dx, lab["dy"])]
+            if not mirrored and base.x() - lab["dx"] - w - 3 >= 1:
+                cands.append((-lab["dx"] - w, lab["dy"]))
+            cands += [(dx, lab["dy"] - step * k) for k in range(1, _LABEL_TIERS + 1)]
+            cands += [(dx, lab["dy"] + step * k) for k in range(1, _LABEL_TIERS + 1)
                       if lab["dy"] + step * k >= 8]   # a DOWN tier clears the anchor's own glyph
 
-            def onscreen(dy):
-                r = QRectF(x, base.y() + dy - 1, w, h)
+            def rect(c):
+                return QRectF(base.x() + c[0] - 3, base.y() + c[1] - 1, w, h)
+
+            def onscreen(c):
+                r = rect(c)
                 return r.top() >= 1 and (vh <= 40 or r.bottom() <= vh - 1)
 
-            visible = [dy for dy in cands if onscreen(dy)] or cands[:1]
-            pick = next((dy for dy in visible
-                         if not any(QRectF(x, base.y() + dy - 1, w, h).intersects(p)
-                                    for p in placed)), visible[0])
-            self._set_label_pos(lab, dx, pick)
-            placed.append(QRectF(x, base.y() + pick - 1, w, h))
+            visible = [c for c in cands if onscreen(c)] or cands[:1]
+            pick = next((c for c in visible if not any(rect(c).intersects(p) for p in placed)),
+                        visible[0])
+            self._set_label_pos(lab, *pick)
+            placed.append(rect(pick))
 
     def _place_hint(self):
         self._hint.adjustSize()                    # measure AFTER polish -- construction adjustSize lies
@@ -804,9 +815,9 @@ class BackdropCanvas(QGraphicsView):
                 edge = sc.addLine(x0, y0, x1, y1, epen)
                 edge.setData(0, "regionedge")
                 edge.setData(1, i)
-                edge.setToolTip("the WALK-OUT edge (corners 0→1): the exit walks the player "
-                                "across this edge into the fade — put the edge the player "
-                                "should leave through first (right-click the quad to rotate)")
+                edge.setToolTip("the walk-out edge (your first two corners): the exit walks the "
+                                "player across this edge into the fade — put the edge the player "
+                                "should leave through first (right-click the zone to rotate)")
                 self._region_edge_items[i] = edge
                 mx, my = (x0 + x1) / 2, (y0 + y1) / 2
                 cx = sum(p[0] for p in pts) / len(pts)
@@ -841,7 +852,7 @@ class BackdropCanvas(QGraphicsView):
             lab.setData(1, i)
             if r.get("label") or warn:
                 self._label(lab, ("⚠ " if warn else "") + str(r.get("label") or ""),
-                            self._ink["warn_text"] if warn else pal["text"])
+                            self._ink["warn_text"] if warn else pal["text"], tip=tip)
             self._region_items[i] = it
             self._region_label_items[i] = lab
 
