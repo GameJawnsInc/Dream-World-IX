@@ -570,3 +570,67 @@ def test_a_scrolling_room_places_too(tmp_path):
     toml = next((tmp_path / "A").glob("*.field.toml"))
     b = PD.build_surface_from_project(toml)
     assert list(b["cam"].range) == [960, 448], f"Place resolved {list(b['cam'].range)}, not the scroll range"
+
+
+# ------------------------------------------------------------------ batch 2: the surface's freshness
+def _compose_room(tmp_path, name="A"):
+    """One real composed room on disk -> (its field.toml path, its parsed dict)."""
+    import tomllib
+    from ff9mapkit import floorplan as FP
+    plan = {"name": "D", "mod_folder": "FF9CustomMap", "id_base": 30700, "entry": name,
+            "rooms": [{"name": name, "poly": [[0, 0], [2400, 0], [2400, 1800], [0, 1800]]}],
+            "doors": []}
+    FP.compose_and_emit(plan, tmp_path, log=None)
+    toml = next((tmp_path / name).glob("*.field.toml"))
+    return toml, tomllib.loads(toml.read_text(encoding="utf-8"))
+
+
+def _wait(pred, ms=20000):
+    for _ in range(ms // 20):
+        if pred():
+            return True
+        QTest.qWait(20)
+    return pred()
+
+
+def _x_extent(tris):
+    xs = [v[0] for tr in tris for v in tr]
+    return round(min(xs)), round(max(xs))
+
+
+def test_load_rereads_a_project_room_that_changed_on_disk(app, tmp_path):
+    """Review finding P4. A PROJECT surface used to be read from disk once and then handed back
+    from the cache by every later "Load the room", so a walkmesh re-exported from Blender or
+    recomposed in Floorplan never reached Place: clicks kept raycasting the OLD floor. An explicit
+    Load of a project room now goes back to disk (it is cheap); a donor room stays cached."""
+    toml, data = _compose_room(tmp_path)
+    d, _ = _doc(app)
+    d.show_field("A", data, toml)
+    assert d._source[0] == "project"
+    d.load_btn.click()
+    assert _wait(lambda: d._bundle() is not None and d.canvas._surface_tris), d.status.text()
+    x0, x1 = _x_extent(d.canvas._surface_tris)
+    obj = toml.parent / "walkmesh.obj"                  # the floor re-exported at half its width
+    lines = []
+    for ln in obj.read_text(encoding="utf-8").splitlines():
+        if ln.startswith("v "):
+            _v, x, rest = ln.split(" ", 2)
+            ln = f"v {float(x) / 2} {rest}"
+        lines.append(ln)
+    obj.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    first = d._bundle()
+    d.load_btn.click()
+    _wait(lambda: d._bundle() is not first and d._loading is None)
+    got = _x_extent(d.canvas._surface_tris)
+    assert got == (round(x0 / 2), round(x1 / 2)), f"Load kept the old floor {got}, not the re-exported one"
+
+
+def test_load_of_a_donor_room_is_still_served_from_the_cache(app):
+    """The donor's real room comes from the install, which does not change mid-session."""
+    d, _ = _doc(app)
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(("real", 351), 0)] = _bundle()
+    started = []
+    d._loader.start = lambda *a: started.append(a)
+    d.load_btn.click()
+    assert started == [] and d.canvas._surface_tris

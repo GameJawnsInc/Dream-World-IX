@@ -588,9 +588,9 @@ class PlaceDoc(QWidget):
 
     def forget_surface(self, path):
         """Drop every cached surface built from the PROJECT file ``path``: its walkmesh, camera
-        or art changed on disk (a Trace regenerate), and a project surface is read from disk
-        once and then served from this cache for the whole session — so the art and the floor
-        the clicks raycast would stay the OLD ones, even across a Load click. A load of it still
+        or art changed on disk (a Trace regenerate), and a cached project surface is re-applied
+        on every re-feed of the tab — so the art and the floor the clicks raycast would stay the
+        OLD ones until the next Load click. A load of it still
         IN FLIGHT read the old files too: its result is thrown away when it lands. A donor
         room's surface (``("real", id)``) is the install's, not this file's, and stays."""
         def ours(source):
@@ -614,7 +614,10 @@ class PlaceDoc(QWidget):
             self._refresh()
             return
         key = (self._source, self._cam_index())
-        if key in self._bundles:
+        # A donor room is the install's and never changes; a PROJECT room is read from files the
+        # author can rewrite at any time (a Blender re-export, a Floorplan recompose, a hand edit),
+        # so an explicit Load of one always goes back to disk -- it is cheap. (Review finding P4.)
+        if key in self._bundles and key[0][0] == "real":
             self._apply_bundle(self._bundles[key], refit=True)
             return
         if self._loading == key:
