@@ -1086,6 +1086,25 @@ def test_apply_writes_to_the_scene_the_editor_opened_not_the_selected_one(doc, t
     assert raw["cutscene"][0]["steps"][2]["say"] == "Made it to the altar."
 
 
+def test_a_failed_explicit_reload_drops_the_warm_mesh_and_the_auto_rejudge(doc, tmp_path):
+    """C4 (after review): the button's reload failed (a broken .bgi) and said so, but the OLD warm
+    mesh stayed armed -- the next edit's automatic re-judge painted the old floor's checkmark
+    over the error."""
+    _fed(doc, tmp_path)
+    doc.stage_now(sync=True)
+    assert "✓" in doc.stage_note.text()
+    (tmp_path / "walkmesh.bgi").write_bytes(b"garbage")
+    doc.stage_now(sync=True)                           # the explicit press
+    assert "No walkmesh" in doc.stage_note.text()
+    assert doc._wmesh is None and not doc._stage_armed
+    doc._steps()[2]["say"] = "Made it."
+    doc._after_edit("edit")
+    assert not doc._restage_timer.isActive(), "an edit re-armed a judge on the old floor"
+    doc._restage()                                     # even if fired, it must read disk again
+    _wait_stage(doc)
+    assert "✓" not in doc.stage_note.text(), doc.stage_note.text()
+
+
 def test_a_doc_edit_lands_by_reference_dirty_and_one_undo_step(win, tmp_path):
     p = make_cutscene_field(tmp_path)
     win.open_field(p)

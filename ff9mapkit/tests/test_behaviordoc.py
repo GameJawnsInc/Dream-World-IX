@@ -780,6 +780,21 @@ def test_the_sweep_button_reloads_the_walkmesh_from_disk(edoc, tmp_path):
         f"the press swept the stale warm mesh: {edoc.sweep_note.text()!r}"
 
 
+def test_a_failed_explicit_reload_drops_the_warm_mesh_and_the_auto_resweep(edoc, tmp_path):
+    """C4 (after review): a press whose reload FAILS (a broken .bgi) said so, but the OLD warm
+    mesh stayed armed -- the next edit's automatic re-sweep judged the old floor over the error."""
+    p = make_behavior_field(tmp_path)
+    edoc.show_field("BGLADE", demo_raw(), p)
+    edoc.sweep_now(sync=True)
+    assert edoc._wmesh is not None and edoc._sweep_armed
+    (tmp_path / "walkmesh.bgi").write_bytes(b"garbage")
+    edoc.sweep_now(sync=True)                          # the explicit press
+    assert "no walkmesh" in edoc.sweep_note.text()
+    assert edoc._wmesh is None and not edoc._sweep_armed
+    edoc._move_row(0, +1)                              # an edit must not re-sweep the old floor
+    assert not edoc._resweep_timer.isActive()
+
+
 def test_the_automatic_resweep_stays_on_the_warm_mesh(edoc, tmp_path, monkeypatch):
     import time
     p = make_behavior_field(tmp_path)

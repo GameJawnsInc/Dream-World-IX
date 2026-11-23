@@ -2176,6 +2176,10 @@ class BehaviorDoc(QWidget):
         self.sweep_btn.setText("Sweep routes")
         if wmesh is not None:
             self._wmesh = wmesh
+        else:                                      # the floor did not load: nothing may be judged
+            self._wmesh = None                     # on the OLD one (an edit's re-sweep would paint
+            self._sweep_armed = False              # over this error)
+            self._resweep_timer.stop()
         if not res.ok:
             self.sweep_note.setText(res.error or "Sweep failed.")
             widgets.set_state(self.sweep_note, "error")

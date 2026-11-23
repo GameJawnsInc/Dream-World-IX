@@ -1590,7 +1590,7 @@ class CutsceneDoc(QWidget):
         except Exception as e:                     # noqa: BLE001 -- the message is the teaching
             res = cutscenescan.StagingResult()
             res.error = f"Could not check the staging — {e}"
-            return res, [], None
+            return res, [], wmesh                  # None only when no floor was loaded
 
     def _stage_worker(self, gen, path, raw, base_dir, wmesh, flags):
         payload = (gen, *self._stage_work(path, raw, base_dir, wmesh, flags))
@@ -1610,6 +1610,10 @@ class CutsceneDoc(QWidget):
         if wmesh is not None:
             self._wmesh = wmesh
             self._stage_armed = True
+        else:                                      # the floor did not load: nothing may be judged
+            self._wmesh = None                     # on the OLD one (an edit's re-judge would paint
+            self._stage_armed = False              # its checkmark over this error)
+            self._restage_timer.stop()
         self.stage_note.setText(res.summary())
         widgets.set_state(self.stage_note,
                           "warn" if (res.warnings or res.skipped or res.error) else "")
