@@ -1002,6 +1002,90 @@ def test_apply_refuses_when_an_in_place_writer_removed_its_row(doc, tmp_path):
     assert doc.editor.note.text(), "the refusal is SAID"
 
 
+_THREE_SCENES = FIELD_TOML + """
+[[cutscene]]
+requires_scenario = 400
+steps = [
+  { say = "Scene two line A" },
+  { say = "Scene two line B" },
+]
+"""
+
+
+def _says(win):
+    return [[s.get("say") or forms.step_key(s) for s in b.get("steps", [])]
+            for b in win._doc("GLEN").data["cutscene"]]
+
+
+def test_an_editor_tree_scene_delete_never_aims_apply_at_another_scene(win, tmp_path):
+    """C2 (after review): the Editor tree's 'Remove cutscene' pops scene #0 IN PLACE -- the same
+    buffer, so no swap to notice -- and every later scene shifts down one. An editor open on scene
+    1 row 0 then pointed at the old scene 2 row 0, and Apply overwrote 'Scene two line A'."""
+    p = make_cutscene_field(tmp_path)
+    p.write_text(_THREE_SCENES, encoding="utf-8")
+    win.open_field(p)
+    win.tabs.setCurrentWidget(win.cutscene_doc)
+    doc = win.cutscene_doc
+    doc.rail.setCurrentRow(1)
+    doc._edit_step(0)                                  # "Dusk falls over the glen."
+    doc.editor.value_text.setPlainText("Dusk falls, rewritten")
+    win._confirm = lambda *a, **k: True
+    win._delete_object("GLEN", "cutscene", single=True, label="cutscene")   # the tree's Remove
+    win.tabs.setCurrentWidget(doc)
+    win._feed_cutscene()
+    doc._apply_step()
+    assert _says(win) == [["Dusk falls, rewritten", "wait"],
+                          ["Scene two line A", "Scene two line B"]], \
+        "Apply wrote into a scene the author never opened"
+
+
+def test_an_add_editor_never_inserts_into_the_scene_an_undo_put_at_its_index(win, tmp_path):
+    """C2 (after review): ADD mode was exempt from the survival rule. Delete scene #0, Add on the
+    narration scene (now #0), type, Ctrl+Z: the cast scene came back at #0 and Apply inserted the
+    narration line between its turn and its say."""
+    win.open_field(make_cutscene_field(tmp_path))
+    win.tabs.setCurrentWidget(win.cutscene_doc)
+    doc = win.cutscene_doc
+    doc.rail.setCurrentRow(0)
+    doc._del_scene()                                   # one undo step
+    doc._add_step()                                    # ADD on the narration scene, now #0
+    doc.editor.value_text.setPlainText("Narration line 3")
+    win._undo()
+    win.tabs.setCurrentWidget(doc)
+    doc._apply_step()
+    says = _says(win)
+    assert says[0] == ["walk", "turn", "Made it to the altar."], f"the cast scene was written: {says}"
+    assert says[1] == ["Dusk falls over the glen.", "wait", "Narration line 3"], \
+        f"the typed line must land in the scene it was typed for: {says}"
+
+
+def test_a_stage_drag_of_the_open_step_shows_in_the_editor_and_survives_apply(doc, tmp_path):
+    """C2 (after review): dragging the open walk step's target rewrote the step, but the editor
+    kept 'altar'; the next Apply (here: only a speed change) silently reverted the drag."""
+    _fed(doc, tmp_path)
+    doc._edit_step(0)                                  # walk "altar", actor Cid
+    assert doc._stage_handles(), "the open step's target is a stage handle"
+    doc._on_stage_move(("target", 0, 0), 120, 300)     # the drag
+    assert doc.editor.value_line.text() == "120, 300", "the editor still shows the old target"
+    doc.editor.x_speed.setText("12")
+    doc._apply_step()
+    assert doc._raw["cutscene"][0]["steps"][0] == {"walk": [120, 300], "actor": "Cid", "speed": 12}
+
+
+def test_apply_writes_to_the_scene_the_editor_opened_not_the_selected_one(doc, tmp_path):
+    """C2: the editor addresses ITS scene. If the tab's selected scene ever differs from the
+    editor's, Apply must still land in the scene the step was opened from."""
+    raw, _ = _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc._edit_step(0)
+    doc._scene = 0                                     # the selection moved without a close
+    doc.editor.value_text.setPlainText("Night falls")
+    doc._apply_step()
+    assert raw["cutscene"][1]["steps"][0]["say"] == "Night falls"
+    assert [forms.step_key(s) for s in raw["cutscene"][0]["steps"]] == ["walk", "turn", "say"]
+    assert raw["cutscene"][0]["steps"][2]["say"] == "Made it to the altar."
+
+
 def test_a_doc_edit_lands_by_reference_dirty_and_one_undo_step(win, tmp_path):
     p = make_cutscene_field(tmp_path)
     win.open_field(p)
