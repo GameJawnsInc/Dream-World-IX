@@ -830,6 +830,131 @@ def test_an_auto_walkmesh_under_camera_1_is_the_floor_the_build_ships(tmp_path):
     assert surf["tris"] == shipped, "Place's camera-1 floor is not the walkmesh the build ships"
 
 
+def _halve_walkmesh(toml):
+    obj = toml.parent / "walkmesh.obj"
+    lines = []
+    for ln in obj.read_text(encoding="utf-8").splitlines():
+        if ln.startswith("v "):
+            _v, x, rest = ln.split(" ", 2)
+            ln = f"v {float(x) / 2} {rest}"
+        lines.append(ln)
+    obj.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_coming_back_to_place_does_not_rearm_a_project_room_changed_on_disk(app, tmp_path):
+    """Review finding P4, after review. Only an explicit Load used to re-read a project room: the
+    shell's re-feed on coming back to the tab re-armed the CACHED floor, and a click outside the
+    re-exported walkmesh was written into the doc. Leaving the tab drops a project surface."""
+    toml, data = _compose_room(tmp_path)
+    d, calls = _doc(app)
+    d.show_field("A", data, toml)
+    d.load_btn.click()
+    assert _wait(lambda: d._bundle() is not None and d.canvas._surface_tris), d.status.text()
+    x0, x1 = _x_extent(d.canvas._surface_tris)
+    d.show_field("A", data, toml)                       # an edit re-feed while staying keeps it
+    assert d.canvas._place_mode and d.canvas._surface_tris
+    d.hide()                                            # the author goes to another tab...
+    _halve_walkmesh(toml)                               # ...and re-exports the floor
+    d.show()
+    d.show_field("A", data, toml)                       # the shell's re-feed on the way back
+    assert not d.canvas._place_mode and not d.canvas._surface_tris
+    assert d._bundle() is None and "Load the room" in d.status.text()
+    d.load_btn.click()
+    assert _wait(lambda: d._loading is None and d.canvas._surface_tris), d.status.text()
+    assert _x_extent(d.canvas._surface_tris) == (round(x0 / 2), round(x1 / 2))
+
+
+def test_leaving_a_project_room_for_another_drops_its_surface(app, tmp_path):
+    """The other route of P4: a project opened again (or reselected) after its files changed."""
+    d, _ = _doc(app)
+    a, b = tmp_path / "A.field.toml", tmp_path / "B.field.toml"
+    d.show_field("A", {"field": {"id": 30058}}, a)
+    d._bundles[(d._source, 0)] = dict(_bundle(), source=d._source)
+    d._bundles[(("real", 351), 0)] = _bundle()          # a donor room stays: the install's
+    d.show_field("B", {"field": {"id": 30059}}, b)
+    d.show_field("A", {"field": {"id": 30058}}, a)
+    assert d._bundle() is None and not d.canvas._place_mode
+    assert (("real", 351), 0) in d._bundles
+
+
+def test_hiding_keeps_a_donor_room_armed(app):
+    d, _ = _doc(app)
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d.load_btn.click()
+    d.hide()
+    d.show()
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    assert d.canvas._place_mode and d.canvas._surface_tris
+
+
+def test_a_failed_reload_leaves_no_old_floor_armed(app, tmp_path):
+    """Review finding P4, after review. A re-Load that failed (a broken re-export) only wrote the
+    error: the old floor stayed cached and clickable, and the next re-feed hid the error."""
+    toml, data = _compose_room(tmp_path)
+    d, _ = _doc(app)
+    d.show_field("A", data, toml)
+    d.load_btn.click()
+    assert _wait(lambda: d._bundle() is not None and d.canvas._surface_tris), d.status.text()
+    (toml.parent / "walkmesh.obj").write_text("garbage\nf 1 2 3\n", encoding="utf-8")
+    d.load_btn.click()
+    assert _wait(lambda: d._loading is None and "Could not load" in d.status.text()), d.status.text()
+    assert not d.canvas._place_mode and not d.canvas._surface_tris and d._bundle() is None
+    d.show_field("A", data, toml)
+    assert not d.canvas._place_mode and not d.canvas._surface_tris
+
+
+@pytest.mark.parametrize("ends", ["succeeds", "fails"])
+def test_a_load_that_lands_after_a_glance_elsewhere_shows_on_its_room(app, tmp_path, ends):
+    """Review finding P6, after review. Load A, glance at B, come back to A: the switch forgot the
+    wait, and A's own result was then only cached -- the room stayed on "Load the room"."""
+    d, _ = _doc(app)
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    d._loader.start = lambda *a: None
+    d.load_btn.click()
+    key = d._loading
+    d.show_field("B", {"field": {"id": 30059}}, tmp_path / "B.field.toml")
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    assert d._loading is None
+    if ends == "succeeds":
+        d._loader.loaded.emit(key, _bundle())
+        assert d.canvas._place_mode and d.canvas._surface_tris
+    else:
+        d._loader.failed.emit(key, "RuntimeError: no install")
+        assert "no install" in d.status.text()
+    assert d.load_btn.isEnabled()
+
+
+def test_a_late_load_of_the_previous_room_is_not_shown_on_this_one(app, tmp_path):
+    """The other half of the P6 rule: a result for a room that is NOT on screen only caches."""
+    d, _ = _doc(app)
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    d._loader.start = lambda *a: None
+    d.load_btn.click()
+    key = d._loading
+    d.show_field("FORK2", {"field": {"source_field": 352}}, Path("C:/somewhere/FORK2.field.toml"))
+    d._loader.loaded.emit(key, _bundle())
+    assert not d.canvas._surface_tris and key in d._bundles
+    d._loader.failed.emit(key, "RuntimeError: late")
+    assert "late" not in d.status.text()
+
+
+def test_a_load_landing_after_the_field_closed_post_glance_is_not_shown(app, tmp_path):
+    """Load A, glance at B, back on A (the wait is forgotten), then close the field: A's result
+    must not be painted on the empty doc -- closing forgets the surface source too."""
+    d, _ = _doc(app)
+    a = tmp_path / "A.field.toml"
+    d.show_field("A", {"field": {"id": 30058}}, a)
+    d._loader.start = lambda *a: None
+    d.load_btn.click()
+    key = d._loading
+    d.show_field("B", {"field": {"id": 30059}}, tmp_path / "B.field.toml")
+    d.show_field("A", {"field": {"id": 30058}}, a)
+    d.show_none()
+    d._loader.loaded.emit(key, dict(_bundle(), source=key[0]))
+    assert not d.canvas._surface_tris and not d.canvas._place_mode and not d.load_btn.isEnabled()
+
+
 def test_load_of_a_donor_room_is_still_served_from_the_cache(app):
     """The donor's real room comes from the install, which does not change mid-session."""
     d, _ = _doc(app)

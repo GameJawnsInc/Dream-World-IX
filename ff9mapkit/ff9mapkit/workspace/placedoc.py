@@ -573,17 +573,39 @@ class PlaceDoc(QWidget):
             #                                         flight": were it forgotten, a second Load of the
             #                                         same room could start beside it, and whichever
             #                                         of the two landed LAST would be the one cached
-            self.canvas.set_backdrop(None, None)
-            self.canvas.set_surface([])
-            self.canvas.set_regions([])
-            self.canvas.set_place_mode(False)
-            self.canvas.set_region_mode(False)
+            self._drop_project_surfaces()           # coming back to a project room re-reads it (P4)
+            self._clear_surface()
         bundle = self._bundle()
         if bundle is not None and self._blocked is None:
             self._apply_bundle(bundle, refit=not same)
         else:
             self._sync_modes()
             self._refresh()
+
+    # ★ A PROJECT SURFACE IS KEPT ONLY WHILE THE AUTHOR STAYS HERE, ON THAT ROOM (review finding P4).
+    # Its files can be rewritten whenever the author is elsewhere (a Blender re-export, a Floorplan
+    # recompose, a hand edit), and a cached one re-armed on the way back let clicks raycast a floor
+    # that no longer exists. Leaving the tab or the room drops it; Load reads the files again. The
+    # edit re-feeds (one per placed click) happen while staying, so they keep it. A donor room's
+    # surface is the install's and stays cached for the session.
+    def hideEvent(self, e):
+        self._drop_project_surfaces()
+        if self._source is not None and self._source[0] == "project":
+            self._clear_surface()
+        super().hideEvent(e)
+
+    def _drop_project_surfaces(self):
+        for key in [k for k in self._bundles if k[0][0] == "project"]:
+            del self._bundles[key]
+
+    def _clear_surface(self):
+        """Nothing drawn and nothing clickable: no floor stays armed that this doc cannot vouch for."""
+        self.canvas.set_backdrop(None, None)
+        self.canvas.set_surface([])
+        self.canvas.set_markers([])
+        self.canvas.set_regions([])
+        self.canvas.set_place_mode(False)
+        self.canvas.set_region_mode(False)
 
     @staticmethod
     def _is_file(a, b) -> bool:
@@ -596,8 +618,8 @@ class PlaceDoc(QWidget):
     def forget_surface(self, path):
         """Drop every cached surface built from the PROJECT file ``path``: its walkmesh, camera
         or art changed on disk (a Trace regenerate), and a cached project surface is re-applied
-        on every re-feed of the tab — so the art and the floor the clicks raycast would stay the
-        OLD ones until the next Load click. A load of it still
+        on every re-feed while the author stays on it — so the art and the floor the clicks
+        raycast would stay the OLD ones until the next Load click. A load of it still
         IN FLIGHT read the old files too: its result is thrown away when it lands. A donor
         room's surface (``("real", id)``) is the install's, not this file's, and stays."""
         def ours(source):
@@ -636,15 +658,16 @@ class PlaceDoc(QWidget):
         self._loader.start(*key)
 
     def _settle(self, key) -> bool:
-        """A load ``key`` ended: True when it is the one this field is waiting for. Any other
-        (the previous room's, another camera's) changes nothing visible here -- it neither
-        clears the load in flight nor re-enables Load, nor paints its outcome (finding P6)."""
+        """A load ``key`` ended: True when it is the room and camera on screen, so its outcome is
+        shown. Only the load being waited for clears the wait and re-enables Load; any other (the
+        previous room's, another camera's) never touches either (finding P6). A result for the
+        room on screen is shown even when the wait was forgotten on the way: Load on A, a glance
+        at B, back on A -- it is still the one asked for."""
         if getattr(self, "_stale_load", None) == key:
             self._stale_load = None
-        if key != self._loading:
-            return False
-        self._loading = None
-        self.load_btn.setEnabled(self._blocked is None and self._data is not None)
+        if key == self._loading:
+            self._loading = None
+            self.load_btn.setEnabled(self._blocked is None and self._data is not None)
         return key == (self._source, self._cam_index())
 
     def _on_loaded(self, key, bundle):
@@ -663,6 +686,9 @@ class PlaceDoc(QWidget):
 
     def _on_load_failed(self, key, msg):
         if self._settle(key):
+            # a failed re-read leaves no floor behind: the old one is not what is on disk (P4)
+            self._bundles.pop(key, None)
+            self._clear_surface()
             self._refresh(f"Could not load the room: {msg}", "error")
 
     def _apply_bundle(self, bundle, *, refit):
