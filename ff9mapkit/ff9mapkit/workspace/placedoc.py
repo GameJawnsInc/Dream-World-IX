@@ -252,10 +252,12 @@ floor_y_at = imagefield.floor_y_at
 class _SurfaceLoader(QObject):
     """One background build of a donor room's place surface (camera + mesh + composited art).
     The thumbs idiom: pure worker logic behind a queued signal; every failure lands as a
-    ``failed`` message instead of a crash (a machine without the install degrades honestly)."""
+    ``failed`` message instead of a crash (a machine without the install degrades honestly).
+    Both signals carry the REQUEST key ``(source, cam_index)``: the doc acts only on the load it
+    is waiting for, and a request's camera may come back clamped in the bundle."""
 
-    loaded = Signal(dict)
-    failed = Signal(str)
+    loaded = Signal(object, dict)
+    failed = Signal(object, str)
 
     def start(self, source, cam_index):
         t = threading.Thread(target=self._work, args=(source, int(cam_index)),
@@ -265,11 +267,12 @@ class _SurfaceLoader(QObject):
     def _work(self, source, cam_index):
         try:
             kind, ref = source
-            self.loaded.emit(build_surface(int(ref), cam_index) if kind == "real"
+            self.loaded.emit((source, cam_index),
+                             build_surface(int(ref), cam_index) if kind == "real"
                              else build_surface_from_project(ref, cam_index))
         except Exception as e:                         # noqa: BLE001 -- no install / bad art / anything
             try:
-                self.failed.emit(f"{type(e).__name__}: {e}")
+                self.failed.emit((source, cam_index), f"{type(e).__name__}: {e}")
             except RuntimeError:                       # the C++ half died (app exit) -- stop quietly
                 pass
 
@@ -395,8 +398,7 @@ class PlaceDoc(QWidget):
         self._bundles = {}                      # (donor, cam_index) -> build_surface dict
         self._cam_pick = {}                     # member -> its chosen camera index
         self._region_rows_cache = []            # the last region_rows derivation (canvas feed)
-        self._loading = None                    # (donor, ci) in flight, else None
-        self._gen = 0                           # bumped per feed: a stale load result is dropped
+        self._loading = None                    # (source, ci) in flight, else None
         self._loader = _SurfaceLoader()
         self._loader.loaded.connect(self._on_loaded)
         self._loader.failed.connect(self._on_load_failed)
@@ -510,10 +512,9 @@ class PlaceDoc(QWidget):
 
     # ---------------------------------------------------------------- the shell feed
     def show_none(self):
-        self._member = self._data = self._path = self._donor = None
+        self._member = self._data = self._path = self._donor = self._source = None
         self._blocked = None
         self._verbatim = False
-        self._gen += 1
         self._region_rows_cache = []
         self.canvas.set_place_mode(False)
         self.canvas.set_region_mode(False)
@@ -538,7 +539,7 @@ class PlaceDoc(QWidget):
         # "The same field" is the same SURFACE SOURCE (a project's own file, or a donor room), never
         # just the same name: every traced project is called PICTURE, and a name match kept the
         # previous room's art and walkmesh armed while clicks wrote into the new doc (finding P5).
-        old = (self._member, getattr(self, "_source", None))
+        old = (self._member, self._source)
         self._member, self._data = member, data
         self._path = Path(path) if path else None
         self._donor = build.donor_field_id(data)
@@ -563,8 +564,8 @@ class PlaceDoc(QWidget):
                              "resolve its camera and walkmesh from")
         self.field_label.setText(f"{member} — donor field #{self._donor}"
                                  if self._donor is not None else str(member))
-        if not same:
-            self._gen += 1                          # a stale in-flight load must not land here
+        if not same:                                # (a late load of the old room never lands here:
+            #                                         _on_loaded applies only the request it waits for)
             if self._loading is None or self._loading != getattr(self, "_stale_load", None):
                 self._loading = None                # ...but a load already marked stale STAYS "in
             #                                         flight": were it forgotten, a second Load of the
@@ -631,26 +632,33 @@ class PlaceDoc(QWidget):
         self._refresh(f"Loading field #{key[0]} (camera {key[1]}) — extracting + compositing…")
         self._loader.start(*key)
 
-    def _on_loaded(self, bundle):
+    def _settle(self, key) -> bool:
+        """A load ``key`` ended: True when it is the one this field is waiting for. Any other
+        (the previous room's, another camera's) changes nothing visible here -- it neither
+        clears the load in flight nor re-enables Load, nor paints its outcome (finding P6)."""
+        if getattr(self, "_stale_load", None) == key:
+            self._stale_load = None
+        if key != self._loading:
+            return False
         self._loading = None
-        self.load_btn.setEnabled(True)
-        key = (bundle["source"], bundle["cam_index"])
-        if getattr(self, "_stale_load", None) == key:  # forget_surface ran while this one was
-            self._stale_load = None                    # reading the OLD files: never cache it
-            if bundle["source"] == self._source:
+        self.load_btn.setEnabled(self._blocked is None and self._data is not None)
+        return key == (self._source, self._cam_index())
+
+    def _on_loaded(self, key, bundle):
+        stale = getattr(self, "_stale_load", None) == key   # forget_surface ran while this one
+        mine = self._settle(key)                             # was reading the OLD files
+        if stale:
+            if mine:
                 self._refresh("The room changed on disk while it was loading — press Load the "
                               "room again.", "warn")
-            return
-        self._bundles[key] = bundle
-        if bundle["source"] != self._source or bundle["cam_index"] != self._cam_index():
-            return                                  # the user moved on mid-load: cached, not applied
-        self._apply_bundle(bundle, refit=True)
+            return                                  # never cached
+        self._bundles[(bundle["source"], bundle["cam_index"])] = bundle
+        if mine:                                    # (any other: cached, not applied)
+            self._apply_bundle(bundle, refit=True)
 
-    def _on_load_failed(self, msg):
-        self._loading = None
-        self._stale_load = None
-        self.load_btn.setEnabled(True)
-        self._refresh(f"Could not load the room: {msg}", "error")
+    def _on_load_failed(self, key, msg):
+        if self._settle(key):
+            self._refresh(f"Could not load the room: {msg}", "error")
 
     def _apply_bundle(self, bundle, *, refit):
         pm = QPixmap(bundle["png"]) if bundle["png"] else None

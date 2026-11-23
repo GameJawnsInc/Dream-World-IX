@@ -199,10 +199,12 @@ def test_a_load_in_flight_when_the_file_changed_is_thrown_away(app, tmp_path):
     key = (d._source, 0)
     d._loading = key                                   # a load of this project is in flight
     d.forget_surface(path)
-    d._on_loaded(dict(_bundle(), source=d._source))    # ...and lands with the OLD files
+    d._on_loaded(key, dict(_bundle(), source=d._source))   # ...and lands with the OLD files
     assert key not in d._bundles and not d.canvas._surface_tris
     assert "changed on disk" in d.status.text() and d.load_btn.isEnabled()
-    d._on_loaded(dict(_bundle(), source=d._source))    # the load the author then asks for is good
+    d._loader.start = lambda *a: None
+    d.load_btn.click()                                 # the load the author then asks for is good
+    d._on_loaded(key, dict(_bundle(), source=d._source))
     assert key in d._bundles and d.canvas._surface_tris
 
 
@@ -224,9 +226,10 @@ def test_a_stale_load_stays_in_flight_so_a_second_load_cannot_race_it(app, tmp_p
     d._loader.start = lambda *a: started.append(a)
     d.on_load()
     assert started == []
-    d._on_load_failed("the stale one died")
+    d._on_load_failed(key, "the stale one died")
     assert d._stale_load is None
-    d._on_loaded(dict(_bundle(), source=d._source))    # the next good load is kept, not thrown away
+    d.on_load()
+    d._on_loaded(key, dict(_bundle(), source=d._source))   # the next good load is kept, not thrown away
     assert key in d._bundles
 
 
@@ -662,6 +665,91 @@ def test_a_fork_that_gains_its_own_art_drops_the_donor_surface(app):
                           "layers": [{"image": "back.png", "z": 1000}]}, path)
     assert d._source[0] == "project"
     assert not d.canvas._place_mode and not d.canvas._surface_tris
+
+
+@pytest.mark.parametrize("a_ends", ["fails", "succeeds"])
+def test_a_late_load_of_the_previous_room_does_nothing_visible_here(app, tmp_path, monkeypatch, a_ends):
+    """Review finding P6. Load room A, switch to B and Load it, and only then A's load ends: A's
+    error used to be painted on B, and either ending re-enabled Load while B was still in flight
+    (a second click started a twin loader). Driven through the real loader thread."""
+    import threading
+    gate_a, gate_b, a_done = threading.Event(), threading.Event(), threading.Event()
+    a, b = tmp_path / "A.field.toml", tmp_path / "B.field.toml"
+
+    def fake(ref, ci=0):
+        if Path(ref) == a:
+            gate_a.wait(10)
+            a_done.set()
+            if a_ends == "fails":
+                raise RuntimeError("A blew up")
+        else:
+            gate_b.wait(10)
+        return dict(_bundle(), source=("project", str(ref)), cam_index=ci)
+
+    monkeypatch.setattr(P, "build_surface_from_project", fake)
+    d, _ = _doc(app)
+    d.show_field("A", {"field": {"id": 30058}}, a)
+    d.load_btn.click()
+    d.show_field("B", {"field": {"id": 30059}}, b)
+    d.load_btn.click()
+    b_key = (("project", str(b)), 0)
+    assert d._loading == b_key
+    gate_a.set()
+    assert a_done.wait(10)
+    QTest.qWait(300)                                     # A's queued result is delivered
+    assert "blew up" not in d.status.text()
+    assert d._loading == b_key and not d.load_btn.isEnabled(), "Load re-enabled while B is in flight"
+    assert not d.canvas._surface_tris
+    gate_b.set()
+    assert _wait(lambda: d._loading is None and d.canvas._surface_tris), d.status.text()
+    assert d.load_btn.isEnabled()
+
+
+def test_a_camera_left_mid_load_does_not_land_over_the_one_shown(app):
+    """Pick camera 1 (its load starts), go back to camera 0 (cached, shown at once): camera 1's
+    load then lands. It is cached for next time, but the canvas keeps showing camera 0."""
+    d, _ = _doc(app)
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    cam0 = dict(_bundle(), n_cams=2)
+    cam1 = dict(_bundle(tris=_flat_quad(x0=-50, x1=50)), n_cams=2, cam_index=1)
+    d._bundles[(("real", 351), 0)] = cam0
+    d._loader.start = lambda *a: None
+    d.load_btn.click()
+    assert d.cam_box.isVisible()
+    d.cam_box.setCurrentIndex(1)
+    assert d._loading == (("real", 351), 1)
+    d.cam_box.setCurrentIndex(0)
+    d._loader.loaded.emit((("real", 351), 1), cam1)
+    assert d.canvas._surface_tris == cam0["tris"]
+    assert d._bundles[(("real", 351), 1)]["tris"] == cam1["tris"] and d._loading is None and d.load_btn.isEnabled()
+
+
+def test_a_load_ending_after_the_field_closed_leaves_load_off(app, tmp_path):
+    d, _ = _doc(app)
+    path = tmp_path / "ROOM.field.toml"
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)
+    d._loader.start = lambda *a: None
+    d.load_btn.click()
+    key = d._loading
+    d.show_none()                                      # the project was closed mid-load
+    d._loader.loaded.emit(key, dict(_bundle(), source=key[0]))
+    assert not d.load_btn.isEnabled() and not d.canvas._surface_tris
+
+
+def test_a_stale_load_of_the_previous_room_says_nothing_on_the_next(app, tmp_path):
+    """A's load was marked stale (its files were rewritten) and the author moved on to B: when it
+    lands, B must not be told that ITS room changed on disk."""
+    d, _ = _doc(app)
+    a, b = tmp_path / "A.field.toml", tmp_path / "B.field.toml"
+    d.show_field("A", {"field": {"id": 30058}}, a)
+    d._loader.start = lambda *a: None
+    d.load_btn.click()
+    key = d._loading
+    d.forget_surface(a)
+    d.show_field("B", {"field": {"id": 30059}}, b)
+    d._loader.loaded.emit(key, dict(_bundle(), source=key[0]))
+    assert "changed on disk" not in d.status.text() and d.load_btn.isEnabled()
+    assert key not in d._bundles
 
 
 def test_load_of_a_donor_room_is_still_served_from_the_cache(app):
