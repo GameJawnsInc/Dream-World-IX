@@ -1835,7 +1835,8 @@ def test_a_project_traced_before_photos_were_turned_upright_reopens_on_its_own_a
     assert doc._image == toml.parent / "art" / "base.png", doc._image
     assert [tuple(q) for q in doc._floor] != [] and doc._project is not None
     text = doc.status.text()
-    assert text.startswith("\u26a0") and "upright" in text and doc.status.property("state") == "warn"
+    assert text.startswith("\u26a0") and "orientation" in text and "sideways" not in text, text
+    assert doc.status.property("state") == "warn"      # (true for a mirrored or upside-down photo too)
     px = doc._pixmap.toImage().pixelColor(doc._pixmap.width() // 2, doc._pixmap.height() - 8)
     assert px.green() > px.blue(), "the floor band is not under the floor: the photo was turned"
     doc._write_trace_sidecar(toml.parent)              # what the next Generate records
@@ -1923,3 +1924,38 @@ def test_an_event_drawn_with_an_empty_message_box_says_so(app, tmp_path):
     doc.ev_msg.setText("The floor creaks.")
     doc._on_region_drawn([(x + 500.0, z) for x, z in quad])
     assert "no words yet" not in doc.status.text()
+
+
+def test_a_renamed_field_in_a_folder_named_before_the_rule_still_regenerates(app, tmp_path):
+    """The exemption asked whether the Name box equals the armed [field] name. An author who had
+    already renamed the field in the Editor (attic_room, in attic-room.field.toml) was back in
+    the circle: every valid name was refused by 'this folder already holds attic-room.field.toml',
+    and attic-room by the name rule. The exemption is the backend's own: the name already names
+    a file in the folder."""
+    pytest.importorskip("PIL")
+    toml, _floor = _hyphen_named_project(tmp_path)
+    toml.write_text(toml.read_text(encoding="utf-8").replace('name = "attic-room"',
+                                                             'name = "attic_room"'), encoding="utf-8")
+    doc, run = _doc(app)
+    doc.load_project(toml)
+    assert doc.name_box.text() == "attic_room"
+    doc.on_generate()
+    assert len(run.calls) == 0 and "attic-room" in doc.status.text()   # told which name works...
+    doc.name_box.setText("attic-room")
+    doc.on_generate()
+    assert len(run.calls) == 1, doc.status.text()                      # ...and it does
+
+
+def test_the_regions_tool_says_zone_and_how_to_cancel(app, tmp_path):
+    pytest.importorskip("PIL")
+    doc, _ = _doc(app)
+    tip = doc.tools.button("regions").toolTip()
+    assert "zones" in tip and "quad" not in tip and "Esc" in tip, tip
+    doc.load_image(_photo(tmp_path))
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    doc.tools.set_current("regions")
+    doc.rkind_btns["event"].setChecked(True)
+    doc.ev_msg.setText("The floor creaks.")
+    doc._on_region_drawn([(-200.0, 900.0), (200.0, 900.0), (200.0, 1300.0), (-200.0, 1300.0)])
+    doc._refresh()
+    assert "1 zone" in doc.status.text() and "region" not in doc.status.text(), doc.status.text()

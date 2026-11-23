@@ -221,8 +221,9 @@ class TraceDoc(QWidget):
              ("cutout", "Cut-outs", "Mark a foreground occluder (a pillar, a crate): click where "
                                     "the object MEETS the floor — its base — then attach its "
                                     "full-canvas cut-out PNG. Occlusion flips exactly there."),
-             ("regions", "Regions", "Draw trigger quads on the photo — gateways and walk-in "
-                                    "events (4 clicks = one zone).")])
+             ("regions", "Regions", "Draw trigger zones on the photo — gateways and walk-in "
+                                    "events (4 clicks = one zone; Esc cancels a half-drawn "
+                                    "one).")])
         self.tools.changed.connect(self._on_tool)
         row.addWidget(self.tools)
         self.fg_btn = self.tools.button("cutout")      # the Add-cut-out control, now a segment
@@ -476,7 +477,7 @@ class TraceDoc(QWidget):
                    "layer) and an attached PNG — fix or Remove the flagged ones.")
         elif rg_untargeted:
             tip = ("A drawn door has NO target field — it would compile to Field(0), a "
-                   "guaranteed black screen. Right-click the quad → Set gateway target.")
+                   "guaranteed black screen. Right-click the zone → Set gateway target.")
         elif rg_bad:
             # its quad cannot be drawn above the horizon, so there is nothing to right-click:
             # the pitch that made it is the way back (finding T6)
@@ -511,7 +512,7 @@ class TraceDoc(QWidget):
                     if fg_unattached:
                         note += f" · {fg_unattached} PNG{'' if fg_unattached == 1 else 's'} missing"
                 if self._regions:
-                    note += f" · {len(self._regions)} region{'' if len(self._regions) == 1 else 's'}"
+                    note += f" · {len(self._regions)} zone{'' if len(self._regions) == 1 else 's'}"
                     warned = sum(1 for r in getattr(self, '_region_rows_cache', []) if r.get("warn"))
                     if rg_untargeted:
                         warns.append(f"⚠ {rg_untargeted} door{'' if rg_untargeted == 1 else 's'} "
@@ -519,7 +520,7 @@ class TraceDoc(QWidget):
                     if warned:
                         warns.append(f"⚠ {warned} with law warnings")
                     if rg_bad:
-                        warns.append(f"⚠ {rg_bad} region{'' if rg_bad == 1 else 's'} above the "
+                        warns.append(f"⚠ {rg_bad} zone{'' if rg_bad == 1 else 's'} above the "
                                      f"horizon, hidden — slide the pitch back to see "
                                      f"{'it' if rg_bad == 1 else 'them'}")
                 note = " · ".join(warns + [note])
@@ -999,16 +1000,15 @@ class TraceDoc(QWidget):
             self._refresh(str(e), "error")
             return
         name = self.name_box.text().strip() or "PICTURE"
-        if self._project is None or name != self._project["name"]:
-            # the backend's own rule, asked first (T7) -- for a name that would MINT a file. A
-            # project built before the rule may be called attic-room: refusing its own name left
-            # it with no Name that could regenerate it (the one-field-per-folder refusal below
-            # refuses every other)
-            try:
-                imagefield.check_field_name(name)
-            except imagefield.ImageFieldError as e:
-                self._refresh(str(e), "error")
-                return
+        try:
+            # the backend's own rule, asked first (T7), with the backend's own exemption: a name
+            # that already names a field.toml in the armed folder. A project built before the rule
+            # may be called attic-room; refusing that left it with no Name that could regenerate
+            # it (the one-field-per-folder refusal below refuses every other)
+            imagefield.check_field_name(name, self._project["out"] if self._project else None)
+        except imagefield.ImageFieldError as e:
+            self._refresh(str(e), "error")
+            return
         first = self._project is None                 # only the FIRST Generate opens the
         #                                                result in the Editor; a regenerate
         #                                                never yanks the author off this canvas
@@ -1179,9 +1179,9 @@ class TraceDoc(QWidget):
             # land on the wrong part of the picture, armed as in sync, and the next Generate
             # would rotate the art under an unchanged walkmesh.
             why = f"it was traced on {photo.name} before the kit turned sideways photos upright"
-            lead = (f"⚠ {photo.name} is stored sideways, and this project was traced before the "
-                    f"kit turned such photos upright — reopened from the project's own art "
-                    f"(art/base.png), so the floor stays where you drew it.")
+            lead = (f"⚠ {photo.name} has a camera orientation tag that the kit now applies, and "
+                    f"this project was traced before it did — reopened from the project's own "
+                    f"art (art/base.png), so the floor stays where you drew it.")
         if why:                                        # the project's own art IS the frame the
             tomls = sorted(Path(path).parent.glob("*.field.toml"))   # record was traced on
             if not tomls:

@@ -1599,3 +1599,9 @@ def test_each_place_tool_says_the_shape_it_draws(app):
     for key, shape in (("npc", "circle"), ("prop", "square"), ("spawn", "triangle"),
                        ("arrival", "diamond")):
         assert shape in d.mode_btns[key].toolTip(), (key, d.mode_btns[key].toolTip())
+
+
+def test_the_place_regions_tool_says_zone_and_how_to_cancel(app):
+    d, _ = _doc(app)
+    tip = d.tools.button("regions").toolTip()
+    assert "zones" in tip and "quad" not in tip and "Esc" in tip, tip

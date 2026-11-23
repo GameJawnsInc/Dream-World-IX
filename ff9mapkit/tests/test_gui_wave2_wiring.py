@@ -352,12 +352,16 @@ def test_a_disabled_tool_segment_looks_disabled(app, theme):
 # --------------------------------------------------------------- batch 3, the final review
 @pytest.mark.parametrize("theme", ["light", "dark", "mist", "dracula"])
 @pytest.mark.parametrize("kind", ["radio", "check"])
-def test_a_disabled_radio_or_checkbox_label_looks_disabled(app, theme, kind):
+def test_a_disabled_radio_or_checkbox_in_a_tool_row_looks_disabled(app, theme, kind):
     """Beside a dimmed tool segment (T28), a disabled NPC / Prop radio kept its label at full
     contrast: only the indicator dimmed, so the row read 'Place is off' and 'NPC is ready' at
-    once. Measured on the LABEL alone (the indicator already differed)."""
+    once. Measured on the LABEL alone (the indicator already differed).
+
+    Scoped to the tool rows (widgets.SpillRow), NOT app-wide: on the Build tab an app-wide rule
+    left a disabled option's title fainter than the caption under it, and elsewhere a disabled
+    checkbox's label is a sentence the author still has to read."""
     from PySide6.QtCore import QPoint, QRect
-    from PySide6.QtWidgets import QCheckBox, QRadioButton, QVBoxLayout, QWidget
+    from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QRadioButton, QVBoxLayout, QWidget
 
     from ff9mapkit.editor.theme import _contrast as contrast
     from ff9mapkit.workspace.shell import _apply_app_theme
@@ -369,10 +373,16 @@ def test_a_disabled_radio_or_checkbox_label_looks_disabled(app, theme, kind):
     host.setStyleSheet(qss(pal))
     lay = QVBoxLayout(host)
     cls = QRadioButton if kind == "radio" else QCheckBox
+    lead = QWidget()
+    row = QHBoxLayout(lead)
     on, off = cls("Arrival"), cls("Arrival")
     off.setEnabled(False)
-    lay.addWidget(on)
-    lay.addWidget(off)
+    row.addWidget(on)
+    row.addWidget(off)
+    lay.addWidget(widgets.SpillRow(lead, QWidget()))
+    plain = cls("Arrival")                             # the same control OUTSIDE a tool row
+    plain.setEnabled(False)
+    lay.addWidget(plain)
     host.show()
     app.processEvents()
 
@@ -385,4 +395,5 @@ def test_a_disabled_radio_or_checkbox_label_looks_disabled(app, theme, kind):
                    for y in range(img.height()) for x in range(img.width()))
 
     assert label_ink(off) < label_ink(on) - 1.0, (theme, kind, label_ink(on), label_ink(off))
+    assert label_ink(plain) > label_ink(off) + 1.0, (theme, kind, label_ink(plain), label_ink(off))
     host.hide()

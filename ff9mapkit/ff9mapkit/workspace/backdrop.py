@@ -145,7 +145,8 @@ class BackdropCanvas(QGraphicsView):
         if self._cam is None:
             what = ""                              # nothing on this canvas resolves a click
         elif self._region_mode:
-            what = "click 4 corners · Esc cancels"
+            what = "click 4 corners"               # (Esc: the tool's tooltip -- this pill hides on
+            #                                        the first corner, before Esc can do anything)
         elif self._contact_mode:
             what = "click the object's base"
         elif self._trace_mode:
@@ -761,7 +762,7 @@ class BackdropCanvas(QGraphicsView):
             it = sc.addPolygon(poly, pen, QBrush(fill))
             it.setData(0, "regionquad")
             it.setData(1, i)
-            tip = str(r.get("label") or f"region {i}")
+            tip = str(r.get("label") or f"zone {i}")
             if warn:
                 tip += f"\n⚠ {warn}"
             it.setToolTip(tip)
@@ -815,9 +816,9 @@ class BackdropCanvas(QGraphicsView):
                 edge = sc.addLine(x0, y0, x1, y1, epen)
                 edge.setData(0, "regionedge")
                 edge.setData(1, i)
-                edge.setToolTip("the walk-out edge (your first two corners): the exit walks the "
-                                "player across this edge into the fade — put the edge the player "
-                                "should leave through first (right-click the zone to rotate)")
+                edge.setToolTip("the walk-out edge (drawn thick, with an arrow): the exit walks "
+                                "the player across this edge into the fade — right-click the zone "
+                                "to move it to the next edge")
                 self._region_edge_items[i] = edge
                 mx, my = (x0 + x1) / 2, (y0 + y1) / 2
                 cx = sum(p[0] for p in pts) / len(pts)
@@ -988,7 +989,7 @@ class BackdropCanvas(QGraphicsView):
             rot = menu.addAction("Walk-out edge → next edge (rotate corners)")
         else:
             word = menu.addAction("Set message…")
-        rm = menu.addAction(f"Delete {r.get('label') or f'region {i}'}")
+        rm = menu.addAction(f"Delete {r.get('label') or f'zone {i}'}")
         act = menu.exec(global_pos)
         if act is None:
             return
@@ -1228,13 +1229,13 @@ class BackdropCanvas(QGraphicsView):
         kind = d.get("kind", "vertex")
         if kind in ("rpt", "rquad"):
             q = d["quad"]
-            if kind == "rpt":
+            if kind == "rpt":                      # (no corner number: the art draws none)
                 x, z = q[d["ci"]]
-                head = f"region {d['i']} corner {d['ci']} · world x {x:.0f} · z {z:.0f}"
+                head = f"zone {d['i']} · corner at world x {x:.0f} · z {z:.0f}"
             else:
                 cx0 = sum(p[0] for p in q) / len(q)
                 cz0 = sum(p[1] for p in q) / len(q)
-                head = f"region {d['i']} · centre x {cx0:.0f} · z {cz0:.0f}"
+                head = f"zone {d['i']} · centre x {cx0:.0f} · z {cz0:.0f}"
             self._coords.setText(head)
             self._coords.show()
             self._place_hint()

@@ -980,7 +980,9 @@ def test_the_hint_pill_speaks_the_current_tool_then_gets_out_of_the_way(app):
     hint = c._hint
     assert "outline" in hint.text() and hint.isVisibleTo(c)
     c.set_region_mode(True)
-    assert "4 corners" in hint.text() and "Esc" in hint.text()
+    assert "4 corners" in hint.text()
+    assert "Esc" not in hint.text()                    # the first corner hides the pill, and Esc only
+    #                                                    acts after it: the tool's tooltip says it
     assert "click the floor" not in hint.text()
     c.set_contact_mode(True)
     assert "base" in hint.text() and "click the floor" not in hint.text()
@@ -1316,7 +1318,7 @@ def test_a_right_click_on_a_zone_label_opens_that_zones_menu(app, monkeypatch):
     assert "NO TARGET" in lab["plate"].toolTip() and "NO TARGET" in lab["text"].toolTip()
     sp = c.mapToScene(pos)                             # ...and a LEFT press on it grabs nothing
     _mouse(c, "press", (sp.x(), sp.y()))
-    assert c._drag is None or c._drag.get("kind") not in ("regionpt", "regionquad")
+    assert c._drag is None, c._drag                    # (outside its quad: nothing to grab at all)
     _mouse(c, "release", (sp.x(), sp.y()))
 
 
@@ -1351,3 +1353,23 @@ def test_a_marker_label_stays_beside_its_own_marker(app):
     plate = QRectF(tl.x(), tl.y(), w, h)
     for anchor, box in c._glyphs:                      # and it still hides no handle
         assert not plate.intersects(box.translated(c.mapFromScene(anchor.pos()).toPointF()))
+
+
+def test_zone_words_on_the_canvas_say_zone_and_name_what_is_drawn(app, monkeypatch):
+    """The status was reworded to 'zone', and the canvas right beside it still said 'region 0
+    corner 2' (a number it no longer draws), 'Delete region 0', and called the walk-out edge
+    'your first two corners' on a zone that had been rotated or was never drawn by hand."""
+    c, *_ = _region_canvas(app)
+    c.set_regions([{"i": 0, "quad": list(_GW_QUAD), "label": "", "kind": "gateway", "warn": None}])
+    c._fit()
+    assert c._region_items[0].toolTip().startswith("zone 0")
+    tip = c._region_edge_items[0].toolTip()
+    assert "walk-out edge" in tip and "first two corners" not in tip and "quad" not in tip
+    x, z = _GW_QUAD[0]
+    cx, cy = IF.world_to_click(c.camera(), (x, z))
+    _mouse(c, "press", (cx, cy))
+    _mouse(c, "move", (cx + 6, cy + 2))
+    readout = c._coords.text()
+    _mouse(c, "release", (cx + 6, cy + 2))
+    assert readout.startswith("zone 0") and "region" not in readout, readout
+    assert "corner 0" not in readout, readout          # corners are not numbered on the art

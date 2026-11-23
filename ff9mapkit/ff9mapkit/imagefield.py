@@ -1117,11 +1117,19 @@ def merge_project_toml(generated_text: str, existing: dict | None, *, twin_quads
 
 
 # ----------------------------------------------------------------- orchestrator
-def check_field_name(name) -> str:
+def check_field_name(name, out=None) -> str:
     """The field name is the project's FILE name (``<name>.field.toml``) and its ``EVT_<name>`` /
     ``FBG_`` token, so it follows the kit's one token rule (``hub._NAME_RE``). Raises
-    :class:`ImageFieldError`; the Trace tab asks the same function before it launches a job."""
+    :class:`ImageFieldError`; the Trace tab asks the same function before it launches a job.
+
+    ``out`` = the project folder. The rule guards the MINT of a file: a BARE name that already
+    names ``<out>/<name>.field.toml`` is past it -- a project built before the rule (attic-room)
+    keeps the name it has, or nothing could regenerate it. Bare only: ``x/../PHONE`` resolves to
+    an existing file too, and must never ride in as a field's name."""
     from .hub import _NAME_RE
+    if (isinstance(name, str) and out is not None and Path(name).name == name
+            and (Path(out) / f"{name}.field.toml").is_file()):
+        return name
     if not isinstance(name, str) or not _NAME_RE.match(name):
         raise ImageFieldError(f"field name {name!r} must be letters, digits and underscores only "
                               f"(it becomes the project's file name)")
@@ -1145,10 +1153,8 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
     Returns a manifest dict (incl. ``kept``/``retaken`` from the merge)."""
     from PIL import Image
     out = Path(out_dir)
+    check_field_name(name, out)                     # before any write (finding T7)
     toml_path = out / f"{name}.field.toml"
-    if not toml_path.is_file():                     # before any write (finding T7) -- and only for
-        check_field_name(name)                      # a name that MINTS a file: a project built
-        #                                             before the rule keeps the name it has
     # The unparseable-refusal fires HERE — and EVERY write below is deferred until every
     # refusal (this one, the Int16 bound, a zone above the horizon, the merge itself) has
     # passed: a refusal must never leave a half-rewritten project (the floorplan emit's rule,

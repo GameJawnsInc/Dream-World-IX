@@ -378,9 +378,12 @@ _QSS = Template(
                     stop:0 $accent_fg, stop:0.40 $accent_fg, stop:0.46 $accent, stop:1 $accent);
     }
     QCheckBox::indicator:disabled, QRadioButton::indicator:disabled { border: 1px solid $muted; background: $bg; }
-    /* ...and the LABEL dims with it: beside a dimmed tool segment (T28) a disabled radio kept its text at
-       full contrast, so one row read "Place is off" and "NPC is ready" at once. */
-    QCheckBox:disabled, QRadioButton:disabled { color: $text_subtle; }
+    /* ...and in a TOOL ROW (widgets.SpillRow) the label dims with it: beside a dimmed tool segment (T28)
+       a disabled radio kept its text at full contrast, so one row read "Place is off" and "NPC is ready"
+       at once. Scoped to the tool rows on purpose -- app-wide it left Build's disabled option titles
+       fainter than the captions under them, and elsewhere a disabled checkbox's label is a sentence the
+       author still has to read. */
+    SpillRow QCheckBox:disabled, SpillRow QRadioButton:disabled { color: $text_subtle; }
     /* A disabled+checked control still has to show WHAT it is set to (it is state, not decoration) -- but
        in muted, so it reads as unavailable rather than active. Specificity 0x31 out-ranks :checked's 0x21. */
     QCheckBox::indicator:checked:disabled {

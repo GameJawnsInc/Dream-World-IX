@@ -1204,3 +1204,21 @@ def test_exif_turned_reads_the_orientation_tag(tmp_path):
     assert IF.exif_turned(turned) is True
     assert IF.exif_turned(plain) is False and IF.exif_turned(upright) is False
     assert IF.exif_turned(tmp_path / "gone.jpg") is False
+
+
+@pytest.mark.parametrize("name", ["x/../PHONE", "x\\..\\PHONE", "./PHONE"])
+def test_a_name_carrying_a_path_is_never_past_the_name_rule(tmp_path, name):
+    """The exemption 'this name already names a file' was asked of the PATH: 'x/../PHONE'
+    resolves to the existing PHONE.field.toml, skipped the rule, and was written into the
+    project as its name (the backslash form died in the TOML parser instead -- the crash the rule
+    exists to stop). Only a bare name can be an existing project's name."""
+    from PIL import Image
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (800, 600), (90, 80, 70)).save(photo)
+    floor = [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)]
+    out = tmp_path / "proj"
+    IF.build_image_field(photo, floor, out, name="PHONE", field_id=30779)
+    before = {q.name: q.read_bytes() for q in out.rglob("*") if q.is_file()}
+    with pytest.raises(IF.ImageFieldError, match="letters, digits and underscores"):
+        IF.build_image_field(photo, floor, out, name=name, field_id=30779)
+    assert {q.name: q.read_bytes() for q in out.rglob("*") if q.is_file()} == before

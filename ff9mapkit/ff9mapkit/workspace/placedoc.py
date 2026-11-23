@@ -505,8 +505,9 @@ class PlaceDoc(QWidget):
         self.tools = widgets.ToolStrip(
             [("place", "Place", "Click the walkable footprint to place content — NPCs, "
                                 "props, spawn, arrival."),
-             ("regions", "Regions", "Draw trigger quads on the art — gateways and walk-in "
-                                    "events (4 clicks = one zone).")])
+             ("regions", "Regions", "Draw trigger zones on the art — gateways and walk-in "
+                                    "events (4 clicks = one zone; Esc cancels a half-drawn "
+                                    "one).")])
         self.tools.changed.connect(lambda _k: self._apply_tool())
         row.addWidget(self.tools)
         row.addSpacing(6)
