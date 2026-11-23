@@ -1114,3 +1114,32 @@ def test_set_message_refuses_a_blank_line(app, monkeypatch, typed):
     d._on_region_reword(0)
     assert calls == [] and data["event"][0]["message"] == "Watch your step."
     assert "empty" in d.status.text() and d.status.property("state") == "warn"
+
+
+def test_mode_radios_explain_themselves_and_a_verbatim_refusal_does_not_stick(app):
+    """Review findings P15 + P23. The four mode radios had no tooltip, except the verbatim
+    refusal, which was set on Spawn/Arrival and never cleared: after any verbatim fork, an
+    ENABLED Spawn on an ordinary field still said its clicks would be ignored."""
+    d, _ = _doc(app)
+    tips = {k: d.mode_btns[k].toolTip() for k, _l in d.MODES}
+    assert all(tips.values()), tips                     # every radio says what it places
+    assert "entrance" in tips["arrival"] and "door" in tips["spawn"]
+    assert "Editor" in tips["npc"] and "Editor" in tips["prop"]
+    d.show_field("FORK", {"verbatim_eb": {"donor": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    assert "verbatim" in d.mode_btns["spawn"].toolTip()
+    d.show_field("NOVEL", {"field": {"id": 30058}}, Path("C:/somewhere/NOVEL.field.toml"))
+    assert d.mode_btns["spawn"].isEnabled()
+    assert {k: d.mode_btns[k].toolTip() for k, _l in d.MODES} == tips
+
+
+@pytest.mark.parametrize("mode", ["npc", "prop"])
+def test_an_npc_or_prop_drop_says_where_to_finish_it(app, mode):
+    """Review finding P23: the drop note now says where the new row gets its model and words."""
+    d, calls = _doc(app)
+    data = {"field": {"source_field": 351}}
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    d.mode_btns[mode].setChecked(True)
+    d._apply_hit({"xz": (0.0, 1500.0), "floor": 0})
+    assert len(calls) == 1 and "Editor" in d.status.text(), d.status.text()

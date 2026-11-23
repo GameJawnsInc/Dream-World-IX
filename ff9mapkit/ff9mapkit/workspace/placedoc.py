@@ -387,6 +387,16 @@ class PlaceDoc(QWidget):
     write channel — the shell checkpoints the mutation this doc made in the open doc's dict."""
 
     MODES = (("npc", "NPC"), ("prop", "Prop"), ("spawn", "Spawn"), ("arrival", "Arrival"))
+    MODE_TIPS = {
+        "npc": "Click the floor to stand an NPC there. It starts as a silent Vivi; give it a "
+               "model and words in the Editor (NPCs).",
+        "prop": "Click the floor to set a prop there. It starts as a barrel; pick its model in "
+                "the Editor (Props).",
+        "spawn": "Where the player stands when the field loads without coming through a door "
+                 "(New Game, a warp): the default entry point.",
+        "arrival": "Where the player lands coming in through a door: one spot per entrance "
+                   "number, the number the source field's gateway sends.",
+    }
 
     def __init__(self, pal, *, on_edit, scale=100):
         super().__init__()
@@ -452,6 +462,7 @@ class PlaceDoc(QWidget):
         for key, label in self.MODES:
             rb = QRadioButton(label)
             rb.setAccessibleName(f"Place {label}")
+            rb.setToolTip(self.MODE_TIPS[key])
             rb.toggled.connect(self._on_mode_toggled)
             self.mode_group.addButton(rb)
             self.mode_btns[key] = rb
@@ -921,6 +932,7 @@ class PlaceDoc(QWidget):
             self.tools.button(tool).setEnabled(not blocked)
         for key, _label in self.MODES:
             self.mode_btns[key].setEnabled(not blocked)
+            self.mode_btns[key].setToolTip(self.MODE_TIPS[key])   # a refusal below never sticks
         for w in (self.rkind_btns["gateway"], self.rkind_btns["event"],
                   self.gw_to, self.gw_ent):
             w.setEnabled(not blocked)
@@ -978,6 +990,10 @@ class PlaceDoc(QWidget):
         note = f"{label} at ({int(round(x))}, {int(round(z))})"
         if row.get("floor") is not None:
             note += f" · floor {row['floor']}"
+        if mode == "npc":
+            note += " — give it a model and words in the Editor (NPCs)"
+        elif mode == "prop":
+            note += " — pick its model in the Editor (Props)"
         if self.on_edit:
             self.on_edit(self._member, label)
         self._refresh(note)
