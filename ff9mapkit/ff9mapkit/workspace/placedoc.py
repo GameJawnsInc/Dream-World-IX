@@ -43,8 +43,8 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QCursor, QPixmap
 from PySide6.QtWidgets import (
-    QButtonGroup, QComboBox, QHBoxLayout, QLabel, QMenu, QPushButton, QRadioButton, QSpinBox,
-    QVBoxLayout, QWidget,
+    QButtonGroup, QComboBox, QHBoxLayout, QLabel, QMenu, QPushButton, QRadioButton,
+    QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from .. import imagefield
@@ -465,10 +465,19 @@ class PlaceDoc(QWidget):
             "Click the room's own art to place content — every click raycasts the real walkmesh.")
         root.addWidget(crown)
 
-        row = QHBoxLayout()
+        # The control row is a SpillRow (the Cutscene scene bar's cure, finding P17): one
+        # non-wrapping row floored the whole window at its SUM (1391px at 150% with a fork open,
+        # over a 1280 window; at 1024/125% it crushed Load and the tool strip to '…'). The field,
+        # Load and camera LEAD; the tool strip and its cluster TAIL, dropping to a second line
+        # only when the column cannot hold both. The field name elides (full text in its tooltip).
+        lead = QWidget()
+        row = QHBoxLayout(lead)
+        row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
-        self.field_label = QLabel("no field")
-        self.field_label.setProperty("role", "muted")
+        self.field_label = widgets.ElideLabel("no field", "muted", min_ch=10)
+        # Preferred, not ElideLabel's Ignored: it takes its whole text when there is room and
+        # yields to min_ch when there is not, so Load stays beside it instead of at the far end
+        self.field_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         row.addWidget(self.field_label)
         row.addSpacing(10)
         self.load_btn = QPushButton("Load the room")
@@ -486,6 +495,10 @@ class PlaceDoc(QWidget):
         self.cam_box.setVisible(False)             # shown by _sync_cam_box on a multi-camera field
         self.cam_label.setVisible(False)
         row.addStretch(1)
+        tail = QWidget()
+        row = QHBoxLayout(tail)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
         self.tools = widgets.ToolStrip(
             [("place", "Place", "Click the walkable footprint to place content — NPCs, "
                                 "props, spawn, arrival."),
@@ -545,7 +558,8 @@ class PlaceDoc(QWidget):
                                "dispatch on.")
         self.gw_ent_label.setBuddy(self.gw_ent)
         row.addWidget(self.gw_ent)
-        root.addLayout(row)
+        self.control_row = widgets.SpillRow(lead, tail, margins=(0, 0, 0, 0))
+        root.addWidget(self.control_row)
 
         self.canvas = BackdropCanvas(pal, scale=scale)
         self.canvas.surface_clicked.connect(self._on_surface_clicked)

@@ -1347,6 +1347,32 @@ def test_a_scene_that_carries_the_layers_places_on_the_fields_own_art(app):
     assert d._source[0] == "project"
 
 
+@pytest.mark.parametrize("tool", ["place", "regions"])
+def test_with_a_fork_open_the_control_row_floors_at_its_wider_half(app, tool):
+    """Review finding P17. The control row was one non-wrapping QHBoxLayout: with a fork open
+    its SUM floored the window (1117/1273/1391px at 100/125/150%, measured natively), clipping
+    the Inspector at 1280 and crushing Load and the tool strip to '…' at 1024/125%. It is the
+    house SpillRow now -- the floor is the wider half -- and the field name elides. Relative
+    widths only (offscreen fonts are fiction); the absolute numbers were read natively with
+    tools/gui_snap.py (place:fork / place:regions: window floor 932/1043/1142)."""
+    from ff9mapkit.workspace import widgets
+    d, _ = _doc(app)
+    d.show_field("A_RATHER_LONG_FORK_NAME", {"field": {"source_field": 351}},
+                 Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    d.tools.set_current(tool)
+    QApplication.processEvents()
+    row = d.control_row
+    assert isinstance(row, widgets.SpillRow)
+    lead, tail = row._lead.minimumSizeHint().width(), row._tail.minimumSizeHint().width()
+    assert row.minimumSizeHint().width() == max(lead, tail), (row.minimumSizeHint(), lead, tail)
+    assert d.minimumSizeHint().width() < lead + tail     # the page no longer floors at the sum
+    fl = d.field_label
+    assert fl.minimumSizeHint().width() < fl.sizeHint().width()   # the name yields, elided
+    assert fl.toolTip() == fl.fullText() and "351" in fl.toolTip()
+
+
 def test_place_speaks_of_every_lane_not_only_forks(app):
     """Review finding P22. Place serves novel, traced and composed fields too, but its empty
     state sent the author off to fork something, and Load spoke only of a donor."""
