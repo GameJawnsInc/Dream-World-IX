@@ -1377,6 +1377,49 @@ def test_the_warning_the_author_must_act_on_comes_first(app, tmp_path, monkeypat
     assert text.index("without a target") < text.index("vertices traced"), text
 
 
+def test_a_tool_switch_that_spills_the_row_refits_the_canvas(app, tmp_path, monkeypatch):
+    """Review of T23: switching to Regions spilled Undo/Clear onto a second line; the canvas lost
+    that height but kept its old fit, so the drawn zones at the bottom of the art fell out of view.
+    A flip of the row (either way) now re-fits the frame. The width is chosen BETWEEN the row's
+    one-line asks in the two states, read at runtime (offscreen widths are relative only)."""
+    pytest.importorskip("PIL")
+    doc, _ = _doc(app)
+    doc.load_image(_photo(tmp_path))
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    doc.tools.set_current("regions")
+    doc.rkind_btns["gateway"].setChecked(True)
+    QApplication.processEvents()
+    wide = doc.tool_row._one_line_width()
+    doc.tools.set_current("floor")
+    QApplication.processEvents()
+    narrow = doc.tool_row._one_line_width()
+    assert narrow < wide                               # the premise: Regions asks for more
+    pad = doc.width() - doc.tool_row.width()
+    doc.resize(pad + (narrow + wide) // 2, 900)
+    doc.show()
+    QApplication.processEvents()
+    assert not doc.tool_row.spilled()
+    refits = []
+    real = doc.canvas.set_backdrop
+    monkeypatch.setattr(doc.canvas, "set_backdrop",
+                        lambda pm, cam, refit=True: (refits.append(refit), real(pm, cam, refit=refit)))
+    doc.tools.set_current("regions")
+    for _ in range(4):
+        QApplication.processEvents()
+    assert doc.tool_row.spilled() and True in refits
+    refits.clear()
+    doc.tools.set_current("floor")
+    for _ in range(4):
+        QApplication.processEvents()
+    assert not doc.tool_row.spilled() and True in refits
+    refits.clear()
+    doc._sync_region_cluster()                         # a swap that does not flip: no refit
+    for _ in range(4):
+        QApplication.processEvents()
+    assert refits == []
+    doc.hide()
+
+
 def test_the_cut_out_strip_shares_the_tools_row_when_it_fits(app, tmp_path, monkeypatch):
     """The strip was a row of its own, so marking the first contact took a whole row of height
     from the canvas. When the width allows, it now sits on the tools row."""
@@ -1413,6 +1456,21 @@ def test_unsaved_trace_work_is_what_the_last_generate_has_not_seen(app, tmp_path
     assert not doc.has_unsaved()                       # the record + project now hold it
     doc.canvas._commit_floor([(120, 210), (254, 200), (364, 440), (20, 440)])
     assert doc.has_unsaved()                           # an edit the project lacks
+
+
+def test_drawn_regions_alone_are_unsaved_work(app, tmp_path):
+    """Doors and event messages with the floor cleared are still work a close would discard."""
+    pytest.importorskip("PIL")
+    from ff9mapkit import imagefield as IF
+    doc, _ = _traced(app, tmp_path)
+    doc.tools.set_current("regions")
+    cam = doc.canvas.camera()
+    doc._on_region_drawn([IF.click_to_world(cam, p) for p in
+                          [(60.0, 300.0), (140.0, 300.0), (140.0, 330.0), (60.0, 330.0)]])
+    doc.tools.set_current("floor")
+    doc.clear_btn.click()
+    assert doc._floor == [] and doc._fg == [] and len(doc._regions) == 1
+    assert doc.has_unsaved()
 
 
 def test_opening_another_image_over_unsaved_work_asks_first(app, tmp_path, monkeypatch):
@@ -1530,8 +1588,29 @@ def test_a_project_whose_photo_is_gone_reopens_from_its_own_art(app, tmp_path, r
     assert doc._image == toml.parent / "art" / "base.png"
     assert doc._project and doc._project["out"] == str(toml.parent) and len(doc._floor) == 4
     assert "room.png" in doc.status.text() and "missing" in doc.status.text()
+    assert doc.status.text().startswith("⚠")          # the warning LEADS the status
     assert doc.status.property("state") == "warn"
 
+
+def test_a_regenerate_after_the_photo_went_missing_rewrites_the_one_record(app, tmp_path,
+                                                                            monkeypatch):
+    """Review of T10: the fallback session's image is art/base.png, so the next Generate wrote a
+    SECOND record (base.trace.json) and left <photo>.trace.json holding the old floor. Reopening
+    picks sorted()[0] -- for a photo stem sorting before 'base' that is the STALE record, armed as
+    in sync, and its next Generate reverts the project. One project per folder, one record: the
+    write goes to the record the folder already has."""
+    pytest.importorskip("PIL")
+    import json
+    toml, side = _project_whose_photo_is_gone(tmp_path)
+    doc, _ = _doc(app)
+    doc.load_trace(side)
+    moved = [(120.0, 210.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)]
+    doc.canvas._commit_floor(moved)
+    doc._write_trace_sidecar(toml.parent)
+    assert sorted(p.name for p in toml.parent.glob("*.trace.json")) == ["room.trace.json"]
+    rec = json.loads(side.read_text(encoding="utf-8"))
+    assert [tuple(p) for p in rec["floor"]] == moved
+    assert rec["image"] == str(toml.parent / "art" / "base.png")
 
 def test_a_missing_photo_with_nothing_to_rebuild_from_names_the_photo(app, tmp_path):
     pytest.importorskip("PIL")
@@ -1563,18 +1642,19 @@ def test_a_broken_project_is_refused_before_any_state_lands(app, tmp_path):
 
 def test_clear_acts_on_the_active_tool_and_says_so(app, tmp_path, monkeypatch):
     """Finding T12: Clear emptied the FLOOR whatever tool was showing -- with the Regions tool
-    active it wiped the floor and left every zone. It now clears what the tool owns, its label
-    says which, and it is one undoable gesture."""
+    active it wiped the floor and left every zone. It now clears what the tool owns, its tip
+    says which, and it is one undoable gesture. The LABEL stays one fixed word: 'Clear regions'
+    spilled the tools row in Regions mode and pushed the drawn zones off the canvas (review)."""
     pytest.importorskip("PIL")
     from ff9mapkit import imagefield as IF
     doc, _ = _traced(app, tmp_path)
-    assert doc.clear_btn.text() == "Clear floor"
+    assert doc.clear_btn.text() == "Clear" and "floor" in doc.clear_btn.toolTip()
     doc.tools.set_current("regions")
     cam = doc.canvas.camera()
     doc._on_region_drawn([IF.click_to_world(cam, p) for p in
                           [(60.0, 300.0), (140.0, 300.0), (140.0, 330.0), (60.0, 330.0)]])
-    assert doc.clear_btn.text() == "Clear regions" and doc.clear_btn.isEnabled()
-    assert "region" in doc.clear_btn.toolTip()
+    assert doc.clear_btn.text() == "Clear" and doc.clear_btn.isEnabled()
+    assert doc.clear_btn.toolTip().startswith("Clear regions")
     floor = list(doc._floor)
     doc.clear_btn.click()
     assert doc._regions == [] and doc.canvas._regions == [] and doc._floor == floor
@@ -1584,7 +1664,7 @@ def test_clear_acts_on_the_active_tool_and_says_so(app, tmp_path, monkeypatch):
     doc.tools.set_current("cutout")
     doc._on_contact(230.0, 320.0)                      # (the tool returns to Floor after a contact)
     doc.tools.set_current("cutout")
-    assert doc.clear_btn.text() == "Clear cut-outs"
+    assert doc.clear_btn.toolTip().startswith("Clear cut-outs")
     doc.clear_btn.click()
     assert doc._fg == [] and len(doc._regions) == 1 and doc._floor == floor
     assert "region" in doc.undo_btn.toolTip()
@@ -1636,13 +1716,13 @@ def test_the_event_message_box_is_labelled_and_tells_the_truth(app, tmp_path):
     doc.tools.set_current("regions")
     doc.rkind_btns["event"].setChecked(True)
     QApplication.processEvents()
-    assert doc.ev_msg_label.buddy() is doc.ev_msg and doc.ev_msg_label.isVisible()
+    # its placeholder + accessible name are the label: a visible 'Message' label spilled the
+    # tools row in Regions mode and pushed the drawn zones off the canvas (review of T23)
     assert doc.ev_msg.text() == "" and doc.ev_msg.placeholderText()
+    assert doc.ev_msg.accessibleName()
     assert doc.ev_msg.maximumWidth() > 180
     tip = doc.ev_msg.toolTip()
     assert "not in the file" not in tip and "field.toml" in tip
-    doc.rkind_btns["gateway"].setChecked(True)
-    assert not doc.ev_msg_label.isVisible()            # the label follows its box
 
 
 def test_a_cut_out_entry_leads_with_what_the_author_must_know(app, tmp_path, monkeypatch):

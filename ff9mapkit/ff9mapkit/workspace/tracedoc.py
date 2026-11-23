@@ -256,10 +256,10 @@ class TraceDoc(QWidget):
                                "dispatch on.")
         self.gw_ent_label.setBuddy(self.gw_ent)
         row.addWidget(self.gw_ent)
-        # labelled, uncapped, and no '...' pre-fill (left alone it shipped a literal ellipsis
-        # popup); an empty box still falls back to '...' at draw time (finding T31)
-        self.ev_msg_label = QLabel("Message")
-        row.addWidget(self.ev_msg_label)
+        # uncapped, and no '...' pre-fill (left alone it shipped a literal ellipsis popup); an
+        # empty box still falls back to '...' at draw time (finding T31). Its placeholder and
+        # accessible name are its label: a visible 'Message' label spilled Undo/Clear onto a
+        # second line in Regions mode and the drawn zones fell out of view (review of T23)
         self.ev_msg = QLineEdit()
         self.ev_msg.setPlaceholderText("what the zone says on walk-in")
         self.ev_msg.setAccessibleName("Event message")
@@ -267,7 +267,6 @@ class TraceDoc(QWidget):
                                "per zone as you draw it; right-click a drawn zone to reword it). "
                                "Generate writes it into the project's field.toml and keeps it in "
                                "its .trace.json.")
-        self.ev_msg_label.setBuddy(self.ev_msg)
         row.addWidget(self.ev_msg, 4)                  # takes most of the spare width (a line)
         row.addStretch(1)
 
@@ -311,11 +310,15 @@ class TraceDoc(QWidget):
         self.undo_btn.setToolTip("Take back the last gesture (a vertex, cut-out or region).")
         self.undo_btn.clicked.connect(self.on_undo)
         fg_row.addWidget(self.undo_btn)
-        self.clear_btn = QPushButton("Clear floor")      # label + tip follow the tool (_refresh)
+        # ONE fixed label: 'Clear regions' spilled Undo/Clear onto a second line in Regions mode,
+        # the canvas lost the height and the drawn zones fell out of view (review of T23/T12).
+        # The tool strip above names what it acts on; the tip says it (_refresh)
+        self.clear_btn = QPushButton("Clear")
         self.clear_btn.clicked.connect(self.on_clear)
         fg_row.addWidget(self.clear_btn)
         self.tool_row = widgets.SpillRow(lead, self._fg_tail, margins=(0, 0, 0, 0))
         root.addWidget(self.tool_row)
+        self.tool_row.installEventFilter(self)         # its height moves the canvas: re-fit
         self._fg_widgets = (self.fg_box, self.fg_attach_btn, self.fg_remove_btn, self.fg_show)
 
         self.canvas = BackdropCanvas(pal, scale=scale, on_floor=self._on_floor)
@@ -484,8 +487,7 @@ class TraceDoc(QWidget):
         self.gen_btn.setToolTip(tip)
         self.undo_btn.setEnabled(bool(self._history))
         what, attr, tip = self._CLEARS[self.tools.current()]
-        self.clear_btn.setText(f"Clear {what}")
-        self.clear_btn.setToolTip(f"{tip} (one Undo brings them back).")
+        self.clear_btn.setToolTip(f"Clear {what}: {tip.lower()} (one Undo brings them back).")
         self.clear_btn.setEnabled(bool(getattr(self, attr)))
         for key in ("cutout", "regions"):
             self.tools.button(key).setEnabled(self._image is not None)
@@ -769,7 +771,17 @@ class TraceDoc(QWidget):
         for w in (self.gw_to_label, self.gw_to, self.gw_ent_label, self.gw_ent):
             w.setVisible(gw)
         self.ev_msg.setVisible(on and not gw)
-        self.ev_msg_label.setVisible(on and not gw)
+
+    def eventFilter(self, obj, ev):                # noqa: N802 (Qt override)
+        """The tools row changed HEIGHT (a tool switch or the cut-out strip spilled it onto a
+        second line, or back): the canvas gained or lost that height but kept its old fit, and
+        the zones at the foot of the art fell out of view (review of T23) -- re-fit the frame."""
+        from PySide6.QtCore import QEvent
+        if (obj is getattr(self, "tool_row", None) and ev.type() == QEvent.Type.Resize
+                and getattr(self, "canvas", None) is not None
+                and ev.oldSize().height() > 0 and ev.oldSize().height() != ev.size().height()):
+            self.canvas.set_backdrop(self._pixmap, self._camera(), refit=True)
+        return super().eventFilter(obj, ev)
 
     # ------------------------------------------------------------------ rung 4: trigger regions
     def _region_worlds(self, quad_px):
@@ -1126,14 +1138,20 @@ class TraceDoc(QWidget):
         """The tab's session as ``<out>/<image-stem>.trace.json`` — floor, pitch, cut-outs
         (contacts + offsets + PNG paths), name/id — so Open can restore the whole editable
         state later (the 'set it up once' half of in-place regeneration). Best-effort: a
-        sidecar failure must never block the build itself."""
+        sidecar failure must never block the build itself.
+
+        One project per folder, ONE record: a folder that already holds one is rewritten under
+        THAT name (the one ``load_project`` reads back). A session rebuilt from art/base.png after
+        its photo went missing used to write a second, base.trace.json, beside the stale one --
+        and a reopen could then arm the stale floor as in sync (review of T10)."""
         import json
         try:
             Path(out).mkdir(parents=True, exist_ok=True)
             fg = [{"contact": list(f["contact"]), "image": f.get("image"),
                    "offset": (list(f["offset"]) if f.get("offset") else None)}
                   for f in self._fg]
-            (Path(out) / f"{self._image.stem}.trace.json").write_text(json.dumps({
+            held = sorted(Path(out).glob("*.trace.json"))
+            (held[0] if held else Path(out) / f"{self._image.stem}.trace.json").write_text(json.dumps({
                 "image": str(self._image), "pitch": self.pitch.value(),
                 "distance": self._distance, "fov": self._fov,
                 "floor": [list(p) for p in self._floor], "fg": fg,
