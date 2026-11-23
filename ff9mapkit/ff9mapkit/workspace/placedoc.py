@@ -561,7 +561,11 @@ class PlaceDoc(QWidget):
                                  if self._donor is not None else str(member))
         if not same:
             self._gen += 1                          # a stale in-flight load must not land here
-            self._loading = None
+            if self._loading is None or self._loading != getattr(self, "_stale_load", None):
+                self._loading = None                # ...but a load already marked stale STAYS "in
+            #                                         flight": were it forgotten, a second Load of the
+            #                                         same room could start beside it, and whichever
+            #                                         of the two landed LAST would be the one cached
             self.canvas.set_backdrop(None, None)
             self.canvas.set_surface([])
             self.canvas.set_regions([])

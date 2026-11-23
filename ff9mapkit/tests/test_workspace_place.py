@@ -206,6 +206,30 @@ def test_a_load_in_flight_when_the_file_changed_is_thrown_away(app, tmp_path):
     assert key in d._bundles and d.canvas._surface_tris
 
 
+def test_a_stale_load_stays_in_flight_so_a_second_load_cannot_race_it(app, tmp_path):
+    """After a regenerate the shell re-feeds Place, which used to forget the load still running
+    and re-enable Load: a second loader for the same room could then start beside it, and
+    whichever of the two landed LAST was cached -- possibly the old room. Also: a stale load that
+    FAILS must not poison the next good one."""
+    d, _ = _doc(app)
+    path = tmp_path / "ROOM.field.toml"
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)
+    key = (d._source, 0)
+    d._loading = key
+    d.forget_surface(path)
+    d.show_none()
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)   # the shell's re-feed after the regenerate
+    assert d._loading == key                           # still in flight: on_load() will not start a twin
+    started = []
+    d._loader.start = lambda *a: started.append(a)
+    d.on_load()
+    assert started == []
+    d._on_load_failed("the stale one died")
+    assert d._stale_load is None
+    d._on_loaded(dict(_bundle(), source=d._source))    # the next good load is kept, not thrown away
+    assert key in d._bundles
+
+
 def test_a_field_with_no_file_on_disk_still_refuses(app):
     """The surface is resolved FROM THE FILE, so an unsaved doc has nothing to resolve. The
     refusal moved from provenance to that -- it did not disappear."""

@@ -12,10 +12,10 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   ever deleted now. A project made before 1.0.0b20 keeps its old `door0` / `zone0` rows: one whose exact quad the
   run draws again is renamed to its `traced_` twin (listed under "retook"), the rest stay as your own rows, and
   reopening such a project's `field.toml` no longer pulls them into the Trace session.
-- **Keys you add to a traced door or zone now survive a regenerate.** A reward, a flag gate or any other key
-  added in the Editor to a `traced_` row was dropped the next time Trace regenerated, with no notice. Those keys
-  now ride through (listed under "preserved"). The row's target, entrance and message still come from the
-  Trace session; when that replaces a different value in the file, the output names it under "retook".
+- **A regenerate now says what it takes from a traced door or zone.** A `traced_` row is regenerated whole, so a
+  target changed in Place, or a reward or flag gate added to it in the Editor, was replaced with no notice. Each
+  value and key that goes is now named under "retook". (Keep such keys on a row of your own: any door or zone
+  without the `traced_` name is never touched.)
 - **Two photos with the same file name no longer share a project folder.** The Trace tab's first Generate wrote to
   `<photo name>-field` whatever was already there, so a second `image.png` or `IMG_0001.jpg` replaced the first
   project's art, floor and session record — and merged into its `field.toml` when both kept the default name. A
@@ -29,9 +29,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   the Behavior, Cutscene and Place tabs drop the old floor. Generate refuses while the open project has unsaved
   edits and says to Save All first; edits made while the job ran are kept or dropped only on your answer; a save
   that lands while the job runs is reported instead of silently winning or losing.
-- **A traced project can no longer be renamed into a second file.** Changing the Name box of an open Trace project
-  and regenerating wrote a second `field.toml` beside the first, over the same floor and art. Generate now refuses
-  until the name is put back.
+- **A traced project can no longer be regenerated into a second file.** Changing the Name box of an open Trace
+  project (or renaming the field in the Editor) and regenerating wrote a second `field.toml` beside the first, over
+  the same floor and art. Generate now refuses while the folder holds another field's file, and names it.
 - **An Editor form can no longer write into the wrong row after an edit in the Place tab.** With an unsaved change
   typed into a gateway, event or NPC form, deleting an earlier row of the same kind in Place made the next click
   write the form over a different row: one destroyed, another doubled. The form's Save, Delete and Reset buttons

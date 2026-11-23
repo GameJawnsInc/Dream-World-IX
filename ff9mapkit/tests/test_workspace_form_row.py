@@ -252,20 +252,88 @@ def test_reset_of_a_renamed_row_restores_that_rows_own_saved_copy(win):
     assert _gateways(win) == [("g0", 100), ("g1", 101), ("g3", 102)]
 
 
-def test_reset_says_so_when_it_cannot_tell_which_saved_row_this_is(win, monkeypatch):
-    """Rows removed without a save AND a row renamed: neither index nor name identifies its
-    saved copy. Pasting a neighbour's values is worse than doing nothing and saying why."""
+def test_reset_knows_its_row_after_a_delete_AND_a_rename(win):
+    """Neither index nor name survives this: a row removed without a save shifts the index, and
+    the row itself was renamed. The row OBJECT still says which saved row it was."""
     data = win._doc(_M).data
-    del data["gateway"][0]                             # the lists no longer line up...
-    data["gateway"][0]["name"] = "renamed"             # ...and g1's name is no longer in the save
+    del data["gateway"][0]
+    data["gateway"][0]["name"] = "renamed"
     data["gateway"][0]["to"] = 999
     win._touch(_M)
     _mount(win, "gateway:0")
+    win._reset_active()
+    assert _gateways(win) == [("g1", 101), ("g2", 102)]
+
+
+def test_reset_after_a_place_delete_and_a_place_draw_restores_the_right_row(win):
+    """Delete one row and draw another in Place: the list is the same LENGTH as the saved one
+    again, but shifted. An index check that trusts equal lengths pastes a deleted row's values
+    over the row being edited (the second adversarial pass's catch on the first follow-up)."""
+    from ff9mapkit.workspace import placedoc
+    data = win._doc(_M).data
+    placedoc.delete_region(data, "gateway", 0)         # g0 gone ...
+    placedoc.place_gateway(data, [(0, 0), (9, 0), (9, 9), (0, 9)], 4005)   # ... and a new door0 drawn
+    data["gateway"][0]["to"] = 999                     # g1, now at index 0, was edited
+    win._touch(_M)
+    assert [g["name"] for g in data["gateway"]] == ["g1", "g2", "door0"]
+    _mount(win, "gateway:0")
+    win._reset_active()
+    assert _gateways(win) == [("g1", 101), ("g2", 102), ("door0", 4005)]
+
+
+def test_reset_of_a_row_added_since_the_save_says_so_and_changes_nothing(win, monkeypatch):
+    """A new row has no saved copy -- not even when its minted name was once another row's."""
+    from ff9mapkit.workspace import placedoc
+    data = win._doc(_M).data
+    data["gateway"][0]["name"] = "door0"               # (saved under this name on disk next:)
+    win._save_all()
+    placedoc.delete_region(data, "gateway", 0)         # the saved door0 is deleted ...
+    placedoc.place_gateway(data, [(0, 0), (9, 0), (9, 9), (0, 9)], 4005)   # ... and Place mints door0 anew
+    win._touch(_M)
+    assert [g["name"] for g in data["gateway"]] == ["g1", "g2", "door0"]
+    _mount(win, "gateway:2")
     said = []
     monkeypatch.setattr(win, "_show_problems", lambda verdict, problems: said.append(verdict))
     win._reset_active()
-    assert _gateways(win) == [("renamed", 999), ("g2", 102)]       # untouched
+    assert _gateways(win)[2] == ("door0", 4005)        # NOT the deleted door0's saved target (100)
     assert said and "Nothing to reset" in said[0].headline
+
+
+def test_reset_after_an_undo_falls_back_to_an_unambiguous_name_or_says_so(win, monkeypatch):
+    """An undo swaps in a fresh copy of the whole document: no row object survives it. Then only
+    a name unique on both sides identifies a row; a duplicated one does not, and Reset says so."""
+    data = win._doc(_M).data
+    data["gateway"][1]["to"] = 555
+    win._on_place_edit(_M, "an edit")                  # one undoable step ...
+    data = win._doc(_M).data
+    data["gateway"][1]["to"] = 556
+    win._on_place_edit(_M, "another")
+    win._undo()                                        # ... and an undo: every row is a new object
+    data = win._doc(_M).data
+    assert _M not in win._clean_rows and data["gateway"][1]["to"] == 555
+    _mount(win, "gateway:1")
+    win._reset_active()
+    assert _gateways(win)[1] == ("g1", 101)            # "g1" is unique on both sides
+    data = win._doc(_M).data
+    data["gateway"][2]["name"] = "g1"                  # now two live rows share the name
+    data["gateway"][2]["to"] = 777
+    win._touch(_M)
+    win._clean_rows.pop(_M, None)                      # (as after another undo)
+    _mount(win, "gateway:2")
+    said = []
+    monkeypatch.setattr(win, "_show_problems", lambda verdict, problems: said.append(verdict))
+    win._reset_active()
+    assert _gateways(win)[2] == ("g1", 777) and said and "Nothing to reset" in said[0].headline
+
+
+def test_reset_on_a_row_that_is_gone_says_so(win, monkeypatch):
+    _mount(win)
+    del win._doc(_M).data["gateway"][1]
+    said = []
+    monkeypatch.setattr(win, "_show_problems", lambda verdict, problems: said.append(verdict))
+    win._reset_active()
+    assert _gateways(win) == [("g0", 100), ("g2", 102)]
+    assert [v.headline for v in said] == ["This Gateway no longer exists"]
 
 
 def test_save_and_delete_on_a_row_that_is_gone_touch_nothing(win, monkeypatch):

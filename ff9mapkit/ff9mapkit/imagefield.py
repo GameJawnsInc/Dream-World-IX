@@ -42,8 +42,11 @@ TRACED_GATEWAY_PREFIX = "traced_door"
 TRACED_EVENT_PREFIX = "traced_zone"
 GENERATED_TABLES = frozenset({"field", "camera", "walkmesh", "player", "layers",
                               "gateway", "event"})
-# What the generator itself writes on a region row. Every OTHER key on one (a reward, a flag
-# gate, a sound -- added in the Editor) is the human's and rides through a regenerate.
+# What the generator itself writes on a region row. A traced_ row is regenerated WHOLE, so any
+# other key on one (a reward, a flag gate -- added in the Editor) does not survive; the merge
+# names each one it drops. (They cannot simply be carried over: traced_ names are positional,
+# so after a session region is deleted "traced_door0" is a DIFFERENT door, and its predecessor's
+# reward would be grafted onto it.)
 _GEN_ROW_KEYS = {"gateway": ("name", "to", "entrance", "zone"), "event": ("name", "message", "zone")}
 _GEN_ROW_VALUES = {"gateway": (("to", None), ("entrance", 0)), "event": (("message", None),)}
 
@@ -954,9 +957,10 @@ def merge_project_toml(generated_text: str, existing: dict | None, *, twin_quads
       when this run re-emits the SAME quad (a <= 1.0.0b19 project reopened from its sidecar
       regenerates pixel-exact; named in ``retaken``), and otherwise kept as a hand row: the
       Place tab mints those names too, so nothing else can tell the two apart. A row that IS
-      re-emitted keeps every key the generator does not write (a reward, a flag gate — named
-      in ``kept``); where its ``to`` / ``entrance`` / ``message`` differed from the session's,
-      the session wins and ``retaken`` says which value went;
+      re-emitted is regenerated whole: ``retaken`` names every ``to`` / ``entrance`` /
+      ``message`` the session replaced with a different value, and every hand-added key that
+      went with the old row (traced_ names are positional, so carrying a key over could graft
+      it onto a different door — see :data:`_GEN_ROW_KEYS`);
     - ``[field]``/``[camera]``/``[walkmesh]`` regenerate wholesale; each whose on-disk value
       differed is named in ``retaken``. ``[player]`` merges PER KEY: ``spawn`` is the
       generator's (the session's centroid wins, retaken when it differed) while every other
@@ -1008,19 +1012,18 @@ def merge_project_toml(generated_text: str, existing: dict | None, *, twin_quads
                 reemitted[(kind, twin)] = row
             else:
                 kept_rows[kind].append(row)            # unprovable -> the human's, never deleted
-    # A re-emitted row is the generator's in NAME and GEOMETRY only. Whatever else the author put
-    # on it rides onto the new row; where the session's own values replace different ones, say so.
-    carried, value_retakes, carried_kept = {}, [], []
+    # A re-emitted row is regenerated whole. Say everything that went with the old one: a value
+    # the session replaced with a different one, and every key the generator does not write.
+    value_retakes = []
     for (kind, gname), old in reemitted.items():
         new = next(r for r in gen.get(kind) or [] if isinstance(r, dict) and str(r.get("name")) == gname)
         for key, default in _GEN_ROW_VALUES[kind]:
             if old.get(key, default) != new.get(key, default):
                 value_retakes.append(f"[[{kind}]] {gname}.{key} (was {old.get(key, default)!r}, "
                                      f"the session has {new.get(key, default)!r})")
-        extras = {k: v for k, v in old.items() if k not in _GEN_ROW_KEYS[kind]}
-        if extras:
-            carried[(kind, gname)] = {**new, **extras}
-            carried_kept += [f"[[{kind}]] {gname}.{k}" for k in extras]
+        value_retakes += [f"[[{kind}]] {gname}.{k} (a hand-added key, dropped: a traced_ row is "
+                          f"regenerated whole -- keep it on a row of your own)"
+                          for k in old if k not in _GEN_ROW_KEYS[kind]]
     kept_layers = [row for row in existing.get("layers") or []
                    if isinstance(row, dict) and not _is_generated_layer(row.get("image"))]
     retaken = [k for k in ("field", "camera", "walkmesh")
@@ -1034,20 +1037,11 @@ def merge_project_toml(generated_text: str, existing: dict | None, *, twin_quads
             + [f"[player].{k}" for k in player_extra]
             + [f"[[gateway]] {r.get('name') or '?'}" for r in kept_rows["gateway"]]
             + [f"[[event]] {r.get('name') or '?'}" for r in kept_rows["event"]]
-            + [f"[[layers]] {r.get('image') or '?'}" for r in kept_layers] + carried_kept)
+            + [f"[[layers]] {r.get('image') or '?'}" for r in kept_layers])
     if not kept:
         return generated_text, [], retaken, removed
     from .editor import model as _model
     text = generated_text.rstrip("\n")
-    for (kind, gname), row in carried.items():
-        # the generated block is exactly `[[kind]]`, `name = "..."`, then its own lines up to the
-        # blank that ends it: replaced by one dumps chunk of the same row plus the carried keys
-        pat = re.compile(rf'^\[\[{kind}\]\]\nname = "{re.escape(gname)}"\n(?:(?!\[)[^\n]+\n?)*', re.M)
-        block = _model.dumps({kind: [row]}).rstrip("\n") + "\n"
-        text, n = pat.subn(lambda _m, b=block: b, text, count=1)
-        if n != 1:                                     # the generated shape moved: fail LOUDLY --
-            raise ImageFieldError(                     # the silent alternative is dropping the keys
-                f"internal: the generated [[{kind}]] {gname} block was not found to merge")
     if player_extra:
         # PER-KEY [player]: the generated block is exactly two known lines, replaced with one
         # self-consistent dumps chunk (an appended second [player] header would be a TOML

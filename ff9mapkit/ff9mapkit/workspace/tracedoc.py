@@ -898,14 +898,15 @@ class TraceDoc(QWidget):
         moved = ""
         if self._project is not None:                  # set up once -> every later Generate is
             out = Path(self._project["out"])           # IN PLACE (owner-asked; no dialog)
-            was = str(self._project.get("name") or "")
-            if was and name != was and (out / f"{was}.field.toml").is_file():
-                # the folder holds ONE floor and ONE set of art: a new name would write a second
-                # field.toml beside the first and replace the walkmesh and art under it -- the
-                # first field keeps its old [camera] over a floor that no longer matches
-                self._refresh(f"This project is {was}: a different name would write a second "
-                              f"field.toml over the same floor and art. Put the name back to "
-                              f"{was} to regenerate it.", "error")
+            own = f"{name}.field.toml".lower()
+            others = sorted(q.name for q in out.glob("*.field.toml") if q.name.lower() != own)
+            if others:
+                # the folder holds ONE floor and ONE set of art. Whatever the Name box (or a field
+                # renamed in the Editor) says, writing <name>.field.toml beside another field's file
+                # would replace the walkmesh and art under THAT one, which keeps its old [camera]
+                self._refresh(f"This folder already holds {others[0]} — one field per folder "
+                              f"(a second would share its floor and art). Set Name to "
+                              f"{others[0][:-len('.field.toml')]} to regenerate that one.", "error")
                 return
         else:
             parent = self._ask_out()
@@ -1082,6 +1083,16 @@ class TraceDoc(QWidget):
             raise ValueError("a scrolling room — the Trace canvas serves the fixed "
                              f"{imagefield.CANVAS_W}×{imagefield.CANVAS_H} frame; reshape it in "
                              "the Floorplan tab, or place content on it in the Place tab")
+        for kind in ("gateway", "event"):              # a traced_ row the session cannot carry
+            for e in data.get(kind, []) or []:         # (a zone edited by hand into five corners):
+                if (isinstance(e, dict) and imagefield.is_generated_region(kind, e.get("name"))
+                        and imagefield._zone_key(e.get("zone")) is None):
+                    # left out of the session it would be DELETED by the next Generate, and every
+                    # traced_ row after it renumbered -- so refuse to arm at all, and say the way out
+                    raise ValueError(f"{e.get('name')} has a zone that is not four corners — the "
+                                     f"Trace session cannot carry it, and regenerating would "
+                                     f"delete it. Rename it in the Editor (drop the traced_ "
+                                     f"prefix) to keep it as your own row, then reopen")
         self.load_image(path.parent / base_rel)        # the flattened base IS the photo, 1:1
         self._distance = float(cam_tbl.get("distance", imagefield.DEFAULT_DISTANCE))
         self._fov = float(cam_tbl.get("fov", imagefield.DEFAULT_FOV))

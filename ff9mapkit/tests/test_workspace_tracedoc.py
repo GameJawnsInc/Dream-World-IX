@@ -892,10 +892,11 @@ def test_load_project_leaves_place_rows_file_side_on_a_regionless_project(app, t
     assert doc._regions == []
 
 
-def test_load_project_leaves_a_five_corner_traced_row_file_side(app, tmp_path):
+def test_load_project_refuses_a_traced_row_the_session_cannot_carry(app, tmp_path):
     """A hand-edited traced row with five DISTINCT corners is a legal zone the session cannot
-    carry (its quads are four clicks): absorbed, it made every Generate fail, and the next
-    reopen then dropped it and the regenerate deleted the door."""
+    hold (its quads are four clicks). Absorbed, it made every Generate fail; skipped, the next
+    Generate DELETED it and renumbered every traced row after it. So the session does not arm
+    at all, and says the way out -- before any state lands."""
     pytest.importorskip("PIL")
     import tomllib
     from PIL import Image
@@ -912,9 +913,13 @@ def test_load_project_leaves_a_five_corner_traced_row_file_side(app, tmp_path):
     z = data["gateway"][0]["zone"]
     data["gateway"][0]["zone"] = z + [[z[0][0] - 40, z[0][1] + 60]]      # a fifth, distinct corner
     toml.write_text(_model.dumps(data), encoding="utf-8", newline="\n")
-    doc, _run = _doc(app)
-    doc.load_project(toml)
-    assert [r["to"] for r in doc._regions] == [4006]   # the four-corner door alone joins the session
+    before = toml.read_bytes()
+    doc, run = _doc(app)
+    with pytest.raises(ValueError, match="not four corners"):
+        doc.load_project(toml)
+    assert doc._image is None and doc._project is None  # refused BEFORE any state landed
+    doc.on_generate()                                  # ...so there is nothing to generate over it
+    assert run.calls == [] and toml.read_bytes() == before
 
 
 def test_first_generate_hands_the_project_to_the_shell_once(app, tmp_path, monkeypatch):
@@ -1013,10 +1018,35 @@ def test_renaming_an_armed_project_is_refused_not_written_beside_it(app, tmp_pat
     doc.name_box.setText("ATTIC")
     doc.on_generate()
     assert len(run.calls) == 1                         # nothing launched under the new name
-    assert "PICTURE" in doc.status.text() and "second field.toml" in doc.status.text()
+    assert "PICTURE.field.toml" in doc.status.text() and "one field per folder" in doc.status.text()
     doc.name_box.setText("PICTURE")
     doc.on_generate()
     assert len(run.calls) == 2 and run.calls[1][0][run.calls[1][0].index("--name") + 1] == "PICTURE"
+
+
+def test_a_field_renamed_in_the_editor_cannot_regenerate_into_a_second_file(app, tmp_path):
+    """The project file is HALL7.field.toml but its [field] name is now GREAT (renamed in the
+    Editor). The session arms from the NAME, so Generate aimed at GREAT.field.toml -- a second
+    file over the same floor and art, past the unsaved-edits guard (which was asked about a file
+    that did not exist). One field per folder, whatever the Name box says."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    from ff9mapkit import imagefield as IF
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
+    floor = [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)]
+    man = IF.build_image_field(photo, floor, tmp_path / "proj", name="HALL7", field_id=30792)
+    toml = Path(man["toml"])
+    toml.write_text(toml.read_text(encoding="utf-8").replace('name = "HALL7"', 'name = "GREAT"'),
+                    encoding="utf-8")
+    doc, run = _doc(app)
+    doc.load_project(toml)
+    assert doc.name_box.text() == "GREAT"
+    doc.on_generate()
+    assert run.calls == [] and "HALL7.field.toml" in doc.status.text()
+    doc.name_box.setText("HALL7")
+    doc.on_generate()
+    assert len(run.calls) == 1
 
 
 # ---------------------------------------------------------------------------- the first Generate's folder

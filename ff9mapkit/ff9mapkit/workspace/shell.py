@@ -572,6 +572,8 @@ class Workspace(QMainWindow):
         self._loose = None                         # the open standalone field's name (loose mode), else None
         self._docs = {}                            # member name -> loaded FieldDoc (cached, edited in place)
         self._clean = {}                           # member name -> deepcopy(doc.data) at load/last-save (dirty baseline)
+        self._clean_rows = {}                      # member -> {list section: [the LIVE row objects, in the
+        #                                            saved order]} -- see _note_clean_rows / _ctx_base_row
         self._touched = set()                      # members with in-progress (typed-but-uncommitted) edits
         self._name_valid = {}                      # (catalog, value) -> bool, memoized (the catalogs are static)
         self._logic_maps = {}                      # member -> (eb signature, logic_map.LogicMap) -- see _logic_node
@@ -4246,6 +4248,8 @@ class Workspace(QMainWindow):
         self.member_paths = {name: path.resolve()}
         self._docs = {name: doc}
         self._clean = {name: copy.deepcopy(doc.data)}
+        self._clean_rows = {}
+        self._note_clean_rows(name)
         self._touched = set()                      # fresh open -> nothing in-progress
         self._drift_reset()        # a different project -> a different 'last deploy'
         self._logic_maps = {}                      # same-named member as a prior project -> don't reuse its map
@@ -4597,6 +4601,7 @@ class Workspace(QMainWindow):
         if member not in self._docs:
             self._docs[member] = FieldDoc.load(self.member_paths[member])
             self._clean[member] = copy.deepcopy(self._docs[member].data)   # dirty baseline
+            self._note_clean_rows(member)
             self._seed_undo_base(member)                                   # undo-history baseline (loaded state)
         return self._docs[member]
 
@@ -4604,8 +4609,17 @@ class Workspace(QMainWindow):
         """Snapshot a member's doc as the saved baseline (so _dirty_members no longer flags it)."""
         if member in self._docs:
             self._clean[member] = copy.deepcopy(self._docs[member].data)
+            self._note_clean_rows(member)
         self._touched.discard(member)              # a save clears the in-progress flag too
         self._refresh_dirty_marks()
+
+    def _note_clean_rows(self, member):
+        """Remember WHICH live row each saved row is. Taken at the very instant the saved baseline
+        is (a load, a save), when the two lists line up index for index; afterwards rows are added,
+        removed and renamed, and only the row OBJECT still says which saved row it was."""
+        doc = self._docs.get(member)
+        self._clean_rows[member] = ({k: list(v) for k, v in doc.data.items() if isinstance(v, list)}
+                                    if doc is not None else {})
 
     def _dirty_members(self):
         """Cached members whose in-memory doc differs from its load/last-save baseline."""
@@ -5239,7 +5253,10 @@ class Workspace(QMainWindow):
         means the buffer DIFFERS from the last save: a field merely touched and put back by hand
         is clean, and Save All (which writes only real differences) could never clear a refusal
         that counted it."""
-        self._trace_launch = None
+        busy = (getattr(self, "proc", None) is not None
+                and self.proc.state() != QProcess.ProcessState.NotRunning)
+        if not busy:                               # a job in flight keeps ITS record: a second click
+            self._trace_launch = None              # (which starts nothing) must not rewrite or drop it
         member = self._member_for_path(toml)
         if member is None or member not in self._docs:
             return None
@@ -5252,7 +5269,8 @@ class Workspace(QMainWindow):
                     f"saved back over it.")
         # what this window had saved when the job was let go: a save DURING the job moves it, and
         # then neither the file nor the buffer can be trusted to hold both writes (_trace_regenerated)
-        self._trace_launch = (member, copy.deepcopy(self._clean.get(member)))
+        if not busy:
+            self._trace_launch = (member, copy.deepcopy(self._clean.get(member)))
         return None
 
     def _trace_regenerated(self, toml):
@@ -5275,7 +5293,7 @@ class Workspace(QMainWindow):
         saved_mid_job = (launch is not None and launch[0] == member
                          and launch[1] != self._clean.get(member))
         if on_disk is not None and on_disk == self._clean.get(member) and not saved_mid_job:
-            self._refresh_field_tabs(member)           # the toml did not move; its floor and art may have
+            self._forget_field_floor(member)           # the toml did not move; its floor and art may have
             return
         name = Path(toml).name
         if not self._fold_form_of(member) or member in self._dirty_members():
@@ -5284,7 +5302,7 @@ class Workspace(QMainWindow):
                     f"Trace regenerated {name} while {member} had unsaved edits here.\n\n"
                     f"Reload it from disk and drop those edits?\n\n"
                     f"No keeps your edits — but saving them will overwrite the regenerated file."):
-                self._refresh_field_tabs(member)
+                self._forget_field_floor(member)
                 self._show_problems(
                     fb.Verdict(fb.WARN, f"{member}: kept your unsaved edits over a regenerated file",
                                f"{name} on disk is the regenerated one; Save All will overwrite it"), [])
@@ -5295,6 +5313,23 @@ class Workspace(QMainWindow):
                 fb.Verdict(fb.WARN, f"{member} was saved while Trace was regenerating it",
                            f"one of the two may have overwritten the other — {name} was reloaded "
                            f"from disk; check it, then Regenerate again"), [])
+
+    def _forget_field_floor(self, member):
+        """The job may have replaced walkmesh.obj and the art while the DOCUMENT stayed as it was
+        (the toml came out identical, the job failed, or the author kept their edits). Drop only
+        what was read from those files -- Place's armed room, the Cutscene staging mesh, the
+        Behavior sweep mesh. Nothing the author typed is touched: an open step editor, a
+        selection and a simulation all describe a document that did not move."""
+        pd = getattr(self, "place_doc", None)
+        if pd is not None and getattr(pd, "_member", None) == member:
+            pd.show_none()                             # (Place holds no typed text: just the old room)
+            self._feed_place()
+        cd = getattr(self, "cutscene_doc", None)
+        if cd is not None and getattr(cd, "_member", None) == member:
+            cd._reset_stage()
+        bd = getattr(self, "behavior_doc", None)
+        if bd is not None and getattr(bd, "_member", None) == member:
+            bd._reset_sweep()
 
     def _refresh_field_tabs(self, member):
         """Drop the Behavior / Cutscene / Place tabs' per-field state for ``member`` and feed them
@@ -5332,6 +5367,7 @@ class Workspace(QMainWindow):
             self._clear_doc()                          # its getters read a form built from the old rows
         self._docs[member] = doc
         self._clean[member] = copy.deepcopy(doc.data)
+        self._note_clean_rows(member)
         self._touched.discard(member)
         self._undo_stack[:] = [r for r in self._undo_stack if r.member != member]
         self._redo_stack[:] = [r for r in self._redo_stack if r.member != member]
@@ -5658,6 +5694,7 @@ class Workspace(QMainWindow):
             self._refresh_undo_actions()
             return
         self._docs[member].data = copy.deepcopy(data)
+        self._clean_rows.pop(member, None)            # every row is a NEW object now: identities are gone
         self._undo_base[member] = copy.deepcopy(data)   # the next edit diffs against the restored state
         self._touched.discard(member)
         self._clear_doc()                             # drop the stale form BEFORE refreshing (no spurious fold)
@@ -5817,8 +5854,8 @@ class Workspace(QMainWindow):
             if src is None:                                    # never paste a neighbour's values
                 self._show_problems(
                     fb.Verdict(fb.WARN, "Nothing to reset this to",
-                               "rows were added or removed since the last save, so its saved copy "
-                               "cannot be told apart — use Undo (Ctrl+Z) instead"), [])
+                               "it has no saved copy that can be told apart (added since the last "
+                               "save, or changed under an Undo) — use Undo (Ctrl+Z) instead"), [])
                 return
             row = doc.data[section][i]                         # ITS saved copy -- not whatever row now
             row.clear()                                        # sits at the index it was mounted at.
@@ -7760,19 +7797,23 @@ class Workspace(QMainWindow):
 
     def _ctx_base_row(self, ctx, i):
         """The LAST-SAVED copy of the row a list form is mounted on (live index ``i``), or None
-        when it cannot be told which saved row that is.
+        when there is none that can be told apart.
 
-        While the saved list and the live one are the same LENGTH they line up by index -- every
-        Editor route keeps them so (Add appends, Delete saves at once) -- and index is then the
-        only honest key: a row's NAME is one of the things Reset is there to put back, so matching
-        a renamed row by its new name handed it another row's saved copy. Once a row has been
-        removed without a save (a Place delete) the index is off by one for everything after it;
-        then, and only then, a name that is unique on both sides identifies the row. Otherwise
-        None: Reset says so instead of pasting a neighbour's values."""
-        base = self._clean.get(ctx["member"], {}).get(ctx["section"], []) or []
-        cur = self._docs[ctx["member"]].data.get(ctx["section"], []) or []
-        if len(base) == len(cur):
-            return base[i] if i < len(base) else None
+        Neither an index nor a name can say which saved row a live row was: a Place delete shifts
+        every index after it, a delete followed by a draw gives back a same-LENGTH list that is
+        shifted, and a row's name is one of the things Reset is there to put back. What does say
+        is the row OBJECT -- ``_note_clean_rows`` recorded, at the instant of the save, which live
+        object each saved row was. A row that is not among them was added since (no saved copy).
+        After an undo or redo the whole document is a fresh copy and those identities are gone;
+        then only a name that is unique on both sides will do, and failing that, None -- Reset
+        says so rather than paste a neighbour's values."""
+        member, section = ctx["member"], ctx["section"]
+        base = self._clean.get(member, {}).get(section, []) or []
+        cur = self._docs[member].data.get(section, []) or []
+        known = self._clean_rows.get(member)
+        if known is not None:
+            j = next((n for n, r in enumerate(known.get(section, [])) if r is cur[i]), None)
+            return base[j] if j is not None and j < len(base) else None
         name = cur[i].get("name") if isinstance(cur[i], dict) else None
         if name is None or sum(1 for r in cur if isinstance(r, dict) and r.get("name") == name) != 1:
             return None

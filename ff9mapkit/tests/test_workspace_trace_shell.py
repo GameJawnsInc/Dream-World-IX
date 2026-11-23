@@ -367,3 +367,44 @@ def test_a_save_during_the_job_is_never_silently_the_winner(win, tmp_path, monke
     win.trace_doc._after_generate(0, False, str(toml))
     assert win._doc(_NAME).data == _disk(toml)         # the buffer is exactly the file
     assert any("saved while Trace was regenerating" in v.headline for v in said)
+
+
+# --------------------------------------------------------------- the second adversarial pass
+def test_an_unchanged_document_keeps_what_the_author_was_typing(win, tmp_path):
+    """The first follow-up reset all three tabs on EVERY finish, so a failed job or an identical
+    toml closed the Cutscene step editor and threw away the line being typed. When the document
+    did not move, only what was read from the replaced walkmesh and art is dropped."""
+    _photo, toml = _project(tmp_path)
+    toml.write_text(toml.read_text(encoding="utf-8")
+                    + '\n[cutscene]\nsteps = [ { say = "first" } ]\n', encoding="utf-8")
+    assert win.open_field(toml)
+    win.tabs.setCurrentWidget(win.cutscene_doc)
+    cd = win.cutscene_doc
+    cd._edit_step(0)
+    assert cd.editor.step_i == 0
+    cd._wmesh = object()                               # a warm staging mesh, read from walkmesh.obj
+    for code in (1, 0):
+        win.trace_doc._after_generate(code, False, str(toml))
+        assert cd.editor.step_i == 0                   # the open step editor is untouched ...
+    assert cd._wmesh is None                           # ... and the old floor is not kept
+
+
+def test_a_second_generate_click_does_not_lose_the_first_jobs_launch_record(win, tmp_path, monkeypatch):
+    """Generate stays clickable while a job runs. The second click starts nothing, but it used to
+    re-record the launch baseline AFTER a mid-job save, hiding the very race it exists to report."""
+    from types import SimpleNamespace
+    from PySide6.QtCore import QProcess
+    photo, toml = _project(tmp_path)
+    assert win.open_field(toml)
+    assert win._trace_can_generate(str(toml)) is None  # job 1 is let go
+    _place_an_npc(win)
+    win._save_all()                                    # a save lands while it runs ...
+    monkeypatch.setattr(win, "proc", SimpleNamespace(state=lambda: QProcess.ProcessState.Running),
+                        raising=False)
+    assert win._trace_can_generate(str(toml)) is None  # ... and the author clicks Generate again
+    monkeypatch.setattr(win, "proc", None, raising=False)
+    said = []
+    monkeypatch.setattr(win, "_show_problems", lambda verdict, problems: said.append(verdict))
+    _regenerate(photo, toml, gateways=[_DOOR])
+    win.trace_doc._after_generate(0, False, str(toml))
+    assert any("saved while Trace was regenerating" in v.headline for v in said)
