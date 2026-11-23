@@ -1090,7 +1090,8 @@ class CutsceneDoc(QWidget):
         if self.settings_btn.isChecked():          # isChecked, not isVisible: visibility is a lie
             self._fill_settings()                  # under a never-shown test window
         self._sync_insets()
-        problems = cutscenescan.dispatch_problems(raw) + cutscenescan.scene_problems(raw)
+        problems = cutscenescan.dispatch_problems(raw) + cutscenescan.scene_problems(
+            raw, self.flag_names_fn() if self.flag_names_fn else None)
         if problems:
             self.problems_lbl.setText("\n".join(f"• {p}" for p in problems))
             widgets.set_state(self.problems_lbl, "error")

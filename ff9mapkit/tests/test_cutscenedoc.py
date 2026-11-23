@@ -579,8 +579,10 @@ def test_a_window_step_round_trips_and_the_valueless_kind_hides_its_value(doc, t
 
 def test_set_flag_takes_a_flag_name_and_problems_flags_a_reserved_index(doc, tmp_path):
     """C19: 'Set flag' took only two integers -- it refused a [[flag]] NAME the build resolves --
-    and accepted 8600, a save-corrupting reserved bit, with every GUI readout green."""
-    _fed(doc, tmp_path)
+    and accepted 8600, a save-corrupting reserved bit, with every GUI readout green.
+    After review: a name the field does not define (a typo) is a PROBLEM -- the build refuses
+    the whole field on it, so the tab must not say 'No structural problems'."""
+    _fed(doc, tmp_path, FIELD_TOML + '\n[[flag]]\nname = "glen_done"\nindex = 8712\n')
     doc.rail.setCurrentRow(1)
     doc._add_step()
     doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("set_flag"))
@@ -591,6 +593,13 @@ def test_set_flag_takes_a_flag_name_and_problems_flags_a_reserved_index(doc, tmp
     assert added == {"set_flag": ["glen_done", 1]}
     assert forms.step_value_text(added) == "glen_done, 1", "the name reopens as typed"
     assert "No structural problems." in doc.problems_lbl.text()
+    doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("set_flag"))
+    doc.editor.value_line.setText("glen_dnoe, 1")      # the typo
+    doc._apply_step()
+    assert "unknown flag name 'glen_dnoe'" in doc.problems_lbl.text(), \
+        f"PROBLEMS stayed green over a name the build refuses: {doc.problems_lbl.text()!r}"
+    doc._del_step(doc.editor.insert_at - 1 if doc.editor.insert_at else len(doc._steps()) - 1)
+    doc._add_step()
     doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("set_flag"))
     doc.editor.value_line.setText("8600, 1")
     doc._apply_step()

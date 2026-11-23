@@ -256,11 +256,12 @@ def _target_names(raw) -> set:
     return names
 
 
-def scene_problems(raw) -> list:
+def scene_problems(raw, flag_names=None) -> list:
     """The always-on PROBLEMS lane: cheap raw-only structural checks in plain sentences (the shell's
     ``_node_problems`` speaks HTML; the instruments pane speaks text). Pass the MERGED doc — a
     scene.toml field keeps its markers/NPC positions there. 0-based ``scene #k`` prefixes on a
-    dispatch, the GUI's own convention."""
+    dispatch, the GUI's own convention. ``flag_names`` = the campaign's shared flag names (the
+    build resolves those too)."""
     out = []
     blocks = _blocks(raw)
     names = _target_names(raw)
@@ -303,7 +304,28 @@ def scene_problems(raw) -> list:
                     if _bad_name(leg):
                         out.append(f'{tag}step {i} path point {j} "{leg}" is not a known '
                                    f'marker/NPC/player')
-    return out + _flag_band_problems(raw, blocks)
+    return out + _flag_name_problems(raw, blocks, flag_names) + _flag_band_problems(raw, blocks)
+
+
+def _flag_name_problems(raw, blocks, flag_names) -> list:
+    """A flag NAME the build cannot resolve, in the resolver's own sentence: an unknown name
+    refuses the WHOLE field at load. ``flags.resolve_project_flags`` owns the rule; each scene is
+    resolved on a copy so a dispatch line can say WHICH scene. A broken [[flag]] table is not a
+    scene's problem -- the lane stays quiet rather than repeat it per scene."""
+    from .. import flags as _flags
+    try:
+        names = {**(flag_names or {}), **_flags.collect_flag_defs(raw if isinstance(raw, dict) else {})}
+    except (ValueError, TypeError):
+        return []
+    out = []
+    for k, b in enumerate(blocks):
+        try:
+            _flags.resolve_project_flags({"cutscene": [copy.deepcopy(b)]}, names)
+        except ValueError as e:
+            out.append((f"scene #{k}: " if len(blocks) > 1 else "") + str(e))
+        except Exception:                          # noqa: BLE001 -- a half-typed doc is normal here
+            continue
+    return out
 
 
 def _flag_band_problems(raw, blocks) -> list:
