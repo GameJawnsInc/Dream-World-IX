@@ -1329,3 +1329,63 @@ def test_an_unrepresentable_pitch_is_said_not_swallowed(app, tmp_path):
     doc.load_trace(side)
     assert doc.pitch.value() == 48                     # the slider's own cap
     assert "pitch 52" in doc.status.text() and "MOVES the floor" in doc.status.text()
+
+
+# ------------------------------------------------------------------ T23: the page's rows and status
+# Widths here are RELATIVE (offscreen fonts are fiction): a fence compares the tab against itself.
+
+def test_a_long_status_wraps_and_never_widens_the_tab(app, tmp_path):
+    """Finding T23: the status line did not wrap, so its full text width WAS the page minimum --
+    one long status floored the window past 1280 px at 150% and clipped its own tail."""
+    pytest.importorskip("PIL")
+    doc, _ = _traced(app, tmp_path)
+    base = doc.minimumSizeHint().width()
+    doc._refresh("a status that runs on and on " * 30, "warn")
+    assert doc.minimumSizeHint().width() == base
+
+
+def test_the_warning_the_author_must_act_on_comes_first(app, tmp_path, monkeypatch):
+    """The 'not stamped' and 'door without a target' clauses used to be APPENDED after the counts,
+    so they were the part cut off the right edge."""
+    pytest.importorskip("PIL")
+    from ff9mapkit import imagefield as IF
+    doc, _run = _traced(app, tmp_path)
+    doc.id_box.setText("30777")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    doc.tools.set_current("regions")
+    cam = doc.canvas.camera()
+    doc._on_region_drawn([IF.click_to_world(cam, p) for p in
+                          [(60.0, 300.0), (140.0, 300.0), (140.0, 330.0), (60.0, 330.0)]])
+    doc._refresh()
+    text = doc.status.text()
+    assert text.startswith("⚠ not stamped"), text
+    assert text.index("without a target") < text.index("vertices traced"), text
+
+
+def test_the_cut_out_strip_shares_the_tools_row_when_it_fits(app, tmp_path, monkeypatch):
+    """The strip was a row of its own, so marking the first contact took a whole row of height
+    from the canvas. When the width allows, it now sits on the tools row."""
+    pytest.importorskip("PIL")
+    doc, _ = _doc(app)
+    doc.resize(2400, 900)
+    doc.show()
+    doc.load_image(_photo(tmp_path))
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    QApplication.processEvents()
+    before = doc.canvas.height()
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: None)
+    doc.tools.set_current("cutout")
+    doc._on_contact(230.0, 320.0)
+    QApplication.processEvents()
+    assert doc.fg_box.isVisible() and not doc.tool_row.spilled()
+    # no new row (a combo may stand a pixel or two taller than the buttons beside it)
+    assert before - doc.canvas.height() < doc.fg_box.sizeHint().height() // 2
+
+
+def test_the_canvas_keeps_a_usable_minimum(app):
+    """The canvas had no minimum of its own (66 px, the scroll area's). A floor ABOVE what the
+    window can give overpaints the rows below, so it is modest: 96 px (measured natively, the
+    canvas has ~100 px at 1024x720 and 125% with every row showing)."""
+    doc, _ = _doc(app)
+    assert 96 <= doc.canvas.minimumHeight() <= 100

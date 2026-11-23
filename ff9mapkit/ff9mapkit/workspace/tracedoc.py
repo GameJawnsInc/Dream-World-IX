@@ -164,10 +164,8 @@ class TraceDoc(QWidget):
         root.setSpacing(8)
         # ONE line of standing prose — at CALIBRE 150 every fixed row here is height the canvas
         # (the primary surface) loses; the tracing teach lives in the status line's empty state.
-        crown, _ = widgets.nameplate(
-            "", "Trace",
-            "Turn a photo into a walkable field by clicking its floor — the build uses the "
-            "exact crop shown here.")
+        # Short enough to stay ONE line at 150% (the crop promise lives on Open's tooltip).
+        crown, _ = widgets.nameplate("", "Trace", "Click a photo's floor to make a walkable field.")
         root.addWidget(crown)
 
         row = QHBoxLayout()
@@ -209,8 +207,12 @@ class TraceDoc(QWidget):
 
         # the TOOLS row (rung 2c/4): the strip + the active tool's own cluster + the gesture
         # verbs — its OWN row, because sharing the photo row squeezed the strip to a blank chip
-        # (the snap caught it: an oversubscribed row shaves every control, the round-7 law)
-        row = QHBoxLayout()
+        # (the snap caught it: an oversubscribed row shaves every control, the round-7 law).
+        # The cut-out strip rides on it as a SpillRow tail: one line when the width allows, its
+        # own line below when not (it used to ALWAYS take a row of canvas height -- finding T23).
+        lead = QWidget()
+        row = QHBoxLayout(lead)
+        row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
         # the per-canvas TOOL strip: one explicit click semantic at a time
         self.tools = widgets.ToolStrip(
@@ -270,10 +272,11 @@ class TraceDoc(QWidget):
         self.clear_btn.setToolTip("Remove every traced vertex (one Undo brings them back).")
         self.clear_btn.clicked.connect(self.on_clear)
         row.addWidget(self.clear_btn)
-        root.addLayout(row)
 
         # rung 2's strip: the marked cut-outs (hidden until one exists — canvas height is precious)
-        fg_row = QHBoxLayout()
+        self._fg_tail = QWidget()
+        fg_row = QHBoxLayout(self._fg_tail)
+        fg_row.setContentsMargins(0, 0, 0, 0)
         fg_row.setSpacing(8)
         self.fg_label = QLabel("Cut-outs")
         fg_row.addWidget(self.fg_label)
@@ -299,10 +302,10 @@ class TraceDoc(QWidget):
                                 "hiding under one).")
         self.fg_show.toggled.connect(lambda _on: self._refresh_cutouts())
         fg_row.addWidget(self.fg_show)
-        fg_row.addStretch(1)
-        root.addLayout(fg_row)
-        self._fg_widgets = (self.fg_label, self.fg_box, self.fg_attach_btn, self.fg_remove_btn,
-                            self.fg_show)
+        self.tool_row = widgets.SpillRow(lead, self._fg_tail, margins=(0, 0, 0, 0))
+        root.addWidget(self.tool_row)
+        self._fg_widgets = (self._fg_tail, self.fg_label, self.fg_box, self.fg_attach_btn,
+                            self.fg_remove_btn, self.fg_show)
 
         self.canvas = BackdropCanvas(pal, scale=scale, on_floor=self._on_floor)
         self.canvas.set_trace_mode(True)
@@ -316,6 +319,11 @@ class TraceDoc(QWidget):
         self.canvas.region_deleted.connect(self._on_region_deleted)
         self.canvas.region_retarget.connect(self._on_region_retarget)
         self.canvas.region_reword.connect(self._on_region_reword)
+        # the primary surface never collapses to nothing (T23). Not more: at 1024x720 and 125%,
+        # with the cut-out strip and a two-line status showing, the canvas has ~100 px left, and a
+        # floor above what the window can give makes Qt PAINT THE CANVAS OVER the rows below it
+        # (240 and 120 both did, in the snaps). The height it gains comes from fewer rows instead.
+        self.canvas.setMinimumHeight(96)
         root.addWidget(self.canvas, 1)
         self._sync_region_cluster()                    # the boxes exist now: settle visibility
 
@@ -345,6 +353,7 @@ class TraceDoc(QWidget):
 
         self.status = QLabel("Open an image to begin.")
         self.status.setProperty("role", "muted")
+        self.status.setWordWrap(True)                  # its text width is never the page minimum
         root.addWidget(self.status)
         self._refresh()
 
@@ -471,6 +480,9 @@ class TraceDoc(QWidget):
                 note = ("Click the floor's outline in order, below the dashed horizon — "
                         "drag a vertex to adjust, right-click one to delete it.")
             else:
+                # the ⚠ clauses LEAD: the status wraps, but what the author must act on is never
+                # the tail a narrow window pushes out of sight (finding T23)
+                warns = []
                 note = f"{good} vertices traced" + (f" · {bad} above the horizon (red)" if bad
                                                     else "")
                 if self._fg:
@@ -483,14 +495,17 @@ class TraceDoc(QWidget):
                     note += f" · {len(self._regions)} region{'' if len(self._regions) == 1 else 's'}"
                     warned = sum(1 for r in getattr(self, '_region_rows_cache', []) if r.get("warn"))
                     if rg_untargeted:
-                        note += (f" · ⚠ {rg_untargeted} door{'' if rg_untargeted == 1 else 's'} "
-                                 f"without a target (right-click → Set gateway target)")
+                        warns.append(f"⚠ {rg_untargeted} door{'' if rg_untargeted == 1 else 's'} "
+                                     f"without a target (right-click → Set gateway target)")
                     if warned:
-                        note += f" · ⚠ {warned} with law warnings"
+                        warns.append(f"⚠ {warned} with law warnings")
                     if rg_bad:
                         note += f" · {rg_bad} above the horizon"
+                note = " · ".join(warns + [note])
         if self._project and not self._stamped:        # edits the project on disk doesn't have
-            note += f" · ⚠ not stamped — Regenerate {self._project['name']} to update the project"
+            stamp = f"⚠ not stamped — Regenerate {self._project['name']} to update the project"
+            # an explicit error (a refusal) still leads: it is what the click just ran into
+            note = f"{note} · {stamp}" if state == "error" else f"{stamp} · {note}"
             state = state or "warn"
         self.status.setText(note)
         widgets.set_state(self.status, state)
