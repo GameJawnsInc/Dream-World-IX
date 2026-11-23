@@ -3591,6 +3591,10 @@ class Workspace(QMainWindow):
         self._member_items = {}
         self._root_items = []
         self._clear_doc()
+        for tab in (getattr(self, "cutscene_doc", None), getattr(self, "behavior_doc", None)):
+            if tab is not None:                    # nothing re-feeds them on Close: without this
+                tab.show_none()                    # they kept the closed field, its warm walkmesh,
+        #                                            and its verdict for the next same-named member
         self.map.clear()
         self._content_crumbs = []
         self._content_chip = None

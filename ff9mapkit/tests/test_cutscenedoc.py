@@ -634,6 +634,24 @@ def test_pick_on_the_stage_fills_the_value(doc, tmp_path):
     assert doc.canvas.on_sim_click is None, "one shot only"
 
 
+def _wait_stage(doc, timeout=20):
+    """Let the async worker a REAL gesture started (button / debounce) land."""
+    import time
+    deadline = time.time() + timeout
+    while doc._stage_busy and time.time() < deadline:
+        QApplication.processEvents()
+        time.sleep(0.02)
+    QApplication.processEvents()
+    assert not doc._stage_busy, "the staging worker never landed"
+
+
+def _small_mesh_bytes() -> bytes:
+    """A floor that ends at x=300: the altar (x=900) is OFF it, so Cid's walk stalls."""
+    from ff9mapkit.scene import bgi
+    verts = [(-300, 0, 600), (300, 0, 600), (300, 0, -300), (-300, 0, -300)]
+    return bgi.build(verts, [(0, 1, 2), (0, 2, 3)]).to_bytes()
+
+
 def test_a_warm_mesh_rejudges_without_touching_disk(doc, tmp_path, monkeypatch):
     _fed(doc, tmp_path)
     doc.stage_now(sync=True)
@@ -641,11 +659,42 @@ def test_a_warm_mesh_rejudges_without_touching_disk(doc, tmp_path, monkeypatch):
     monkeypatch.setattr(cutscenescan, "load_walkmesh",
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError("disk touched")))
     doc._steps()[0]["walk"] = [2000, 2000]             # an edit that now stalls
-    doc.stage_now(sync=True)                           # the re-judge rides the WARM mesh
+    doc._last_stage = None
+    doc._restage()                                     # the AUTOMATIC lane rides the WARM mesh
+    _wait_stage(doc)
+    assert doc._last_stage.error == "", doc._last_stage.error
     assert doc._last_stage.warnings, "the warm re-judge must catch the new stall"
     # and a committed edit ARMS the debounced re-judge
     doc._after_edit("test edit")
     assert doc._restage_timer.isActive()
+
+
+def test_the_check_button_reloads_the_walkmesh_from_disk(doc, tmp_path):
+    """C4: the button's tooltip promises the SAVED walkmesh. After a regenerate / re-export
+    replaced it, a click judged the old warm copy and said every walk reaches its target."""
+    _, p = _fed(doc, tmp_path)
+    doc.stage_now(sync=True)
+    assert "✓" in doc.stage_note.text() and doc._wmesh is not None
+    (tmp_path / "walkmesh.bgi").write_bytes(_small_mesh_bytes())    # the floor changed on disk
+    doc._last_stage = None
+    doc.stage_btn.click()                              # the real gesture (async worker)
+    _wait_stage(doc)
+    assert doc._last_stage is not None, "the click produced no result"
+    assert doc._last_stage.warnings, \
+        f"the click judged the stale warm mesh: {doc.stage_note.text()!r}"
+
+
+def test_a_same_named_field_at_another_path_drops_the_warm_staging(doc, tmp_path):
+    """C4/E3: a copied field or a re-imported fork keeps the member NAME. Its walks must not be
+    judged (or its storyboard routed) on the previous file's floor, nor wear its verdict."""
+    (tmp_path / "a").mkdir()
+    _fed(doc, tmp_path / "a")
+    doc.stage_now(sync=True)
+    assert doc._stage_armed and "✓" in doc.stage_note.text()
+    p_b = make_cutscene_field(tmp_path / "b")
+    doc.show_field("GLEN", tomllib.loads(FIELD_TOML), p_b)
+    assert doc._wmesh is None and not doc._stage_armed, "the old file's mesh survived"
+    assert doc.stage_note.text() == "", "the old file's verdict survived"
 
 
 # ------------------------------------------------------------------ the accordion (declutter round)

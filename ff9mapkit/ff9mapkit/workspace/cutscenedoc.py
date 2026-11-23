@@ -985,8 +985,10 @@ class CutsceneDoc(QWidget):
     def show_field(self, member, raw, path=None, *, dirty=False, merged_fn=None):
         """Render the OPEN field's parsed dict — BY REFERENCE, the feed contract (the flip's
         ops mutate exactly the buffer the Editor and Save see). ``merged_fn`` re-merges the
-        sibling scene.toml per call, so staging and the board see spatial truth."""
-        same_field = member == self._member
+        sibling scene.toml per call, so staging and the board see spatial truth.
+        "Same field" is the member AND its file: a copied field or a re-imported fork keeps the
+        name, and must not inherit the other file's warm walkmesh or verdict."""
+        same_field = member == self._member and path == self._path
         if not same_field:
             if self.board_btn.isChecked():
                 self.board_btn.setChecked(False)   # another field: the board is void
@@ -1440,7 +1442,10 @@ class CutsceneDoc(QWidget):
         self.canvas.set_storyboard(self._board, k)
 
     # -- the staging lane (the one disk read; the shell's old strip, moved home) --
-    def stage_now(self, *, sync=False):
+    def stage_now(self, *, sync=False, warm=False):
+        """Check the staging. An explicit check (the button) reads the walkmesh from the SAVED
+        file every time, as its tooltip promises -- a regenerate or re-export may have replaced
+        it. Only the automatic re-judge (``warm=True``) rides the cached mesh."""
         raw = self._merged()
         if self._stage_busy or self._raw is None:
             return
@@ -1449,7 +1454,8 @@ class CutsceneDoc(QWidget):
                 scenes=len(cutscenescan.scene_rows(raw)))
             self._finish_stage((self._stage_gen, res, [], self._wmesh))
             return
-        if self._wmesh is None and not self._path:
+        wmesh = self._wmesh if warm else None
+        if wmesh is None and not self._path:
             self.stage_note.setText("This document has no saved file yet — the walkmesh "
                                     "comes from disk, so save first, then check.")
             widgets.set_state(self.stage_note, "warn")
@@ -1459,7 +1465,7 @@ class CutsceneDoc(QWidget):
         self.stage_btn.setText("Checking…")
         import copy as _copy
         snap = _copy.deepcopy(raw)                 # the worker must never race the GUI's dict
-        gen, path, wmesh = self._stage_gen, self._path, self._wmesh
+        gen, path = self._stage_gen, self._path
         flags = self.flag_names_fn() if self.flag_names_fn else None
         base = self._base_dir()
         if sync:                                   # the deterministic test/snap lane
@@ -1528,7 +1534,7 @@ class CutsceneDoc(QWidget):
         if self._stage_busy:
             self._restage_timer.start()            # let the in-flight run land first
             return
-        self.stage_now()
+        self.stage_now(warm=True)
 
     def _reset_stage(self):
         """Field switch / project close: another field's mesh or verdicts must not linger."""
