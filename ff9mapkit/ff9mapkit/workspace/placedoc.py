@@ -922,12 +922,15 @@ class PlaceDoc(QWidget):
     def _scene_refusal(self, r, key):
         """Why Place must not write ``key`` of canvas row ``r`` (None = delete it), else None."""
         srow = r.get("scene")
+        # No field.toml row to write, named or NOT: the add-on writes no name= for an unnamed
+        # gateway or event, so a scene-only row need not match a scene name (review of P2).
+        if r.get("data_index") is None:
+            name = (srow or {}).get("name") or "this one"
+            return (f"Placed in Blender — {name} lives only in the scene.toml; change or delete "
+                    "it in Blender and re-export (F5 to refresh).")
         if srow is None:
             return None
         name = srow.get("name")
-        if r.get("data_index") is None:
-            return (f"Placed in Blender — {name} lives only in the scene.toml; change or delete "
-                    "it in Blender and re-export (F5 to refresh).")
         if key is None:
             return (f"Placed in Blender — {name}'s zone comes from the scene.toml, so deleting it "
                     "here would still ship the scene's one. Delete it in Blender and re-export; "
@@ -966,7 +969,7 @@ class PlaceDoc(QWidget):
             name = (view.get(r["kind"]) or [])[r["index"]].get("name")
             r["scene"] = next((e for e in self._scene.get(r["kind"], []) or []
                                if isinstance(e, dict) and name and e.get("name") == name), None)
-            if r["scene"] is not None:
+            if r["scene"] is not None or r["data_index"] is None:
                 r["label"] += " (Blender)"
         self._region_rows_cache = rows
         self.canvas.set_regions(self._region_rows_cache)

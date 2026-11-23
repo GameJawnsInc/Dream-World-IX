@@ -1311,6 +1311,52 @@ def test_place_never_mints_a_name_the_scene_uses_and_leaves_its_spawn_alone(app)
     assert "spawn" not in data.get("player", {}) and "Blender" in d.status.text()
 
 
+def test_an_unnamed_blender_gateway_is_refused_not_crashed_on(app, monkeypatch):
+    """Review of P2: the add-on writes NO name= for a gateway (ops.py builds the dict without
+    one), so a scene-only row matched no scene name, was not refused, and move / rotate / delete /
+    Set target indexed the field list with data_index None -> TypeError."""
+    data = {"field": {"source_field": 351}}
+    scene = {"gateway": [{"zone": [[0, 600], [100, 600], [100, 700], [0, 700]]}],
+             "event": [{"zone": [[300, 600], [400, 600], [400, 700], [300, 700]]}]}
+    d, calls = _doc(app)
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"), scene=scene)
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    d.tools.set_current("regions")
+    rows = d._region_rows_cache
+    assert [r["data_index"] for r in rows] == [None, None], rows
+    assert all("Blender" in r["label"] for r in rows), [r["label"] for r in rows]
+    monkeypatch.setattr(d, "_ask_field_id", lambda cur: 300)
+    monkeypatch.setattr(d, "_ask_message", lambda cur: "hello")
+    gw = next(r["i"] for r in rows if r["kind"] == "gateway")
+    ev = next(r["i"] for r in rows if r["kind"] == "event")
+    for act in (lambda: d._on_region_changed(gw, [(10, 600), (110, 600), (110, 700), (10, 700)]),
+                lambda: d._on_region_changed(gw, [(100, 600), (100, 700), (0, 700), (0, 600)]),
+                lambda: d._on_region_deleted(gw),
+                lambda: d._on_region_retarget(gw),
+                lambda: d._on_region_reword(ev)):
+        act()
+        assert calls == [] and "Blender" in d.status.text(), d.status.text()
+    assert data == {"field": {"source_field": 351}}
+
+
+def test_a_scene_arrival_disables_arrival_and_the_drop_refuses(app):
+    """Review of P2: only a scene SPAWN was tested, so dropping 'arrival' from both guards
+    survived the suite -- and Place then wrote [[player.arrival]] the build discards."""
+    data = {"field": {"source_field": 351}}
+    d, calls = _doc(app)
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"),
+                 scene={"player": {"arrival": [{"entrance": 1, "pos": [0, 1400]}]}})
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    assert not d.mode_btns["arrival"].isEnabled()
+    assert "Blender" in d.mode_btns["arrival"].toolTip()
+    assert d.mode_btns["spawn"].isEnabled()             # the scene sets no spawn
+    d.mode_btns["arrival"].setChecked(True)             # settable in code: the drop refuses too
+    d._apply_hit({"xz": (0.0, 1500.0), "floor": 0})
+    assert "player" not in data and calls == [] and "Blender" in d.status.text()
+
+
 def test_the_shell_feeds_place_the_blender_scene(app, tmp_path, monkeypatch):
     """Review finding P2, the shell half: _feed_place passed only fd.data, so the PlaceDoc never
     learnt the scene.toml existed. Opened the way a user opens a Blender-split field."""
