@@ -435,6 +435,33 @@ def test_duplicate_scene_deep_copies():
     assert raw["cutscene"][0]["steps"][0]["say"] == "a"        # the original is untouched
 
 
+def test_duplicate_scene_never_copies_a_pinned_once_flag():
+    """C9: the copy shared its source's explicit once-flag, so whichever scene played first set
+    the bit and the other never played. The copy now goes without it (the build gives it its
+    own), and the undo label says so."""
+    raw = _raw([{"requires_scenario": 5, "flag": 8712, "steps": [{"say": "a"}]}])
+    lbl = cs.duplicate_scene(raw, 0)
+    assert raw["cutscene"][0]["flag"] == 8712, "the source keeps its flag"
+    assert "flag" not in raw["cutscene"][1]
+    assert "once-flag" in lbl
+    plain = _raw([{"steps": [{"say": "a"}]}])
+    assert "flag" not in cs.duplicate_scene(plain, 0), "nothing to say when nothing was pinned"
+
+
+def test_scene_problems_flags_two_scenes_sharing_one_once_flag():
+    raw = _raw([{"requires_scenario": 5, "flag": 8712, "steps": [{"say": "a"}]},
+                {"requires_scenario": 6, "flag": 8712, "steps": [{"say": "b"}]}])
+    probs = [p for p in cs.scene_problems(raw) if "8712" in p]
+    assert len(probs) == 1 and "#0" in probs[0] and "#1" in probs[0], probs
+    raw["cutscene"][1]["once"] = False             # a replaying scene never tests its once-flag
+    assert not [p for p in cs.scene_problems(raw) if "8712" in p]
+    raw["cutscene"][1]["once"] = True
+    raw["cutscene"][1]["flag"] = 8713
+    assert not [p for p in cs.scene_problems(raw) if "once-flag" in p]
+    raw["cutscene"][0]["flag"] = raw["cutscene"][1]["flag"] = [8713]   # half-typed: never raise
+    cs.scene_problems(raw)
+
+
 def test_delete_scene_removes_one_and_drops_the_emptied_section():
     raw = _raw([{"steps": [{"say": "a"}]}, {"steps": [{"say": "b"}]}])
     assert cs.delete_scene(raw, 0) == "delete cutscene scene #0"

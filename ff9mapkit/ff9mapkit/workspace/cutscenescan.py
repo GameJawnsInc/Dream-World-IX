@@ -306,7 +306,25 @@ def scene_problems(raw, flag_names=None) -> list:
                     if _bad_name(leg):
                         out.append(f'{tag}step {i} path point {j} "{leg}" is not a known '
                                    f'marker/NPC/player')
-    return out + _flag_name_problems(raw, blocks, flag_names) + _flag_band_problems(raw, blocks)
+    return (out + _once_flag_problems(blocks) + _flag_name_problems(raw, blocks, flag_names)
+            + _flag_band_problems(raw, blocks))
+
+
+def _once_flag_problems(blocks) -> list:
+    """Two play-once scenes pinned to the SAME once-flag: whichever plays first sets the bit and
+    the other never plays. (The tab's rule; ``build.validate`` does not check it yet.)"""
+    out, seen = [], {}
+    for k, b in enumerate(blocks):
+        f = b.get("flag")
+        if f is None or not b.get("once", True) or isinstance(f, (dict, list)):
+            continue
+        if f in seen:
+            out.append(f"scene #{seen[f]} and scene #{k} share the once-flag {f!r} -- whichever "
+                       f"plays first sets it, and the other never plays. Give one its own flag "
+                       f"(or clear it to let the build pick one).")
+        else:
+            seen[f] = k
+    return out
 
 
 def _conductor_problems(raw, block, tag) -> list:
@@ -662,8 +680,13 @@ def duplicate_scene(raw, k: int) -> str:
         if k != 0:
             raise IndexError(k)
         raw["cutscene"] = cur = [cur]
-    cur.insert(k + 1, copy.deepcopy(cur[k]))
-    return f"duplicate cutscene scene #{k}"
+    dup = copy.deepcopy(cur[k])
+    # a pinned once-flag is the scene's OWN bit: shared, whichever scene plays first sets it and
+    # the other never plays. The copy goes without (the build allocates it one).
+    pinned = dup.pop("flag", None) is not None
+    cur.insert(k + 1, dup)
+    return (f"duplicate cutscene scene #{k}"
+            + (" (the copy does not keep its once-flag)" if pinned else ""))
 
 
 def delete_scene(raw, k: int) -> str:
