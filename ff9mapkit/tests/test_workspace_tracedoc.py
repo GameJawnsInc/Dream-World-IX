@@ -1455,6 +1455,37 @@ def test_a_region_lifted_above_the_horizon_says_how_to_get_it_back(app, tmp_path
     assert len(doc.canvas._regions) == 1                          # the pitch restores it
 
 
+def test_a_bad_name_is_refused_on_the_status_line_before_anything_runs(app, tmp_path,
+                                                                       monkeypatch):
+    """Finding T7, the tab half: the Name box went straight to --name. The backend now refuses,
+    and the tab says why without launching a job or writing a session record."""
+    pytest.importorskip("PIL")
+    doc, run = _traced(app, tmp_path)
+    doc.id_box.setText("30777")
+    doc.name_box.setText("Room?")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    assert run.calls == [] and not list(tmp_path.glob("*-field"))
+    assert "letters, digits" in doc.status.text()
+    assert doc.status.property("state") == "error"
+
+
+def test_a_zone_drawn_beyond_the_int16_world_is_refused_at_the_click(app, tmp_path):
+    """Finding T9, the tab half: a door in the top rows of the photo at the default pitch lies
+    past |z| 32767. It is refused when drawn, not after a Generate."""
+    pytest.importorskip("PIL")
+    from ff9mapkit import imagefield as IF
+    doc, _ = _traced(app, tmp_path)
+    doc.tools.set_current("regions")
+    cam = doc.canvas.camera()
+    far = [IF.click_to_world(cam, p) for p in [(60.0, 2.0), (140.0, 2.0), (140.0, 30.0), (60.0, 30.0)]]
+    assert any(abs(z) > 32767 for _x, z in far)        # the premise: really out of bound
+    hist = len(doc._history)
+    doc._on_region_drawn(far)
+    assert doc._regions == [] and len(doc._history) == hist   # no gesture recorded
+    assert "Int16" in doc.status.text() and doc.status.property("state") == "warn"
+
+
 def test_the_canvas_keeps_a_usable_minimum(app):
     """The canvas had no minimum of its own (66 px, the scroll area's). A floor ABOVE what the
     window can give overpaints the rows below, so it is modest: 96 px (measured natively, the

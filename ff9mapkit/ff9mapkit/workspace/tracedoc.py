@@ -782,10 +782,16 @@ class TraceDoc(QWidget):
         """Four accepted clicks: store the quad in CANVAS px (the authoring truth — the exact
         inverse of the click conversion, so the round-trip is the tripwire's own)."""
         cam = self.canvas.camera()
+        if any(not (-32767 <= c <= 32767) for w in quad_world for c in w):
+            # the build packs zone corners as Int16 (the floor's own bound): refuse at the click,
+            # not after a Generate (finding T9)
+            self._refresh("That zone reaches past the Int16 world bound (too far up the photo at "
+                          "this pitch) — draw it lower, or raise the pitch.", "warn")
+            return
         quad_px = [tuple(round(v, 1) for v in imagefield.world_to_click(cam, w))
                    for w in quad_world]
         self._push_history()
-        kind = "gateway" if self.rkind_btns["gateway"].isChecked() else "event"
+        kind ="gateway" if self.rkind_btns["gateway"].isChecked() else "event"
         self._regions.append({"kind": kind, "to": self.gw_to.value(),
                               "entrance": self.gw_ent.value(),
                               "message": self.ev_msg.text().strip() or "...",
@@ -946,7 +952,12 @@ class TraceDoc(QWidget):
             self._refresh(str(e), "error")
             return
         name = self.name_box.text().strip() or "PICTURE"
-        first = self._project is None                  # only the FIRST Generate opens the
+        try:
+            imagefield.check_field_name(name)          # the backend's own rule, asked first (T7)
+        except imagefield.ImageFieldError as e:
+            self._refresh(str(e), "error")
+            return
+        first = self._project is None                 # only the FIRST Generate opens the
         #                                                result in the Editor; a regenerate
         #                                                never yanks the author off this canvas
         moved = ""

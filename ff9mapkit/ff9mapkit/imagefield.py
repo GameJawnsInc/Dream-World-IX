@@ -1091,6 +1091,17 @@ def merge_project_toml(generated_text: str, existing: dict | None, *, twin_quads
 
 
 # ----------------------------------------------------------------- orchestrator
+def check_field_name(name) -> str:
+    """The field name is the project's FILE name (``<name>.field.toml``) and its ``EVT_<name>`` /
+    ``FBG_`` token, so it follows the kit's one token rule (``hub._NAME_RE``). Raises
+    :class:`ImageFieldError`; the Trace tab asks the same function before it launches a job."""
+    from .hub import _NAME_RE
+    if not isinstance(name, str) or not _NAME_RE.match(name):
+        raise ImageFieldError(f"field name {name!r} must be letters, digits and underscores only "
+                              f"(it names <name>.field.toml and the field's EVT_/FBG_ files)")
+    return name
+
+
 def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="PICTURE",
                       field_id: int = 4003, pitch: float = DEFAULT_PITCH, fov: float = DEFAULT_FOV,
                       distance: float = DEFAULT_DISTANCE, area: int = 11,
@@ -1107,6 +1118,7 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
     MERGES (:func:`merge_project_toml`) — hand-authored tables survive; ``force`` discards them.
     Returns a manifest dict (incl. ``kept``/``retaken`` from the merge)."""
     from PIL import Image
+    check_field_name(name)                          # before any write (finding T7)
     out = Path(out_dir)
     toml_path = out / f"{name}.field.toml"
     # The unparseable-refusal fires HERE — and EVERY write below is deferred until every
@@ -1168,6 +1180,10 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
             pts = unproject_floor(cam, quad_px)
         except ImageFieldError as e:
             raise ImageFieldError(f"{what}: {e}") from e
+        for x, z in pts:                            # the floor's own Int16 bound (finding T9): the
+            if not (-32767 <= x <= 32767 and -32767 <= z <= 32767):   # build packs zones as '<hh'
+                raise ImageFieldError(f"{what}: corner ({x:.0f},{z:.0f}) exceeds the Int16 world "
+                                      f"bound — draw it lower on the photo, or raise the pitch")
         return "[" + ", ".join(f"[{int(round(x))}, {int(round(z))}]" for x, z in pts) + "]"
 
     gw_manifest, ev_manifest = [], []

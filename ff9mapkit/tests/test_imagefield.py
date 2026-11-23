@@ -122,6 +122,37 @@ def test_build_rejects_int16_overflow(tmp_path):
         IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", distance=80000)
 
 
+@pytest.mark.parametrize("name", ['A"B', "Q?X", "sub/dir", "has space", "", "../up"])
+def test_a_bad_field_name_is_refused_before_anything_is_written(tmp_path, name):
+    """Finding T7: the name is the toml's FILE name and its [field] name. It was never checked:
+    walkmesh.obj and art/ were written, then the toml write raised an OSError the CLI did not
+    catch (a traceback, and on a regenerate a new floor under the old toml)."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    Image.new("RGB", (384, 448), (90, 80, 70)).save(tmp_path / "src.png")
+    floor = [(130, 140), (254, 140), (364, 440), (20, 440)]
+    with pytest.raises(IF.ImageFieldError, match="letters, digits"):
+        IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name=name)
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_zone_beyond_the_int16_world_is_refused_before_anything_is_written(tmp_path):
+    """Finding T9: the floor was bound-checked but gateway/event corners were not. A door drawn in
+    the top rows of the photo at the default pitch un-projects past |z| 32767; Generate wrote it
+    and the build failed later with a struct.error far from the cause."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    Image.new("RGB", (384, 448), (90, 80, 70)).save(tmp_path / "src.png")
+    floor = [(130, 200), (254, 200), (364, 440), (20, 440)]
+    for kw in ({"gateways": ["4005@60,2;140,2;140,30;60,30"]},
+               {"events": ["hi@60,2;140,2;140,30;60,30"]}):
+        with pytest.raises(IF.ImageFieldError, match="Int16"):
+            IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", **kw)
+        assert not (tmp_path / "out").exists()
+    IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out",   # in bound: built
+                         gateways=["4005@60,300;140,300;140,330;60,330"])
+
+
 # ---------------------------------------------------------------- anchored occluders (contact -> Z)
 
 def test_occluder_z_is_actor_depth_at_contact():
