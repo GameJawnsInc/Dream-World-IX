@@ -5206,6 +5206,13 @@ class Workspace(QMainWindow):
         else:
             self._resync_mounted_form(member)
         self._feed_place()
+        # the Inspector beside the tree re-reads the same doc (its CONTENTS tally said '1 NPC'
+        # while the tree said 'Props (1)', finding P30). Render-only, the _on_thumb_ready precedent:
+        # _inspect rewrites the card and commits nothing.
+        cur = self.tree.currentItem()
+        fa = self._ancestor_field(cur) if cur is not None else None
+        if fa is not None and self._payload(fa)[1] == member:
+            self._inspect(cur, self._payload(cur), member)
 
     def _feed_place(self):
         """Push the OPEN field's parsed dict into the Place doc — the same one feed contract as
