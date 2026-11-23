@@ -268,29 +268,29 @@ class TraceDoc(QWidget):
                                "Generate writes it into the project's field.toml and keeps it in "
                                "its .trace.json.")
         self.ev_msg_label.setBuddy(self.ev_msg)
-        row.addWidget(self.ev_msg, 1)
+        row.addWidget(self.ev_msg, 4)                  # takes most of the spare width (a line)
         row.addStretch(1)
-        self.undo_btn = QPushButton("Undo")
-        self.undo_btn.setToolTip("Take back the last gesture (a vertex, cut-out or region).")
-        self.undo_btn.clicked.connect(self.on_undo)
-        row.addWidget(self.undo_btn)
-        self.clear_btn = QPushButton("Clear floor")      # label + tip follow the tool (_refresh)
-        self.clear_btn.clicked.connect(self.on_clear)
-        row.addWidget(self.clear_btn)
 
-        # rung 2's strip: the marked cut-outs (hidden until one exists — canvas height is precious)
+        # the TAIL: rung 2's cut-out strip (hidden until one exists — canvas height is precious)
+        # + the gesture verbs. Undo/Clear ride here too, so the row's floor is the wider HALF,
+        # never the tool cluster + the verbs summed (a labelled Event box and "Clear regions"
+        # summed to a 1286 px window floor at 150%). The strip carries no "Cut-outs" label of
+        # its own: the tool strip right above names it, the combo has its accessible name, and
+        # the label's width alone put the contacts state's floor past 1280 at 150% (measured).
         self._fg_tail = QWidget()
         fg_row = QHBoxLayout(self._fg_tail)
         fg_row.setContentsMargins(0, 0, 0, 0)
         fg_row.setSpacing(8)
-        self.fg_label = QLabel("Cut-outs")
-        fg_row.addWidget(self.fg_label)
         self.fg_box = QComboBox()
         self.fg_box.setAccessibleName("Foreground cut-outs")
-        self.fg_box.setToolTip("Each marked occluder: its floor-contact pixel, the overlay depth "
-                              "the build will emit, and its attached cut-out PNG.")
-        self.fg_box.setMinimumWidth(260)
-        self.fg_label.setBuddy(self.fg_box)
+        self.fg_box.setToolTip("Each marked occluder: its attached cut-out PNG (or that it still "
+                               "needs one) and whether it is a placed snip. Hover an entry for its "
+                               "floor-contact pixel and the overlay depth the build will emit.")
+        # sized in CHARACTERS (hears the text-size dial), and enough for 'fg0 · <png> · snip' --
+        # the entry leads with what matters, so a long PNG name is what gets cut (T32)
+        self.fg_box.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.fg_box.setMinimumContentsLength(14)
         fg_row.addWidget(self.fg_box)
         self.fg_attach_btn = QPushButton("Attach PNG…")
         self.fg_attach_btn.setToolTip("Attach the selected contact's cut-out — a full-canvas PNG "
@@ -307,10 +307,16 @@ class TraceDoc(QWidget):
                                 "hiding under one).")
         self.fg_show.toggled.connect(lambda _on: self._refresh_cutouts())
         fg_row.addWidget(self.fg_show)
+        self.undo_btn = QPushButton("Undo")
+        self.undo_btn.setToolTip("Take back the last gesture (a vertex, cut-out or region).")
+        self.undo_btn.clicked.connect(self.on_undo)
+        fg_row.addWidget(self.undo_btn)
+        self.clear_btn = QPushButton("Clear floor")      # label + tip follow the tool (_refresh)
+        self.clear_btn.clicked.connect(self.on_clear)
+        fg_row.addWidget(self.clear_btn)
         self.tool_row = widgets.SpillRow(lead, self._fg_tail, margins=(0, 0, 0, 0))
         root.addWidget(self.tool_row)
-        self._fg_widgets = (self._fg_tail, self.fg_label, self.fg_box, self.fg_attach_btn,
-                            self.fg_remove_btn, self.fg_show)
+        self._fg_widgets = (self.fg_box, self.fg_attach_btn, self.fg_remove_btn, self.fg_show)
 
         self.canvas = BackdropCanvas(pal, scale=scale, on_floor=self._on_floor)
         self.canvas.set_trace_mode(True)
@@ -532,14 +538,23 @@ class TraceDoc(QWidget):
         self.fg_box.blockSignals(True)
         self.fg_box.clear()
         for i, f in enumerate(self._fg):
+            # what the author must know LEADS (the closed combo cuts the tail): the PNG or its gap,
+            # snip vs full frame, a bad contact. The pixel and z ride on the item's tooltip --
+            # the canvas label shows them too (finding T32)
             cx, cy = f["contact"]
             z, err = self._fg_state(f)
-            head = f"fg{i} @ ({cx:g},{cy:g})"
-            head += f" · z {z}" if err is None else " · ⚠ invalid contact"
-            head += f" · {Path(f['image']).name}" if f.get("image") else " · ⚠ needs its PNG"
+            # the short facts first, the free-length PNG name LAST: it is the part the closed
+            # combo cuts, and the snap showed '· snip' cut off when it came after the name
+            parts = [f"fg{i}"]
+            if err is not None:
+                parts.append("⚠ invalid contact")
             if f.get("kind") == "snip":
-                head += " · snip"
-            self.fg_box.addItem(head)
+                parts.append("snip")
+            parts.append(Path(f["image"]).name if f.get("image") else "⚠ needs its PNG")
+            self.fg_box.addItem(" · ".join(parts))
+            self.fg_box.setItemData(i, f"contact ({cx:g},{cy:g}) · "
+                                       + (f"z {z}" if err is None else err),
+                                    Qt.ItemDataRole.ToolTipRole)
         if 0 <= keep < self.fg_box.count():
             self.fg_box.setCurrentIndex(keep)
         elif self.fg_box.count():

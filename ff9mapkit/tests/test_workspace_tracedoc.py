@@ -196,6 +196,11 @@ def _cutout(tmp_path, name="pillar.png"):
     return p
 
 
+def _fg_tip(doc, i):
+    from PySide6.QtCore import Qt
+    return str(doc.fg_box.itemData(i, Qt.ItemDataRole.ToolTipRole) or "")
+
+
 def _traced(app, tmp_path):
     doc, run = _doc(app)
     doc.load_image(_photo(tmp_path))
@@ -218,7 +223,7 @@ def test_contact_records_the_proven_z_and_asks_for_the_png(app, tmp_path, monkey
     assert f["kind"] == "full" and f["offset"] is None    # photo-frame aspect -> registered
     assert not doc.canvas._contact_mode and doc.canvas._trace_mode   # disarmed back to tracing
     assert "z 1073" in doc.status.text()
-    assert "z 1073" in doc.fg_box.itemText(0) and "pillar.png" in doc.fg_box.itemText(0)
+    assert "pillar.png" in doc.fg_box.itemText(0) and "z 1073" in _fg_tip(doc, 0)
     (cut,) = doc.canvas._cutouts
     assert "z 1073" in cut["label"] and cut["rect"] is None and cut["locked"]
     assert doc.gen_btn.isEnabled()
@@ -493,7 +498,7 @@ def test_open_field_toml_backfills_the_session(app, tmp_path, monkeypatch):
         assert min(abs(gx - ex) + abs(gy - ey) for gx, gy in doc._floor) < 1.5
     assert doc._fg[0]["contact"] == (159.2, 202.9)
     assert doc._fg[0]["kind"] == "full"              # the shipped fg is the composed full frame
-    assert "z" in doc.fg_box.itemText(0)
+    assert "z " in _fg_tip(doc, 0)
     monkeypatch.setattr(doc, "_ask_out",
                         lambda: (_ for _ in ()).throw(AssertionError("asked on a reopen")))
     doc.on_generate()
@@ -1637,6 +1642,26 @@ def test_the_event_message_box_is_labelled_and_tells_the_truth(app, tmp_path):
     assert "not in the file" not in tip and "field.toml" in tip
     doc.rkind_btns["gateway"].setChecked(True)
     assert not doc.ev_msg_label.isVisible()            # the label follows its box
+
+
+def test_a_cut_out_entry_leads_with_what_the_author_must_know(app, tmp_path, monkeypatch):
+    """Finding T32: each entry read 'fg0 @ (cx,cy) · z N · <png> · snip' in a fixed-width combo,
+    so the PNG (or that it is missing) and snip-vs-full were the part cut off. The state leads;
+    the pixel and z (already on the canvas label) move to the item's tooltip."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    doc, _ = _traced(app, tmp_path)
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: None)
+    doc.fg_btn.setChecked(True)
+    doc._on_contact(230.0, 320.0)
+    assert doc.fg_box.itemText(0) == "fg0 · ⚠ needs its PNG"
+    snip = tmp_path / "pillar_snip.png"
+    Image.new("RGBA", (40, 180), (68, 60, 82, 255)).save(snip)
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: str(snip))
+    doc.on_fg_attach()
+    assert doc.fg_box.itemText(0) == "fg0 · snip · pillar_snip.png"   # free-length name last
+    tip = _fg_tip(doc, 0)
+    assert "(230,320)" in tip and "z 1073" in tip
 
 
 def test_the_canvas_keeps_a_usable_minimum(app):
