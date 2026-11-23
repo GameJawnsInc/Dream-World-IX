@@ -243,6 +243,7 @@ class StepEditor(QFrame):
         self.scene = None                          # the open (scene, step) target; insert_at
         self.step_i = None                         # not None = ADD mode (insert at that row)
         self.insert_at = None
+        self._signal_true = False                  # the opened step said signal = true
         v = QVBoxLayout(self)
         v.setContentsMargins(10, 8, 10, 8)
         v.setSpacing(6)
@@ -347,8 +348,9 @@ class StepEditor(QFrame):
         self.x_hold = _erow("hold", "", QCheckBox("Hold until a script closes it ([TIME=-1])"),
                             "undismissable, no auto-close — the unison shape (close it with a "
                             "'Close a window' step)")
-        self.x_signal = _erow("signal", "Signal when typed (n or blank):", QLineEdit(),
-                              "fire the text signal as the line finishes typing — pair with "
+        self.x_signal = _erow("signal", "Signal when typed (+, n or blank):", QLineEdit(),
+                              'fire the text signal as the line finishes typing: "+" adds one '
+                              "to it, a number sets it, blank sends none — pair with "
                               "'Wait for text signal'")
         v.addWidget(self.extras)
         self.note = widgets.caption("")
@@ -447,7 +449,9 @@ class StepEditor(QFrame):
             getattr(self, f"x_{key}").setText(str(step.get(key, "") or ""))
         for key in ("window", "speed", "duration", "signal"):
             v = step.get(key)
-            getattr(self, f"x_{key}").setText("" if v is None else str(v))
+            # signal = true means exactly what "+" means to the build ([INCS]): show it as "+"
+            getattr(self, f"x_{key}").setText("" if v is None else "+" if v is True else str(v))
+        self._signal_true = step.get("signal") is True   # read_step gives true back, unchanged
         self.x_instant.setChecked(bool(step.get("instant")))
         self.x_hold.setChecked(bool(step.get("hold")))
         self.title.setText(f"Step {step_i} — edit" if insert_at is None
@@ -481,11 +485,16 @@ class StepEditor(QFrame):
                                  else s)
             for key in ("window", "speed", "duration", "signal"):
                 s = getattr(self, f"x_{key}").text().strip()
+                if key == "signal" and s == "+":
+                    step[key] = True if self._signal_true else "+"
+                    continue
                 if s:
                     try:
                         step[key] = int(s)
                     except ValueError:
-                        raise ValueError(f"{key} must be a whole number (got {s!r})")
+                        raise ValueError(
+                            f'signal must be "+", a whole number, or blank (got {s!r})'
+                            if key == "signal" else f"{key} must be a whole number (got {s!r})")
             if self.x_instant.isChecked():
                 step["instant"] = True
             if self.x_hold.isChecked():

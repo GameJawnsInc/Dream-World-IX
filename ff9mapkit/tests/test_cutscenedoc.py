@@ -558,6 +558,48 @@ def test_a_raw_window_style_byte_round_trips_as_an_int(doc, tmp_path):
     assert doc._steps()[0]["style"] == "notail", "a style NAME stays a name"
 
 
+@pytest.mark.parametrize("stored, shown, back", [
+    ("+", "+", "+"),           # the form the build's own wait_signal lint recommends
+    (True, "+", True),         # the build reads true exactly like "+": shown "+", kept true
+    (3, "3", 3),
+    (-1, "-1", -1),
+])
+def test_a_say_signal_opens_and_applies_in_every_form_the_build_accepts(doc, tmp_path,
+                                                                        stored, shown, back):
+    """C6: the editor read signal with int(), so a line carrying signal = "+" (or true) could not
+    be applied at all -- not even to fix a typo in the line."""
+    import copy as _copy
+    from ff9mapkit import build as _build
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc._steps()[0]["signal"] = stored
+    doc._edit_step(0)
+    assert doc.editor.x_signal.text() == shown
+    doc.editor.value_text.setPlainText("Dusk falls over the glen!")   # a typo fix, nothing else
+    doc._apply_step()
+    assert doc.editor.note.text() == "", doc.editor.note.text()
+    s = doc._steps()[0]
+    assert s["say"] == "Dusk falls over the glen!" and s["signal"] == back
+    assert type(s["signal"]) is type(back)
+    problems = _build.validate(_build.FieldProject(_copy.deepcopy(doc._raw), tmp_path))
+    assert not [p for p in problems if "signal" in p], problems
+
+
+def test_a_signal_the_build_refuses_is_refused_with_its_forms_named(doc, tmp_path):
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc._edit_step(0)
+    assert "+" in doc.editor._extra_rows["signal"][0].text(), "the label must say + is allowed"
+    assert '"+"' in doc.editor.x_signal.toolTip()
+    doc.editor.x_signal.setText("soon")
+    doc._apply_step()
+    assert "signal" in doc.editor.note.text() and "+" in doc.editor.note.text()
+    assert "signal" not in doc._steps()[0], "no op fired"
+    doc.editor.x_signal.setText("")
+    doc._apply_step()
+    assert "signal" not in doc._steps()[0], "blank clears"
+
+
 def test_a_window_step_round_trips_and_the_valueless_kind_hides_its_value(doc, tmp_path):
     _fed(doc, tmp_path)
     doc.rail.setCurrentRow(1)
