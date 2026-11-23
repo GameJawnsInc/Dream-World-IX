@@ -857,6 +857,7 @@ class CutsceneDoc(QWidget):
         self.settings_note.setWordWrap(True)
         sc_lay.addWidget(self.settings_note)
         self._settings_getters = None
+        self._settings_built = None                # _settings_key() of the form on show
         self.settings_card.hide()
         # the storyboard strip (hidden until ▶ Storyboard)
         self.board_bar = QWidget()
@@ -1096,8 +1097,10 @@ class CutsceneDoc(QWidget):
         self._paint_verdicts()                     # a scene switch re-filters the rows
         self.canvas.set_scene(cutscenescan.stage_model(raw, self._scene), refit=refit,
                               handles=handles)
-        if self.settings_btn.isChecked():          # isChecked, not isVisible: visibility is a lie
-            self._fill_settings()                  # under a never-shown test window
+        if self.settings_btn.isChecked() and self._settings_key() != self._settings_built:
+            self._fill_settings()                  # isChecked, not isVisible (a never-shown test
+        #                                            window lies). Only when what the form shows
+        #                                            really changed: a rebuild throws away typing.
         self._sync_insets()
         problems = cutscenescan.dispatch_problems(raw) + cutscenescan.scene_problems(
             raw, self.flag_names_fn() if self.flag_names_fn else None)
@@ -1200,7 +1203,17 @@ class CutsceneDoc(QWidget):
         if self._raw is not None and self._stack.currentWidget() is self._content:
             self._render()                         # seat / clear the inset
 
+    def _settings_key(self):
+        """What the settings form is built FROM: the scene and the values the form shows (not
+        the steps -- a stage drag must not wipe a typed gate). Another field never reaches this
+        comparison: show_field closes the card on a field switch (member AND path)."""
+        blocks = forms.all_blocks((self._raw or {}).get("cutscene"))
+        if not 0 <= self._scene < len(blocks):
+            return None
+        return (self._scene, forms.entity_to_values(forms.CUTSCENE_SPEC, blocks[self._scene]))
+
     def _fill_settings(self):
+        self._settings_built = self._settings_key()
         while self._settings_host.count():
             w = self._settings_host.takeAt(0).widget()
             if w is not None:

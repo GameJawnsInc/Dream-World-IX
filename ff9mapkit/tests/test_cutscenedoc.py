@@ -712,6 +712,47 @@ def test_scene_settings_apply_writes_the_gate_and_keeps_the_steps(doc, tmp_path)
     assert "plays at beat 777" in doc.rail.item(0).text(), "the rail follows the applied gate"
 
 
+def _gate_box(doc):
+    return doc._settings_getters["requires_scenario"].__self__
+
+
+def test_unapplied_scene_settings_survive_every_re_render(doc, tmp_path):
+    """C10: with Scene settings open, every re-render rebuilt the form from the document and
+    threw away what was typed but not applied -- a tab show, a tree select, a stage drag, an
+    undo of something else, a retheme."""
+    raw, p = _fed(doc, tmp_path)
+    doc.settings_btn.setChecked(True)
+    _gate_box(doc).setText("150")
+    doc.show_field("GLEN", raw, p)                     # the tab show / tree select re-feed
+    assert _gate_box(doc).text() == "150", "a same-field re-feed wiped the typed gate"
+    doc.show_field("GLEN", copy.deepcopy(raw), p)      # undo/redo of another edit: an equal buffer
+    assert _gate_box(doc).text() == "150"
+    doc._selected_step = 0                             # a stage drag of the selected walk
+    doc._on_stage_move(("target", 0, 0), 100, 100)
+    assert doc._raw["cutscene"][0]["steps"][0]["walk"] == [100, 100]
+    assert _gate_box(doc).text() == "150", "a stage drag wiped the typed gate"
+    doc.retheme(pick_palette("light"))
+    assert _gate_box(doc).text() == "150"
+    assert doc._raw["cutscene"][0]["requires_scenario"] == 100, "nothing was applied"
+    # ...but what the form was built from really changing DOES rebuild it
+    doc._raw["cutscene"][0]["requires_scenario"] = 120    # the Editor tree, in place
+    doc.show_field("GLEN", doc._raw, p)
+    assert _gate_box(doc).text() == "120"
+    doc.rail.setCurrentRow(1)                          # another scene
+    assert _gate_box(doc).text() == "300"
+    doc.rail.setCurrentRow(0)
+    doc._dup_scene()                                   # scene #1 is now a look-alike of #0
+    _gate_box(doc).setText("555")
+    doc.rail.setCurrentRow(0)                          # typing on #1 must not follow to #0
+    assert _gate_box(doc).text() == "120"
+    other = tmp_path / "other"
+    other.mkdir()
+    q = make_cutscene_field(other)                     # the same name, another file
+    doc.show_field("GLEN", tomllib.loads(q.read_text(encoding="utf-8")), q)
+    doc.settings_btn.setChecked(True)
+    assert _gate_box(doc).text() == "100"
+
+
 def test_the_stage_drop_rewrites_the_selected_target(doc, tmp_path):
     """One drop = one op = one label — through the INHERITED drag machinery, driven at the
     world-frame seam the behavior suite uses."""
