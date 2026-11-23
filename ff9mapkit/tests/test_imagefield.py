@@ -623,6 +623,23 @@ def test_a_hand_changed_generator_field_key_is_retaken_by_name(tmp_path):
     assert [r for r in man2["retaken"] if r.startswith("field")] == ["field.area"]
 
 
+def test_a_kept_borrow_bg_keeps_the_area_it_names_its_donor_with():
+    """Review of T2: borrow_bg resolves TOGETHER with area (FBG_N<area>_<borrow>). Keeping the
+    borrow while re-taking area = 11 wrote a pair that names a different (or no) donor."""
+    import tomllib
+    gen = ('# x\n[field]\nid = 4003\nname = "M"\narea = 11\n\n[camera]\npitch = 30\n\n'
+           '[player]\nspawn = [0, 0]\n')
+    text, kept, retaken, _removed = IF.merge_project_toml(
+        gen, {"field": {"id": 4003, "name": "M", "area": 52, "borrow_bg": "B12"}})
+    field = tomllib.loads(text)["field"]
+    assert (field["area"], field["borrow_bg"]) == (52, "B12")
+    assert "field.area" not in retaken and "[field].area" in kept
+    # without a borrow, area stays the generator's (the rule above)
+    text, _k, retaken, _r = IF.merge_project_toml(
+        gen, {"field": {"id": 4003, "name": "M", "area": 52, "location": "Dali"}})
+    assert tomllib.loads(text)["field"]["area"] == 11 and "field.area" in retaken
+
+
 def test_a_moved_generated_field_block_fails_loudly_not_silently():
     """If the generator's [field] lines ever change shape, the per-key merge must refuse --
     the quiet alternative is a regenerate that drops the Editor's keys again (T2)."""

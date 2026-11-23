@@ -965,7 +965,8 @@ def merge_project_toml(generated_text: str, existing: dict | None, *, twin_quads
       named in ``retaken``. ``[field]`` merges PER KEY: ``id``/``name``/``area`` are the
       generator's (each one overwritten is named, ``field.area``), every other key -- the
       Editor's Field form writes ``location``, ``title``, ``text_block``, ``borrow_bg`` there
-      -- rides through and is named in ``kept`` (finding T2). ``[player]`` merges PER KEY: ``spawn`` is the
+      -- rides through and is named in ``kept`` (finding T2); a kept ``borrow_bg`` keeps its
+      ``area`` too, since the two name the donor together. ``[player]`` merges PER KEY: ``spawn`` is the
       generator's (the session's centroid wins, retaken when it differed) while every other
       key — the Place tab's ``[[player.arrival]]`` rows above all — is the human's and rides
       through. The floorplan owns [player] wholesale because its composer GENERATES arrivals;
@@ -1033,9 +1034,12 @@ def merge_project_toml(generated_text: str, existing: dict | None, *, twin_quads
                if k in existing and existing.get(k) != gen.get(k)] + renamed + value_retakes
     old_field = existing.get("field") if isinstance(existing.get("field"), dict) else {}
     gen_field = gen.get("field") or {}
+    # borrow_bg resolves TOGETHER with area (FBG_N<area>_<borrow>): a kept borrow keeps its area,
+    # or the pair names a different donor (review of T2)
+    paired = {"area"} if "borrow_bg" in old_field and "area" in old_field else set()
     retaken = [f"field.{k}" for k in gen_field
-               if k in old_field and old_field[k] != gen_field[k]] + retaken
-    field_extra = {k: v for k, v in old_field.items() if k not in gen_field}
+               if k in old_field and k not in paired and old_field[k] != gen_field[k]] + retaken
+    field_extra = {k: v for k, v in old_field.items() if k not in gen_field or k in paired}
     old_player = existing.get("player") if isinstance(existing.get("player"), dict) else {}
     player_extra = {k: v for k, v in (old_player or {}).items() if k != "spawn"}
     if old_player and old_player.get("spawn") != (gen.get("player") or {}).get("spawn"):
