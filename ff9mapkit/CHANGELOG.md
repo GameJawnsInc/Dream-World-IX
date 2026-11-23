@@ -23,6 +23,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   every clean regenerate (its undo history for that field is dropped with it, and the Place tab forgets the old
   floor). Generate also refuses while the open project has unsaved edits, and says to Save All first; edits made
   while the job ran are kept or dropped only on your answer.
+- **An Editor form can no longer write into the wrong row after an edit in the Place tab.** With an unsaved change
+  typed into a gateway, event or NPC form, deleting an earlier row of the same kind in Place made the next click
+  write the form over a different row: one destroyed, another doubled. The form's Save, Delete and Reset buttons
+  aimed at the same wrong row, and a zone dragged in Place could be written back to its old shape. A form now
+  follows its own row wherever it moves; opening the Behavior, Cutscene or Place tab first commits what you typed
+  (one Undo step; a value that cannot be read keeps you on the form, and Problems says why); and a form left open
+  behind those tabs is rebuilt when they change its row.
 
 ### Changed — World tab: faster, and the window no longer freezes while it works
 - **Undo, Redo and every Accept no longer reload the whole 3D map.** Only the blocks whose files changed are drawn

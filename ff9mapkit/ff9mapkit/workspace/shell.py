@@ -4637,9 +4637,8 @@ class Workspace(QMainWindow):
         if ctx["single"]:
             base = _single_block(clean, ctx["section"])      # a PLURAL section: compare against block 0
         else:
-            lst = clean.get(ctx["section"], []) or []
-            idx = ctx.get("idx")
-            base = lst[idx] if idx is not None and idx < len(lst) else {}
+            i = self._ctx_idx(ctx)                 # the saved copy of THE ROW ON SCREEN (see _ctx_base_row)
+            base = (self._ctx_base_row(ctx, i) if i is not None else None) or {}
         return forms.build_entity(ctx["spec"], forms.entity_to_values(ctx["spec"], base)) == entity
 
     def _unsaved(self):
@@ -4962,6 +4961,17 @@ class Workspace(QMainWindow):
         if not hasattr(self, "tabs"):
             return
         w = self.tabs.currentWidget()
+        # Behavior / Cutscene / Place edit the SAME document an Editor form may still be holding
+        # open. Fold that form in before one of them is shown: its typed values become an edit of
+        # their own (one undo step), not something a later fold writes over what the tab changed --
+        # or, with a row deleted there, into a different row altogether (review finding P1). A value
+        # that will not fold keeps the user on the Editor, the tree's own rule (Problems says why).
+        if (w is not None and w in (getattr(self, "behavior_doc", None),
+                                    getattr(self, "cutscene_doc", None),
+                                    getattr(self, "place_doc", None))
+                and not self._commit_active_ck()):
+            self.tabs.setCurrentWidget(self.doc_scroll)    # re-enters this handler for the Editor
+            return
         self._mount_behavior_instruments(w is getattr(self, "behavior_doc", None))
         self._mount_cutscene_instruments(w is getattr(self, "cutscene_doc", None))
         if w in (self.doc_scroll, self.map):
@@ -5021,6 +5031,7 @@ class Workspace(QMainWindow):
         real baseline."""
         self._touch(member)
         self._checkpoint(member, label, "behavior")
+        self._resync_mounted_form(member)              # an Editor form over the same doc follows it
         self._feed_behavior()
 
     def _mount_behavior_instruments(self, on):
@@ -5050,6 +5061,7 @@ class Workspace(QMainWindow):
         and _goto_focus would yank undo to the wrong surface), and re-feed."""
         self._touch(member)
         self._checkpoint(member, label, "cutscene_tab")
+        self._resync_mounted_form(member)              # an Editor form over the same doc follows it
         self._feed_cutscene()
 
     def _mount_cutscene_instruments(self, on):
@@ -5152,7 +5164,15 @@ class Workspace(QMainWindow):
         if member in getattr(self, "_member_items", {}):
             self.tree.blockSignals(True)
             self._refresh_objects(member)
+            self._resync_mounted_form(member)          # the Editor form behind this tab follows its row
+            ctx = self._save_ctx                       # ...and the tree lands back on that row (the
+            if ctx and ctx.get("member") == member:    # rebuilt rows are NEW items; signals are blocked,
+                it = self._object_item(member, ctx["key"])   # so nothing re-mounts or folds here)
+                if it is not None:
+                    self.tree.setCurrentItem(it)
             self.tree.blockSignals(False)
+        else:
+            self._resync_mounted_form(member)
         self._feed_place()
 
     def _feed_place(self):
@@ -5728,7 +5748,7 @@ class Workspace(QMainWindow):
         ctx = self._save_ctx
         if not ctx:
             return
-        member, section, key = ctx["member"], ctx["section"], ctx["key"]
+        member, section = ctx["member"], ctx["section"]
         clean = self._clean.get(member, {})
         doc = self._doc(member)
         if ctx["single"]:
@@ -5737,11 +5757,13 @@ class Workspace(QMainWindow):
             else:
                 doc.data.pop(section, None)                    # it didn't exist at last save -> drop it
         else:
-            idx = ctx["idx"]
-            base = clean.get(section, [])
-            cur = doc.data.get(section, [])
-            if idx is not None and idx < len(base) and idx < len(cur):
-                cur[idx] = copy.deepcopy(base[idx])
+            i = self._ctx_idx(ctx)                             # the row on screen (heals ctx["key"])
+            src = self._ctx_base_row(ctx, i) if i is not None else None
+            if src is not None:                                # ITS saved copy -- not whatever row now
+                row = doc.data[section][i]                     # sits at the index it was mounted at.
+                row.clear()                                    # In place: the row keeps its identity
+                row.update(copy.deepcopy(src))
+        key = ctx["key"]
         self._touched.discard(member)
         self._checkpoint(member, f"reset {section}", key)     # a Reset is itself an undoable change
         self._open_editor(member, "object", key)              # re-mount from the restored data
@@ -7566,12 +7588,16 @@ class Workspace(QMainWindow):
         self.doc_host_lay.addWidget(form)
         self._save_ctx = {"member": member, "key": key, "spec": spec, "getters": getters,
                           "single": single, "section": section, "idx": idx,
+                          # WHICH row a list form edits is this OBJECT, not ``idx``: another tab can
+                          # delete an earlier row of the same list and every index after it moves
+                          # (see _ctx_idx -- idx/key are only its last-known position)
+                          "row": None if single else entity,
+                          "mounted_key": key,           # what the form's own header + buttons were built for
                           "mounted": read(getters)}     # at-mount baseline -> an UNCHANGED form needs no fold
         delete = None
         if not single:                                         # a list entity (npc/gateway/event/marker)
             lbl = _LIST_SINGULAR.get(section, section)
-            delete = (f"Delete {lbl}",
-                      lambda: self._delete_object(member, section, single=False, idx=idx, label=lbl))
+            delete = (f"Delete {lbl}", lambda: self._delete_mounted_row(member, section, lbl))
         elif section != "field" and section in self._doc(member).data:   # an OPTIONAL single that exists
             delete = (f"Remove {section}",
                       lambda: self._delete_object(member, section, single=True, label=section))
@@ -7646,11 +7672,109 @@ class Workspace(QMainWindow):
         # NB: mounting a form no longer steals the active tab -- single-click selection stays put
         # (you reach the Editor via the tab or a double-click; see _on_tree_double).
 
+    # ---- the mounted list form and ITS row (review finding P1) ----
+    # A list form used to know its row only as the index it was mounted at. Switching to the Place
+    # tab neither committed the form nor told it anything, and Place deletes and reshapes rows of
+    # the same lists: the next fold then wrote the form's values into list[old index] -- with an
+    # earlier row deleted, a DIFFERENT row (one gateway destroyed, another doubled). Save, Delete
+    # and Reset carried the same index. The row is now the OBJECT the form was mounted on.
+
+    def _ctx_idx(self, ctx):
+        """Where a mounted LIST form's row is NOW, found by identity -- or None when it is gone
+        (or the form is a single section's). Heals the ctx's last-known ``idx``/``key`` on the
+        way, so labels, undo focus and the tree-row lookup follow the row too. A sub-editor
+        mounted without a row object (a choice) is still addressed by its index."""
+        if not ctx or ctx.get("single"):
+            return None
+        doc = self._docs.get(ctx["member"])
+        lst = (doc.data.get(ctx["section"]) or []) if doc is not None else []
+        row = ctx.get("row")
+        if row is None:
+            i = ctx.get("idx")
+            return i if i is not None and 0 <= i < len(lst) else None
+        i = next((n for n, r in enumerate(lst) if r is row), None)
+        if i is not None and i != ctx.get("idx"):
+            ctx["idx"] = i
+            ctx["key"] = f"{ctx['section']}:{i}"
+        return i
+
+    def _ctx_base_row(self, ctx, i):
+        """The LAST-SAVED copy of the row a list form is mounted on (live index ``i``), or None.
+        The saved list and the live one stop lining up by index the moment a row is added or
+        removed without a save, so the row is matched by NAME when that is unambiguous and by
+        index only while the two lists are the same length."""
+        base = self._clean.get(ctx["member"], {}).get(ctx["section"], []) or []
+        cur = self._docs[ctx["member"]].data.get(ctx["section"], []) or []
+        name = cur[i].get("name") if isinstance(cur[i], dict) else None
+        hits = [b for b in base if isinstance(b, dict) and name is not None and b.get("name") == name]
+        if len(hits) == 1:
+            return hits[0]
+        if len(base) == len(cur) and i < len(base):
+            return base[i]
+        return None
+
+    def _row_gone(self, what="item"):
+        self._show_problems(
+            fb.Verdict(fb.ERROR, f"This {what} no longer exists"),
+            [fb.Problem(fb.ERROR, "It was removed in another tab. Pick a row in the tree.")])
+
+    def _delete_mounted_row(self, member, section, label):
+        """The mounted list form's Delete button: delete the row ON SCREEN, wherever it now sits."""
+        ctx = self._save_ctx
+        idx = (self._ctx_idx(ctx) if ctx and ctx.get("member") == member
+               and ctx.get("section") == section else None)
+        if idx is None:
+            self._row_gone(label)
+            return
+        self._delete_object(member, section, single=False, idx=idx, label=label)
+
+    def _resync_mounted_form(self, member):
+        """A tab other than the Editor just changed ``member``'s document while an Editor form for
+        it is still mounted behind that tab. Rebuild the form when what it shows is no longer what
+        the doc holds (its row moved, or its values changed), and replace it when its row is gone
+        -- a form left showing stale values writes them back the next time it is edited. Never
+        rebuilds over typed-but-unfolded text (entering those tabs folds the form first, so there
+        is none; this is the belt)."""
+        ctx = self._save_ctx
+        if not ctx or ctx.get("member") != member or "mounted" not in ctx:
+            return
+        doc = self._docs.get(member)
+        if doc is None:
+            return
+        try:
+            now = read(ctx["getters"])
+            if now != ctx["mounted"]:
+                return
+            shown = forms.build_entity(ctx["spec"], now)
+        except (ValueError, RuntimeError):             # unparseable text / a form already torn down
+            return
+        if ctx["single"]:
+            target, moved = _single_block(doc.data, ctx["section"]), False
+        else:
+            i = self._ctx_idx(ctx)                     # heals ctx["key"] to where the row is now
+            if i is None:
+                what = _LIST_SINGULAR.get(ctx["section"], ctx["section"])
+                self._doc_placeholder(f"That {what} was removed on another tab.")
+                return
+            target = doc.data[ctx["section"]][i]
+            moved = ctx["key"] != ctx.get("mounted_key", ctx["key"])   # its header names the old slot
+        if not moved and forms.build_entity(
+                ctx["spec"], forms.entity_to_values(ctx["spec"], target)) == shown:
+            return                                     # the form already shows the doc: leave it be
+        self._open_editor(member, "object", ctx["key"])
+
     def _save(self):
         ctx = self._save_ctx
-        if ctx:
-            self._commit(ctx["member"], ctx["section"], ctx["spec"], ctx["getters"],
-                         single=ctx["single"], idx=ctx["idx"], key=ctx["key"])
+        if not ctx:
+            return
+        idx = None
+        if not ctx["single"]:
+            idx = self._ctx_idx(ctx)                   # the row on screen, wherever it now sits
+            if idx is None:
+                self._row_gone(_LIST_SINGULAR.get(ctx["section"], ctx["section"]))
+                return
+        self._commit(ctx["member"], ctx["section"], ctx["spec"], ctx["getters"],
+                     single=ctx["single"], idx=idx, key=ctx["key"])
 
     def _commit(self, member, section, spec, getters, *, single, idx=None, key=None) -> bool:
         """Apply a form's values to the doc (clear the spec's keys, keep scene/unknown ones) + save.
@@ -7724,16 +7848,21 @@ class Workspace(QMainWindow):
             target = _single_block(doc.data, ctx["section"], create=True)   # a PLURAL section: block 0
         else:
             lst = doc.data.get(ctx["section"], []) or []
-            if ctx["idx"] is None or ctx["idx"] >= len(lst):
-                return True
-            target = lst[ctx["idx"]]
+            i = self._ctx_idx(ctx)                 # by IDENTITY: the index it was mounted at may now
+            if i is None:                          # be another row (a Place delete) -- or none at all,
+                return True                        # in which case the form's edits have nowhere to go
+            target = lst[i]
         # No-op fold guard: if the form's entity matches the target's NORMALIZED content, writing would only
         # drop default-equal BOOLs (build_entity omits e.g. once=true) and falsely dirty a merely-VIEWED node.
-        if forms.build_entity(ctx["spec"], forms.entity_to_values(ctx["spec"], target)) == entity:
-            return True
-        for f in ctx["spec"]:
-            target.pop(f.key, None)
-        target.update(entity)
+        if forms.build_entity(ctx["spec"], forms.entity_to_values(ctx["spec"], target)) != entity:
+            for f in ctx["spec"]:
+                target.pop(f.key, None)
+            target.update(entity)
+        if "mounted" in ctx:
+            # FOLDED: the form now holds nothing the doc lacks, so it is "unchanged" again. A form that
+            # STAYS mounted after a fold (a tab switch, Save All, Check) must not write these same
+            # values a second time over whatever another tab changes in the meantime.
+            ctx["mounted"] = read(ctx["getters"])
         return True
 
     def _ensure_saved(self) -> bool:
