@@ -378,6 +378,12 @@ _QSS = Template(
                     stop:0 $accent_fg, stop:0.40 $accent_fg, stop:0.46 $accent, stop:1 $accent);
     }
     QCheckBox::indicator:disabled, QRadioButton::indicator:disabled { border: 1px solid $muted; background: $bg; }
+    /* ...and in a TOOL ROW (widgets.SpillRow) the label dims with it: beside a dimmed tool segment (T28)
+       a disabled radio kept its text at full contrast, so one row read "Place is off" and "NPC is ready"
+       at once. Scoped to the tool rows on purpose -- app-wide it left Build's disabled option titles
+       fainter than the captions under them, and elsewhere a disabled checkbox's label is a sentence the
+       author still has to read. */
+    SpillRow QCheckBox:disabled, SpillRow QRadioButton:disabled { color: $text_subtle; }
     /* A disabled+checked control still has to show WHAT it is set to (it is state, not decoration) -- but
        in muted, so it reads as unavailable rather than active. Specificity 0x31 out-ranks :checked's 0x21. */
     QCheckBox::indicator:checked:disabled {
@@ -836,6 +842,10 @@ _QSS = Template(
        `background`, so there was nothing to lose.) */
     QToolButton#railSeg:pressed { color: $pressed_fg; background: $pressed; }
     QToolButton#railSeg:focus   { border: 1px solid $focus; }
+    /* LAST, for the same tie reason as :pressed: the id-scoped base rule out-ranks the generic
+       QToolButton:disabled, whose muted ink is the resting segment's own colour anyway -- so a disabled
+       ToolStrip tool rendered pixel-identical to a clickable one (T28). text_subtle is the dimmer tier. */
+    QToolButton#railSeg:disabled { color: $text_subtle; background: transparent; }
 
     /* progressive-disclosure toggle (widgets.disclosure): a flat, left-aligned 'advanced' section header */
     /* The border is reserved TRANSPARENT so the focus ring costs no layout (same move as #consoleToggle

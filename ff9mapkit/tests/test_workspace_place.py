@@ -511,6 +511,14 @@ def test_place_reword_routes_by_row(app, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _private_cache(tmp_path, monkeypatch):
+    """A project room's composited backdrop goes to the kit cache (finding P9): never the
+    developer's real one from a test."""
+    from ff9mapkit import provision
+    monkeypatch.setattr(provision, "cache_dir", lambda: tmp_path / "_kit_cache")
+
+
+@pytest.fixture(autouse=True)
 def _deterministic_qt_teardown(qt_drain):
     """Widgets die HERE, not in a forced GC pass (THE GC-CHILD LAW's teardown half)."""
     yield
@@ -1076,3 +1084,524 @@ def test_minimising_the_window_does_not_drop_the_room(app, tmp_path):
     assert started == [key]
     d.hideEvent(QHideEvent())                          # ...whereas leaving the tab does drop it
     assert key not in d._bundles and not d.canvas._surface_tris
+
+
+# --------------------------------------------------------------- batch 3
+def test_a_prop_placed_after_a_delete_never_reuses_a_live_name():
+    """Review finding P13. place_prop named by len(): two props, delete prop0, place again ->
+    two rows called prop1, which neither the tree nor the undo label could tell apart."""
+    data = {}
+    P.place_prop(data, 0, 0)
+    P.place_prop(data, 10, 10)
+    del data["prop"][0]
+    label = P.place_prop(data, 20, 20)
+    names = [p["name"] for p in data["prop"]]
+    assert len(set(names)) == len(names), names
+    assert data["prop"][-1]["name"] in label            # the undo label says WHICH prop
+
+
+def _regions_on(app, data, path="C:/somewhere/FORK.field.toml"):
+    d, calls = _doc(app)
+    d.show_field("FORK", data, Path(path))
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    d.tools.set_current("regions")
+    return d, calls
+
+
+@pytest.mark.parametrize("typed", ["", "   "])
+def test_set_message_refuses_a_blank_line(app, monkeypatch, typed):
+    """Review finding P10. Clearing the Set message box wrote message='' -- an event the build
+    accepts (the key is present) that shows nothing in-game. A blank line is refused, the old
+    words stay, and the status says why."""
+    data = {"field": {"source_field": 351},
+            "event": [{"name": "zone0", "message": "Watch your step.",
+                       "zone": [[0, 500], [100, 500], [100, 600], [0, 600]]}]}
+    d, calls = _regions_on(app, data)
+    monkeypatch.setattr(d, "_ask_message", lambda cur: typed)
+    d._on_region_reword(0)
+    assert calls == [] and data["event"][0]["message"] == "Watch your step."
+    assert "empty" in d.status.text() and d.status.property("state") == "warn"
+
+
+def test_mode_radios_explain_themselves_and_a_verbatim_refusal_does_not_stick(app):
+    """Review findings P15 + P23. The four mode radios had no tooltip, except the verbatim
+    refusal, which was set on Spawn/Arrival and never cleared: after any verbatim fork, an
+    ENABLED Spawn on an ordinary field still said its clicks would be ignored."""
+    d, _ = _doc(app)
+    tips = {k: d.mode_btns[k].toolTip() for k, _l in d.MODES}
+    assert all(tips.values()), tips                     # every radio says what it places
+    assert "entrance" in tips["arrival"] and "door" in tips["spawn"]
+    assert "Editor" in tips["npc"] and "Editor" in tips["prop"]
+    d.show_field("FORK", {"verbatim_eb": {"donor": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    assert "verbatim" in d.mode_btns["spawn"].toolTip()
+    d.show_field("NOVEL", {"field": {"id": 30058}}, Path("C:/somewhere/NOVEL.field.toml"))
+    assert d.mode_btns["spawn"].isEnabled()
+    assert {k: d.mode_btns[k].toolTip() for k, _l in d.MODES} == tips
+
+
+@pytest.mark.parametrize("mode", ["npc", "prop"])
+def test_an_npc_or_prop_drop_says_where_to_finish_it(app, mode):
+    """Review finding P23: the drop note now says where the new row gets its model and words."""
+    d, calls = _doc(app)
+    data = {"field": {"source_field": 351}}
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    d.mode_btns[mode].setChecked(True)
+    d._apply_hit({"xz": (0.0, 1500.0), "floor": 0})
+    assert len(calls) == 1 and "Editor" in d.status.text(), d.status.text()
+
+
+def test_regions_status_speaks_of_the_kind_being_drawn(app):
+    """Review finding E8: 'draw a event zone', and the gateway walk-out lesson shown while
+    drawing events."""
+    d, _ = _regions_on(app, {"field": {"source_field": 351}})
+    assert "a gateway zone" in d.status.text() and "walk-out" in d.status.text()
+    d.rkind_btns["event"].setChecked(True)             # the radio alone re-says it
+    assert "an event zone" in d.status.text(), d.status.text()
+    assert "walk-out" not in d.status.text()
+
+
+@pytest.mark.parametrize("to, warned", [(9005, True), (9000, True), (9012, True),
+                                        (8999, False), (9013, False), (351, False),
+                                        (4005, False), (30001, False)])
+def test_a_door_into_the_world_map_hole_warns_on_the_art(to, warned):
+    """Review finding P12. A target in the engine-reserved 9000-9012 hole built clean and
+    black-screens in-game; only to <= 0 warned. Judged by the band owner (pack.check_custom_id)
+    -- a REAL field id stays a legal target."""
+    data = {"gateway": [{"name": "door0", "to": to,
+                         "zone": [[0, 500], [100, 500], [100, 600], [0, 600]]}]}
+    (row,) = P.region_rows(data)
+    assert bool(row["warn"] and "world-map hole" in row["warn"]) is warned, row["warn"]
+
+
+def test_set_gateway_target_leaves_a_world_map_door_alone(app, monkeypatch):
+    """Review finding P12. The quad menu offered Set gateway target on a to="worldmap" door; its
+    integer dialog could not say "worldmap", and OK turned the door into a field warp."""
+    data = {"field": {"source_field": 351},
+            "gateway": [{"name": "out", "to": "worldmap",
+                         "zone": [[0, 500], [100, 500], [100, 600], [0, 600]]}]}
+    d, calls = _regions_on(app, data)
+    asked = []
+    monkeypatch.setattr(d, "_ask_field_id", lambda cur: asked.append(cur) or 100)
+    d._on_region_retarget(0)
+    assert asked == [] and calls == [] and data["gateway"][0]["to"] == "worldmap"
+    assert "world map" in d.status.text() and "Editor" in d.status.text(), d.status.text()
+
+
+def _layered_project(tmp_path):
+    """An `import --editable`-shaped project: a full-cover back layer per camera, and a tight
+    crop with its own position/size on camera 0 (extract._render_depth_groups writes exactly
+    this), plus an additive light layer."""
+    from PIL import Image
+    from ff9mapkit import build as B
+    proj_dir = tmp_path / "proj"
+    proj_dir.mkdir()
+    Image.new("RGBA", (384, 448), (200, 40, 40, 255)).save(proj_dir / "back0.png")
+    Image.new("RGBA", (384, 448), (40, 40, 200, 255)).save(proj_dir / "back1.png")
+    Image.new("RGBA", (32, 48), (40, 200, 40, 255)).save(proj_dir / "crop.png")
+    Image.new("RGBA", (384, 448), (255, 255, 255, 255)).save(proj_dir / "glow.png")
+    raw = {"field": {"id": 30990, "source_field": 2507},
+           "layers": [{"image": "back0.png", "z": 4000},
+                      {"image": "back1.png", "z": 4000, "camera": 1},
+                      {"image": "crop.png", "z": 100, "position": [200, 300], "size": [32, 48]},
+                      {"image": "glow.png", "z": 50, "shader": "PSX/FieldMap_Abr_1"}]}
+    toml = proj_dir / "EDIT.field.toml"
+    toml.write_text("", encoding="utf-8")
+    return B.FieldProject(raw, proj_dir, toml_path=toml), proj_dir
+
+
+def test_the_project_backdrop_honours_each_layers_place_and_camera(tmp_path, monkeypatch):
+    """Review findings P3 + P9. The composite resized the whole accumulator to each later layer
+    and pasted it at (0, 0): an editable fork showed one 32x48 crop stretched over the frame,
+    and camera 1's art painted over camera 0's. It also wrote .place_backdrop.png into the
+    author's project folder, one name for every camera."""
+    from PIL import Image
+    from ff9mapkit import provision
+    cache = tmp_path / "cache"
+    monkeypatch.setattr(provision, "cache_dir", lambda: cache)
+    project, proj_dir = _layered_project(tmp_path)
+    cam = guide.make_camera(26.0, 3000.0, fov_x_deg=42.0)
+    before = sorted(p.name for p in proj_dir.iterdir())
+    png0 = P._project_backdrop(project, cam, 0)
+    png1 = P._project_backdrop(project, cam, 1)
+    assert sorted(p.name for p in proj_dir.iterdir()) == before, "wrote into the project folder"
+    assert png0 and png1 and png0 != png1 and Path(png0).parent.parent == cache
+    im0, im1 = Image.open(png0).convert("RGBA"), Image.open(png1).convert("RGBA")
+    assert im0.size == (384, 448), im0.size                # the camera's frame, not the crop
+    assert im0.getpixel((10, 10)) == (200, 40, 40, 255)    # camera 0's own back layer
+    assert im0.getpixel((210, 320)) == (40, 200, 40, 255)  # the crop, at ITS position
+    assert im0.getpixel((190, 320)) == (200, 40, 40, 255)  # ...and only there
+    assert im1.getpixel((10, 10)) == (40, 40, 200, 255)    # camera 1 shows only its own art
+    assert im1.getpixel((210, 320)) == (40, 40, 200, 255)
+
+
+_SCENE_DOOR = [[500, 500], [600, 500], [600, 600], [500, 600]]
+
+
+def _blender_split(app):
+    """A Blender-split fork: the scene.toml owns [player] spawn, a door's zone, a scene-only
+    door and a scene-only NPC; the field.toml holds door0's logic only."""
+    data = {"field": {"source_field": 351},
+            "gateway": [{"name": "door0", "to": 4005}],
+            "event": [{"name": "zone0", "message": "hi",
+                       "zone": [[-300, 900], [-200, 900], [-200, 1000], [-300, 1000]]}]}
+    scene = {"player": {"spawn": [-100, 1400]},
+             "gateway": [{"name": "door0", "zone": _SCENE_DOOR},
+                         {"name": "door1", "to": 4007,
+                          "zone": [[700, 500], [800, 500], [800, 600], [700, 600]]}],
+             "npc": [{"name": "guard", "pos": [5, 1500]}]}
+    d, calls = _doc(app)
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"), scene=scene)
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    return d, calls, data, scene
+
+
+def test_place_shows_what_the_scene_toml_places_where_the_build_puts_it(app):
+    """Review finding P2. Place was fed only the field.toml, but the build overlays the sibling
+    scene.toml (scene wins per key): Blender's spawn, zones and NPCs were invisible, and the
+    field.toml's own values were drawn where the build does not put them."""
+    d, _calls, _data, _scene = _blender_split(app)
+    marks = {m["label"]: m["pos"] for m in d.canvas._markers}
+    assert any(lb.startswith("spawn") and "Blender" in lb for lb in marks), marks
+    assert any(lb.startswith("guard") and "Blender" in lb for lb in marks), marks
+    d.tools.set_current("regions")
+    by_name = {r["label"].split(" ")[0]: r for r in d.canvas._regions}
+    assert set(by_name) == {"door0", "door1", "zone0"}, by_name
+    assert by_name["door0"]["quad"] == [tuple(map(float, p)) for p in _SCENE_DOOR]
+    assert "Blender" in by_name["door0"]["label"] and "Blender" in by_name["door1"]["label"]
+    assert "Blender" not in by_name["zone0"]["label"]
+
+
+def test_place_refuses_to_move_or_delete_what_the_scene_owns(app, monkeypatch):
+    d, calls, data, _scene = _blender_split(app)
+    d.tools.set_current("regions")
+    i = {r["label"].split(" ")[0]: r["i"] for r in d.canvas._regions}
+    d._on_region_changed(i["door0"], [(510, 500), (610, 500), (610, 600), (510, 600)])
+    assert calls == [] and "zone" not in data["gateway"][0]
+    assert "Blender" in d.status.text() and d.status.property("state") == "warn"
+    for act in (lambda: d._on_region_deleted(i["door0"]),
+                lambda: d._on_region_deleted(i["door1"]),
+                lambda: d._on_region_retarget(i["door1"])):
+        monkeypatch.setattr(d, "_ask_field_id", lambda cur: 300)
+        act()
+        assert calls == [] and "Blender" in d.status.text(), d.status.text()
+    assert [g["name"] for g in data["gateway"]] == ["door0"]
+    monkeypatch.setattr(d, "_ask_field_id", lambda cur: 301)   # door0's TARGET is the field's
+    d._on_region_retarget(i["door0"])
+    assert data["gateway"][0]["to"] == 301 and len(calls) == 1
+    d._on_region_changed(i["zone0"], [(-310, 900), (-210, 900), (-210, 1000), (-310, 1000)])
+    assert data["event"][0]["zone"][0] == [-310, 900] and len(calls) == 2   # the field's own: live
+
+
+def test_place_never_mints_a_name_the_scene_uses_and_leaves_its_spawn_alone(app):
+    d, calls, data, _scene = _blender_split(app)
+    assert not d.mode_btns["spawn"].isEnabled()
+    assert "Blender" in d.mode_btns["spawn"].toolTip()
+    assert d.mode_btns["arrival"].isEnabled()           # the scene sets no arrival
+    d.mode_btns["npc"].setChecked(True)
+    d.tools.set_current("regions")
+    d._on_region_drawn([(-640.0, 900.0), (-540.0, 900.0), (-540.0, 1000.0), (-640.0, 1000.0)])
+    assert data["gateway"][-1]["name"] not in {"door0", "door1"}, data["gateway"]
+    d.mode_btns["spawn"].setChecked(True)               # a disabled radio is still settable in code:
+    d.tools.set_current("place")                        # the drop itself refuses too
+    d._apply_hit({"xz": (0.0, 1500.0), "floor": 0})
+    assert "spawn" not in data.get("player", {}) and "Blender" in d.status.text()
+
+
+def test_an_unnamed_blender_gateway_is_refused_not_crashed_on(app, monkeypatch):
+    """Review of P2: the add-on writes NO name= for a gateway (ops.py builds the dict without
+    one), so a scene-only row matched no scene name, was not refused, and move / rotate / delete /
+    Set target indexed the field list with data_index None -> TypeError."""
+    data = {"field": {"source_field": 351}}
+    scene = {"gateway": [{"zone": [[0, 600], [100, 600], [100, 700], [0, 700]]}],
+             "event": [{"zone": [[300, 600], [400, 600], [400, 700], [300, 700]]}]}
+    d, calls = _doc(app)
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"), scene=scene)
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    d.tools.set_current("regions")
+    rows = d._region_rows_cache
+    assert [r["data_index"] for r in rows] == [None, None], rows
+    assert all("Blender" in r["label"] for r in rows), [r["label"] for r in rows]
+    monkeypatch.setattr(d, "_ask_field_id", lambda cur: 300)
+    monkeypatch.setattr(d, "_ask_message", lambda cur: "hello")
+    gw = next(r["i"] for r in rows if r["kind"] == "gateway")
+    ev = next(r["i"] for r in rows if r["kind"] == "event")
+    for act in (lambda: d._on_region_changed(gw, [(10, 600), (110, 600), (110, 700), (10, 700)]),
+                lambda: d._on_region_changed(gw, [(100, 600), (100, 700), (0, 700), (0, 600)]),
+                lambda: d._on_region_deleted(gw),
+                lambda: d._on_region_retarget(gw),
+                lambda: d._on_region_reword(ev)):
+        act()
+        assert calls == [] and "Blender" in d.status.text(), d.status.text()
+    assert data == {"field": {"source_field": 351}}
+
+
+def test_a_scene_arrival_disables_arrival_and_the_drop_refuses(app):
+    """Review of P2: only a scene SPAWN was tested, so dropping 'arrival' from both guards
+    survived the suite -- and Place then wrote [[player.arrival]] the build discards."""
+    data = {"field": {"source_field": 351}}
+    d, calls = _doc(app)
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"),
+                 scene={"player": {"arrival": [{"entrance": 1, "pos": [0, 1400]}]}})
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    assert not d.mode_btns["arrival"].isEnabled()
+    assert "Blender" in d.mode_btns["arrival"].toolTip()
+    assert d.mode_btns["spawn"].isEnabled()             # the scene sets no spawn
+    d.mode_btns["arrival"].setChecked(True)             # settable in code: the drop refuses too
+    d._apply_hit({"xz": (0.0, 1500.0), "floor": 0})
+    assert "player" not in data and calls == [] and "Blender" in d.status.text()
+
+
+def test_the_shell_feeds_place_the_blender_scene(app, tmp_path, monkeypatch):
+    """Review finding P2, the shell half: _feed_place passed only fd.data, so the PlaceDoc never
+    learnt the scene.toml existed. Opened the way a user opens a Blender-split field."""
+    from ff9mapkit import prefs
+    from ff9mapkit.workspace import shell
+    monkeypatch.setattr(prefs, "_path", lambda: tmp_path / "prefs.json")
+    p = tmp_path / "X.field.toml"
+    p.write_text('[field]\nid = 30999\nname = "X"\narea = 11\nsource_field = 351\n',
+                 encoding="utf-8")
+    (tmp_path / "X.scene.toml").write_text("[player]\nspawn = [-100, 1400]\n", encoding="utf-8")
+    w = shell.Workspace(pick_palette("dark"))
+    try:
+        assert w.open_field(p)
+        w.tabs.setCurrentWidget(w.place_doc)            # fires _feed_place
+        QApplication.processEvents()
+        pd = w.place_doc
+        assert pd._member == "X" and pd._scene_player("spawn"), pd._scene
+        assert not pd.mode_btns["spawn"].isEnabled()
+        sc = tmp_path / "X.scene.toml"                   # a Blender re-export drops the spawn
+        sc.write_text('[[npc]]\nname = "guard"\npos = [5, 1500]\n', encoding="utf-8")
+        st = sc.stat()
+        os.utime(sc, (st.st_atime, st.st_mtime + 5))
+        w._feed_place()
+        assert pd.mode_btns["spawn"].isEnabled() and pd._scene_names("npc") == {"guard"}
+    finally:
+        w.hide()
+        w.deleteLater()
+
+
+def test_a_scene_that_carries_the_layers_places_on_the_fields_own_art(app):
+    d, _ = _doc(app)
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"),
+                 scene={"layers": [{"image": "back.png", "z": 1000}]})
+    assert d._source[0] == "project"
+
+
+@pytest.mark.parametrize("tool", ["place", "regions"])
+def test_with_a_fork_open_the_control_row_floors_at_its_wider_half(app, tool):
+    """Review finding P17. The control row was one non-wrapping QHBoxLayout: with a fork open
+    its SUM floored the window (1117/1273/1391px at 100/125/150%, measured natively), clipping
+    the Inspector at 1280 and crushing Load and the tool strip to '…' at 1024/125%. It is the
+    house SpillRow now -- the floor is the wider half -- and the field name elides. Relative
+    widths only (offscreen fonts are fiction); the absolute numbers were read natively with
+    tools/gui_snap.py (place:fork / place:regions: window floor 932/1043/1142)."""
+    from ff9mapkit.workspace import widgets
+    d, _ = _doc(app)
+    d.show_field("A_RATHER_LONG_FORK_NAME", {"field": {"source_field": 351}},
+                 Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    d.tools.set_current(tool)
+    QApplication.processEvents()
+    row = d.control_row
+    assert isinstance(row, widgets.SpillRow)
+    lead, tail = row._lead.minimumSizeHint().width(), row._tail.minimumSizeHint().width()
+    assert row.minimumSizeHint().width() == max(lead, tail), (row.minimumSizeHint(), lead, tail)
+    assert d.minimumSizeHint().width() < lead + tail     # the page no longer floors at the sum
+    fl = d.field_label
+    assert fl.minimumSizeHint().width() < fl.sizeHint().width()   # the name yields, elided
+    assert fl.toolTip() == fl.fullText() and "351" in fl.toolTip()
+
+
+_NATIVE_FIELD_LABEL_CHILD = r'''
+import json, sys, tempfile
+from pathlib import Path
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication
+app = QApplication([])
+print("QT-PLATFORM-UP", flush=True)     # the handshake: past here, a crash is a FAILURE, not a skip
+import ff9mapkit
+from ff9mapkit import prefs, provision
+_tmp = Path(tempfile.mkdtemp())          # never the developer's prefs or config
+prefs._path = lambda: _tmp / "prefs.json"
+provision._user_dir = lambda sub: _tmp / sub
+from ff9mapkit.editor import theme
+from ff9mapkit.workspace import placedoc as P, style
+pal = theme.pick_palette("mist")
+cut = []
+for scale in (100, 110, 125, 150):
+    app.setStyleSheet(style.qss(pal, "comfortable", scale))
+    d = P.PlaceDoc(pal, on_edit=lambda *a: None, scale=scale)
+    d.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+    d.show_field("PLACEDEMO", {"field": {"source_field": 351}}, Path("C:/x/PLACEDEMO.field.toml"))
+    d.resize(1600, 700)                  # room to spare: the label sits at its own hint
+    d.show()
+    app.processEvents(); app.processEvents()
+    fl = d.field_label
+    if fl.text() != fl.fullText():
+        cut.append(f"{scale}%: {fl.fullText()!r} -> {fl.text()!r} at w{fl.width()} "
+                   f"hint {fl.sizeHint().width()}")
+    d.hide()
+print(json.dumps({"platform": app.platformName(), "file": ff9mapkit.__file__, "cut": cut}))
+'''
+
+
+def test_the_field_name_is_whole_when_the_row_has_room_natively():
+    """Review of P17: ElideLabel's sizeHint is the ROUNDED advance while its elide measures the
+    fractional one, so at 150% the label got exactly its hint and read 'donor field #3...' with
+    ~550px free -- the one fact the line exists to show. Native platform only (offscreen widths
+    are fiction); the ElideButton twin is C17 in test_workspace_widgets.py."""
+    import json
+    import subprocess
+    import sys
+
+    pkg_root = Path(ff9mapkit.__file__).resolve().parent.parent
+    env = {k: v for k, v in os.environ.items() if k != "QT_QPA_PLATFORM"}
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["FF9MAPKIT_NO_THUMBS"] = "1"
+    r = subprocess.run([sys.executable, "-c", _NATIVE_FIELD_LABEL_CHILD], capture_output=True,
+                       timeout=300, env=env, cwd=str(pkg_root))
+    lines = r.stdout.decode("utf-8", "replace").strip().splitlines()
+    err = r.stderr.decode("utf-8", "replace")[-600:]
+    if "QT-PLATFORM-UP" not in lines:
+        pytest.skip(f"no native Qt platform here: {err}")
+    assert r.returncode == 0, f"the measuring child crashed AFTER Qt came up:\n{err}"
+    out = json.loads(lines[-1])
+    if out["platform"] in ("offscreen", "minimal"):
+        pytest.skip(f"no native font database ({out['platform']})")
+    assert Path(out["file"]).resolve().is_relative_to(pkg_root)
+    assert out["cut"] == [], "\n".join(out["cut"])
+
+
+def test_place_speaks_of_every_lane_not_only_forks(app):
+    """Review finding P22. Place serves novel, traced and composed fields too, but its empty
+    state sent the author off to fork something, and Load spoke only of a donor."""
+    d, _ = _doc(app)
+    for text in (d.status.text(), d.load_btn.toolTip()):
+        assert "fork one" not in text and "donor" not in text, text
+    assert "New Field" in d.status.text()
+    d.show_field("NOVEL", {"field": {"id": 30058}}, Path("C:/somewhere/NOVEL.field.toml"))
+    for text in (d.status.text(), d.load_btn.toolTip()):
+        assert "donor" not in text and "own" in text, text
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    for text in (d.status.text(), d.load_btn.toolTip()):
+        assert "#351" in text, text
+
+
+def test_a_bundled_example_refusal_names_the_gui_way_out(app):
+    """Review finding P22: the refusal mixed an ASCII '--' into Place's em-dash sentence and named
+    a CLI command. Place words its own way out; protected_reason (CLI + editor) is untouched."""
+    d, _ = _doc(app)
+    ex = Path(ff9mapkit.__file__).parent.parent / "examples" / "vivi-hut" / "hut_int.field.toml"
+    d.show_field("HUT", {"verbatim_eb": {"donor": 351}}, ex)
+    text = d.status.text()
+    assert "bundled example" in text and " -- " not in text and "`" not in text, text
+    assert "New Field" in text and "copy" in text, text
+
+
+def test_a_walk_out_rotate_is_undone_as_a_rotate(app, monkeypatch):
+    """Review finding E8: the rotate went through the generic reshape, so Undo read 'reshape
+    gateway zone' -- the same as a corner drag. Driven through the quad's own menu."""
+    import types
+
+    class _FakeMenu:                                    # the backdrop tests' seam: exec() returns
+        def __init__(self, parent=None):                # the walk-out rotate, no popup
+            self.acts = []
+
+        def addAction(self, text):
+            tok = types.SimpleNamespace(text=text)
+            self.acts.append(tok)
+            return tok
+
+        def exec(self, pos):
+            return next(a for a in self.acts if a.text.startswith("Walk-out"))
+
+    data = {"field": {"source_field": 351},
+            "gateway": [{"name": "door0", "to": 4005,
+                         "zone": [[0, 500], [100, 500], [100, 600], [0, 600]]}]}
+    d, calls = _regions_on(app, data)
+    monkeypatch.setattr("PySide6.QtWidgets.QMenu", _FakeMenu)
+    d.canvas._region_menu(0, QPoint(0, 0))
+    assert data["gateway"][0]["zone"][0] == [100, 500]          # the corners did rotate
+    assert calls == [("FORK", "rotate walk-out edge of door0")], calls
+    d._on_region_changed(0, [(10, 500), (110, 500), (110, 600), (10, 600)])   # a body drag
+    assert calls[-1] == ("FORK", "reshape gateway door0 zone"), calls
+    data["gateway"][0]["zone"] = [[0, 500], [100, 500], [100, 600], [0, 600], [0, 600]]
+    assert P.move_zone(data, "gateway", 0, [(100, 500), (100, 600), (0, 600), (0, 500)]) \
+        == "rotate walk-out edge of door0"              # the stored doubled form rotates too
+
+
+# --------------------------------------------------------------- batch 3, the final review
+def test_the_blender_refusals_speak_in_words_not_toml_keys(app, tmp_path):
+    """The refusals for a Blender-owned row printed the raw key (\"door0's to comes from the
+    scene.toml\", '[player] spawn comes from...') and called an unnamed zone 'this one'."""
+    d, _ = _doc(app)
+    assert "door0's target" in d._scene_refusal(
+        {"scene": {"name": "door0", "to": 4005}, "data_index": 0}, "to")
+    assert "'s to " not in d._scene_refusal(
+        {"scene": {"name": "door0", "to": 4005}, "data_index": 0}, "to")
+    assert "this zone" in d._scene_refusal({"scene": None, "data_index": None}, "zone")
+    for key in ("spawn", "arrival"):
+        words = d._blender_says(d._PLAYER_WORDS[key])
+        assert "[player]" not in words and "scene wins" not in words, words
+
+
+def test_the_regions_status_names_what_is_drawn(app, tmp_path):
+    """The canvas no longer numbers a finished quad's corners, and the status still said
+    'corners 0\u21921 = the walk-out edge'; it also called one thing a zone, a region and a quad
+    in a single line."""
+    d, _ = _doc(app)
+    d.show_field("FORK", {"field": {"source_field": 351},
+                          "gateway": [{"name": "door0", "to": 4005,
+                                       "zone": [[-300, 900], [300, 900], [300, 1500], [-300, 1500]]}]},
+                 Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    d.tools.set_current("regions")
+    d.rkind_btns["gateway"].setChecked(True)
+    QApplication.processEvents()
+    text = d.status.text()
+    assert "walk-out" in text and "first two corners" in text, text
+    assert "corners 0" not in text and "quad" not in text and "region" not in text, text
+    assert "1 zone" in text, text
+
+
+def test_a_world_map_id_warning_and_door_read_plainly(app, tmp_path):
+    """The reserved-id warning quoted the engine's table names, and the world-map door refusal
+    printed a Python repr."""
+    row = P.region_rows({"gateway": [{"name": "d", "to": 9005,
+                                      "zone": [[-300, 900], [300, 900], [300, 1500], [-300, 1500]]}]})[0]
+    assert "world-map hole" in row["warn"]
+    assert "EventDB" not in row["warn"] and "EVT_" not in row["warn"], row["warn"]
+    d, _ = _doc(app)
+    data = {"field": {"source_field": 351},
+            "gateway": [{"name": "out", "to": "worldmap",
+                         "zone": [[-300, 900], [300, 900], [300, 1500], [-300, 1500]]}]}
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    d.tools.set_current("regions")
+    QApplication.processEvents()
+    d._on_region_retarget(0)
+    assert "world map" in d.status.text() and "'worldmap'" not in d.status.text(), d.status.text()
+
+
+def test_each_place_tool_says_the_shape_it_draws(app):
+    """Markers speak their kind by shape (P25), and nothing in the app said which shape is
+    which: the tool's own tooltip does."""
+    d, _ = _doc(app)
+    for key, shape in (("npc", "circle"), ("prop", "square"), ("spawn", "triangle"),
+                       ("arrival", "diamond")):
+        assert shape in d.mode_btns[key].toolTip(), (key, d.mode_btns[key].toolTip())
+
+
+def test_the_place_regions_tool_says_zone_and_how_to_cancel(app):
+    d, _ = _doc(app)
+    tip = d.tools.button("regions").toolTip()
+    assert "zones" in tip and "quad" not in tip and "Esc" in tip, tip

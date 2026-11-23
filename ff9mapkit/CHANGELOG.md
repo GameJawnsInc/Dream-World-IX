@@ -135,6 +135,78 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **A failed first Generate no longer leaves the tab set to "Regenerate — in place"**, and the status line now says
   how each Generate ended.
 
+### Fixed — Place tab: fields exported from Blender, layered art, and small traps
+- **A field exported from Blender shows where the build puts things.** Place now reads the field's `scene.toml`; it
+  used to ignore it, so Blender's spawn, zones and NPCs were missing from the art. They appear where the build will put
+  them, marked "(Blender)". Place refuses to move, retarget, reword or delete anything Blender owns (a change made
+  here would be discarded by the build) and says to change it in Blender and re-export. A gateway or event with no
+  name, which is how the add-on writes them, is handled the same way. New doors, zones and NPCs never take a name the
+  scene already uses.
+- **A field with its own layered art** (for example an `import --editable` fork) shows each layer at its real
+  position, size and camera. Place no longer writes a `.place_backdrop.png` into the project folder.
+- **A prop placed after another was deleted gets its own name** instead of reusing a live one.
+- **"Set message" refuses an empty line.** "Set gateway target" leaves a world-map door alone instead of turning it
+  into a field warp, and a door aimed at the reserved world-map ids (9000-9012) shows a warning on the art.
+- **The control row wraps onto a second line** instead of pushing the window wider, and the field name shows in full
+  whenever there is room (it was cut to "donor field #3…" at 110% and 150% text size).
+- **The Inspector's Contents list follows Place**: a drop, and an Undo or Redo of one, update the tally at once.
+- **Tooltips and wording.** NPC, Prop, Spawn and Arrival each say what they place and the shape it is drawn as. The
+  verbatim-fork warning no longer sticks to Spawn and Arrival after you open an ordinary field. After a drop, the
+  status says where to give the NPC or prop its model and words. The empty state and the Load prompt cover every kind
+  of field, not only forks, and a bundled example says how to get an editable copy from inside the app. The Regions
+  status names the kind of zone being drawn and shows the walk-out tip only for gateways.
+
+### Changed — Trace and Place canvas: readable on any art, and clicks that do what the cursor says
+- **Labels, handles and lines stay readable on any background art, in every theme.** Labels sit on small plates,
+  handles carry a light-and-dark outline, and lines ride a contrasting casing. Labels move aside instead of piling up,
+  stay beside what they name, and never leave the view.
+- **Placed content is told apart by shape**: a circle for an NPC, a square for a prop, a box for a chest, a triangle
+  for the spawn, a diamond for an arrival. An invalid floor point or contact is drawn hollow with a ✕. Finished zones
+  no longer number their corners; a gateway's walk-out edge is the thick edge with the arrow.
+- **The canvas re-fits when its space changes** (a row wrapping, the cut-out strip appearing, the window resized)
+  until you zoom yourself. A zoom you set is kept, and Ctrl+0 fits exactly as the first view did.
+- **The hint in the corner says what a click does in the current tool**, stays in its corner while you pan, and gets
+  out of the way after your first click.
+- **Ctrl+scroll zoom follows how far you scroll**, so precision touchpads zoom smoothly, and a sideways wheel no
+  longer zooms out.
+- **Esc cancels a drag.** A drag whose mouse release was lost (to a right-click menu, for example) ends instead of
+  following the pointer.
+- **A click is a click.** In Regions, a click inside an existing zone starts a new one; in Cut-outs, a click on an
+  attached snip marks a new contact; snips show the move cursor only where they can be dragged. A label is never a
+  grab handle, and right-clicking a zone's label opens that zone's menu.
+- **The Trace Regions tool keeps the traced floor outline in view**, so doors can be put on the walkable edge.
+- **Disabled tool buttons, and the radio buttons and checkboxes beside them, look disabled.** Their labels used to
+  stay at full contrast.
+
+### Fixed — Trace tab: unsaved work, names and ids, phone photos, and a window that fits
+- **Closing the app, opening another image, or loading the open field asks first** when the Trace tab holds work the
+  last Generate has not written, including an Undo taken after a Generate. "Upgrade & restart" asks once, and starts
+  the updater only after the close is accepted.
+- **Phone photos open the right way up, and 16-bit images are no longer a white rectangle**, on the canvas and in the
+  built art. A project traced before this change on a photo that carries a camera orientation tag reopens from the
+  project's own art, so the floor stays where it was drawn, and the status says so.
+- **A project whose photo was moved or deleted reopens from its own art**, with a warning naming the missing photo. A
+  project with a missing or broken walkmesh is refused before anything changes on screen, and the automatic offer says
+  why it did not load a field.
+- **Opening a new photo names the field after the photo** and never carries over the Field id of the project you just
+  generated, so a second room cannot replace the first in the game.
+- **A new field name with characters other than letters, digits and underscores is refused before anything is
+  written**; an existing project keeps the name it has. A zone drawn too far up the photo for the game's coordinate
+  range is refused at the click.
+- **Clear empties only what the active tool owns** (the floor, the cut-outs or the regions) as one Undo step; its
+  tooltip says which.
+- **The status line wraps, and the warning you need to act on comes first** instead of being cut off at the right
+  edge. A region hidden by a pitch change tells you to slide the pitch back, not to right-click a zone that is not on
+  the canvas.
+- **The tab no longer pushes the window wider than a 1280-pixel screen at 150% text size.** The cut-out strip, Undo
+  and Clear share the tools row when there is room.
+- **Cut-out entries lead with what matters** (whether one still needs its PNG, whether it is a snip); hover an entry
+  for its contact point and depth.
+- **After Generate, the next step points to Deploy (F9)** instead of a terminal command. Generate says so when another
+  job is still running, and an event drawn with an empty message box says it has no words yet.
+- **`image-field` command**: `--id` is checked against the custom field-id band before anything is built, and the
+  deploy hint prints the id you gave (it always printed 30058) with the path quoted.
+
 ### Changed — World tab: faster, and the window no longer freezes while it works
 - **Undo, Redo and every Accept no longer reload the whole 3D map.** Only the blocks whose files changed are drawn
   again: Undo and Redo come back in under a second (8-11 s before), a forest Accept in about 5 s (22-25 s).

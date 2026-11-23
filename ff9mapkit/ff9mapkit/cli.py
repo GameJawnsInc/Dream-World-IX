@@ -3650,6 +3650,12 @@ def _cmd_image_field(args: argparse.Namespace) -> int:
     if not args.out:
         print("--out is required to build (the output project dir)", file=sys.stderr)
         return 2
+    from . import pack                 # the ONE band validator (the Trace tab spends it too): a real
+    try:                               # id, the 9000-9012 world hole or an id past Int16 generated
+        pack.check_custom_id(args.id)  # fine and failed later at build (finding T18)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 2
     try:
         if auto:
             floor = auto["floor"]
@@ -3692,7 +3698,10 @@ def _cmd_image_field(args: argparse.Namespace) -> int:
     for r in man.get("removed", []):
         print(f"  removed (a traced_ row the session no longer draws): {r} — if you had edited "
               f"it by hand, re-add it in the Place tab; rows without the traced_ name are kept")
-    print(f"Deploy + walk it: py tools/deploy_field.py {man['toml']} --id 30058   (then ~ -> Warp 30058)")
+    # the id the toml carries, never a literal (it sent copied hints into another slot, T18); the
+    # path quoted, so a folder with spaces survives the copy (T22)
+    print(f'Deploy + walk it: py tools/deploy_field.py "{man["toml"]}" --id {args.id}   '
+          f"(then ~ -> Warp {args.id})")
     print("HAND-TRACED FLOOR: the polygon must outline the floor in the FINAL 384x448 canvas (top-left, "
           "Y-down), below the horizon. Only the human can confirm it lands on the art in-game (CLAUDE.md).")
     return 0

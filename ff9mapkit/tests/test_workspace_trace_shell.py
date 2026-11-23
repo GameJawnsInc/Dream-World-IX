@@ -499,6 +499,71 @@ def test_ctrl_z_on_the_floorplan_tab_undoes_the_floorplan_not_another_tabs_edit(
 
 
 # ------------------------------------------------------------- the job pipe speaks UTF-8 (E10)
+def test_closing_the_app_over_an_ungenerated_trace_asks_first(win, tmp_path, monkeypatch):
+    """Finding T25: closeEvent asked only about field documents, so a traced session (floor,
+    doors, event messages) was discarded with the window. Only CLOSING asks: an Editor file
+    switch does not touch the trace and must not question it."""
+    from PySide6.QtGui import QCloseEvent
+    td = win.trace_doc
+    td.load_image(_project(tmp_path)[0])
+    td.canvas._commit_floor(_FLOOR)
+    monkeypatch.setenv("QT_QPA_PLATFORM", "windows")   # read by the guard only: the app is built
+    asked = []
+    answer = {"v": False}
+
+    def confirm(title, text):
+        asked.append(title)
+        return answer["v"]
+
+    monkeypatch.setattr(win, "_confirm", confirm)
+    assert win._maybe_prompt_unsaved() and not asked   # a file switch: not the trace's business
+    ev = QCloseEvent()
+    win.closeEvent(ev)
+    assert asked and not ev.isAccepted()               # declined: the window stays
+    answer["v"] = True
+    monkeypatch.setattr(win.world_doc, "shutdown", lambda: None)
+    ev = QCloseEvent()
+    win.closeEvent(ev)
+    assert ev.isAccepted()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="the one-click upgrade is Windows-only")
+@pytest.mark.parametrize("answer", [False, True])
+def test_upgrade_asks_about_the_trace_once_and_starts_nothing_on_no(win, tmp_path, monkeypatch,
+                                                                     answer):
+    """Review of T25: _run_upgrade asked, then QApplication.quit() -- which in Qt 6 DOES send
+    closeEvent -- asked again; a No the second time kept the window open while the updater,
+    already started, waited for this process to exit. The close is the one ask, and the
+    updater starts only after it is accepted."""
+    import shutil
+    import subprocess
+    td = win.trace_doc
+    td.load_image(_project(tmp_path)[0])
+    td.canvas._commit_floor(_FLOOR)
+    monkeypatch.setenv("QT_QPA_PLATFORM", "windows")   # read by the guard only: the app is built
+    asked, started, quits = [], [], []
+    monkeypatch.setattr(win, "_confirm", lambda title, text: asked.append(title) or answer)
+    monkeypatch.setattr(win.world_doc, "shutdown", lambda: None)
+    monkeypatch.setattr(shutil, "which", lambda name: f"C:/bin/{name}.exe")
+    monkeypatch.setattr(shell.QMessageBox, "question",
+                        lambda *a, **k: shell.QMessageBox.StandardButton.Yes)
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: started.append(a))
+
+    class _QA(shell.QApplication):
+        @staticmethod
+        def quit():                                    # what Qt 6's quit() does: close every
+            quits.append(1)                            # visible top-level (closeEvent runs)
+            for w in QApplication.topLevelWidgets():
+                if w.isVisible():
+                    w.close()
+
+    monkeypatch.setattr(shell, "QApplication", _QA)
+    win.show()                                         # (offscreen platform: never on screen)
+    win._run_upgrade()
+    assert asked == ["Discard the traced session?"]    # asked ONCE
+    assert (len(started), len(quits)) == ((1, 1) if answer else (0, 0))
+
+
 def _run_real_job(win, app, code):
     """A REAL run_job: a Python child through the shell's own QProcess, waited out."""
     import sys

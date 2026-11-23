@@ -107,6 +107,75 @@ files (4 skips), the shell's `--smoke`, and a pixel diff of the `cutscene:*` / `
 snaps against the pre-fix renders: the only changes are the whole scene-bar labels and a live toolbar
 Undo on the Trace tab. Not played in the game or driven by hand.
 
+## Fixed since, batch 3 (2026-11-23)
+
+Batches 1 and 2 are on `master` (`dab0a05c`, `15c48e2c`). Batch 3 is on the branch, commits
+`d94ada14..5d2db6dc`: 44 more findings (6 major, 34 minor, 4 nits) in three groups that touch different
+files. Each group was implemented by one agent in its own worktree, attacked by a reviewer and answered
+by a fixer. The integrated batch was then attacked by three reviewers, each followed by a skeptic who
+tried to refute them: 16 findings, none refuted outright, answered in `0b2cdae1`. That answer was
+attacked by two more reviewers (no blocker, no major, 8 minor), answered in `5d2db6dc`. That last
+commit was not itself reviewed.
+
+| Group | Findings fixed |
+|---|---|
+| **Place tab** | P2 (a field exported from Blender shows the scene.toml's spawn, zones and NPCs, marked, and refuses edits the build would discard) · P3, P9 (a field's own layered art is laid out per layer and camera; no `.place_backdrop.png` in the project) · P10 (Set message refuses a blank line) · P12 (a door aimed at the 9000-9012 world-map ids warns; a world-map door is not retargeted) · P13 (a new prop never reuses a live name) · P15, P23 (each tool's tooltip; the verbatim refusal does not stick; a drop says where to finish the row) · P17 (the control row wraps; the field name is whole when there is room) · P22 (the empty state, Load prompt and example refusal cover every kind of field) · P30 (the Inspector tally follows Place, Undo and Redo included) · E8 (the Regions status names the kind; a walk-out rotate is labelled a rotate) |
+| **Shared canvas** | T24, V4 (the canvas re-fits on a layout change until the author zooms; Ctrl+0 fits like the first paint) · V2 (the pills stay in their corner while panning) · V5 (Ctrl+wheel zooms by the wheel's own delta) · V3, V8 (a lost release or Esc ends a drag) · V6 (the Move cursor only where a snip can be dragged) · V9, P24 (a press that does not travel is a click) · P18 (the hint says what a click does in this tool, then hides) · T29 (Regions keeps the traced floor in view) · P20 (on-art text on plates, handles with a halo, lines on a casing) · P21 (labels move aside, stay beside their own anchor and on screen; no corner numbers) · P25 (markers by shape) · V13 (an invalid point is hollow with a ✕) · T28 (disabled tool segments, and the radios beside them, look disabled) |
+| **Trace and backend** | T23, T32 (the status wraps and leads with its warning; the cut-out strip, Undo and Clear share the tools row; the window floor at 150% went from 1348 to 1142 px) · T25 (close, Open and the open-field offer ask before discarding unwritten work; Upgrade asks once) · T6 (a region hidden by a pitch change says how to get it back) · T7, T9 (a new bad name, and a zone outside the game's coordinate range, are refused before any write) · T10, T16 (a missing photo falls back to the project's own art; a broken project is refused before any state lands) · T12 (Clear empties what the active tool owns, as one Undo) · T13 (a new photo names the field and drops an inherited id) · T18 (the CLI checks `--id`; the deploy hint prints the given id) · T22 (the next step is Deploy (F9)) · T30 (Generate says when another job is running) · T31 (the message box starts empty and takes the spare width; a blank one is flagged at the draw) · T19, E11 (one photo reader: the camera orientation tag is applied, 16-bit greyscale is scaled) |
+
+**What the two later reviews changed** (worth knowing, because each was a first fix that was wrong in a
+new way):
+
+- T19 turned phone photos upright, which silently moved every coordinate in a session record written
+  before it. Such a record now reopens from the project's own art; new records carry `"upright"`.
+- T7's name rule made a project built before the rule impossible to regenerate. The rule now guards
+  only the minting of a new file, and the exemption is one test in one place (a bare name that already
+  names a `field.toml` in the folder).
+- The Trace group and the canvas group each added a re-fit. Together, the Trace one threw away a zoom
+  the author had set; it was deleted, and the canvas owns the re-fit.
+- Making labels non-grabbable (P21) also killed the right-click menu on a zone's label. A zone label
+  keeps its menu tag; it is still not a grab handle.
+- P21's de-collision could put an NPC's name beside a neighbouring prop. A label now tries the other
+  side of its own marker before it climbs.
+- A rule that dimmed every disabled radio and checkbox label was scoped to the tool rows after it left
+  the Build tab's disabled option titles fainter than their captions.
+
+**Left open in batch 3** (known, not fixed):
+
+- P10: a blank message typed in the Editor form still builds clean (`build.validate` counts it as an
+  action).
+- P12: nothing checks that a gateway's target field exists; only the reserved band is judged.
+- P2: a Blender split with a scene camera or walkmesh but no layers still places on the donor's room.
+  An unnamed Blender gateway still shows the "Set gateway target" hint for a tool that will refuse it.
+  The Cutscene tab still reads the scene as it was when the field was opened.
+- P17: at 1024 px wide and 125% the window floor (1043 px) is set by other pages (Behavior asks 1102),
+  so the Inspector is still clipped there. At some widths the row squeezes the field name before it
+  wraps (150% at about 1100 px).
+- P21: in the densest clusters a label past the three-tier cap overprints a neighbour. No leader lines.
+- P18: while the hint pill shows, it can cover a handle or a label at the bottom-right of the art until
+  the first click or drag.
+- V2, V5: the same pill drift and wheel-zoom code remains in the Behavior stage, Floorplan and Map
+  canvases.
+- V13, T28: the status-line half is not done (naming the offending vertex; a tooltip on a disabled
+  tool).
+- T23: the canvas is still short in the busiest states (cut-outs at 150%: 167 px tall), and Gateway mode
+  at 150% still wraps its row.
+- T13: two sessions that both keep the default id 30058 can still collide; nothing suggests a free id.
+- T10, T19: a session rebuilt from the project's own art (a missing photo, or a record from before
+  photos were turned upright) brings placed snips back as full frames, and after one Generate its
+  record points at `art/base.png`, not at the original photo.
+- T25: if starting the updater fails after the window has closed, the fallback message appears with
+  the app already on its way out.
+- E11: RGBA photos are not flattened over a known colour (no defect was reported for it).
+- Wording: a cut-out is still "fg0", "snip", "occluder" and "cut-out" in different strings.
+- A disabled checkbox or radio outside a tool row keeps its label at full contrast (app-wide, older
+  than this review).
+
+Verified by: 1,313 tests across the Workspace, GUI, cutscene, behavior, image-field, forms and lint
+files (4 skips), the shell's `--smoke`, native renders of every `place:*` and `trace:*` surface read
+before and after (mist 100 and 150, light 125, dracula 125 at 1024x720), and mutation runs by each
+reviewer: every new test fails when its fix is reverted. Not played in the game or driven by hand.
+
 ## 1. The numbers
 
 139 findings stand: **4 data-loss bugs, 23 major, 88 minor, 24 nits.**

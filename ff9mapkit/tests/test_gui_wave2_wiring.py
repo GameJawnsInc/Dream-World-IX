@@ -297,3 +297,103 @@ def test_paint_template_row_is_gated_on_a_camera_and_runs_the_verb(app, pin_pref
     assert argv == [_sys.executable, "-m", "ff9mapkit", "paint-template", str(cam.resolve())]
     # the ok_next carries the paint-over workflow: the composer's two art files, by name
     assert "art/back.png" in kw["ok_next"] and "art/floor.png" in kw["ok_next"]
+
+
+@pytest.mark.parametrize("theme", ["light", "dark", "mist", "dracula"])
+def test_a_disabled_tool_segment_looks_disabled(app, theme):
+    """T28: ToolStrip segments are ``#railSeg``, whose id-scoped rule OUT-RANKS the generic
+    ``QToolButton:disabled`` (and that rule's ``$muted`` is the resting segment's colour anyway),
+    so a disabled tool was pixel-identical to a clickable one. Proven from pixels: the SAME label
+    in the same unchecked state, enabled vs disabled, under the real sheet on an ancestor (the
+    app's structure -- a bare widget would measure Fusion), must render differently, and the
+    disabled ink must sit closer to its ground than the enabled ink does."""
+    from PySide6.QtWidgets import QVBoxLayout, QWidget
+
+    from ff9mapkit.editor.theme import _contrast as contrast
+    from ff9mapkit.workspace.shell import _apply_app_theme
+    from ff9mapkit.workspace.style import qss
+
+    pal = pick_palette(theme)
+    _apply_app_theme(app, pal)
+    host = QWidget()
+    host.setStyleSheet(qss(pal))
+    lay = QVBoxLayout(host)
+    strips = []
+    for _ in range(2):
+        s = widgets.ToolStrip([("a", "Floor", ""), ("b", "Regions", "")], initial="a")
+        lay.addWidget(s)
+        strips.append(s)
+    strips[1].button("b").setEnabled(False)
+    host.show()
+    app.processEvents()
+    on, off = (s.button("b") for s in strips)
+    assert on.size() == off.size()
+    from PySide6.QtCore import QPoint, QRect
+
+    def shot(btn):                       # through the HOST: a segment's ground is transparent,
+        return host.grab(QRect(btn.mapTo(host, QPoint(0, 0)), btn.size())).toImage()  # its own
+    a, b = shot(on), shot(off)           # grab would read that as black
+    diff = sum(a.pixelColor(x, y) != b.pixelColor(x, y)
+               for y in range(a.height()) for x in range(a.width()))
+    assert diff > 20, f"{theme}: a disabled segment renders like an enabled one ({diff} px)"
+
+    def ink_contrast(img):
+        ground = img.pixelColor(2, img.height() // 2)
+        best = 1.0
+        for y in range(img.height()):
+            for x in range(img.width()):
+                best = max(best, contrast(img.pixelColor(x, y).name(), ground.name()))
+        return best
+
+    assert ink_contrast(b) < ink_contrast(a), theme
+    host.hide()
+
+
+# --------------------------------------------------------------- batch 3, the final review
+@pytest.mark.parametrize("theme", ["light", "dark", "mist", "dracula"])
+@pytest.mark.parametrize("kind", ["radio", "check"])
+def test_a_disabled_radio_or_checkbox_in_a_tool_row_looks_disabled(app, theme, kind):
+    """Beside a dimmed tool segment (T28), a disabled NPC / Prop radio kept its label at full
+    contrast: only the indicator dimmed, so the row read 'Place is off' and 'NPC is ready' at
+    once. Measured on the LABEL alone (the indicator already differed).
+
+    Scoped to the tool rows (widgets.SpillRow), NOT app-wide: on the Build tab an app-wide rule
+    left a disabled option's title fainter than the caption under it, and elsewhere a disabled
+    checkbox's label is a sentence the author still has to read."""
+    from PySide6.QtCore import QPoint, QRect
+    from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QRadioButton, QVBoxLayout, QWidget
+
+    from ff9mapkit.editor.theme import _contrast as contrast
+    from ff9mapkit.workspace.shell import _apply_app_theme
+    from ff9mapkit.workspace.style import qss
+
+    pal = pick_palette(theme)
+    _apply_app_theme(app, pal)
+    host = QWidget()
+    host.setStyleSheet(qss(pal))
+    lay = QVBoxLayout(host)
+    cls = QRadioButton if kind == "radio" else QCheckBox
+    lead = QWidget()
+    row = QHBoxLayout(lead)
+    on, off = cls("Arrival"), cls("Arrival")
+    off.setEnabled(False)
+    row.addWidget(on)
+    row.addWidget(off)
+    lay.addWidget(widgets.SpillRow(lead, QWidget()))
+    plain = cls("Arrival")                             # the same control OUTSIDE a tool row
+    plain.setEnabled(False)
+    lay.addWidget(plain)
+    host.show()
+    app.processEvents()
+
+    def label_ink(w):
+        left = w.height() + 8                          # past the indicator and its spacing
+        img = host.grab(QRect(w.mapTo(host, QPoint(left, 0)),
+                              w.size() - type(w.size())(left, 0))).toImage()
+        ground = img.pixelColor(img.width() - 2, img.height() // 2)
+        return max(contrast(img.pixelColor(x, y).name(), ground.name())
+                   for y in range(img.height()) for x in range(img.width()))
+
+    assert label_ink(off) < label_ink(on) - 1.0, (theme, kind, label_ink(on), label_ink(off))
+    assert label_ink(plain) > label_ink(off) + 1.0, (theme, kind, label_ink(plain), label_ink(off))
+    host.hide()

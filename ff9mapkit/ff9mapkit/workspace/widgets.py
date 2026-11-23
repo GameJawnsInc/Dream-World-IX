@@ -485,7 +485,11 @@ class ElideLabel(QLabel):
 
     def sizeHint(self):                       # PINNED to the full string (NameLabel's law)
         fm = self.fontMetrics()
-        return QSize(int(fm.horizontalAdvance(self._full)) + 2, fm.height())
+        # the CEILING of the sub-pixel advance (ElideButton's C17 cure): the elide measures at
+        # sub-pixel precision, so the rounded int hint cut the label at exactly its own hint --
+        # Place's field name read 'donor field #3…' at 110% and 150% with the row half empty
+        adv = QFontMetricsF(self.font()).horizontalAdvance(self._full)
+        return QSize(math.ceil(adv) + 3, fm.height())
 
     def minimumSizeHint(self):                # yield to the pane; never push a scrollbar.
         fm = self.fontMetrics()               # min_ch keeps a readable stub, measured in the

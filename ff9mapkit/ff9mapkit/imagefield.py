@@ -557,6 +557,33 @@ def write_walkmesh_obj(verts, faces, path) -> None:
 
 
 # ----------------------------------------------------------------- image layers (Pillow)
+def open_rgb(path):
+    """THE photo reader -- the Trace tab's canvas, the build, the auto floor-seed and the HTML
+    tracer all read the source photo through this one function, so 'the build uses the exact
+    crop shown here' holds. ``Image.open(p).convert('RGB')`` at each site ignored EXIF
+    orientation (a portrait phone photo traced and shipped sideways) and clamped every 16-bit
+    sample to 255 (a 16-bit PNG became a white rectangle) -- findings T19 + E11."""
+    from PIL import Image, ImageOps
+    with Image.open(path) as src:
+        im = ImageOps.exif_transpose(src)
+        if im.mode in ("I;16", "I;16L", "I;16B", "I;16N", "I"):
+            # 16-bit greyscale: scale 0..65535 down to 0..255 (convert('L') would clamp)
+            im = im.convert("I").point(lambda v: v * (1 / 257)).convert("L")
+        return im.convert("RGB")
+
+
+def exif_turned(path) -> bool:
+    """True when the photo carries an EXIF orientation that turns it. :func:`open_rgb` shows and
+    builds such a photo upright; the kit before it used the raw, unturned pixels -- so a session
+    record written back then holds its coordinates in a frame the photo no longer opens in."""
+    from PIL import Image
+    try:
+        with Image.open(path) as src:
+            return src.getexif().get(0x0112, 1) not in (0, 1)
+    except (OSError, ValueError):
+        return False
+
+
 def _cover_crop(img, w: int, h: int):
     """Cover-crop ``img`` to exactly w x h: scale to fill the aspect, centre-crop the overflow."""
     from PIL import Image
@@ -626,7 +653,7 @@ def auto_floor(image_path, *, pitch: float = DEFAULT_PITCH, fov: float = DEFAULT
         raise ImageFieldError("auto floor-seed needs numpy (py -m pip install numpy, or the "
                               "ff9mapkit[image] extra) -- or hand-trace the floor with --trace") from e
     from PIL import Image, ImageFilter
-    src = Image.open(image_path).convert("RGB")
+    src = open_rgb(image_path)
     im = _cover_crop(src, CANVAS_W, CANVAS_H).filter(ImageFilter.GaussianBlur(2.0))
     a = np.asarray(im, dtype=np.float32) / 255.0                     # (H, W, 3)
     H, W = CANVAS_H, CANVAS_W
@@ -831,8 +858,7 @@ def write_trace_html(image_path, out_html, *, pitch: float = DEFAULT_PITCH, fov:
     import base64
     import io
     import json
-    from PIL import Image
-    src = Image.open(image_path).convert("RGB")
+    src = open_rgb(image_path)
     disp = _cover_crop(src, CANVAS_W * 2, CANVAS_H * 2)     # the same crop geometry, at display res
     buf = io.BytesIO()
     disp.save(buf, "JPEG", quality=88)
@@ -1091,6 +1117,25 @@ def merge_project_toml(generated_text: str, existing: dict | None, *, twin_quads
 
 
 # ----------------------------------------------------------------- orchestrator
+def check_field_name(name, out=None) -> str:
+    """The field name is the project's FILE name (``<name>.field.toml``) and its ``EVT_<name>`` /
+    ``FBG_`` token, so it follows the kit's one token rule (``hub._NAME_RE``). Raises
+    :class:`ImageFieldError`; the Trace tab asks the same function before it launches a job.
+
+    ``out`` = the project folder. The rule guards the MINT of a file: a BARE name that already
+    names ``<out>/<name>.field.toml`` is past it -- a project built before the rule (attic-room)
+    keeps the name it has, or nothing could regenerate it. Bare only: ``x/../PHONE`` resolves to
+    an existing file too, and must never ride in as a field's name."""
+    from .hub import _NAME_RE
+    if (isinstance(name, str) and out is not None and Path(name).name == name
+            and (Path(out) / f"{name}.field.toml").is_file()):
+        return name
+    if not isinstance(name, str) or not _NAME_RE.match(name):
+        raise ImageFieldError(f"field name {name!r} must be letters, digits and underscores only "
+                              f"(it becomes the project's file name)")
+    return name
+
+
 def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="PICTURE",
                       field_id: int = 4003, pitch: float = DEFAULT_PITCH, fov: float = DEFAULT_FOV,
                       distance: float = DEFAULT_DISTANCE, area: int = 11,
@@ -1108,6 +1153,7 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
     Returns a manifest dict (incl. ``kept``/``retaken`` from the merge)."""
     from PIL import Image
     out = Path(out_dir)
+    check_field_name(name, out)                     # before any write (finding T7)
     toml_path = out / f"{name}.field.toml"
     # The unparseable-refusal fires HERE — and EVERY write below is deferred until every
     # refusal (this one, the Int16 bound, a zone above the horizon, the merge itself) has
@@ -1129,7 +1175,7 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
 
     # 2) art crops, HELD in memory until the merge clears
     art_writes = [(out / "art" / "base.png",
-                   _cover_to_canvas(Image.open(image_path).convert("RGB"), CANVAS_W, CANVAS_H))]
+                   _cover_to_canvas(open_rgb(image_path), CANVAS_W, CANVAS_H))]
 
     layers = [("art/base.png", Z_BASE)]
     fg_manifest, layer_notes = [], {}
@@ -1168,6 +1214,10 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
             pts = unproject_floor(cam, quad_px)
         except ImageFieldError as e:
             raise ImageFieldError(f"{what}: {e}") from e
+        for x, z in pts:                            # the floor's own Int16 bound (finding T9): the
+            if not (-32767 <= x <= 32767 and -32767 <= z <= 32767):   # build packs zones as '<hh'
+                raise ImageFieldError(f"{what}: corner ({x:.0f},{z:.0f}) exceeds the Int16 world "
+                                      f"bound — draw it lower on the photo, or raise the pitch")
         return "[" + ", ".join(f"[{int(round(x))}, {int(round(z))}]" for x, z in pts) + "]"
 
     gw_manifest, ev_manifest = [], []

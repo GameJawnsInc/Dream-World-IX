@@ -43,8 +43,8 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QCursor, QPixmap
 from PySide6.QtWidgets import (
-    QButtonGroup, QComboBox, QHBoxLayout, QLabel, QMenu, QPushButton, QRadioButton, QSpinBox,
-    QVBoxLayout, QWidget,
+    QButtonGroup, QComboBox, QHBoxLayout, QLabel, QMenu, QPushButton, QRadioButton,
+    QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from .. import imagefield
@@ -59,12 +59,13 @@ _DEFAULT_PROP = "barrel"          # neutral set-dressing (NOT "chest" — a real
 # --------------------------------------------------------------------- pure placement ops
 # Each op mutates the OPEN doc's dict and returns the undo label the shell records. One op per
 # drop — the StageCanvas/behaviorscan discipline, so a place gesture is exactly one undo step.
-def place_npc(data: dict, x, z) -> str:
+def place_npc(data: dict, x, z, taken=()) -> str:
     # No dialogue by default (THE DEFAULT-VALUE LAW, rung-4 playtests): a hand-rolled "..."
     # placeholder ships a fake window; dialogue-less, the build's silent-talk channel emits
     # the CANONICAL FF9 silent line on both lanes (word it in the Editor when it should speak).
+    # ``taken``: names the scene.toml already uses -- the build merges rows BY NAME (finding P2).
     lst = data.setdefault("npc", [])
-    nm = _names.fresh_npc_name(n.get("name") for n in lst if isinstance(n, dict))
+    nm = _names.fresh_npc_name([n.get("name") for n in lst if isinstance(n, dict)] + list(taken))
     lst.append({"name": nm, "preset": "vivi",
                 "pos": [int(round(x)), int(round(z))]})
     return f"place NPC {nm}"
@@ -72,9 +73,10 @@ def place_npc(data: dict, x, z) -> str:
 
 def place_prop(data: dict, x, z) -> str:
     lst = data.setdefault("prop", [])
-    lst.append({"name": f"prop{len(lst)}", "prop": _DEFAULT_PROP,
+    nm = _fresh_name("prop", lst)                   # never len(): after a delete that is a live name
+    lst.append({"name": nm, "prop": _DEFAULT_PROP,
                 "pos": [int(round(x)), int(round(z))]})
-    return "place prop"
+    return f"place prop {nm}"
 
 
 def set_spawn(data: dict, x, z) -> str:
@@ -95,8 +97,8 @@ def set_arrival(data: dict, entrance, x, z) -> str:
     return f"place arrival {int(entrance)}"
 
 
-def _fresh_name(prefix, rows) -> str:
-    names = {e.get("name") for e in rows if isinstance(e, dict)}
+def _fresh_name(prefix, rows, taken=()) -> str:
+    names = {e.get("name") for e in rows if isinstance(e, dict)} | set(taken)
     n = 0
     while f"{prefix}{n}" in names:
         n += 1
@@ -107,12 +109,12 @@ def _zone_ints(quad) -> list:
     return [[int(round(x)), int(round(z))] for x, z in quad]
 
 
-def place_gateway(data: dict, quad, to, entrance=0) -> str:
+def place_gateway(data: dict, quad, to, entrance=0, taken=()) -> str:
     """Append a ``[[gateway]]`` from a drawn quad. Corner ORDER is authored geometry — the
     canvas emits the click order, and corners 0→1 become the walk-out edge the exit walks
-    the player across (rotate via the canvas menu)."""
+    the player across (rotate via the canvas menu). ``taken``: the scene.toml's names."""
     lst = data.setdefault("gateway", [])
-    nm = _fresh_name("door", lst)
+    nm = _fresh_name("door", lst, taken)
     row = {"name": nm, "to": int(to), "zone": _zone_ints(quad)}
     if int(entrance):
         row["entrance"] = int(entrance)
@@ -120,11 +122,11 @@ def place_gateway(data: dict, quad, to, entrance=0) -> str:
     return f"draw gateway {nm} -> {int(to)}"
 
 
-def place_event(data: dict, quad) -> str:
+def place_event(data: dict, quad, taken=()) -> str:
     """Append a walk-in ``[[event]]`` zone from a drawn quad (message placeholder — the
-    Editor form owns the words)."""
+    Editor form owns the words). ``taken``: the scene.toml's names."""
     lst = data.setdefault("event", [])
-    nm = _fresh_name("zone", lst)
+    nm = _fresh_name("zone", lst, taken)
     lst.append({"name": nm, "message": "...", "zone": _zone_ints(quad)})
     return f"draw event {nm}"
 
@@ -149,8 +151,15 @@ def move_zone(data: dict, kind, index, quad) -> str:
     """Rewrite one row's zone from a canvas gesture (corner drag / whole-quad drag /
     walk-out rotate). Writes exactly the corners the canvas holds — a doubled 5th point
     was normalized away at feed time and the build re-doubles (``quad_zone``)."""
-    data.get(kind, [])[index]["zone"] = _zone_ints(quad)
-    return f"reshape {kind} zone"
+    row = data.get(kind, [])[index]
+    old = [tuple(p) for p in row.get("zone") or []]
+    if len(old) == 5 and old[-1] == old[-2]:           # the stored doubled form, as the canvas saw it
+        old = old[:4]
+    row["zone"] = _zone_ints(quad)
+    name = row.get("name") or f"{kind} {index}"
+    if len(old) >= 3 and row["zone"] == _zone_ints(old[1:] + old[:1]):   # the menu's rotate: the
+        return f"rotate walk-out edge of {name}"          # same corners, order turned by one
+    return f"reshape {kind} {name} zone"
 
 
 def delete_region(data: dict, kind, index) -> str:
@@ -168,6 +177,7 @@ def region_rows(data: dict) -> list:
     region laws: the TREADQUAD overlap judge (``build.region_overlap_pairs`` — one owner
     with the lint) and the engine-fan audit (``imagefield.zone_fan_audit``)."""
     from .. import build                            # lazy: the judge, not the builder
+    from .. import pack                             # the one owner of the id bands
     rows = []
     for kind in ("gateway", "event"):
         for idx, e in enumerate(data.get(kind, []) or []):
@@ -199,6 +209,13 @@ def region_rows(data: dict) -> list:
             if isinstance(to, bool) or (isinstance(to, int) and to <= 0) or to is None:
                 warns.append("NO TARGET — this door compiles to Field(0), a guaranteed black "
                              "screen; right-click it → Set gateway target")
+            elif isinstance(to, int) and to >= pack.CUSTOM_ID_MIN:
+                try:                                 # the band owner judges a custom id (a REAL
+                    pack.check_custom_id(to, "target")   # field id below the band is a legal target)
+                except ValueError as e:
+                    why = str(e).split(" -- ")[0].split(" (")[0]   # the band, not the engine's
+                    warns.append(f"{why} — the door black-screens in-game; "   # own table names
+                                 "right-click it → Set gateway target")
         else:
             ev = (data.get("event", []) or [])[r["index"]]
             if ev.get("message") == "..." and not (ev.get("received") and "give_item" in ev):
@@ -309,41 +326,65 @@ def build_surface_from_project(toml_path, cam_index: int = 0) -> dict:
     tris, floors = imagefield.mesh_world_tris(mesh)
     return {"donor": None, "source": ("project", str(toml_path)), "cam_index": ci,
             "n_cams": len(cams), "cam": cams[ci],
-            "png": _project_backdrop(project, cams[ci]), "tris": tris, "floors": floors}
+            "png": _project_backdrop(project, cams[ci], ci), "tris": tris, "floors": floors}
 
 
-def _project_backdrop(project, camera):
-    """The field's own ``[[layers]]`` composited back-to-front into one PNG, or None.
+def _project_backdrop(project, camera, cam_index: int = 0):
+    """The picked camera's ``[[layers]]`` composited back-to-front into one PNG, or None.
+
+    Laid out the way the build ships them: :func:`build.build_overlays` owns each layer's
+    ``position``, ``size`` (default: the camera's whole frame), ``camera`` and ``shader``, so
+    only ``cam_index``'s layers are drawn, each scaled to its size at its position on a canvas
+    the size of the camera frame -- never the accumulator resized to a later layer (review
+    finding P3: an ``import --editable`` fork's tight depth crops each became the whole room).
+    A blend-shader layer (light, glow) is left out: the floor reads without it, and painted
+    opaque it would hide the room.
 
     ★ BACK TO FRONT IS DESCENDING z: FF9 sorts by OT depth with SMALLER IN FRONT, so the largest z
     is the furthest layer and must be painted first. Getting this backwards puts the floor under
-    the backdrop and the author places content against a slab of flat colour."""
-    from pathlib import Path as _Path
+    the backdrop and the author places content against a slab of flat colour.
+
+    Written to the kit's cache, keyed per file and camera -- never into the author's project
+    folder (finding P9)."""
+    import hashlib
     try:
         from PIL import Image
     except ImportError:
         return None
-    layers = project.raw.get("layers") or []
-    imgs = []
-    for spec in sorted(layers, key=lambda s: -float(s.get("z", 0))):
-        ref = spec.get("image")
-        if not ref:
+    from .. import build as _build, provision
+    from ..scene import bgx as _bgx
+    fw, fh = (int(v) for v in (camera.range or (imagefield.CANVAS_W, imagefield.CANVAS_H)))
+    try:
+        overlays = _build.build_overlays(project, range_wh=(fw, fh))
+    except (KeyError, TypeError, ValueError, IndexError):    # a malformed layer: the mesh still places
+        return None
+    picked = []
+    for spec, ov in zip(project.raw.get("layers") or [], overlays):
+        if ov.camera_id != int(cam_index) or ov.shader != _bgx.DEFAULT_SHADER:
             continue
         try:
-            p = project.path(ref)
+            p = project.path(spec["image"])
         except Exception:                              # noqa: BLE001 -- a bad ref is not fatal here
             continue
         if p.is_file():
-            imgs.append(p)
-    if not imgs:
+            picked.append((ov, p))
+    if not picked:
         return None
-    out = None
-    for p in imgs:
-        im = Image.open(p).convert("RGBA")
-        out = im if out is None else Image.alpha_composite(out.resize(im.size), im)
-    if out is None:
-        return None
-    dest = _Path(project.path(".")) / ".place_backdrop.png"
+    picked.sort(key=lambda t: -t[0].position[2])
+    ims = [(ov, Image.open(p).convert("RGBA")) for ov, p in picked]
+    # the art's own resolution: a full-cover painting larger than the frame keeps its detail
+    k = max(1.0, min(4.0, max(im.width / max(1, ov.size[0]) for ov, im in ims)))
+    out = Image.new("RGBA", (round(fw * k), round(fh * k)), (0, 0, 0, 0))
+    for ov, im in ims:
+        w, h = max(1, round(ov.size[0] * k)), max(1, round(ov.size[1] * k))
+        layer = Image.new("RGBA", out.size, (0, 0, 0, 0))
+        layer.paste(im.resize((w, h)) if im.size != (w, h) else im,
+                    (round(ov.position[0] * k), round(ov.position[1] * k)))
+        out = Image.alpha_composite(out, layer)
+    src = str(project.toml_path or project.path("."))
+    key = hashlib.sha1(os.path.normcase(os.path.abspath(src)).encode("utf-8")).hexdigest()[:12]
+    dest = provision.cache_dir() / "place" / f"project_{key}_cam{int(cam_index)}.png"
+    dest.parent.mkdir(parents=True, exist_ok=True)
     out.save(dest)
     return str(dest)
 
@@ -386,6 +427,16 @@ class PlaceDoc(QWidget):
     write channel — the shell checkpoints the mutation this doc made in the open doc's dict."""
 
     MODES = (("npc", "NPC"), ("prop", "Prop"), ("spawn", "Spawn"), ("arrival", "Arrival"))
+    MODE_TIPS = {
+        "npc": "Click the floor to stand an NPC there, drawn as a circle. It starts as a silent "
+               "Vivi; give it a model and words in the Editor (NPCs).",
+        "prop": "Click the floor to set a prop there, drawn as a square. It starts as a barrel; "
+                "pick its model in the Editor (Props).",
+        "spawn": "Where the player stands when the field loads without coming through a door "
+                 "(New Game, a warp): the default entry point. Drawn as a triangle.",
+        "arrival": "Where the player lands coming in through a door: one spot per entrance "
+                   "number, the number the source field's gateway sends. Drawn as a diamond.",
+    }
 
     def __init__(self, pal, *, on_edit, scale=100):
         super().__init__()
@@ -415,15 +466,24 @@ class PlaceDoc(QWidget):
             "Click the room's own art to place content — every click raycasts the real walkmesh.")
         root.addWidget(crown)
 
-        row = QHBoxLayout()
+        # The control row is a SpillRow (the Cutscene scene bar's cure, finding P17): one
+        # non-wrapping row floored the whole window at its SUM (1391px at 150% with a fork open,
+        # over a 1280 window; at 1024/125% it crushed Load and the tool strip to '…'). The field,
+        # Load and camera LEAD; the tool strip and its cluster TAIL, dropping to a second line
+        # only when the column cannot hold both. The field name elides (full text in its tooltip).
+        lead = QWidget()
+        row = QHBoxLayout(lead)
+        row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
-        self.field_label = QLabel("no field")
-        self.field_label.setProperty("role", "muted")
+        # min_ch 24: the lead stays narrower than the tail (the floor is unchanged), but the row
+        # spills before the name is cut -- at 10 it read 'hut_int — d…' in a 1280 window
+        self.field_label = widgets.ElideLabel("no field", "muted", min_ch=24)
+        # Preferred, not ElideLabel's Ignored: it takes its whole text when there is room and
+        # yields to min_ch when there is not, so Load stays beside it instead of at the far end
+        self.field_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         row.addWidget(self.field_label)
         row.addSpacing(10)
         self.load_btn = QPushButton("Load the room")
-        self.load_btn.setToolTip("Extract the donor's camera + walkmesh and composite its "
-                                 "background (cached after the first load).")
         self.load_btn.clicked.connect(self.on_load)
         row.addWidget(self.load_btn)
         self.cam_label = QLabel("Camera")
@@ -438,11 +498,16 @@ class PlaceDoc(QWidget):
         self.cam_box.setVisible(False)             # shown by _sync_cam_box on a multi-camera field
         self.cam_label.setVisible(False)
         row.addStretch(1)
+        tail = QWidget()
+        row = QHBoxLayout(tail)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
         self.tools = widgets.ToolStrip(
             [("place", "Place", "Click the walkable footprint to place content — NPCs, "
                                 "props, spawn, arrival."),
-             ("regions", "Regions", "Draw trigger quads on the art — gateways and walk-in "
-                                    "events (4 clicks = one zone).")])
+             ("regions", "Regions", "Draw trigger zones on the art — gateways and walk-in "
+                                    "events (4 clicks = one zone; Esc cancels a half-drawn "
+                                    "one).")])
         self.tools.changed.connect(lambda _k: self._apply_tool())
         row.addWidget(self.tools)
         row.addSpacing(6)
@@ -451,6 +516,7 @@ class PlaceDoc(QWidget):
         for key, label in self.MODES:
             rb = QRadioButton(label)
             rb.setAccessibleName(f"Place {label}")
+            rb.setToolTip(self.MODE_TIPS[key])
             rb.toggled.connect(self._on_mode_toggled)
             self.mode_group.addButton(rb)
             self.mode_btns[key] = rb
@@ -471,7 +537,7 @@ class PlaceDoc(QWidget):
         for key, label in (("gateway", "Gateway"), ("event", "Event")):
             rb = QRadioButton(label)
             rb.setAccessibleName(f"Draw {label} zones")
-            rb.toggled.connect(lambda _on=False: self._sync_tool_clusters())
+            rb.toggled.connect(self._on_rkind_toggled)
             self.rkind_group.addButton(rb)
             self.rkind_btns[key] = rb
             row.addWidget(rb)
@@ -496,7 +562,8 @@ class PlaceDoc(QWidget):
                                "dispatch on.")
         self.gw_ent_label.setBuddy(self.gw_ent)
         row.addWidget(self.gw_ent)
-        root.addLayout(row)
+        self.control_row = widgets.SpillRow(lead, tail, margins=(0, 0, 0, 0))
+        root.addWidget(self.control_row)
 
         self.canvas = BackdropCanvas(pal, scale=scale)
         self.canvas.surface_clicked.connect(self._on_surface_clicked)
@@ -517,6 +584,7 @@ class PlaceDoc(QWidget):
     # ---------------------------------------------------------------- the shell feed
     def show_none(self):
         self._member = self._data = self._path = self._donor = self._source = None
+        self._scene = {}
         self._blocked = None
         self._verbatim = False
         self._region_rows_cache = []
@@ -532,19 +600,26 @@ class PlaceDoc(QWidget):
         # the constructor ends HERE, so this is the clusters' first sync: without it both tools'
         # controls showed until a field was fed, and their sum (~1140px) became the window floor
         self._sync_tool_clusters()
-        self._refresh("Open a field (a fork of a real room) and come back — or fork one on the "
-                      "Import tab.")
+        self._sync_load_tip()
+        self._refresh()
 
-    def show_field(self, member, data, path, *, dirty=False):
+    def show_field(self, member, data, path, *, dirty=False, scene=None):
         """The one feed: the OPEN doc's parsed dict (by reference — the ops mutate exactly the
         buffer the Editor and Save see). Cheap by design: no disk here (the startup-spend law);
-        the donor surface loads on the user's own Load click."""
+        the donor surface loads on the user's own Load click.
+
+        ``scene``: the parsed Blender ``scene.toml`` the build overlays on this field (scene wins
+        per key, rows merged by name -- ``build._merge_scene``). Place SHOWS what it places where
+        the build puts it, marked as Blender's, and refuses to move, retarget or delete it or to
+        set a [player] key it sets: those writes would land in the field.toml and the build would
+        ship the scene's value anyway (finding P2). Never written."""
         from .. import build                        # lazy: the resolver, not the builder
         # "The same field" is the same SURFACE SOURCE (a project's own file, or a donor room), never
         # just the same name: every traced project is called PICTURE, and a name match kept the
         # previous room's art and walkmesh armed while clicks wrote into the new doc (finding P5).
         old = (self._member, self._source)
         self._member, self._data = member, data
+        self._scene = scene if isinstance(scene, dict) else {}
         self._path = Path(path) if path else None
         self._donor = build.donor_field_id(data)
         self._verbatim = bool(data.get("verbatim_eb"))
@@ -559,7 +634,7 @@ class PlaceDoc(QWidget):
         # A fork that ships its OWN scene art ([[layers]]: an `import --editable` fork) is placed on
         # its own surface even though it records its donor: its walkmesh.obj may be reshaped and its
         # layers repainted, and the donor's real room would not show either.
-        own_scene = bool(data.get("layers"))
+        own_scene = bool(data.get("layers") or self._scene.get("layers"))   # (the scene's win)
         self._source = (("real", self._donor) if self._donor is not None and not own_scene
                         else ("project", str(self._path)) if self._path else None)
         same = old == (self._member, self._source)
@@ -568,6 +643,7 @@ class PlaceDoc(QWidget):
                              "resolve its camera and walkmesh from")
         self.field_label.setText(f"{member} — donor field #{self._donor}"
                                  if self._donor is not None else str(member))
+        self._sync_load_tip()
         if not same:                                # (a late load of the old room never lands here:
             #                                         _on_loaded applies only the request it waits for)
             if self._loading is None or self._loading != getattr(self, "_stale_load", None):
@@ -660,6 +736,24 @@ class PlaceDoc(QWidget):
             self._stale_load = self._loading
 
     # ---------------------------------------------------------------- surface load
+    def _room_words(self):
+        """Whose art Load brings: a donor room's, or this field's own (novel, traced, composed,
+        an editable fork) -- Place serves every lane, and says which one it is on."""
+        if self._source is not None and self._source[0] == "real":
+            return f"donor field #{self._source[1]}'s"
+        return "this field's own"
+
+    def _sync_load_tip(self):
+        if self._source is None:
+            tip = "Open a field first: Load reads its camera, walkmesh and art."
+        elif self._source[0] == "real":
+            tip = (f"Extract donor field #{self._source[1]}'s camera and walkmesh and composite its "
+                   "background (cached after the first load).")
+        else:
+            tip = ("Read this field's own camera, walkmesh and art from its files (read again on "
+                   "every Load, so a re-export shows).")
+        self.load_btn.setToolTip(tip)
+
     def _cam_index(self):
         # by SOURCE, not by name: another file called PICTURE has its own cameras (finding P29)
         return self._cam_pick.get(self._source, 0)
@@ -805,6 +899,65 @@ class PlaceDoc(QWidget):
             w.setVisible(gw)
         self._on_mode_toggled()
 
+    # ---------------------------------------------------------------- the Blender scene (P2)
+    def _view(self) -> dict:
+        """The field as the build sees it: the open doc with its scene.toml overlaid. Read-only --
+        every write goes to ``self._data``."""
+        if not self._scene or self._data is None:
+            return self._data or {}
+        from .. import build
+        return build._merge_scene(self._data, self._scene)
+
+    def _scene_names(self, kind) -> set:
+        return {e.get("name") for e in self._scene.get(kind, []) or []
+                if isinstance(e, dict) and e.get("name")}
+
+    def _scene_player(self, key) -> bool:
+        pl = self._scene.get("player")
+        return isinstance(pl, dict) and key in pl
+
+    # the author's words for what a scene.toml key sets (never the key itself)
+    _SCENE_WORDS = {"to": "target", "zone": "zone", "message": "message", "entrance": "entrance"}
+    _PLAYER_WORDS = {"spawn": "the spawn point", "arrival": "the arrival points"}
+
+    @staticmethod
+    def _blender_says(what):
+        return (f"Placed in Blender — the scene.toml sets {what}, so a change here would not "
+                "ship. Change it in Blender and re-export, then press F5.")
+
+    def _scene_refusal(self, r, key):
+        """Why Place must not write ``key`` of canvas row ``r`` (None = delete it), else None."""
+        srow = r.get("scene")
+        # No field.toml row to write, named or NOT: the add-on writes no name= for an unnamed
+        # gateway or event, so a scene-only row need not match a scene name (review of P2).
+        if r.get("data_index") is None:
+            name = (srow or {}).get("name") or "this zone"
+            return (f"Placed in Blender — {name} lives only in the scene.toml; change or delete "
+                    "it in Blender and re-export, then press F5.")
+        if srow is None:
+            return None
+        name = srow.get("name")
+        if key is None:
+            return (f"Placed in Blender — {name}'s zone comes from the scene.toml, so deleting it "
+                    "here would still ship the scene's one. Delete it in Blender and re-export, "
+                    "then press F5.")
+        if key in srow:
+            return self._blender_says(f"{name}'s {self._SCENE_WORDS.get(key, key)}")
+        return None
+
+    def _refuse_for_scene(self, r, key) -> bool:
+        why = self._scene_refusal(r, key)
+        if why is None:
+            return False
+        self._refresh_regions()                     # a dragged quad snaps back to where it ships
+        self._refresh(why, "warn")
+        return True
+
+    def _on_rkind_toggled(self, on=False):
+        self._sync_tool_clusters()
+        if on and getattr(self, "status", None) is not None:   # (construction checks one first)
+            self._refresh()                       # the status names the kind being drawn
+
     def _refresh_regions(self):
         """Re-derive the canvas's region feed from the OPEN doc (both region laws judged in
         ``region_rows`` — the overlap starvation and the engine-fan audit)."""
@@ -812,7 +965,19 @@ class PlaceDoc(QWidget):
             self._region_rows_cache = []
             self.canvas.set_regions([])
             return
-        self._region_rows_cache = region_rows(self._data)
+        view = self._view()
+        rows = region_rows(view)                     # judged as the build ships them
+        for r in rows:
+            # the merge keeps the field's rows in order and appends scene-only ones, so a row
+            # below the field list's length IS that field row; past it, there is none to write
+            n_own = len(self._data.get(r["kind"], []) or [])
+            r["data_index"] = r["index"] if r["index"] < n_own else None
+            name = (view.get(r["kind"]) or [])[r["index"]].get("name")
+            r["scene"] = next((e for e in self._scene.get(r["kind"], []) or []
+                               if isinstance(e, dict) and name and e.get("name") == name), None)
+            if r["scene"] is not None or r["data_index"] is None:
+                r["label"] += " (Blender)"
+        self._region_rows_cache = rows
         self.canvas.set_regions(self._region_rows_cache)
 
     def _on_region_drawn(self, quad):
@@ -821,10 +986,11 @@ class PlaceDoc(QWidget):
             return
         if self.rkind_btns["gateway"].isChecked():
             to = self.gw_to.value()
-            label = place_gateway(self._data, quad, to, self.gw_ent.value())
+            label = place_gateway(self._data, quad, to, self.gw_ent.value(),
+                                  taken=self._scene_names("gateway"))
             note = label + ("" if to else " — set its target ('to field', or the Editor form)")
         else:
-            note = label = place_event(self._data, quad)
+            note = label = place_event(self._data, quad, taken=self._scene_names("event"))
         if self.on_edit:
             self.on_edit(self._member, label)
         self._refresh_regions()
@@ -834,7 +1000,9 @@ class PlaceDoc(QWidget):
         if self._data is None or not 0 <= i < len(self._region_rows_cache):
             return
         r = self._region_rows_cache[i]
-        label = move_zone(self._data, r["kind"], r["index"], quad)
+        if self._refuse_for_scene(r, "zone"):
+            return
+        label = move_zone(self._data, r["kind"], r["data_index"], quad)
         if self.on_edit:
             self.on_edit(self._member, label)
         self._refresh_regions()
@@ -844,7 +1012,9 @@ class PlaceDoc(QWidget):
         if self._data is None or not 0 <= i < len(self._region_rows_cache):
             return
         r = self._region_rows_cache[i]
-        label = delete_region(self._data, r["kind"], r["index"])
+        if self._refuse_for_scene(r, None):
+            return
+        label = delete_region(self._data, r["kind"], r["data_index"])
         if self.on_edit:
             self.on_edit(self._member, label)
         self._refresh_regions()
@@ -854,13 +1024,17 @@ class PlaceDoc(QWidget):
         if self._data is None or not 0 <= i < len(self._region_rows_cache):
             return
         r = self._region_rows_cache[i]
-        if r["kind"] != "gateway":
+        if r["kind"] != "gateway" or self._refuse_for_scene(r, "to"):
             return
-        cur = (self._data.get("gateway", []) or [])[r["index"]].get("to") or 0
-        to = self._ask_field_id(cur)
+        cur = (self._data.get("gateway", []) or [])[r["data_index"]].get("to")
+        if cur is not None and not isinstance(cur, int):   # "worldmap" (or any non-id): the id
+            self._refresh(f"{r['label']} leads to the world map, not a field — change where it "
+                          "leads in the Editor form (Gateways).", "warn")   # (the id dialog cannot say it)
+            return
+        to = self._ask_field_id(cur or 0)
         if to is None:
             return
-        label = set_gateway_target(self._data, r["index"], to)
+        label = set_gateway_target(self._data, r["data_index"], to)
         if self.on_edit:
             self.on_edit(self._member, label)
         self._refresh_regions()
@@ -870,13 +1044,17 @@ class PlaceDoc(QWidget):
         if self._data is None or not 0 <= i < len(self._region_rows_cache):
             return
         r = self._region_rows_cache[i]
-        if r["kind"] != "event":
+        if r["kind"] != "event" or self._refuse_for_scene(r, "message"):
             return
-        cur = (self._data.get("event", []) or [])[r["index"]].get("message") or ""
+        cur = (self._data.get("event", []) or [])[r["data_index"]].get("message") or ""
         text = self._ask_message("" if cur == "..." else cur)
         if text is None:
             return
-        label = set_event_message(self._data, r["index"], text)
+        if not text.strip():                        # '' builds clean and shows nothing in-game
+            self._refresh(f"Kept {r['label']}'s message — an empty line shows nothing when the "
+                          "player walks in. Type the words, or Cancel.", "warn")
+            return
+        label = set_event_message(self._data, r["data_index"], text)
         if self.on_edit:
             self.on_edit(self._member, label)
         self._refresh_regions()
@@ -916,6 +1094,7 @@ class PlaceDoc(QWidget):
             self.tools.button(tool).setEnabled(not blocked)
         for key, _label in self.MODES:
             self.mode_btns[key].setEnabled(not blocked)
+            self.mode_btns[key].setToolTip(self.MODE_TIPS[key])   # a refusal below never sticks
         for w in (self.rkind_btns["gateway"], self.rkind_btns["event"],
                   self.gw_to, self.gw_ent):
             w.setEnabled(not blocked)
@@ -927,6 +1106,13 @@ class PlaceDoc(QWidget):
                     "are ignored on it (the donor's real per-door arrivals carry)")
             if self._mode() in ("spawn", "arrival"):
                 self.mode_btns["npc"].setChecked(True)
+        if not blocked:                             # a [player] key the scene.toml sets (P2)
+            for key in ("spawn", "arrival"):
+                if self._scene_player(key):
+                    self.mode_btns[key].setEnabled(False)
+                    self.mode_btns[key].setToolTip(self._blender_says(self._PLAYER_WORDS[key]))
+                    if self._mode() == key:
+                        self.mode_btns["npc"].setChecked(True)
         self._on_mode_toggled()
         self.load_btn.setEnabled(not blocked and self._loading is None)
 
@@ -962,8 +1148,11 @@ class PlaceDoc(QWidget):
         records the undo step + re-feeds; the marker appears through that round-trip)."""
         x, z = row["xz"]
         mode = self._mode()
+        if mode in ("spawn", "arrival") and self._scene_player(mode):
+            self._refresh(self._blender_says(self._PLAYER_WORDS[mode]), "warn")
+            return
         if mode == "npc":
-            label = place_npc(self._data, x, z)
+            label = place_npc(self._data, x, z, taken=self._scene_names("npc"))
         elif mode == "prop":
             label = place_prop(self._data, x, z)
         elif mode == "spawn":
@@ -973,6 +1162,10 @@ class PlaceDoc(QWidget):
         note = f"{label} at ({int(round(x))}, {int(round(z))})"
         if row.get("floor") is not None:
             note += f" · floor {row['floor']}"
+        if mode == "npc":
+            note += " — give it a model and words in the Editor (NPCs)"
+        elif mode == "prop":
+            note += " — pick its model in the Editor (Props)"
         if self.on_edit:
             self.on_edit(self._member, label)
         self._refresh(note)
@@ -985,38 +1178,53 @@ class PlaceDoc(QWidget):
             return
         from ..scene import cam as _cam
         eye = tuple(_cam.decompose(bundle["cam"])["C"])
+        blender_npcs = {e.get("name") for e in self._scene.get("npc", []) or []
+                        if isinstance(e, dict) and e.get("pos") is not None}
         marks = []
-        for m in content_markers(self._data):
+        for m in content_markers(self._view()):     # where the BUILD puts each thing (P2)
             x, z = m["xz"]
             y = floor_y_at(bundle["tris"], x, z, eye)
             if y is None:
                 continue                            # an empty mesh never got this far, but be safe
-            marks.append({"pos": (x, y, z), "label": m["label"], "kind": m["kind"]})
+            label = m["label"]
+            if ((m["kind"] == "npc" and label in blender_npcs)
+                    or (m["kind"] in ("spawn", "arrival") and self._scene_player(m["kind"]))):
+                label += " (Blender)"
+            marks.append({"pos": (x, y, z), "label": label, "kind": m["kind"]})
         self.canvas.set_markers(marks)
 
     def _refresh(self, note="", state=""):
         if self._blocked is not None:
-            note = note or f"Placement is off here — {self._blocked}."
+            # protected_reason is the CLI's and the editor's too, and names `ff9mapkit new`: Place
+            # keeps its head and words the way out in the app's own terms (finding P22)
+            head = self._blocked.split(" -- ")[0]
+            way = (" Save a copy in a folder of your own, or start one with Field ▸ New Field."
+                   if head != self._blocked else "")
+            note = note or f"Placement is off here — {head}.{way}"
             state = state or "warn"
         elif self._member is None:
-            note = note or ("Open a field (a fork of a real room) and come back — or fork one "
-                            "on the Import tab.")
+            note = note or ("Open a field and come back — a fork of a real room, a traced photo, "
+                            "a Floorplan room or a Field ▸ New Field scaffold all place here.")
         elif self._bundle() is None:
-            note = note or ("Load the room to place content — the donor's art, camera, and "
-                            "walkmesh arrive together.")
+            note = note or (f"Load the room to place content — {self._room_words()} art, camera "
+                            "and walkmesh arrive together.")
         elif not note and self.tools.current() == "regions":
             n = len(self._region_rows_cache)
             warned = sum(1 for r in self._region_rows_cache if r.get("warn"))
-            kind = "gateway" if self.rkind_btns["gateway"].isChecked() else "event"
-            note = (f"Click 4 corners to draw a {kind} zone · {n} region"
-                    f"{'' if n == 1 else 's'}")
+            gateway = self.rkind_btns["gateway"].isChecked()
+            note = (f"Click 4 corners to draw {'a gateway' if gateway else 'an event'} zone · "
+                    f"{n} zone{'' if n == 1 else 's'}")
             if warned:
-                note += f" · ⚠ {warned} with law warnings (hover a marked quad)"
-            note += " · corners 0→1 = a gateway's walk-out edge (right-click a quad to rotate/delete)"
+                note += f" · ⚠ {warned} with law warnings (hover a marked zone)"
+            if gateway:
+                note += (" · your first two corners make the walk-out edge, drawn thick with an "
+                         "arrow (right-click a zone to rotate or delete it)")
+            else:
+                note += " · right-click a zone to set its message or delete it"
             if self._verbatim:
                 note += " · verbatim fork: new content seats below the donor's party band"
         elif not note:
-            n = len(content_markers(self._data or {}))
+            n = len(content_markers(self._view()))
             note = (f"Click the walkable footprint to place · {n} placed thing"
                     f"{'' if n == 1 else 's'} shown")
             if self._verbatim:

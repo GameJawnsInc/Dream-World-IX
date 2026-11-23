@@ -122,6 +122,125 @@ def test_build_rejects_int16_overflow(tmp_path):
         IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", distance=80000)
 
 
+@pytest.mark.parametrize("name", ['A"B', "Q?X", "sub/dir", "has space", "", "../up"])
+def test_a_bad_field_name_is_refused_before_anything_is_written(tmp_path, name):
+    """Finding T7: the name is the toml's FILE name and its [field] name. It was never checked:
+    walkmesh.obj and art/ were written, then the toml write raised an OSError the CLI did not
+    catch (a traceback, and on a regenerate a new floor under the old toml)."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    Image.new("RGB", (384, 448), (90, 80, 70)).save(tmp_path / "src.png")
+    floor = [(130, 140), (254, 140), (364, 440), (20, 440)]
+    with pytest.raises(IF.ImageFieldError, match="letters, digits"):
+        IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name=name)
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_zone_beyond_the_int16_world_is_refused_before_anything_is_written(tmp_path):
+    """Finding T9: the floor was bound-checked but gateway/event corners were not. A door drawn in
+    the top rows of the photo at the default pitch un-projects past |z| 32767; Generate wrote it
+    and the build failed later with a struct.error far from the cause."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    Image.new("RGB", (384, 448), (90, 80, 70)).save(tmp_path / "src.png")
+    floor = [(130, 200), (254, 200), (364, 440), (20, 440)]
+    for kw in ({"gateways": ["4005@60,2;140,2;140,30;60,30"]},
+               {"events": ["hi@60,2;140,2;140,30;60,30"]}):
+        with pytest.raises(IF.ImageFieldError, match="Int16"):
+            IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", **kw)
+        assert not (tmp_path / "out").exists()
+    IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out",   # in bound: built
+                         gateways=["4005@60,300;140,300;140,330;60,330"])
+
+
+def test_the_cli_band_checks_the_id_and_its_deploy_hint_names_it(tmp_path, capsys):
+    """Finding T18: the success print hard-coded '--id 30058' whatever --id was, so a copied hint
+    deployed into somebody else's scratch slot; and --id was never band-checked (9000-9012, real
+    ids and ids past 32767 all generated). The path in the hint is quoted (T22: spaces)."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    from ff9mapkit import cli
+    (tmp_path / "my photos").mkdir()
+    src = tmp_path / "my photos" / "src.png"
+    Image.new("RGB", (384, 448), (90, 80, 70)).save(src)
+    base = ["image-field", str(src), "--floor", "130,140 254,140 364,440 20,440", "--name", "ROOM"]
+    for bad in ("9005", "100", "40000"):
+        out = tmp_path / f"bad{bad}"
+        assert cli.main(base + ["--out", str(out), "--id", bad]) == 2
+        assert not out.exists()
+        assert bad in capsys.readouterr().err
+    out = tmp_path / "my photos" / "room-field"
+    assert cli.main(base + ["--out", str(out), "--id", "30777"]) == 0
+    said = capsys.readouterr().out
+    assert "30058" not in said and "--id 30777" in said and "Warp 30777" in said
+    assert f'"{out / "ROOM.field.toml"}"' in said
+
+
+def _sideways_phone_photo(path):
+    """An 800x400 JPEG stored landscape with EXIF Orientation=6 (a portrait phone shot): every
+    photo viewer shows it 400x800. Left half red, right half blue, so a rotation is visible."""
+    from PIL import Image
+    im = Image.new("RGB", (800, 400), (200, 30, 30))
+    im.paste((30, 30, 200), (400, 0, 800, 400))
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    im.save(path, exif=exif, quality=95)
+    return path
+
+
+def _grey16(path):
+    """A 16-bit greyscale PNG (mode I;16): a horizontal gradient whose 8-bit mean is ~95."""
+    import numpy as np
+    from PIL import Image
+    row = np.linspace(0, 48000, 384, dtype=np.uint16)
+    Image.fromarray(np.tile(row, (448, 1))).save(path)
+    assert Image.open(path).mode.startswith("I")       # the premise: really a 16-bit image
+    return path
+
+
+def test_the_photo_is_read_upright_and_16_bit_is_not_white(tmp_path):
+    """Findings T19 + E11: every ingest did Image.open(p).convert('RGB'), which ignores EXIF
+    orientation (a phone photo traced and shipped sideways) and clamps 16-bit samples to 255
+    (a white rectangle, canvas and shipped art alike). open_rgb is the one reader."""
+    pytest.importorskip("PIL")
+    pytest.importorskip("numpy")
+    import numpy as np
+    from PIL import Image
+    im = IF.open_rgb(_sideways_phone_photo(tmp_path / "phone.jpg"))
+    assert im.mode == "RGB" and im.size == (400, 800)  # upright, as every viewer shows it
+    g = IF.open_rgb(_grey16(tmp_path / "grey16.png"))
+    assert g.mode == "RGB" and 80 < float(np.asarray(g).mean()) < 110
+
+
+def test_every_photo_ingest_spends_the_one_reader():
+    """The call-site law: the build, the auto floor-seed and the HTML tracer each read the source
+    photo; a site that goes back to Image.open(...).convert('RGB') reopens T19/E11 silently."""
+    import inspect
+    for fn in (IF.build_image_field, IF.auto_floor, IF.write_trace_html):
+        src = inspect.getsource(fn)
+        assert "open_rgb(image_path)" in src, fn.__name__
+        assert "Image.open(image_path)" not in src, fn.__name__
+
+
+def test_the_build_ships_the_photo_the_way_the_tab_shows_it(tmp_path):
+    pytest.importorskip("PIL")
+    pytest.importorskip("numpy")
+    import numpy as np
+    from PIL import Image, ImageOps
+    floor = [(130, 200), (254, 200), (364, 440), (20, 440)]
+    phone = _sideways_phone_photo(tmp_path / "phone.jpg")
+    upright = tmp_path / "upright.png"
+    ImageOps.exif_transpose(Image.open(phone)).save(upright)
+    IF.build_image_field(phone, floor, tmp_path / "a")
+    IF.build_image_field(upright, floor, tmp_path / "b")
+    a = np.asarray(Image.open(tmp_path / "a" / "art" / "base.png"), dtype=np.int16)
+    b = np.asarray(Image.open(tmp_path / "b" / "art" / "base.png"), dtype=np.int16)
+    assert np.abs(a - b).max() <= 2                    # the same pixels (JPEG decode aside)
+    IF.build_image_field(_grey16(tmp_path / "g.png"), floor, tmp_path / "g")
+    base = np.asarray(Image.open(tmp_path / "g" / "art" / "base.png"))
+    assert float(base.mean()) < 200                    # not the white rectangle
+
+
 # ---------------------------------------------------------------- anchored occluders (contact -> Z)
 
 def test_occluder_z_is_actor_depth_at_contact():
@@ -1044,3 +1163,62 @@ def test_claimed_and_stale_rows_are_named_in_removed(tmp_path):
                                gateways=["4005@60,300;140,300;140,330;60,330"])
     assert "[[gateway]] traced_door1" in man["removed"]
     assert "[[event]] traced_zone0" in man["removed"]  # the session dropped its event too
+
+
+# --------------------------------------------------------------- batch 3, the final review
+def test_an_existing_project_keeps_its_name_through_a_regenerate(tmp_path):
+    """The name rule (T7) guards the mint of a new <name>.field.toml. A project built before the
+    rule may be named attic-room; refusing its own name made it impossible to regenerate. A NEW
+    file under such a name is still refused before anything is written."""
+    from pathlib import Path
+
+    from PIL import Image
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (800, 600), (90, 80, 70)).save(photo)
+    floor = [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)]
+    out = tmp_path / "proj"
+    made = Path(IF.build_image_field(photo, floor, out, name="ATTIC", field_id=30779)["toml"])
+    old = made.with_name("attic-room.field.toml")
+    old.write_text(made.read_text(encoding="utf-8").replace('name = "ATTIC"', 'name = "attic-room"'),
+                   encoding="utf-8")
+    made.unlink()
+    moved = [(120.0, 210.0)] + floor[1:]
+    man = IF.build_image_field(photo, moved, out, name="attic-room", field_id=30779)
+    assert Path(man["toml"]) == old and old.is_file()
+    with pytest.raises(IF.ImageFieldError, match="letters, digits and underscores"):
+        IF.build_image_field(photo, floor, tmp_path / "fresh", name="attic-room", field_id=30779)
+    assert not (tmp_path / "fresh").exists()
+
+
+def test_exif_turned_reads_the_orientation_tag(tmp_path):
+    from PIL import Image
+    plain = tmp_path / "plain.png"
+    Image.new("RGB", (8, 6)).save(plain)
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    turned = tmp_path / "turned.jpg"
+    Image.new("RGB", (8, 6)).save(turned, exif=exif)
+    exif[0x0112] = 1
+    upright = tmp_path / "upright.jpg"
+    Image.new("RGB", (8, 6)).save(upright, exif=exif)
+    assert IF.exif_turned(turned) is True
+    assert IF.exif_turned(plain) is False and IF.exif_turned(upright) is False
+    assert IF.exif_turned(tmp_path / "gone.jpg") is False
+
+
+@pytest.mark.parametrize("name", ["x/../PHONE", "x\\..\\PHONE", "./PHONE"])
+def test_a_name_carrying_a_path_is_never_past_the_name_rule(tmp_path, name):
+    """The exemption 'this name already names a file' was asked of the PATH: 'x/../PHONE'
+    resolves to the existing PHONE.field.toml, skipped the rule, and was written into the
+    project as its name (the backslash form died in the TOML parser instead -- the crash the rule
+    exists to stop). Only a bare name can be an existing project's name."""
+    from PIL import Image
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (800, 600), (90, 80, 70)).save(photo)
+    floor = [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)]
+    out = tmp_path / "proj"
+    IF.build_image_field(photo, floor, out, name="PHONE", field_id=30779)
+    before = {q.name: q.read_bytes() for q in out.rglob("*") if q.is_file()}
+    with pytest.raises(IF.ImageFieldError, match="letters, digits and underscores"):
+        IF.build_image_field(photo, floor, out, name=name, field_id=30779)
+    assert {q.name: q.read_bytes() for q in out.rglob("*") if q.is_file()} == before
