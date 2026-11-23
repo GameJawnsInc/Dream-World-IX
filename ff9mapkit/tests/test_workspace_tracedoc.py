@@ -933,6 +933,7 @@ def test_first_generate_hands_the_project_to_the_shell_once(app, tmp_path, monke
     doc.load_image(_photo(tmp_path))
     doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
     doc.id_box.setText("30785")
+    doc.name_box.setText("PICTURE")          # (a new photo names itself; T13)
     monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
     doc.on_generate()
     _argv, kw = run.calls[0]
@@ -962,6 +963,7 @@ def test_a_failed_first_generate_leaves_the_tab_unarmed_and_the_retry_opens(app,
     doc.load_image(_photo(tmp_path))
     doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
     doc.id_box.setText("30785")
+    doc.name_box.setText("PICTURE")          # (a new photo names itself; T13)
     monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
     doc.on_generate()
     assert "Generating" in doc.status.text()
@@ -1040,6 +1042,7 @@ def _armed(app, tmp_path, monkeypatch, **hooks):
     doc.load_image(_photo(tmp_path))
     doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
     doc.id_box.setText("30789")
+    doc.name_box.setText("PICTURE")          # (a new photo names itself; T13)
     monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
     doc.on_generate()
     toml = tmp_path / "photo-field" / "PICTURE.field.toml"
@@ -1303,6 +1306,7 @@ def test_after_generate_opens_the_toml_captured_at_launch(app, tmp_path, monkeyp
     doc.load_image(_photo(tmp_path))
     doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
     doc.id_box.setText("30786")
+    doc.name_box.setText("PICTURE")          # (a new photo names itself; T13)
     monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
     doc.on_generate()
     _argv, kw = run.calls[0]
@@ -1574,6 +1578,29 @@ def test_clear_acts_on_the_active_tool_and_says_so(app, tmp_path, monkeypatch):
     doc.clear_btn.click()
     assert doc._fg == [] and len(doc._regions) == 1 and doc._floor == floor
     assert "region" in doc.undo_btn.toolTip()
+
+
+def test_a_new_photo_does_not_inherit_the_last_projects_name_and_id(app, tmp_path, monkeypatch):
+    """Finding T13: load_image reset the trace and the project but not the Name and Field id, so
+    a second room traced after generating the first went out under the first one's name and id --
+    and deploying it replaced the first room in the game."""
+    pytest.importorskip("PIL")
+    doc, run = _traced(app, tmp_path)
+    doc.name_box.setText("ROOMA")
+    doc.id_box.setText("30500")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    (tmp_path / "b").mkdir()
+    from PIL import Image
+    photo_b = tmp_path / "b" / "attic-2 view.png"
+    Image.new("RGB", (800, 600), (90, 80, 70)).save(photo_b)
+    doc.load_image(photo_b)
+    assert doc.name_box.text() == "ATTIC_2_VIEW"        # the photo's own name, as a field token
+    assert doc.id_box.text() == ""                      # never the last project's id...
+    assert "30500" in doc.status.text() and "Field id" in doc.status.text()   # ...and it says why
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    doc.on_generate()
+    assert len(run.calls) == 1                          # no id: refused, nothing launched
 
 
 def test_the_canvas_keeps_a_usable_minimum(app):

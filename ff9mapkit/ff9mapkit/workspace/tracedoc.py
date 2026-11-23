@@ -641,6 +641,16 @@ class TraceDoc(QWidget):
         pm.loadFromData(buf.getvalue(), "PNG")
         self._image = Path(path)
         self._pixmap = pm
+        # a new photo is a new FIELD: its own name, and never the last project's id -- a second
+        # room went out under the first one's and replaced it in the game on deploy (finding T13).
+        # load_trace / load_project set both again from the project right after this.
+        from ..hub import name_token
+        self.name_box.setText(name_token(self._image.stem, fallback="PICTURE").upper())
+        teach = ""
+        if self._project and str(self._project.get("fid")) == self.id_box.text().strip():
+            self.id_box.clear()
+            teach = (f"New photo, new field — give it its own Field id ({self._project['fid']} "
+                     f"is {self._project['name']}'s).")
         self._floor = []
         self._fg = []                                  # old contacts mean nothing on new art
         self._regions = []                             # nor do old zones
@@ -655,7 +665,7 @@ class TraceDoc(QWidget):
         self._region_rows_cache, self._region_back = [], []
         self.canvas.set_backdrop(pm, self._camera(), refit=True)
         self.img_label.setText(self._image.name)
-        self._refresh()
+        self._refresh(teach, "warn" if teach else "")
 
     def _on_pitch(self, _v):
         self._stamped = False                          # a camera change alters the build
