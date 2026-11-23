@@ -577,6 +577,27 @@ def test_a_window_step_round_trips_and_the_valueless_kind_hides_its_value(doc, t
     assert doc._steps()[doc.editor.insert_at - 1] == {"raise": True}
 
 
+def test_set_flag_takes_a_flag_name_and_problems_flags_a_reserved_index(doc, tmp_path):
+    """C19: 'Set flag' took only two integers -- it refused a [[flag]] NAME the build resolves --
+    and accepted 8600, a save-corrupting reserved bit, with every GUI readout green."""
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc._add_step()
+    doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("set_flag"))
+    doc.editor.value_line.setText("glen_done, 1")
+    doc._apply_step()
+    assert doc.editor.note.text() == "", doc.editor.note.text()
+    added = doc._steps()[doc.editor.insert_at - 1]
+    assert added == {"set_flag": ["glen_done", 1]}
+    assert forms.step_value_text(added) == "glen_done, 1", "the name reopens as typed"
+    assert "No structural problems." in doc.problems_lbl.text()
+    doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("set_flag"))
+    doc.editor.value_line.setText("8600, 1")
+    doc._apply_step()
+    assert "8600" in doc.problems_lbl.text() and "reserved" in doc.problems_lbl.text(), \
+        f"PROBLEMS stayed green over a reserved flag: {doc.problems_lbl.text()!r}"
+
+
 def test_with_prev_is_gated_by_the_compilers_rule_and_row_position(doc, tmp_path):
     _fed(doc, tmp_path)
     doc._edit_step(1)                                  # the turn step, row 1

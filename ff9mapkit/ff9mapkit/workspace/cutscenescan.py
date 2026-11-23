@@ -303,6 +303,27 @@ def scene_problems(raw) -> list:
                     if _bad_name(leg):
                         out.append(f'{tag}step {i} path point {j} "{leg}" is not a known '
                                    f'marker/NPC/player')
+    return out + _flag_band_problems(raw, blocks)
+
+
+def _flag_band_problems(raw, blocks) -> list:
+    """Raw story-flag writes into a RESERVED ``gEventGlobal`` band, in the build's own sentence.
+    ``build.lint_flag_bands`` owns the rule (its band table is ``flags.py``'s, its sanctions are
+    its own); validate never runs it, so before this no GUI readout did. Run per scene so a
+    dispatch line can say WHICH scene; a scene that writes no flag never pays for the lint."""
+    from .. import build as _build
+    out = []
+    for k, b in enumerate(blocks):
+        steps = b.get("steps") if isinstance(b.get("steps"), list) else []
+        if not ("flag" in b or b.get("set_flags")
+                or any(isinstance(s, dict) and "set_flag" in s for s in steps)):
+            continue
+        try:
+            lines = _build.lint_flag_bands(_build.FieldProject(dict(raw, cutscene=[b]), "."))
+        except Exception:                          # noqa: BLE001 -- a half-typed doc is normal here
+            continue
+        tag = f"scene #{k}: " if len(blocks) > 1 else ""
+        out += [tag + ln for ln in lines if ln.startswith("cutscene")]
     return out
 
 
