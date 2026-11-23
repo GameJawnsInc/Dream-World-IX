@@ -1342,6 +1342,7 @@ def test_an_unrepresentable_pitch_is_said_not_swallowed(app, tmp_path):
     doc.load_trace(side)
     assert doc.pitch.value() == 48                     # the slider's own cap
     assert "pitch 52" in doc.status.text() and "MOVES the floor" in doc.status.text()
+    assert doc.status.text().startswith("⚠ pitch 52")  # it LEADS (T23): never the clipped tail
 
 
 # ------------------------------------------------------------------ T23: the page's rows and status

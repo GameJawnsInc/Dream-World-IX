@@ -376,11 +376,12 @@ class TraceDoc(QWidget):
     def _pitch_drift_note(self, wanted):
         """The slider is integer and banded 6–48; a project pitch it cannot represent used to
         clamp SILENTLY — and a Regenerate would then re-project the floor through the clamped
-        value, moving shipped geometry with no warning. Say it."""
+        value, moving shipped geometry with no warning. Say it -- FIRST: it heads the status, a
+        clause the author must act on is never the tail a narrow window cuts (finding T23)."""
         got = float(self.pitch.value())
         if abs(got - float(wanted)) > 0.01:
-            return (f" · ⚠ pitch {float(wanted):g} is outside this slider (now {got:g}) — a "
-                    f"Regenerate re-projects through {got:g} and MOVES the floor")
+            return (f"⚠ pitch {float(wanted):g} is outside this slider (now {got:g}) — a "
+                    f"Regenerate re-projects through {got:g} and MOVES the floor · ")
         return ""
 
     def _valid_count(self):
@@ -1189,8 +1190,8 @@ class TraceDoc(QWidget):
         self._refresh_cutouts()
         self._refresh_regions()
         drift = self._pitch_drift_note(data.get("pitch", imagefield.DEFAULT_PITCH))
-        self._refresh(f"Reopened {Path(path).name} — Generate updates the project in place."
-                      + drift, "warn" if drift else "")
+        self._refresh(drift + f"Reopened {Path(path).name} — Generate updates the project in "
+                              f"place.", "warn" if drift else "")
 
     def load_project(self, path, *, sidecar=True, lead=""):
         """Reopen a generated image-field PROJECT from its field.toml: prefer the folder's
@@ -1307,9 +1308,9 @@ class TraceDoc(QWidget):
         self._refresh_regions()
         drift = self._pitch_drift_note(cam_tbl.get("pitch", imagefield.DEFAULT_PITCH))
         how = ("" if lead else " (no .trace.json yet; the next Generate writes one)")
-        self._refresh((f"{lead} " if lead else "")
+        self._refresh((f"{lead} " if lead else "") + drift
                       + f"Reopened {path.name} — session REBUILT from the compiled project{how}. "
-                        f"Generate goes in place." + drift, "warn" if (drift or lead) else "")
+                        f"Generate goes in place.", "warn" if (drift or lead) else "")
 
     # ------------------------------------------------------------------ the open-field offer
     def offer_project(self, path):
