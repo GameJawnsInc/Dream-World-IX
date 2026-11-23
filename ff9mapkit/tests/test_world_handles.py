@@ -182,7 +182,8 @@ def test_a_card_s_command_names_only_its_gui_handles(app, table, tmp_path):
 
 #: one value off its default per row handle (the where pair swaps centre for near)
 OFF = {"center": None, "near": [10.0, -20.0], "donor": {"forest": "7,7", "mountain": "1,1"}, "rot": 45.0,
-       "spread": 1.2, "rock_height": 1.5, "reach": 120.0, "ground": "desert", "height": 3.0, "radius": 22.0}
+       "spread": 1.2, "rock_height": 1.5, "reach": 120.0, "ground": "desert", "height": 3.0, "radius": 22.0,
+       "prefab_frame": True}
 
 
 @pytest.mark.parametrize("table", TABLES)

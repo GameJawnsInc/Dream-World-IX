@@ -275,7 +275,7 @@ def snap_coop(ctx: _Ctx, state: str) -> None:
 
 # --------------------------------------------------------------------------------------- world states
 WORLD_STATES = ("guide", "nogame", "atlas", "3d", "3d-forest", "3d-mountain", "3d-step", "3d-sink", "3d-coast", "3d-island", "3d-transplant",
-                "3d-river", "3d-hill")
+                "3d-river", "3d-hill", "3d-prefab")
 # "3d-live" reads the REAL install's blocks (read-only) to show the true look; it is never in `all`, because a
 # surface that depends on the developer's machine cannot be a pinned review state.
 WORLD_EXTRA_STATES = ("3d-live",)
@@ -930,6 +930,90 @@ def _snap_world_transplant(ctx: _Ctx, win) -> None:
         V.load_scene = orig
 
 
+def _snap_world_prefab(ctx: _Ctx, win) -> None:
+    """Rung P3: the prefab card on the pinned 3D page -- the shipped catalog in the picker, an INVENTED land (an island
+    fan with a rock cone on it; the surface never reads the install) placed on an open anchor east of the synthetic
+    island -- (23,18): its footprint and ring clear of the island's land, a site the real card accepts (review P3: the
+    first anchor overlapped the island with the laws switched off) -- passing its check at a clean site; then a
+    refusal named by its gate (the identity check), one row up."""
+    import math
+    import shutil as _sh
+    import numpy as np
+    from ff9mapkit.workspace import worldview3d as V
+    seams, _runner = _mountain_seams()
+    cx, cz = 32.0, -32.0                                  # anchor (0,0)'s middle block centre (frame origin (0,-64))
+    ring = [(cx + 52 * math.cos(a) + 6 * math.sin(3 * a), cz + 44 * math.sin(a)) for a in
+            np.linspace(0, 2 * math.pi, 40)[:-1]]
+    isle = [[(cx, 3.2, cz), (ring[k][0], 3.2, ring[k][1]), (ring[(k + 1) % 39][0], 3.2, ring[(k + 1) % 39][1])]
+            for k in range(39)]
+    peak = [(cx - 8.0, 14.5, cz + 4.0)]
+    cone = [[peak[0], (cx - 8 + 18 * math.cos(a), 3.4, cz + 4 + 14 * math.sin(a)),
+             (cx - 8 + 18 * math.cos(b), 3.4, cz + 4 + 14 * math.sin(b))]
+            for a, b in zip(np.linspace(0, 2 * math.pi, 13)[:-1], np.linspace(0, 2 * math.pi, 13)[1:])]
+    land = np.array(isle + cone, dtype=np.float64)
+    state = {"refuse": False}
+
+    class Scripted:
+        def start(self, argv, cwd, done):
+            cell = [int(v) for v in argv[argv.index("--cell") + 1].split(",")]
+            if state["refuse"]:
+                v = {"ok": False, "dry_run": True, "refused": {
+                    "gate": "identity", "message": "prefab 'desert-peak-isle' staged on (21, 18) is NOT the land its "
+                    "catalog entry names: a verb it rides changed its bytes -- a regression to find; nothing written",
+                    "where": []}}
+            else:
+                v = {"ok": True, "dry_run": "--dry-run" in argv, "refused": None, "written": None,
+                     "identity": "clean site: the full fingerprint",
+                     "blocks": [[cell[0] + dx, cell[1] + dy] for dx in (-1, 0, 1) for dy in (-1, 0, 1)],
+                     "center": [64.0 * cell[0] + 32.0, -(64.0 * cell[1] + 32.0)]}
+            Path(argv[argv.index("--report-json") + 1]).write_text(json.dumps(v), encoding="utf-8")
+            done(0 if v["ok"] else 1, "")
+
+        def kill(self):
+            pass
+
+        def busy(self):
+            return False
+    doc = win.world_doc
+    drafts = _SCRATCH / "world_drafts"
+    _sh.rmtree(drafts, ignore_errors=True)
+    doc._drafts_root, doc._prefab_runner = drafts, Scripted()
+    doc._prefab_seams = {"ghost_fn": lambda p: land, "ocean_fn": lambda: set(), "soup_fn": seams["soup_fn"],
+                         "stack_fn": lambda: [], "sync": True}
+    orig = V.load_scene
+    V.load_scene = lambda site, **_k: _synthetic_world_scene()
+    try:
+        doc.set_view_mode("3d", sync=True)
+        pt = doc.open_prefab(sync=True)
+        pt._occupied_in = lambda blocks, stack: {}
+        pt.prefab_box.setCurrentIndex(pt.prefab_box.findData("desert-peak-isle"))
+        pt.place(1504.0, -1184.0, 0.0)
+        pt._timer.stop()
+        pt._check()
+        view = doc._view3d.view
+        if view is not None:
+            view.focus(1460.0, -1184.0, dist=320.0, y=0.0)
+            view.camera.yaw, view.camera.pitch = 20.0, 45.0
+            view.update()
+        _settle(12)
+        _grab(ctx, "world-3d-prefab", win)
+        # rung P5: the same prefab turned 90 -- the ghost laid down turned, the Turn picker showing
+        if pt.turn_box.findData(90) >= 0:
+            pt.turn_box.setCurrentIndex(pt.turn_box.findData(90))
+            pt._timer.stop()
+            pt._check()
+            _settle(12)
+            _grab(ctx, "world-3d-prefab-turned", win)
+        state["refuse"] = True
+        pt.place(1504.0, -1120.0, 0.0)
+        pt._timer.stop()
+        pt._check()
+        _settle(12)
+        _grab(ctx, "world-3d-prefab-refused", win)
+    finally:
+        V.load_scene = orig
+
+
 def _snap_world_river(ctx: _Ctx, win) -> None:
     """Rung C5: the river card on the pinned 3D page -- an invented river (a ribbon of land in a ringed island) read
     where it stands, moved one block south beside the synthetic island, passing its check."""
@@ -1195,6 +1279,10 @@ def snap_world(ctx: _Ctx, state: str) -> None:
             return
         if state == "3d-transplant":
             _snap_world_transplant(ctx, win)
+            _close(win)
+            return
+        if state == "3d-prefab":
+            _snap_world_prefab(ctx, win)
             _close(win)
             return
         if state == "3d-river":
@@ -2547,6 +2635,13 @@ DIALOG_OPENERS = {
     # the named 3-button 'a campaign deploy will wipe your New Game entry' confirm -- fabricate a plan
     # + a casualty so the modal has something to name (BuildDoc._confirm_campaign_deploy).
     "campaign-newgame": _open_campaign_newgame,
+    # rung P6: the World tab's Save as prefab dialog, opened by the function its menu entry calls (ask_save), on an
+    # invented draft: a sink (greyed), then an island and the mountain and hill on it (ticked)
+    "prefab-save":   lambda w: __import__("ff9mapkit.workspace.worldprefabsave", fromlist=["ask_save"]).ask_save(
+        w, [{"row": {"table": "sink"}, "label": "sink at 412, -230"},
+            {"row": {"table": "island", "ground": "desert"}, "label": "island r60 seed 5 at 672, -608"},
+            {"row": {"table": "mountain"}, "label": "mountain 19,3 at 664, -604, turned 90"},
+            {"row": {"table": "hill"}, "label": "hill r14 at 650, -590"}], {"desert-isle"}),
 }
 
 
@@ -2568,7 +2663,7 @@ HOME_STATES = ("fresh", "midway", "ready", "veteran", "open")
 TABS = ("build", "import", "coop", "models", "battle", "story", "items")
 DIALOGS = ("new-field", "new-campaign", "new-journey", "fork-regions", "import-fields", "setup", "prefs",
            "about", "concept-map", "infohub", "updates", "fork-battle", "campaign-newgame",
-           "anim-picker", "animset-picker")
+           "anim-picker", "animset-picker", "prefab-save")
 
 
 def all_surfaces() -> list[str]:

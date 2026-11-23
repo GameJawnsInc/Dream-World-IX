@@ -5,6 +5,59 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — Save as prefab: grow the catalog from your own landmasses
+- **World tab → Edit the map → Save the draft as a prefab…** freezes an island (or a carried coast) in your draft,
+  with the forest, mountain and hill on it, as a prefab of your own. Tick the steps, name it, Save. It takes a minute
+  or two and changes nothing in the draft or the game; then **Add a prefab** offers it, marked new until you walk it.
+- **`world-prefab NAME --save --from DRAFT|RECIPE [--steps 1,3]`** does the same from the command line. The prefab
+  is built outside the install, checked at a clean site, checked again at a second site to prove it is the same land
+  wherever it goes, and each quarter turn is measured. It refuses, saving nothing, when any check fails.
+- Your prefabs live in your own catalog (`prefabs.toml` in the kit's settings folder, beside your preferences), read
+  after the kit's: one list, and a name can be used only once.
+
+### Added — turned prefabs: four looks from one walked landmass
+- **`world-prefab NAME --cell BX,BY --turn 90|180|270`** places a prefab turned by a quarter turn. It is the same
+  walked land, turned whole, never a new island: the prefab is built at its catalog site, checked against its
+  fingerprint, then turned block by block and written, and the written land must be exactly the catalog's land with
+  that turn applied. Turning by quarter turns keeps every ground and sea tile one the game already draws.
+- **Seven of the eight prefabs turn** (`desert-peak-isle`, `meadow-grove-isle`, `snow-ridge-isle`,
+  `desert-scrub-isle`, `comma-isle`, `crystal-reef`, `terminus-pair`). `beach-chain` stays at turn 0: the Chocobo's Lagoon object on it cannot turn, and the command
+  refuses to turn it.
+- **The World tab's Add a prefab card has a Turn picker** beside the prefab. It appears only for a prefab that turns.
+  The ghost shows the turned land, and the step's recipe row carries the turn.
+- A turn has not been walked in game until you walk it: the card and the command say so. The desert peak isle turned
+  90 has been walked in game.
+
+### Added — World tab: "Add a prefab", a whole landmass in one click
+- **Edit the map → Add a prefab** places a catalog prefab where you click: pick it, see its land as a ghost on the
+  ocean, and the card checks it with `world-prefab` (about half a minute: the prefab is built outside the install
+  and held to the land its catalog names). Accept puts it in your draft as one step, and one Undo takes the whole
+  landmass back. A placed prefab can be opened again from the recipe bar like any other step, and saved recipes
+  carry it as a `[[prefab]]` row.
+
+### Added — landmass prefabs: a whole island in one command
+- **`world-prefab NAME --cell BX,BY --mod-folder F`** places a landmass from the new catalog
+  (`world/data/prefabs.toml`): an island plus the mountain, forest or hill carried onto it, as one unit, on the
+  block you name. It builds the prefab in a staging folder first and refuses, writing nothing, unless that land
+  is the land the catalog's fingerprint names. It also refuses when your folder already holds land it would cover
+  or read, or when another installed folder has land in its footprint. `--list` shows the catalog, `--dry-run`
+  checks without writing, `--recipe-out` saves the placed rows as a `world-fuse` recipe, and `--fingerprint`
+  takes a new entry's fingerprint.
+- **Eight prefabs, every one walked in game:** `desert-peak-isle`, `meadow-grove-isle` (a meadow island with a forest
+  and a hill), `snow-ridge-isle` (a two-lobe snow island with the coastal snow ridge and its inlet) and
+  `desert-scrub-isle` (a desert island with the scrub crag and its walled canopy), and the four walked stock carry
+  units as prefabs: `comma-isle`, `crystal-reef`, `terminus-pair` and `beach-chain` (real beaches).
+- **Placement reaches across the x seam and beside stock land.** Near stock land the island's sea is re-classed for
+  boats by the coast-nav stamp; placement then checks the island against a reference copy built at the catalog's
+  clean site, and requires the stamp to have settled those classes. The disc-4 copy is checked too.
+
+### Added — the prefab frame: the same island wherever you place it
+- **`--prefab-frame`** on `world-island` and `world-mountain`, and `prefab_frame = true` on their `world-fuse`
+  rows: an island and its carried relief, moved by whole 64u blocks, write the same bytes at the new site, so one
+  in-game walk of a landmass stands for every place it can go. It is the groundwork for landmass prefabs
+  (`studies/overworld-editor/PREFABS.md`). It needs `--seed` and does not combine with `--beach`. Off (the
+  default), every mint and carry writes exactly what it did before, so saved recipes replay unchanged.
+
 ### Fixed — Trace, Place and the Editor: ways to lose work
 - **A Trace regenerate no longer deletes doors and zones drawn in the Place tab.** On a project traced with no
   regions, the first region a session added made the regenerate take Place's `door0` / `zone0` for an old
