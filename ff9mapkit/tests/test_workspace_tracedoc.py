@@ -136,7 +136,11 @@ def test_generate_emits_the_tracer_command(app, tmp_path, monkeypatch):
                     "--out", str(tmp_path / "photo-field"),
                     "--name", "HALLWAY", "--id", "30777"]
     assert kw["cwd"] == str(KIT)
-    assert "30777" in kw["ok_next"]                    # the deploy + warp receipt names the id
+    # finding T22: the next step is the app's own Deploy, not an unquoted terminal line (tools/
+    # exists only in a checkout; the installed project folder has a space in it). The warp id is
+    # the deploy verdict's to name: a Build-tab test slot overrides the field's own id.
+    assert "Deploy (F9)" in kw["ok_next"] and "deploy_field.py" not in kw["ok_next"]
+    assert "30777" not in kw["ok_next"]
 
 
 def test_generate_band_checks_the_id(app, tmp_path, monkeypatch):

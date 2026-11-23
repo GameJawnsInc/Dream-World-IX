@@ -1035,8 +1035,13 @@ class TraceDoc(QWidget):
         started = self._run(
             argv, cwd=str(self.kit), subject="Image → field",
             ok_headline=f"{name} generated → {out}",
-            ok_next=f"Deploy it: py tools/deploy_field.py {out / (name + '.field.toml')} "
-                    f"--id {fid} — then ~ → Warp to field → {fid}.",
+            # the app's own Deploy, not a terminal line (tools/ is a checkout's; an installed
+            # project folder has a space in it) -- and no warp id: a Build-tab test slot
+            # overrides the field's own, so the deploy verdict names it (finding T22)
+            ok_next=("It opened in the Editor — press Deploy (F9); the deploy verdict names the "
+                     "warp id." if first else
+                     "Press Deploy (F9) to put the update in the game; the deploy verdict names "
+                     "the warp id."),
             fail_hint="See the Output panel — the usual causes are a vertex above the horizon "
                       "or a floor larger than the Int16 world bound.",
             on_finished=lambda code, _t=str(toml):
