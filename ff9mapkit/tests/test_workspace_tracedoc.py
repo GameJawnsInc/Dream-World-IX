@@ -919,6 +919,128 @@ def test_first_generate_hands_the_project_to_the_shell_once(app, tmp_path, monke
     assert opened == [str(toml)]
 
 
+# ---------------------------------------------------------------------------- the first Generate's folder
+# The folder used to be <parent>/<photo stem>-field, unconditionally. The walkmesh, the base art
+# and the session record are each ONE file in it, so a second photo with the same file name
+# (image.png, photo.jpg, IMG_0001.jpg) silently replaced the first project's art and sidecar
+# (review finding E9). One project per folder; the fences below pin who may reuse one.
+
+def _first_generate(app, photo, parent, monkeypatch, name=None):
+    """A fresh session's FIRST Generate into ``parent``; returns (doc, the --out it chose)."""
+    doc, run = _doc(app)
+    doc.load_image(photo)
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    doc.id_box.setText("30788")
+    if name:
+        doc.name_box.setText(name)
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(parent))
+    doc.on_generate()
+    argv, _kw = run.calls[-1]
+    return doc, Path(argv[argv.index("--out") + 1])
+
+
+def _as_generated(out, name):
+    """What the job writes beside the sidecar the tab already wrote at launch."""
+    (out / "art").mkdir(parents=True, exist_ok=True)
+    (out / "art" / "base.png").write_bytes(b"first project's art")
+    (out / "walkmesh.obj").write_text("v 0 0 0\n", encoding="utf-8")
+    (out / f"{name}.field.toml").write_text(
+        f'[field]\nid = 30788\nname = "{name}"\narea = 11\n', encoding="utf-8")
+
+
+def _two_photos_named_alike(tmp_path):
+    for d in ("day1", "day2", "projects"):
+        (tmp_path / d).mkdir()
+    return (_photo(tmp_path / "day1"), _photo(tmp_path / "day2", size=(640, 480)),
+            tmp_path / "projects")
+
+
+def test_a_second_photo_with_the_same_file_name_gets_its_own_folder(app, tmp_path, monkeypatch):
+    pytest.importorskip("PIL")
+    import json
+    photo_a, photo_b, parent = _two_photos_named_alike(tmp_path)
+    _doc_a, out_a = _first_generate(app, photo_a, parent, monkeypatch, name="CELLAR")
+    assert out_a == parent / "photo-field"
+    _as_generated(out_a, "CELLAR")
+    side_a = out_a / "photo.trace.json"
+    before = side_a.read_bytes()
+    doc_b, out_b = _first_generate(app, photo_b, parent, monkeypatch, name="ATTIC")
+    assert out_b == parent / "photo-field-2"           # NOT the first project's folder
+    assert side_a.read_bytes() == before               # its session record is untouched
+    assert json.loads(side_a.read_text(encoding="utf-8"))["name"] == "CELLAR"
+    assert json.loads((out_b / "photo.trace.json").read_text(encoding="utf-8"))["name"] == "ATTIC"
+    assert "photo-field" in doc_b.status.text() and "another project" in doc_b.status.text()
+    _as_generated(out_b, "ATTIC")
+    _doc_c, out_c = _first_generate(app, photo_b.parent.parent / "day1" / "photo.png", parent,
+                                    monkeypatch, name="LOFT")
+    assert out_c == parent / "photo-field-3"           # ...and the next one counts on
+
+
+def test_a_same_named_photo_does_not_merge_into_the_default_named_project(app, tmp_path,
+                                                                          monkeypatch):
+    """The likeliest collision of all: BOTH sessions keep the default name. The second photo
+    would MERGE into the first project's PICTURE.field.toml, keeping its hand content while
+    swapping the art and the floor under it."""
+    pytest.importorskip("PIL")
+    photo_a, photo_b, parent = _two_photos_named_alike(tmp_path)
+    _doc_a, out_a = _first_generate(app, photo_a, parent, monkeypatch)
+    _as_generated(out_a, "PICTURE")
+    _doc_b, out_b = _first_generate(app, photo_b, parent, monkeypatch)
+    assert out_b == parent / "photo-field-2"
+
+
+def test_re_tracing_the_same_photo_under_the_same_name_updates_its_project(app, tmp_path,
+                                                                           monkeypatch):
+    """A fresh session on the SAME photo and name is a re-trace: it regenerates the project in
+    its own folder (the merge keeps hand content) instead of scattering -2, -3 copies."""
+    pytest.importorskip("PIL")
+    (tmp_path / "projects").mkdir()
+    photo = _photo(tmp_path)
+    _doc_a, out_a = _first_generate(app, photo, tmp_path / "projects", monkeypatch, name="CELLAR")
+    _as_generated(out_a, "CELLAR")
+    doc_b, out_b = _first_generate(app, photo, tmp_path / "projects", monkeypatch, name="CELLAR")
+    assert out_b == out_a
+    assert "another project" not in doc_b.status.text()
+
+
+def test_the_same_photo_under_a_new_name_does_not_share_a_folder(app, tmp_path, monkeypatch):
+    """One walkmesh.obj and one base.png per folder: a second FIELD traced from the same photo
+    into the same folder would replace the floor under the first field's toml."""
+    pytest.importorskip("PIL")
+    (tmp_path / "projects").mkdir()
+    photo = _photo(tmp_path)
+    _doc_a, out_a = _first_generate(app, photo, tmp_path / "projects", monkeypatch, name="CELLAR")
+    _as_generated(out_a, "CELLAR")
+    _doc_b, out_b = _first_generate(app, photo, tmp_path / "projects", monkeypatch, name="ATTIC")
+    assert out_b == tmp_path / "projects" / "photo-field-2"
+
+
+def test_a_folder_that_is_not_this_photos_project_is_never_written_into(app, tmp_path,
+                                                                        monkeypatch):
+    pytest.importorskip("PIL")
+    photo = _photo(tmp_path)
+    parent = tmp_path / "projects"
+    (parent / "photo-field").mkdir(parents=True)
+    (parent / "photo-field" / "notes.txt").write_text("mine", encoding="utf-8")
+    _doc_a, out = _first_generate(app, photo, parent, monkeypatch)
+    assert out == parent / "photo-field-2"
+    assert sorted(p.name for p in (parent / "photo-field").iterdir()) == ["notes.txt"]
+
+
+def test_an_empty_folder_and_a_failed_first_attempt_are_reused(app, tmp_path, monkeypatch):
+    """No litter: an empty folder is free, and a first Generate that FAILED left only this
+    photo's sidecar behind -- the retry goes back into the same folder, not into -2."""
+    pytest.importorskip("PIL")
+    photo = _photo(tmp_path)
+    parent = tmp_path / "projects"
+    (parent / "photo-field").mkdir(parents=True)
+    _doc_a, out_a = _first_generate(app, photo, parent, monkeypatch)
+    assert out_a == parent / "photo-field"             # empty -> free
+    assert (out_a / "photo.trace.json").is_file()      # the launch wrote the session record
+    _doc_b, out_b = _first_generate(app, photo, parent, monkeypatch)
+    assert out_b == out_a                              # only OUR sidecar in it -> ours to retry
+
+
 def test_after_generate_opens_the_toml_captured_at_launch(app, tmp_path, monkeypatch):
     """The on_finished payload is resolved AT LAUNCH: an author who switches projects while
     the job runs must not have the NEW project's path opened by the OLD job's finish."""

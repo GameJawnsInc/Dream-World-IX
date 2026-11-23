@@ -12,6 +12,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   ever deleted now. A project made before 1.0.0b20 keeps its old `door0` / `zone0` rows: one whose exact quad the
   run draws again is renamed to its `traced_` twin (listed under "retook"), the rest stay as your own rows, and
   reopening such a project's `field.toml` no longer pulls them into the Trace session.
+- **Two photos with the same file name no longer share a project folder.** The Trace tab's first Generate wrote to
+  `<photo name>-field` whatever was already there, so a second `image.png` or `IMG_0001.jpg` replaced the first
+  project's art, floor and session record — and merged into its `field.toml` when both kept the default name. A
+  first Generate now reuses a folder only when it is empty or is already that same photo's project under the same
+  field name; otherwise it writes to `<photo name>-field-2` (then `-3`, ...) and the status line says so.
 
 ### Changed — World tab: faster, and the window no longer freezes while it works
 - **Undo, Redo and every Accept no longer reload the whole 3D map.** Only the blocks whose files changed are drawn
