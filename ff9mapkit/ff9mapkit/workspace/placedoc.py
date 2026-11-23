@@ -574,17 +574,27 @@ class PlaceDoc(QWidget):
             self._sync_modes()
             self._refresh()
 
+    @staticmethod
+    def _is_file(a, b) -> bool:
+        """One file under two spellings (a junction, a subst drive, another case) is still one."""
+        try:
+            return os.path.samefile(a, b)
+        except (OSError, ValueError):
+            return os.path.normcase(os.path.abspath(str(a))) == os.path.normcase(os.path.abspath(str(b)))
+
     def forget_surface(self, path):
         """Drop every cached surface built from the PROJECT file ``path``: its walkmesh, camera
         or art changed on disk (a Trace regenerate), and a project surface is read from disk
         once and then served from this cache for the whole session — so the art and the floor
-        the clicks raycast would stay the OLD ones, even across a Load click. A donor room's
-        surface (``("real", id)``) is the install's, not this file's, and stays."""
-        want = os.path.normcase(os.path.abspath(str(path)))
-        for key in [k for k in self._bundles
-                    if k[0][0] == "project"
-                    and os.path.normcase(os.path.abspath(k[0][1])) == want]:
+        the clicks raycast would stay the OLD ones, even across a Load click. A load of it still
+        IN FLIGHT read the old files too: its result is thrown away when it lands. A donor
+        room's surface (``("real", id)``) is the install's, not this file's, and stays."""
+        def ours(source):
+            return source is not None and source[0] == "project" and self._is_file(source[1], path)
+        for key in [k for k in self._bundles if ours(k[0])]:
             del self._bundles[key]
+        if self._loading is not None and ours(self._loading[0]):
+            self._stale_load = self._loading
 
     # ---------------------------------------------------------------- surface load
     def _cam_index(self):
@@ -613,13 +623,21 @@ class PlaceDoc(QWidget):
     def _on_loaded(self, bundle):
         self._loading = None
         self.load_btn.setEnabled(True)
-        self._bundles[(bundle["source"], bundle["cam_index"])] = bundle
+        key = (bundle["source"], bundle["cam_index"])
+        if getattr(self, "_stale_load", None) == key:  # forget_surface ran while this one was
+            self._stale_load = None                    # reading the OLD files: never cache it
+            if bundle["source"] == self._source:
+                self._refresh("The room changed on disk while it was loading — press Load the "
+                              "room again.", "warn")
+            return
+        self._bundles[key] = bundle
         if bundle["source"] != self._source or bundle["cam_index"] != self._cam_index():
             return                                  # the user moved on mid-load: cached, not applied
         self._apply_bundle(bundle, refit=True)
 
     def _on_load_failed(self, msg):
         self._loading = None
+        self._stale_load = None
         self.load_btn.setEnabled(True)
         self._refresh(f"Could not load the room: {msg}", "error")
 

@@ -190,6 +190,22 @@ def test_forget_surface_drops_a_projects_cached_room_and_only_that(app, tmp_path
     assert d._loading == key                           # handing over the stale cached surface
 
 
+def test_a_load_in_flight_when_the_file_changed_is_thrown_away(app, tmp_path):
+    """The loader started reading BEFORE the regenerate rewrote the files: its result is the old
+    room. It must not be cached or applied just because it lands after ``forget_surface``."""
+    d, _ = _doc(app)
+    path = tmp_path / "ROOM.field.toml"
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)
+    key = (d._source, 0)
+    d._loading = key                                   # a load of this project is in flight
+    d.forget_surface(path)
+    d._on_loaded(dict(_bundle(), source=d._source))    # ...and lands with the OLD files
+    assert key not in d._bundles and not d.canvas._surface_tris
+    assert "changed on disk" in d.status.text() and d.load_btn.isEnabled()
+    d._on_loaded(dict(_bundle(), source=d._source))    # the load the author then asks for is good
+    assert key in d._bundles and d.canvas._surface_tris
+
+
 def test_a_field_with_no_file_on_disk_still_refuses(app):
     """The surface is resolved FROM THE FILE, so an unsaved doc has nothing to resolve. The
     refusal moved from provenance to that -- it did not disappear."""

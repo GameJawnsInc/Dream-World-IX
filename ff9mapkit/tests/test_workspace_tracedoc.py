@@ -979,6 +979,21 @@ def test_generate_asks_first_and_a_refusal_starts_nothing(app, tmp_path, monkeyp
     assert len(run.calls) == 2 and side.read_bytes() != before
 
 
+def test_renaming_an_armed_project_is_refused_not_written_beside_it(app, tmp_path, monkeypatch):
+    """The folder holds ONE floor and ONE set of art. A regenerate under a new Name wrote a
+    second field.toml beside the first and replaced the walkmesh and art under it: the first
+    field kept its old [camera] over a floor that no longer matched, and nothing was told."""
+    pytest.importorskip("PIL")
+    doc, run, toml = _armed(app, tmp_path, monkeypatch)
+    doc.name_box.setText("ATTIC")
+    doc.on_generate()
+    assert len(run.calls) == 1                         # nothing launched under the new name
+    assert "PICTURE" in doc.status.text() and "second field.toml" in doc.status.text()
+    doc.name_box.setText("PICTURE")
+    doc.on_generate()
+    assert len(run.calls) == 2 and run.calls[1][0][run.calls[1][0].index("--name") + 1] == "PICTURE"
+
+
 # ---------------------------------------------------------------------------- the first Generate's folder
 # The folder used to be <parent>/<photo stem>-field, unconditionally. The walkmesh, the base art
 # and the session record are each ONE file in it, so a second photo with the same file name

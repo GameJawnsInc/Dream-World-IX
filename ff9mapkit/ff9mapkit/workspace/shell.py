@@ -5210,28 +5210,47 @@ class Workspace(QMainWindow):
                     return member
         return None
 
+    def _fold_form_of(self, member) -> bool:
+        """Fold the mounted Editor form IF it is ``member``'s (a half-typed form is an edit of that
+        field). False only when it is that member's and will not fold. A form on ANOTHER member is
+        none of this field's business: folding it here blamed a clean field for someone else's
+        bad value, and a "No" to the question that followed kept this field's stale buffer."""
+        ctx = self._save_ctx
+        if not ctx or ctx.get("member") != member:
+            return True
+        return self._commit_active_ck()
+
     def _trace_can_generate(self, toml):
         """Asked by the Trace tab before EVERY Generate: a refusal sentence, or None to proceed.
-        Refuses while the target file is open here with unsaved edits (a pending form counts --
-        it is folded first, the way Save All and Check fold it)."""
+        Refuses while the target file is open here with edits the disk has not seen (its own
+        pending form counts -- it is folded first, the way Save All and Check fold it). "Edits"
+        means the buffer DIFFERS from the last save: a field merely touched and put back by hand
+        is clean, and Save All (which writes only real differences) could never clear a refusal
+        that counted it."""
+        self._trace_launch = None
         member = self._member_for_path(toml)
         if member is None or member not in self._docs:
             return None
-        if not self._commit_active_ck():
+        if not self._fold_form_of(member):
             return (f"{member} has an invalid value in its open Editor form — fix it (see Problems), "
                     f"then Generate.")
-        if member in self._unsaved():
+        if member in self._dirty_members():
             return (f"{member} has unsaved edits — Save All first (Ctrl+Shift+S). Generate merges "
                     f"with the file on disk, so unsaved edits would be left out of it and then "
                     f"saved back over it.")
+        # what this window had saved when the job was let go: a save DURING the job moves it, and
+        # then neither the file nor the buffer can be trusted to hold both writes (_trace_regenerated)
+        self._trace_launch = (member, copy.deepcopy(self._clean.get(member)))
         return None
 
     def _trace_regenerated(self, toml):
         """A Trace regenerate of ``toml`` FINISHED (clean or not -- the job writes before it
         reports, so the exit code does not say whether the file moved; the disk does). Reload it
         if it is open here and no longer what this window last read or wrote. Edits made while the
-        job ran are never dropped without asking; whatever the answer, Place's cached surface of
-        that project (read from the old walkmesh) is forgotten."""
+        job ran are never dropped without asking. Whatever happens to the buffer, every tab's
+        view of that field is rebuilt: the job may have replaced walkmesh.obj and the art under a
+        toml that came out identical, and Place's surface and the staging mesh are read from those."""
+        launch, self._trace_launch = getattr(self, "_trace_launch", None), None
         if getattr(self, "place_doc", None) is not None:
             self.place_doc.forget_surface(toml)
         member = self._member_for_path(toml)
@@ -5241,21 +5260,41 @@ class Workspace(QMainWindow):
             on_disk = FieldDoc.load(self.member_paths[member]).data
         except Exception:                              # noqa: BLE001 -- unreadable: _reload_member says so
             on_disk = None
-        if on_disk is not None and on_disk == self._clean.get(member):
-            return                                     # the file is still what we hold: nothing moved
-        pending_ok = self._commit_active_ck()          # a half-typed form is an edit too
-        if not pending_ok or member in self._unsaved():
-            name = Path(toml).name
+        saved_mid_job = (launch is not None and launch[0] == member
+                         and launch[1] != self._clean.get(member))
+        if on_disk is not None and on_disk == self._clean.get(member) and not saved_mid_job:
+            self._refresh_field_tabs(member)           # the toml did not move; its floor and art may have
+            return
+        name = Path(toml).name
+        if not self._fold_form_of(member) or member in self._dirty_members():
             if not self._confirm(
                     "Regenerated on disk",
                     f"Trace regenerated {name} while {member} had unsaved edits here.\n\n"
                     f"Reload it from disk and drop those edits?\n\n"
                     f"No keeps your edits — but saving them will overwrite the regenerated file."):
+                self._refresh_field_tabs(member)
                 self._show_problems(
                     fb.Verdict(fb.WARN, f"{member}: kept your unsaved edits over a regenerated file",
                                f"{name} on disk is the regenerated one; Save All will overwrite it"), [])
                 return
         self._reload_member(member)
+        if saved_mid_job:                              # the two writers raced: say so, never guess
+            self._show_problems(
+                fb.Verdict(fb.WARN, f"{member} was saved while Trace was regenerating it",
+                           f"one of the two may have overwritten the other — {name} was reloaded "
+                           f"from disk; check it, then Regenerate again"), [])
+
+    def _refresh_field_tabs(self, member):
+        """Drop the Behavior / Cutscene / Place tabs' per-field state for ``member`` and feed them
+        again: a warm walkmesh, an armed surface, an open step editor all describe files that may
+        just have been replaced. Cheap by contract (the feeds read no disk)."""
+        for tab in (getattr(self, "behavior_doc", None), getattr(self, "cutscene_doc", None),
+                    getattr(self, "place_doc", None)):
+            if tab is not None and getattr(tab, "_member", None) == member:
+                tab.show_none()
+        self._feed_behavior()
+        self._feed_cutscene()
+        self._feed_place()
 
     def _reload_member(self, member) -> bool:
         """Replace ``member``'s buffer with its file AS IT IS ON DISK NOW (an out-of-band writer
@@ -5295,20 +5334,13 @@ class Workspace(QMainWindow):
             self.tree.blockSignals(False)
         self._refresh_dirty_marks()
         self._refresh_undo_actions()
-        for tab in (getattr(self, "behavior_doc", None), getattr(self, "cutscene_doc", None),
-                    getattr(self, "place_doc", None)):
-            if tab is not None and getattr(tab, "_member", None) == member:
-                tab.show_none()                        # warm walkmesh / armed surface / open step editor:
-        #                                                all of it describes the file that was replaced
         if on_member and mi is not None:
             node = (self._object_item(member, sel[1], kind=sel[0]) if sel else None) or mi
             if self.tree.currentItem() is node:
                 self._on_select()                      # selection unchanged -> remount manually
             else:
                 self.tree.setCurrentItem(node)         # -> _on_select remounts + re-feeds the showing tab
-        self._feed_behavior()                          # cheap by contract (no disk); the showing tab is
-        self._feed_cutscene()                          # current either way, a hidden one re-feeds on show
-        self._feed_place()
+        self._refresh_field_tabs(member)
         self.statusBar().showMessage(f"{member} reloaded from disk — Trace regenerated it", 5000)
         return True
 

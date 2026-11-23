@@ -227,3 +227,143 @@ def test_edits_made_while_the_job_ran_are_never_dropped_without_asking(win, tmp_
     else:
         assert len(data["npc"]) == 1 and "gateway" not in data     # theirs, untouched
         assert _NAME in win._unsaved()
+
+
+# --------------------------------------------------------------- the adversarial pass over the fix
+# Each of these is a way the first cut of the T38 fix could still lose work, found by reviewers
+# told to break it (or a line of it that no test noticed being removed).
+
+def _moved_floor():
+    return [(100.0, 220.0), (280.0, 220.0), (340.0, 430.0), (40.0, 430.0)]
+
+
+def test_the_reload_drops_redo_steps_too(win, tmp_path):
+    """Edit then Undo: the buffer is clean again, and the edit waits on the REDO stack as a whole
+    pre-regenerate document. A Redo after the reload would bring the old file back."""
+    photo, toml = _project(tmp_path)
+    assert win.open_field(toml)
+    _place_an_npc(win)
+    win._undo()
+    assert any(r.member == _NAME for r in win._redo_stack) and _NAME not in win._dirty_members()
+    _regenerate(photo, toml, gateways=[_DOOR])
+    win.trace_doc._after_generate(0, False, str(toml))
+    assert not any(r.member == _NAME for r in win._redo_stack)
+    win._redo()
+    assert [g["name"] for g in win._doc(_NAME).data["gateway"]] == ["traced_door0"]
+    assert "npc" not in win._doc(_NAME).data
+
+
+def test_the_reload_rebuilds_the_form_that_was_mounted_over_the_old_buffer(win, tmp_path):
+    """A single-section form resolves its target by NAME, so one left mounted over the old
+    document would write its old values into the new one the next time it folded."""
+    photo, toml = _project(tmp_path)
+    assert win.open_field(toml)
+    win.tree.setCurrentItem(win._member_items[_NAME])
+    win._open_editor(_NAME, "object", "player")
+    old_ctx = win._save_ctx
+    old_spawn = win._doc(_NAME).data["player"]["spawn"]
+    _regenerate(photo, toml, floor=_moved_floor())
+    win.trace_doc._after_generate(0, False, str(toml))
+    new_spawn = _disk(toml)["player"]["spawn"]
+    assert new_spawn != old_spawn                      # the premise: the regenerate moved it
+    assert win._save_ctx is not old_ctx                # not the form built from the old rows
+    win._save_all()                                    # nothing mounted can write the old spawn back
+    assert _disk(toml)["player"]["spawn"] == new_spawn
+
+
+def test_unsaved_edits_are_not_questioned_when_the_disk_did_not_move(win, tmp_path, monkeypatch):
+    """'Did the file move' is judged against the last SAVE, not against the live buffer: a
+    failed job that wrote nothing must not offer to drop the author's unsaved edits."""
+    _photo, toml = _project(tmp_path)
+    assert win.open_field(toml)
+    _place_an_npc(win)                                 # unsaved; the disk is untouched
+    asked = []
+    monkeypatch.setattr(win, "_confirm", lambda title, text: asked.append(text) or True)
+    win.trace_doc._after_generate(1, False, str(toml))
+    assert asked == [] and len(win._doc(_NAME).data["npc"]) == 1
+
+
+def test_text_typed_into_the_projects_form_counts_as_an_unsaved_edit(win, tmp_path, monkeypatch):
+    """Typed but not yet folded: the refusal folds it first (as Save All does) and then sees it."""
+    _photo, toml = _project(tmp_path)
+    assert win.open_field(toml)
+    td = win.trace_doc
+    td.load_project(toml)
+    run = _Run()
+    monkeypatch.setattr(td, "_run", run)
+    win._open_editor(_NAME, "object", "player")
+    win._save_ctx["getters"]["spawn"].__self__.setText("11, 22")
+    td.on_generate()
+    assert run.calls == [] and "unsaved" in td.status.text()
+    assert win._doc(_NAME).data["player"]["spawn"] == [11, 22]     # folded, not thrown away
+
+
+def test_another_fields_open_form_is_none_of_this_fields_business(win, tmp_path, monkeypatch):
+    """The mounted form may belong to ANOTHER member. Folding it here blamed a clean field for
+    that form's bad value, and a 'No' to the false question kept this field's stale buffer."""
+    photo, toml = _project(tmp_path)
+    assert win.open_field(toml)
+    win._open_editor(_NAME, "field", "field")
+    win._save_ctx["member"] = "SOMEONE_ELSE"           # a form on a different member, mid-edit
+    folds = []
+    monkeypatch.setattr(win, "_commit_active_ck", lambda: folds.append(1) or False)
+    asked = []
+    monkeypatch.setattr(win, "_confirm", lambda title, text: asked.append(text) or False)
+    assert win._trace_can_generate(str(toml)) is None and folds == []   # not folded, not blamed
+    _regenerate(photo, toml, gateways=[_DOOR])
+    win._trace_regenerated(str(toml))
+    assert asked == []                                 # ...and no false "unsaved edits" question
+    assert [g["name"] for g in win._doc(_NAME).data["gateway"]] == ["traced_door0"]
+
+
+def test_a_field_touched_and_put_back_does_not_block_generate_forever(win, tmp_path, monkeypatch):
+    """Touched-but-identical is not an unsaved edit: Save All writes only real differences, so a
+    refusal that counted the touch could never be cleared."""
+    _photo, toml = _project(tmp_path)
+    assert win.open_field(toml)
+    win._touch(_NAME)
+    assert _NAME in win._unsaved() and _NAME not in win._dirty_members()
+    td = win.trace_doc
+    td.load_project(toml)
+    run = _Run()
+    monkeypatch.setattr(td, "_run", run)
+    td.on_generate()
+    assert len(run.calls) == 1
+
+
+def test_the_tabs_drop_the_old_floor_even_when_the_toml_came_out_identical(win, tmp_path):
+    """The job replaces walkmesh.obj and the art beside the toml. Place's armed surface and the
+    staging mesh are read from THOSE, so an unchanged toml is no reason to keep them."""
+    from ff9mapkit.scene import guide
+    _photo, toml = _project(tmp_path)
+    assert win.open_field(toml)
+    win.tabs.setCurrentWidget(win.place_doc)
+    pd = win.place_doc
+    floor = [((-1000.0, 0.0, 500.0), (1000.0, 0.0, 500.0), (1000.0, 0.0, 2500.0))]
+    bundle = {"donor": None, "source": pd._source, "cam_index": 0, "n_cams": 1,
+              "cam": guide.make_camera(26.0, 3000.0, fov_x_deg=42.0), "png": None,
+              "tris": floor, "floors": [0]}
+    pd._bundles[(pd._source, 0)] = bundle
+    pd._apply_bundle(bundle, refit=True)
+    assert pd.canvas._surface_tris
+    buffer = win._doc(_NAME)
+    win.trace_doc._after_generate(0, False, str(toml))  # nothing in the toml moved
+    assert win._doc(_NAME) is buffer                   # so the buffer stays...
+    assert pd.canvas._surface_tris == [] and pd._bundles == {}   # ...and the old floor does not
+
+
+def test_a_save_during_the_job_is_never_silently_the_winner(win, tmp_path, monkeypatch):
+    """Nothing stops a Save All while the job runs. Whichever write landed last, the other is
+    gone, and the two cases look identical afterwards -- so the window reloads what is on disk
+    and SAYS the two raced, instead of quietly trusting either."""
+    photo, toml = _project(tmp_path)
+    assert win.open_field(toml)
+    assert win._trace_can_generate(str(toml)) is None   # the job is let go
+    _place_an_npc(win)
+    win._save_all()                                    # ...and a save lands while it runs
+    said = []
+    monkeypatch.setattr(win, "_show_problems", lambda verdict, problems: said.append(verdict))
+    _regenerate(photo, toml, gateways=[_DOOR])
+    win.trace_doc._after_generate(0, False, str(toml))
+    assert win._doc(_NAME).data == _disk(toml)         # the buffer is exactly the file
+    assert any("saved while Trace was regenerating" in v.headline for v in said)

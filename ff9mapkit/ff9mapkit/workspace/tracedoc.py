@@ -119,8 +119,9 @@ class TraceDoc(QWidget):
         self.can_generate = can_generate              # (toml) -> a refusal sentence, or None: asked
         #                                               before EVERY Generate (the shell refuses
         #                                               while that file has unsaved edits here)
-        self.on_regenerated = on_regenerated          # (toml): a clean IN-PLACE regenerate rewrote
-        #                                               it -- the shell reloads its stale buffer
+        self.on_regenerated = on_regenerated          # (toml): an IN-PLACE regenerate FINISHED,
+        #                                               clean or not -- the shell looks at the disk
+        #                                               and reloads the buffer it holds if it moved
         # Default output base: the repo parent for a checkout; an installed copy writes to a
         # discoverable user folder instead (ImportDoc's own rule, same reason).
         self.proj_base = (self.kit.parent if (self.kit / "pyproject.toml").is_file()
@@ -897,6 +898,15 @@ class TraceDoc(QWidget):
         moved = ""
         if self._project is not None:                  # set up once -> every later Generate is
             out = Path(self._project["out"])           # IN PLACE (owner-asked; no dialog)
+            was = str(self._project.get("name") or "")
+            if was and name != was and (out / f"{was}.field.toml").is_file():
+                # the folder holds ONE floor and ONE set of art: a new name would write a second
+                # field.toml beside the first and replace the walkmesh and art under it -- the
+                # first field keeps its old [camera] over a floor that no longer matches
+                self._refresh(f"This project is {was}: a different name would write a second "
+                              f"field.toml over the same floor and art. Put the name back to "
+                              f"{was} to regenerate it.", "error")
+                return
         else:
             parent = self._ask_out()
             if not parent:
