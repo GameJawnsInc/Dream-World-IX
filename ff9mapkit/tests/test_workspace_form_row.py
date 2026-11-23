@@ -424,3 +424,11 @@ def test_a_place_drop_updates_the_inspector_contents_beside_the_tree(win):
     assert "1 prop" in win.insp_body.text(), win.insp_body.text()
     pd._on_region_deleted(_row(pd, "g0"))
     assert "2 gateways" in win.insp_body.text(), win.insp_body.text()
+    # ...and by Ctrl+Z / Ctrl+Y (review of P30): undo lands through _apply_history ->
+    # _goto_focus('place'), which with the field row already current only re-feeds Place
+    win._undo()
+    assert "3 gateways" in win.insp_body.text(), win.insp_body.text()
+    win._undo()
+    assert "prop" not in win.insp_body.text(), win.insp_body.text()
+    win._redo()
+    assert "1 prop" in win.insp_body.text(), win.insp_body.text()

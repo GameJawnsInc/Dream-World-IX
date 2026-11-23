@@ -5205,14 +5205,7 @@ class Workspace(QMainWindow):
                     self.tree.setCurrentItem(node)
         else:
             self._resync_mounted_form(member)
-        self._feed_place()
-        # the Inspector beside the tree re-reads the same doc (its CONTENTS tally said '1 NPC'
-        # while the tree said 'Props (1)', finding P30). Render-only, the _on_thumb_ready precedent:
-        # _inspect rewrites the card and commits nothing.
-        cur = self.tree.currentItem()
-        fa = self._ancestor_field(cur) if cur is not None else None
-        if fa is not None and self._payload(fa)[1] == member:
-            self._inspect(cur, self._payload(cur), member)
+        self._feed_place()                             # (re-renders the Inspector too, P30)
 
     def _feed_place(self):
         """Push the OPEN field's parsed dict into the Place doc — the same one feed contract as
@@ -5231,6 +5224,14 @@ class Workspace(QMainWindow):
         doc.show_field(member, fd.data, self.member_paths.get(member),
                        dirty=member in set(self._dirty_members()),
                        scene=self._place_scene(member, fd))
+        # the Inspector beside the tree re-reads the same doc (its CONTENTS tally said '1 NPC'
+        # while the tree said 'Props (1)', finding P30). HERE, not in _on_place_edit: an undo of a
+        # drop reaches Place only through this feed. Render-only, the _on_thumb_ready precedent:
+        # _inspect rewrites the card and commits nothing.
+        cur = self.tree.currentItem()
+        fa = self._ancestor_field(cur) if cur is not None else None
+        if fa is not None and self._payload(fa)[1] == member:
+            self._inspect(cur, self._payload(cur), member)
 
     def _place_scene(self, member, fd):
         """The parsed scene.toml the build would overlay on ``member`` right now, or None. Found
