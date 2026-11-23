@@ -5219,8 +5219,36 @@ class Workspace(QMainWindow):
         if fd is None:
             doc.show_none()
             return
+        # ...and its Blender scene.toml, which the build overlays (scene wins per key): Place shows
+        # what it places and refuses to write what it owns (finding P2)
         doc.show_field(member, fd.data, self.member_paths.get(member),
-                       dirty=member in set(self._dirty_members()))
+                       dirty=member in set(self._dirty_members()),
+                       scene=self._place_scene(member, fd))
+
+    def _place_scene(self, member, fd):
+        """The parsed scene.toml the build would overlay on ``member`` right now, or None. Found
+        where the build finds it (``[scene] file``, else the sibling -- FieldDoc.load's resolver)
+        and re-read when its mtime moves, like the Editor's scene banner: a Blender re-export
+        reaches Place on its next feed, not only on reopen (``fd.scene_data`` is the open-time
+        copy)."""
+        from ..editor.model import _find_scene_path
+        path = self.member_paths.get(member)
+        sp = _find_scene_path(Path(path), fd.data) if path else None
+        try:
+            mtime = sp.stat().st_mtime
+        except (OSError, AttributeError):
+            return None
+        cache = self.__dict__.setdefault("_place_scene_cache", {})
+        hit = cache.get(str(sp))
+        if hit is not None and hit[0] == mtime:
+            return hit[1]
+        try:
+            import tomllib
+            sd = tomllib.loads(sp.read_text(encoding="utf-8"))
+        except Exception:                                   # noqa: BLE001 -- malformed: nothing to overlay
+            sd = None
+        cache[str(sp)] = (mtime, sd)
+        return sd
 
     # ---- the Trace lane and the project that is OPEN here (review finding T38) ----
     # A Trace regenerate rewrites <name>.field.toml IN PLACE, merging with the file ON DISK, while

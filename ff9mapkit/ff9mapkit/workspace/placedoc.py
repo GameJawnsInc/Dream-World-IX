@@ -59,12 +59,13 @@ _DEFAULT_PROP = "barrel"          # neutral set-dressing (NOT "chest" — a real
 # --------------------------------------------------------------------- pure placement ops
 # Each op mutates the OPEN doc's dict and returns the undo label the shell records. One op per
 # drop — the StageCanvas/behaviorscan discipline, so a place gesture is exactly one undo step.
-def place_npc(data: dict, x, z) -> str:
+def place_npc(data: dict, x, z, taken=()) -> str:
     # No dialogue by default (THE DEFAULT-VALUE LAW, rung-4 playtests): a hand-rolled "..."
     # placeholder ships a fake window; dialogue-less, the build's silent-talk channel emits
     # the CANONICAL FF9 silent line on both lanes (word it in the Editor when it should speak).
+    # ``taken``: names the scene.toml already uses -- the build merges rows BY NAME (finding P2).
     lst = data.setdefault("npc", [])
-    nm = _names.fresh_npc_name(n.get("name") for n in lst if isinstance(n, dict))
+    nm = _names.fresh_npc_name([n.get("name") for n in lst if isinstance(n, dict)] + list(taken))
     lst.append({"name": nm, "preset": "vivi",
                 "pos": [int(round(x)), int(round(z))]})
     return f"place NPC {nm}"
@@ -96,8 +97,8 @@ def set_arrival(data: dict, entrance, x, z) -> str:
     return f"place arrival {int(entrance)}"
 
 
-def _fresh_name(prefix, rows) -> str:
-    names = {e.get("name") for e in rows if isinstance(e, dict)}
+def _fresh_name(prefix, rows, taken=()) -> str:
+    names = {e.get("name") for e in rows if isinstance(e, dict)} | set(taken)
     n = 0
     while f"{prefix}{n}" in names:
         n += 1
@@ -108,12 +109,12 @@ def _zone_ints(quad) -> list:
     return [[int(round(x)), int(round(z))] for x, z in quad]
 
 
-def place_gateway(data: dict, quad, to, entrance=0) -> str:
+def place_gateway(data: dict, quad, to, entrance=0, taken=()) -> str:
     """Append a ``[[gateway]]`` from a drawn quad. Corner ORDER is authored geometry — the
     canvas emits the click order, and corners 0→1 become the walk-out edge the exit walks
-    the player across (rotate via the canvas menu)."""
+    the player across (rotate via the canvas menu). ``taken``: the scene.toml's names."""
     lst = data.setdefault("gateway", [])
-    nm = _fresh_name("door", lst)
+    nm = _fresh_name("door", lst, taken)
     row = {"name": nm, "to": int(to), "zone": _zone_ints(quad)}
     if int(entrance):
         row["entrance"] = int(entrance)
@@ -121,11 +122,11 @@ def place_gateway(data: dict, quad, to, entrance=0) -> str:
     return f"draw gateway {nm} -> {int(to)}"
 
 
-def place_event(data: dict, quad) -> str:
+def place_event(data: dict, quad, taken=()) -> str:
     """Append a walk-in ``[[event]]`` zone from a drawn quad (message placeholder — the
-    Editor form owns the words)."""
+    Editor form owns the words). ``taken``: the scene.toml's names."""
     lst = data.setdefault("event", [])
-    nm = _fresh_name("zone", lst)
+    nm = _fresh_name("zone", lst, taken)
     lst.append({"name": nm, "message": "...", "zone": _zone_ints(quad)})
     return f"draw event {nm}"
 
@@ -565,6 +566,7 @@ class PlaceDoc(QWidget):
     # ---------------------------------------------------------------- the shell feed
     def show_none(self):
         self._member = self._data = self._path = self._donor = self._source = None
+        self._scene = {}
         self._blocked = None
         self._verbatim = False
         self._region_rows_cache = []
@@ -583,16 +585,23 @@ class PlaceDoc(QWidget):
         self._sync_load_tip()
         self._refresh()
 
-    def show_field(self, member, data, path, *, dirty=False):
+    def show_field(self, member, data, path, *, dirty=False, scene=None):
         """The one feed: the OPEN doc's parsed dict (by reference — the ops mutate exactly the
         buffer the Editor and Save see). Cheap by design: no disk here (the startup-spend law);
-        the donor surface loads on the user's own Load click."""
+        the donor surface loads on the user's own Load click.
+
+        ``scene``: the parsed Blender ``scene.toml`` the build overlays on this field (scene wins
+        per key, rows merged by name -- ``build._merge_scene``). Place SHOWS what it places where
+        the build puts it, marked as Blender's, and refuses to move, retarget or delete it or to
+        set a [player] key it sets: those writes would land in the field.toml and the build would
+        ship the scene's value anyway (finding P2). Never written."""
         from .. import build                        # lazy: the resolver, not the builder
         # "The same field" is the same SURFACE SOURCE (a project's own file, or a donor room), never
         # just the same name: every traced project is called PICTURE, and a name match kept the
         # previous room's art and walkmesh armed while clicks wrote into the new doc (finding P5).
         old = (self._member, self._source)
         self._member, self._data = member, data
+        self._scene = scene if isinstance(scene, dict) else {}
         self._path = Path(path) if path else None
         self._donor = build.donor_field_id(data)
         self._verbatim = bool(data.get("verbatim_eb"))
@@ -607,7 +616,7 @@ class PlaceDoc(QWidget):
         # A fork that ships its OWN scene art ([[layers]]: an `import --editable` fork) is placed on
         # its own surface even though it records its donor: its walkmesh.obj may be reshaped and its
         # layers repainted, and the donor's real room would not show either.
-        own_scene = bool(data.get("layers"))
+        own_scene = bool(data.get("layers") or self._scene.get("layers"))   # (the scene's win)
         self._source = (("real", self._donor) if self._donor is not None and not own_scene
                         else ("project", str(self._path)) if self._path else None)
         same = old == (self._member, self._source)
@@ -872,6 +881,53 @@ class PlaceDoc(QWidget):
             w.setVisible(gw)
         self._on_mode_toggled()
 
+    # ---------------------------------------------------------------- the Blender scene (P2)
+    def _view(self) -> dict:
+        """The field as the build sees it: the open doc with its scene.toml overlaid. Read-only --
+        every write goes to ``self._data``."""
+        if not self._scene or self._data is None:
+            return self._data or {}
+        from .. import build
+        return build._merge_scene(self._data, self._scene)
+
+    def _scene_names(self, kind) -> set:
+        return {e.get("name") for e in self._scene.get(kind, []) or []
+                if isinstance(e, dict) and e.get("name")}
+
+    def _scene_player(self, key) -> bool:
+        pl = self._scene.get("player")
+        return isinstance(pl, dict) and key in pl
+
+    @staticmethod
+    def _blender_says(what):
+        return (f"Placed in Blender — {what} comes from the scene.toml (scene wins at build). "
+                "Change it in Blender and re-export; F5 to refresh.")
+
+    def _scene_refusal(self, r, key):
+        """Why Place must not write ``key`` of canvas row ``r`` (None = delete it), else None."""
+        srow = r.get("scene")
+        if srow is None:
+            return None
+        name = srow.get("name")
+        if r.get("data_index") is None:
+            return (f"Placed in Blender — {name} lives only in the scene.toml; change or delete "
+                    "it in Blender and re-export (F5 to refresh).")
+        if key is None:
+            return (f"Placed in Blender — {name}'s zone comes from the scene.toml, so deleting it "
+                    "here would still ship the scene's one. Delete it in Blender and re-export; "
+                    "F5 to refresh.")
+        if key in srow:
+            return self._blender_says(f"{name}'s {key}")
+        return None
+
+    def _refuse_for_scene(self, r, key) -> bool:
+        why = self._scene_refusal(r, key)
+        if why is None:
+            return False
+        self._refresh_regions()                     # a dragged quad snaps back to where it ships
+        self._refresh(why, "warn")
+        return True
+
     def _on_rkind_toggled(self, on=False):
         self._sync_tool_clusters()
         if on and getattr(self, "status", None) is not None:   # (construction checks one first)
@@ -884,7 +940,19 @@ class PlaceDoc(QWidget):
             self._region_rows_cache = []
             self.canvas.set_regions([])
             return
-        self._region_rows_cache = region_rows(self._data)
+        view = self._view()
+        rows = region_rows(view)                     # judged as the build ships them
+        for r in rows:
+            # the merge keeps the field's rows in order and appends scene-only ones, so a row
+            # below the field list's length IS that field row; past it, there is none to write
+            n_own = len(self._data.get(r["kind"], []) or [])
+            r["data_index"] = r["index"] if r["index"] < n_own else None
+            name = (view.get(r["kind"]) or [])[r["index"]].get("name")
+            r["scene"] = next((e for e in self._scene.get(r["kind"], []) or []
+                               if isinstance(e, dict) and name and e.get("name") == name), None)
+            if r["scene"] is not None:
+                r["label"] += " (Blender)"
+        self._region_rows_cache = rows
         self.canvas.set_regions(self._region_rows_cache)
 
     def _on_region_drawn(self, quad):
@@ -893,10 +961,11 @@ class PlaceDoc(QWidget):
             return
         if self.rkind_btns["gateway"].isChecked():
             to = self.gw_to.value()
-            label = place_gateway(self._data, quad, to, self.gw_ent.value())
+            label = place_gateway(self._data, quad, to, self.gw_ent.value(),
+                                  taken=self._scene_names("gateway"))
             note = label + ("" if to else " — set its target ('to field', or the Editor form)")
         else:
-            note = label = place_event(self._data, quad)
+            note = label = place_event(self._data, quad, taken=self._scene_names("event"))
         if self.on_edit:
             self.on_edit(self._member, label)
         self._refresh_regions()
@@ -906,7 +975,9 @@ class PlaceDoc(QWidget):
         if self._data is None or not 0 <= i < len(self._region_rows_cache):
             return
         r = self._region_rows_cache[i]
-        label = move_zone(self._data, r["kind"], r["index"], quad)
+        if self._refuse_for_scene(r, "zone"):
+            return
+        label = move_zone(self._data, r["kind"], r["data_index"], quad)
         if self.on_edit:
             self.on_edit(self._member, label)
         self._refresh_regions()
@@ -916,7 +987,9 @@ class PlaceDoc(QWidget):
         if self._data is None or not 0 <= i < len(self._region_rows_cache):
             return
         r = self._region_rows_cache[i]
-        label = delete_region(self._data, r["kind"], r["index"])
+        if self._refuse_for_scene(r, None):
+            return
+        label = delete_region(self._data, r["kind"], r["data_index"])
         if self.on_edit:
             self.on_edit(self._member, label)
         self._refresh_regions()
@@ -926,9 +999,9 @@ class PlaceDoc(QWidget):
         if self._data is None or not 0 <= i < len(self._region_rows_cache):
             return
         r = self._region_rows_cache[i]
-        if r["kind"] != "gateway":
+        if r["kind"] != "gateway" or self._refuse_for_scene(r, "to"):
             return
-        cur = (self._data.get("gateway", []) or [])[r["index"]].get("to")
+        cur = (self._data.get("gateway", []) or [])[r["data_index"]].get("to")
         if cur is not None and not isinstance(cur, int):   # "worldmap" (or any non-id): the id
             self._refresh(f"{r['label']} goes to the world map ({cur!r}), not a field — change "   # dialog
                           "where it leads in the Editor form (Gateways).", "warn")   # cannot say it
@@ -936,7 +1009,7 @@ class PlaceDoc(QWidget):
         to = self._ask_field_id(cur or 0)
         if to is None:
             return
-        label = set_gateway_target(self._data, r["index"], to)
+        label = set_gateway_target(self._data, r["data_index"], to)
         if self.on_edit:
             self.on_edit(self._member, label)
         self._refresh_regions()
@@ -946,9 +1019,9 @@ class PlaceDoc(QWidget):
         if self._data is None or not 0 <= i < len(self._region_rows_cache):
             return
         r = self._region_rows_cache[i]
-        if r["kind"] != "event":
+        if r["kind"] != "event" or self._refuse_for_scene(r, "message"):
             return
-        cur = (self._data.get("event", []) or [])[r["index"]].get("message") or ""
+        cur = (self._data.get("event", []) or [])[r["data_index"]].get("message") or ""
         text = self._ask_message("" if cur == "..." else cur)
         if text is None:
             return
@@ -956,7 +1029,7 @@ class PlaceDoc(QWidget):
             self._refresh(f"Kept {r['label']}'s message — an empty line shows nothing when the "
                           "player walks in. Type the words, or Cancel.", "warn")
             return
-        label = set_event_message(self._data, r["index"], text)
+        label = set_event_message(self._data, r["data_index"], text)
         if self.on_edit:
             self.on_edit(self._member, label)
         self._refresh_regions()
@@ -1008,6 +1081,13 @@ class PlaceDoc(QWidget):
                     "are ignored on it (the donor's real per-door arrivals carry)")
             if self._mode() in ("spawn", "arrival"):
                 self.mode_btns["npc"].setChecked(True)
+        if not blocked:                             # a [player] key the scene.toml sets (P2)
+            for key in ("spawn", "arrival"):
+                if self._scene_player(key):
+                    self.mode_btns[key].setEnabled(False)
+                    self.mode_btns[key].setToolTip(self._blender_says(f"[player] {key}"))
+                    if self._mode() == key:
+                        self.mode_btns["npc"].setChecked(True)
         self._on_mode_toggled()
         self.load_btn.setEnabled(not blocked and self._loading is None)
 
@@ -1043,8 +1123,11 @@ class PlaceDoc(QWidget):
         records the undo step + re-feeds; the marker appears through that round-trip)."""
         x, z = row["xz"]
         mode = self._mode()
+        if mode in ("spawn", "arrival") and self._scene_player(mode):
+            self._refresh(self._blender_says(f"[player] {mode}"), "warn")
+            return
         if mode == "npc":
-            label = place_npc(self._data, x, z)
+            label = place_npc(self._data, x, z, taken=self._scene_names("npc"))
         elif mode == "prop":
             label = place_prop(self._data, x, z)
         elif mode == "spawn":
@@ -1070,13 +1153,19 @@ class PlaceDoc(QWidget):
             return
         from ..scene import cam as _cam
         eye = tuple(_cam.decompose(bundle["cam"])["C"])
+        blender_npcs = {e.get("name") for e in self._scene.get("npc", []) or []
+                        if isinstance(e, dict) and e.get("pos") is not None}
         marks = []
-        for m in content_markers(self._data):
+        for m in content_markers(self._view()):     # where the BUILD puts each thing (P2)
             x, z = m["xz"]
             y = floor_y_at(bundle["tris"], x, z, eye)
             if y is None:
                 continue                            # an empty mesh never got this far, but be safe
-            marks.append({"pos": (x, y, z), "label": m["label"], "kind": m["kind"]})
+            label = m["label"]
+            if ((m["kind"] == "npc" and label in blender_npcs)
+                    or (m["kind"] in ("spawn", "arrival") and self._scene_player(m["kind"]))):
+                label += " (Blender)"
+            marks.append({"pos": (x, y, z), "label": label, "kind": m["kind"]})
         self.canvas.set_markers(marks)
 
     def _refresh(self, note="", state=""):
@@ -1110,7 +1199,7 @@ class PlaceDoc(QWidget):
             if self._verbatim:
                 note += " · verbatim fork: new content seats below the donor's party band"
         elif not note:
-            n = len(content_markers(self._data or {}))
+            n = len(content_markers(self._view()))
             note = (f"Click the walkable footprint to place · {n} placed thing"
                     f"{'' if n == 1 else 's'} shown")
             if self._verbatim:

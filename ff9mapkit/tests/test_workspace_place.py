@@ -1237,6 +1237,116 @@ def test_the_project_backdrop_honours_each_layers_place_and_camera(tmp_path, mon
     assert im1.getpixel((210, 320)) == (40, 40, 200, 255)
 
 
+_SCENE_DOOR = [[500, 500], [600, 500], [600, 600], [500, 600]]
+
+
+def _blender_split(app):
+    """A Blender-split fork: the scene.toml owns [player] spawn, a door's zone, a scene-only
+    door and a scene-only NPC; the field.toml holds door0's logic only."""
+    data = {"field": {"source_field": 351},
+            "gateway": [{"name": "door0", "to": 4005}],
+            "event": [{"name": "zone0", "message": "hi",
+                       "zone": [[-300, 900], [-200, 900], [-200, 1000], [-300, 1000]]}]}
+    scene = {"player": {"spawn": [-100, 1400]},
+             "gateway": [{"name": "door0", "zone": _SCENE_DOOR},
+                         {"name": "door1", "to": 4007,
+                          "zone": [[700, 500], [800, 500], [800, 600], [700, 600]]}],
+             "npc": [{"name": "guard", "pos": [5, 1500]}]}
+    d, calls = _doc(app)
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"), scene=scene)
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    return d, calls, data, scene
+
+
+def test_place_shows_what_the_scene_toml_places_where_the_build_puts_it(app):
+    """Review finding P2. Place was fed only the field.toml, but the build overlays the sibling
+    scene.toml (scene wins per key): Blender's spawn, zones and NPCs were invisible, and the
+    field.toml's own values were drawn where the build does not put them."""
+    d, _calls, _data, _scene = _blender_split(app)
+    marks = {m["label"]: m["pos"] for m in d.canvas._markers}
+    assert any(lb.startswith("spawn") and "Blender" in lb for lb in marks), marks
+    assert any(lb.startswith("guard") and "Blender" in lb for lb in marks), marks
+    d.tools.set_current("regions")
+    by_name = {r["label"].split(" ")[0]: r for r in d.canvas._regions}
+    assert set(by_name) == {"door0", "door1", "zone0"}, by_name
+    assert by_name["door0"]["quad"] == [tuple(map(float, p)) for p in _SCENE_DOOR]
+    assert "Blender" in by_name["door0"]["label"] and "Blender" in by_name["door1"]["label"]
+    assert "Blender" not in by_name["zone0"]["label"]
+
+
+def test_place_refuses_to_move_or_delete_what_the_scene_owns(app, monkeypatch):
+    d, calls, data, _scene = _blender_split(app)
+    d.tools.set_current("regions")
+    i = {r["label"].split(" ")[0]: r["i"] for r in d.canvas._regions}
+    d._on_region_changed(i["door0"], [(510, 500), (610, 500), (610, 600), (510, 600)])
+    assert calls == [] and "zone" not in data["gateway"][0]
+    assert "Blender" in d.status.text() and d.status.property("state") == "warn"
+    for act in (lambda: d._on_region_deleted(i["door0"]),
+                lambda: d._on_region_deleted(i["door1"]),
+                lambda: d._on_region_retarget(i["door1"])):
+        monkeypatch.setattr(d, "_ask_field_id", lambda cur: 300)
+        act()
+        assert calls == [] and "Blender" in d.status.text(), d.status.text()
+    assert [g["name"] for g in data["gateway"]] == ["door0"]
+    monkeypatch.setattr(d, "_ask_field_id", lambda cur: 301)   # door0's TARGET is the field's
+    d._on_region_retarget(i["door0"])
+    assert data["gateway"][0]["to"] == 301 and len(calls) == 1
+    d._on_region_changed(i["zone0"], [(-310, 900), (-210, 900), (-210, 1000), (-310, 1000)])
+    assert data["event"][0]["zone"][0] == [-310, 900] and len(calls) == 2   # the field's own: live
+
+
+def test_place_never_mints_a_name_the_scene_uses_and_leaves_its_spawn_alone(app):
+    d, calls, data, _scene = _blender_split(app)
+    assert not d.mode_btns["spawn"].isEnabled()
+    assert "Blender" in d.mode_btns["spawn"].toolTip()
+    assert d.mode_btns["arrival"].isEnabled()           # the scene sets no arrival
+    d.mode_btns["npc"].setChecked(True)
+    d.tools.set_current("regions")
+    d._on_region_drawn([(-640.0, 900.0), (-540.0, 900.0), (-540.0, 1000.0), (-640.0, 1000.0)])
+    assert data["gateway"][-1]["name"] not in {"door0", "door1"}, data["gateway"]
+    d.mode_btns["spawn"].setChecked(True)               # a disabled radio is still settable in code:
+    d.tools.set_current("place")                        # the drop itself refuses too
+    d._apply_hit({"xz": (0.0, 1500.0), "floor": 0})
+    assert "spawn" not in data.get("player", {}) and "Blender" in d.status.text()
+
+
+def test_the_shell_feeds_place_the_blender_scene(app, tmp_path, monkeypatch):
+    """Review finding P2, the shell half: _feed_place passed only fd.data, so the PlaceDoc never
+    learnt the scene.toml existed. Opened the way a user opens a Blender-split field."""
+    from ff9mapkit import prefs
+    from ff9mapkit.workspace import shell
+    monkeypatch.setattr(prefs, "_path", lambda: tmp_path / "prefs.json")
+    p = tmp_path / "X.field.toml"
+    p.write_text('[field]\nid = 30999\nname = "X"\narea = 11\nsource_field = 351\n',
+                 encoding="utf-8")
+    (tmp_path / "X.scene.toml").write_text("[player]\nspawn = [-100, 1400]\n", encoding="utf-8")
+    w = shell.Workspace(pick_palette("dark"))
+    try:
+        assert w.open_field(p)
+        w.tabs.setCurrentWidget(w.place_doc)            # fires _feed_place
+        QApplication.processEvents()
+        pd = w.place_doc
+        assert pd._member == "X" and pd._scene_player("spawn"), pd._scene
+        assert not pd.mode_btns["spawn"].isEnabled()
+        sc = tmp_path / "X.scene.toml"                   # a Blender re-export drops the spawn
+        sc.write_text('[[npc]]\nname = "guard"\npos = [5, 1500]\n', encoding="utf-8")
+        st = sc.stat()
+        os.utime(sc, (st.st_atime, st.st_mtime + 5))
+        w._feed_place()
+        assert pd.mode_btns["spawn"].isEnabled() and pd._scene_names("npc") == {"guard"}
+    finally:
+        w.hide()
+        w.deleteLater()
+
+
+def test_a_scene_that_carries_the_layers_places_on_the_fields_own_art(app):
+    d, _ = _doc(app)
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"),
+                 scene={"layers": [{"image": "back.png", "z": 1000}]})
+    assert d._source[0] == "project"
+
+
 def test_place_speaks_of_every_lane_not_only_forks(app):
     """Review finding P22. Place serves novel, traced and composed fields too, but its empty
     state sent the author off to fork something, and Load spoke only of a donor."""
