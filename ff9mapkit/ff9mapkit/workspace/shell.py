@@ -4987,6 +4987,7 @@ class Workspace(QMainWindow):
                 and not self._commit_active_ck()):
             self.tabs.setCurrentWidget(self.doc_scroll)    # re-enters this handler for the Editor
             return
+        self._refresh_undo_actions()                       # Trace's Undo is its own (see _on_trace_tab)
         self._mount_behavior_instruments(w is getattr(self, "behavior_doc", None))
         self._mount_cutscene_instruments(w is getattr(self, "cutscene_doc", None))
         if w in (self.doc_scroll, self.map):
@@ -5669,7 +5670,17 @@ class Workspace(QMainWindow):
             return True
         return False
 
+    def _on_trace_tab(self) -> bool:
+        """Trace keeps its OWN gesture history (vertices, cut-outs, regions) and edits no open field, so
+        while it is the current tab Undo means the trace and Redo means nothing: the app-level stack would
+        revert another tab's edit and jump there, leaving the wrong vertex in place (finding T26)."""
+        td = getattr(self, "trace_doc", None)
+        return td is not None and hasattr(self, "tabs") and self.tabs.currentWidget() is td
+
     def _undo(self):
+        if self._on_trace_tab():
+            self.trace_doc.on_undo()
+            return
         if not self._commit_active_ck():           # fold+checkpoint any pending edit FIRST (its own step) so a
             return                                 # typed-but-uncommitted change isn't lost; abort on a bad value
         if not self._undo_stack:
@@ -5679,6 +5690,8 @@ class Workspace(QMainWindow):
         self._apply_history(rec.member, rec.before, rec.focus, f"Undo {rec.label}")
 
     def _redo(self):
+        if self._on_trace_tab():                   # Trace has no redo (see _on_trace_tab)
+            return
         if not self._commit_active_ck():           # (a pending edit is a divergence -> it commits + clears redo)
             return
         if not self._redo_stack:
@@ -5789,6 +5802,12 @@ class Workspace(QMainWindow):
         """Enable/disable + label the toolbar Undo/Redo from the stacks (shows the next op's name)."""
         u = self._undo_stack[-1].label if self._undo_stack else None
         r = self._redo_stack[-1].label if self._redo_stack else None
+        if self._on_trace_tab() and getattr(self, "act_undo", None) is not None:
+            self.act_undo.setEnabled(True)         # on_undo is a no-op on an empty trace history
+            self.act_undo.setToolTip("Undo the last trace gesture (Ctrl+Z)")
+            self.act_redo.setEnabled(False)
+            self.act_redo.setToolTip("Trace has no redo")
+            return
         if getattr(self, "act_undo", None) is not None:
             self.act_undo.setEnabled(bool(u))
             self.act_undo.setToolTip(f"Undo {u} (Ctrl+Z)" if u else "Undo (Ctrl+Z)")

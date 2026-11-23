@@ -410,6 +410,65 @@ def test_a_second_generate_click_does_not_lose_the_first_jobs_launch_record(win,
     assert any("saved while Trace was regenerating" in v.headline for v in said)
 
 
+# ------------------------------------------------------------- Ctrl+Z on the Trace tab (T26)
+def _trace_with_a_field_edit_behind_it(win, app, tmp_path):
+    """An open field with one committed edit on the shell's stack, then the Trace tab with two
+    vertices clicked -- the review's path: edit elsewhere, go to Trace, click a wrong vertex."""
+    photo, toml = _project(tmp_path)
+    assert win.open_field(toml)
+    _place_an_npc(win)
+    _place_an_npc(win)
+    win._undo()                                        # one step on EACH stack: both must stay put
+    assert win._undo_stack and win._redo_stack
+    win.show()
+    win.activateWindow()
+    win.tabs.setCurrentWidget(win.trace_doc)
+    td = win.trace_doc
+    td.load_image(photo)
+    td.canvas._commit_floor([(100, 300)])
+    td.canvas._commit_floor([(100, 300), (280, 300)])
+    td.canvas.setFocus()
+    app.processEvents()
+    return td
+
+
+def test_ctrl_z_on_the_trace_tab_undoes_the_trace_not_another_tabs_edit(win, app, tmp_path):
+    """Finding T26: a REAL Ctrl+Z (through the window's shortcut map) on the Trace canvas undid
+    the open field's last edit and jumped to its tab, leaving the wrong vertex in place."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    td = _trace_with_a_field_edit_behind_it(win, app, tmp_path)
+    stack, redo = list(win._undo_stack), list(win._redo_stack)
+    npcs = len(win._doc(_NAME).data.get("npc") or [])
+    QTest.keyClick(td.canvas, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+    app.processEvents()
+    assert td._floor == [(100, 300)]                   # the trace gesture is taken back ...
+    assert win.tabs.currentWidget() is td              # ... on the tab the author is looking at
+    assert win._undo_stack == stack and win._redo_stack == redo
+    assert len(win._doc(_NAME).data.get("npc") or []) == npcs   # the field edit is untouched
+    QTest.keyClick(td.canvas, Qt.Key.Key_Z,
+                   Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
+    app.processEvents()                                # Trace has no redo: nothing else moves
+    assert td._floor == [(100, 300)] and win._undo_stack == stack and win._redo_stack == redo
+    assert len(win._doc(_NAME).data.get("npc") or []) == npcs
+    assert win.tabs.currentWidget() is td
+
+
+def test_the_toolbar_undo_on_the_trace_tab_acts_on_the_trace(win, app, tmp_path):
+    """The toolbar Undo is the same rule as the key, and says so: on Trace it names the trace,
+    never the other tab's edit it would no longer touch."""
+    td = _trace_with_a_field_edit_behind_it(win, app, tmp_path)
+    stack = list(win._undo_stack)
+    assert "trace" in win.act_undo.toolTip().lower() and win.act_undo.isEnabled()
+    assert not win.act_redo.isEnabled()
+    win.act_undo.trigger()
+    win.act_redo.trigger()
+    assert td._floor == [(100, 300)] and win._undo_stack == stack
+    assert win.tabs.currentWidget() is td
+    win.tabs.setCurrentWidget(win.doc_scroll)          # off Trace, the app-level labels come back
+    assert win.act_undo.toolTip().startswith("Undo place NPC")
+
+
 # ------------------------------------------------------------- the job pipe speaks UTF-8 (E10)
 def _run_real_job(win, app, code):
     """A REAL run_job: a Python child through the shell's own QProcess, waited out."""
