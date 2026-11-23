@@ -737,3 +737,68 @@ def test_elide_button_yields_with_an_honest_ellipsis(app):
     assert b.text() != full and b.text().endswith("…"), "squeezed: an honest elide, never a chop"
     assert b.accessibleName() == full, "the full string survives for a11y"
     assert b.sizeHint().width() == hint_before, "the hint is pinned -- eliding must not move the layout"
+
+
+# The child that measures ElideButtons on the NATIVE platform: offscreen stubs the font DB, so a width
+# read there is fiction (the skill's probe law). WA_DontShowOnScreen: nothing reaches the screen.
+_NATIVE_ELIDE_CHILD = r'''
+import json, sys
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QWidget
+app = QApplication([])
+import ff9mapkit
+from ff9mapkit.editor import theme
+from ff9mapkit.workspace import style, widgets
+from ff9mapkit.workspace.shell import _apply_app_theme
+pal = theme.pick_palette("mist")
+_apply_app_theme(app, pal)
+labels = ["＋ Step", "Settings", "⧉ Scene", "− Scene", "▶ Storyboard",
+          "Search anything  (Ctrl-K)", "Regenerate PICTURE — in place"]
+elided = []
+for scale in (100, 110, 125, 150):
+    host = QWidget()
+    host.setStyleSheet(style.qss(pal, "comfortable", scale))
+    lay = QHBoxLayout(host)
+    btns = []
+    for t in labels:
+        b = widgets.ElideButton(t)
+        b.setProperty("role", "quiet")
+        lay.addWidget(b)
+        btns.append(b)
+    lay.addStretch(1)                          # room to spare: each button sits at its own hint
+    host.resize(4000, 120)
+    host.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+    host.show()
+    app.processEvents()
+    for b in btns:
+        if b.width() == b.sizeHint().width() and b.text() != b.accessibleName():
+            elided.append(f"{scale}%: {b.accessibleName()!r} -> {b.text()!r} at w{b.width()}")
+    host.hide()
+print(json.dumps({"platform": app.platformName(), "file": ff9mapkit.__file__, "elided": elided}))
+'''
+
+
+def test_an_elide_button_at_its_own_hint_shows_its_whole_label_natively():
+    """Finding C17: sizeHint truncated the fractional text advance while the elide measures at
+    sub-pixel precision, so a button laid out at EXACTLY its own hint elided its own label: the
+    Cutscene scene bar read '+ St...' and 'Sce...' at the default window, in every theme. Native
+    platform only -- every offscreen width is fiction."""
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    import ff9mapkit
+    pkg_root = Path(ff9mapkit.__file__).resolve().parent.parent
+    env = {k: v for k, v in os.environ.items() if k != "QT_QPA_PLATFORM"}
+    env["PYTHONIOENCODING"] = "utf-8"
+    r = subprocess.run([sys.executable, "-c", _NATIVE_ELIDE_CHILD], capture_output=True, timeout=300,
+                       env=env, cwd=str(pkg_root))
+    lines = r.stdout.decode("utf-8", "replace").strip().splitlines()
+    if r.returncode != 0 or not lines:
+        pytest.skip(f"no native Qt platform here: {r.stderr.decode('utf-8', 'replace')[-300:]}")
+    out = json.loads(lines[-1])
+    if out["platform"] in ("offscreen", "minimal"):
+        pytest.skip(f"no native font database ({out['platform']})")
+    assert Path(out["file"]).resolve().is_relative_to(pkg_root)      # measured THIS checkout's widget
+    assert out["elided"] == [], "\n".join(out["elided"])

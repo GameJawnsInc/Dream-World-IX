@@ -6,6 +6,8 @@ PySide6-only: the application-wide wheel guard (:class:`WheelGuard`) and the emp
 
 from __future__ import annotations
 
+import math
+
 from PySide6.QtCore import QEvent, QObject, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontInfo, QFontMetricsF, QPainter
 from PySide6.QtWidgets import (
@@ -536,8 +538,10 @@ class ElideButton(QPushButton):
 
     def sizeHint(self):                       # pinned to the FULL string (NameLabel's law)
         sh = super().sizeHint()
-        fm = self.fontMetrics()
-        return QSize(int(fm.horizontalAdvance(self._full)) + self._pad(), sh.height())
+        # the CEILING of the sub-pixel advance: _elide measures at sub-pixel precision, so a truncated
+        # int hint elided the button's own label at exactly its own width ('+ St…', finding C17)
+        adv = QFontMetricsF(self.font()).horizontalAdvance(self._full)
+        return QSize(math.ceil(adv) + self._pad(), sh.height())
 
     def resizeEvent(self, ev):
         super().resizeEvent(ev)
