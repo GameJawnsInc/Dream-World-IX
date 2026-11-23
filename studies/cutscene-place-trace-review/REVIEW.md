@@ -31,6 +31,37 @@ loader, and `lint` / `build` of a traced project. Floorplan hand-offs to Trace a
 driven. The 15 explore-pass findings (ids `E…`) were reproduced by the explorer that found them; only
 E9 and E10 were re-checked by a second reader.
 
+## Fixed since (2026-11-23)
+
+The four data-loss bugs of section 2 are fixed on `claude/cutscene-place-trace-review-36f8ca`. Each fix
+has tests that fail without it. The fixes were then attacked by six reviewers (one per fix, a mutation
+tester that reverted each change to see whether a test noticed, and a regression / visual checker);
+they found 41 things, and the ones that could lose work were fixed in a second round. Everything below
+section 1 describes the code BEFORE these commits.
+
+| Finding | Now | Commits |
+|---|---|---|
+| **P1** wrong-row form fold | Fixed. A form follows its row by identity (fold, Save, Delete, Reset); Behavior / Cutscene / Place fold the pending form on entry; a form left mounted is rebuilt when those tabs change its row. | a124e79c, ef140dc3 |
+| **T1** regenerate deletes Place rows | Fixed. Only a `traced_` row is ever deleted. A pre-prefix row is renamed only when the run re-emits its exact quad (through the new camera or the one the file records). Keys added by hand to a traced row now survive. | 07d8212c, 5b5741ca |
+| **T38** stale open buffer | Fixed. Generate refuses over unsaved edits; every regenerate finish reloads the open project if its file changed and rebuilds the tabs' view of it; the undo history of the old copy is dropped. | 44859994, 1a4e622b, eef8242d |
+| **E9** same-named photos | Fixed. A photo opened fresh never writes into a folder that holds a project, not even its own; it takes `-2`, `-3`, … | 6ba1b55c, ece23708 |
+| T15 rename writes a second toml | Fixed with T38: an open Trace project refuses a different Name. | eef8242d |
+| P4 Place caches a project's surface | Narrowed: dropped whenever Trace regenerates. Still cached across other changes on disk. | 44859994 |
+
+**Still open after the fixes** (found while attacking them; not fixed):
+
+- A traced row's target, entrance and message come from the Trace session, so a retarget or reword made
+  in Place is overwritten by the next regenerate. It is now named under "retook" instead of silent, but
+  not prevented. Who owns those values is a design decision.
+- `traced_` names are numbered by position, so deleting a session region renumbers the ones after it;
+  "removed" then names the last number, not the door that went.
+- The session record (`.trace.json`) is written when the job starts. A regenerate the backend refuses
+  leaves the record ahead of the compiled project (same family as T8).
+- E10 (a non-cp1252 character makes a successful Generate report as failed) is not fixed; the reload no
+  longer depends on the exit code, but the first-Generate hand-off to the Editor still does.
+- A save that lands while the job runs is reported, not prevented.
+- None of this has been played in the game or driven by hand in the app.
+
 ## 1. The numbers
 
 139 findings stand: **4 data-loss bugs, 23 major, 88 minor, 24 nits.**

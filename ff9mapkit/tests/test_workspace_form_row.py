@@ -73,6 +73,15 @@ def _mount(win, key="gateway:1"):
     assert win._save_ctx and win._save_ctx["key"] == key
 
 
+def _select(win, key="gateway:1"):
+    """Mount a row's form the way a user does: by selecting its row in the tree."""
+    item = win._object_item(_M, key)
+    assert item is not None, f"the tree has no row for {key}"
+    win.tree.setCurrentItem(item)
+    QApplication.processEvents()
+    assert win._save_ctx and win._save_ctx["key"] == key
+
+
 def _type(win, field, text):
     """Type into the mounted form's REAL widget (its getter is the widget's bound method), and do
     not navigate: the edit is pending, exactly as a user leaves it when they click another tab."""
@@ -287,7 +296,7 @@ def test_identity_tells_two_rows_with_equal_contents_apart(win):
 
 
 def test_a_row_that_moved_takes_its_key_header_and_tree_row_with_it(win):
-    _mount(win)                                        # gateway:1 -- "g1"
+    _select(win)                                       # gateway:1 -- "g1", selected in the tree
     win.tabs.setCurrentWidget(win.place_doc)
     pd = _arm_place(win)
     pd._on_region_deleted(_row(pd, "g0"))
@@ -299,7 +308,7 @@ def test_a_row_that_moved_takes_its_key_header_and_tree_row_with_it(win):
 
 
 def test_a_form_whose_row_was_deleted_on_the_art_is_replaced_and_the_tree_moves_on(win):
-    _mount(win)
+    _select(win)
     win.tabs.setCurrentWidget(win.place_doc)
     pd = _arm_place(win)
     pd._on_region_deleted(_row(pd, "g1"))
@@ -318,3 +327,16 @@ def test_the_behavior_and_cutscene_tabs_resync_the_form_too(win, hook):
     getattr(win, hook)(_M, "an edit made in that tab")
     ctx = win._save_ctx
     assert forms.build_entity(ctx["spec"], read(ctx["getters"]))["to"] == 4242
+
+
+def test_a_place_edit_leaves_a_selection_on_the_field_row_where_it_was(win):
+    """The field's own row is not rebuilt by a Place edit, so a selection parked on it must not
+    be moved onto its 'Field' child (same form, different row -- the snap diff caught the jump)."""
+    mi = win._member_items[_M]
+    win.tree.setCurrentItem(mi)                        # the Field form mounts for the member row
+    win._on_select()
+    assert win._save_ctx and win._save_ctx["key"] == "field"
+    win.tabs.setCurrentWidget(win.place_doc)
+    pd = _arm_place(win)
+    pd._on_region_deleted(_row(pd, "g0"))
+    assert win.tree.currentItem() is mi

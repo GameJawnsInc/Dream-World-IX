@@ -5162,17 +5162,21 @@ class Workspace(QMainWindow):
         self._touch(member)
         self._checkpoint(member, label, "place")
         if member in getattr(self, "_member_items", {}):
+            mi = self._member_items[member]
+            cur = self.tree.currentItem()              # a CHILD row is about to be rebuilt away; the
+            on_child = (cur is not None and cur is not mi          # member row itself survives, and a
+                        and self._ancestor_field(cur) is mi)       # selection parked there must stay put
             self.tree.blockSignals(True)
             self._refresh_objects(member)
             had = self._save_ctx
             self._resync_mounted_form(member)          # the Editor form behind this tab follows its row
             ctx = self._save_ctx                       # ...and the tree lands back on that row (the
-            if ctx and ctx.get("member") == member:    # rebuilt rows are NEW items; signals are blocked,
-                it = self._object_item(member, ctx["key"])   # so nothing re-mounts or folds here)
+            if on_child and ctx and ctx.get("member") == member:   # rebuilt rows are NEW items; signals
+                it = self._object_item(member, ctx["key"])   # are blocked, so nothing re-mounts or folds)
                 if it is not None:
                     self.tree.setCurrentItem(it)
             self.tree.blockSignals(False)
-            if had and had.get("member") == member and self._save_ctx is None:
+            if on_child and had and had.get("member") == member and self._save_ctx is None:
                 # its row was deleted on the art: land on that list's group row, UNblocked, so the
                 # Inspector, breadcrumb and Editor stop describing a row that no longer exists
                 node = (self._object_item(member, had["section"], kind="group")
