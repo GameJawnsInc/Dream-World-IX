@@ -1101,7 +1101,17 @@ class TraceDoc(QWidget):
         goes straight IN PLACE."""
         import json
         data = json.loads(Path(path).read_text(encoding="utf-8"))
-        self.load_image(data["image"])                 # clears floor/fg/history/project
+        photo = Path(str(data.get("image") or ""))
+        if not photo.is_file():                        # moved, deleted, another machine (T10):
+            tomls = sorted(Path(path).parent.glob("*.field.toml"))   # the project's own art is
+            if not tomls:                                           # the exact crop -- rebuild
+                raise ValueError(f"its source photo {photo} is missing (moved or deleted), and "
+                                 f"this folder has no field.toml to rebuild the session from")
+            self.load_project(tomls[0], sidecar=False,
+                              lead=f"⚠ the source photo {photo.name} is missing — reopened from "
+                                   f"the project's own art (art/base.png).")
+            return
+        self.load_image(photo)                         # clears floor/fg/history/project
         self._distance = float(data.get("distance", imagefield.DEFAULT_DISTANCE))
         self._fov = float(data.get("fov", imagefield.DEFAULT_FOV))
         self.pitch.setValue(int(data.get("pitch", imagefield.DEFAULT_PITCH)))
@@ -1132,16 +1142,17 @@ class TraceDoc(QWidget):
         self._refresh(f"Reopened {Path(path).name} — Generate updates the project in place."
                       + drift, "warn" if drift else "")
 
-    def load_project(self, path):
+    def load_project(self, path, *, sidecar=True, lead=""):
         """Reopen a generated image-field PROJECT from its field.toml: prefer the folder's
-        ``.trace.json`` session record; without one (a pre-sidecar project) BACKFILL the
-        session from the compiled artifacts themselves — the walkmesh ring inverted back
-        through the -48u collision outset, the [camera] pitch, and the generator's own
-        anchored-contact comments. Either way the project ends armed for in-place Generate."""
+        ``.trace.json`` session record; without one (a pre-sidecar project, or ``sidecar=False``:
+        a record whose photo is gone) BACKFILL the session from the compiled artifacts themselves
+        — the walkmesh ring inverted back through the -48u collision outset, the [camera] pitch,
+        and the generator's own anchored-contact comments. Either way the project ends armed for
+        in-place Generate. ``lead`` heads the status (why this route was taken)."""
         import re
         import tomllib
         path = Path(path)
-        side = sorted(path.parent.glob("*.trace.json"))
+        side = sorted(path.parent.glob("*.trace.json")) if sidecar else []
         if side:
             self.load_trace(side[0])
             return
@@ -1184,20 +1195,20 @@ class TraceDoc(QWidget):
                                      f"Trace session cannot carry it, and regenerating would "
                                      f"delete it. Rename it in the Editor (drop the traced_ "
                                      f"prefix) to keep it as your own row, then reopen")
+        ring = []                                      # read + judged BEFORE any state lands (T16):
+        for line in (path.parent / obj_rel).read_text(encoding="utf-8").splitlines():
+            if line.startswith("v "):                  # a missing/ringless obj used to leave the
+                p = line.split()                       # art showing over an empty, unarmed trace
+                ring.append((float(p[1]), float(p[3])))
+        if len(ring) < 3:
+            raise ValueError(f"{obj_rel} has no walkmesh ring to invert")
         self.load_image(path.parent / base_rel)        # the flattened base IS the photo, 1:1
         self._distance = float(cam_tbl.get("distance", imagefield.DEFAULT_DISTANCE))
         self._fov = float(cam_tbl.get("fov", imagefield.DEFAULT_FOV))
         self.pitch.setValue(int(round(float(cam_tbl.get("pitch", imagefield.DEFAULT_PITCH)))))
         self.canvas.set_backdrop(self._pixmap, self._camera(), refit=False)  # the pose lands
         cam = self.canvas.camera()                     # even when the pitch did not change
-        ring = []
-        for line in (path.parent / obj_rel).read_text(encoding="utf-8").splitlines():
-            if line.startswith("v "):
-                p = line.split()
-                ring.append((float(p[1]), float(p[3])))
-        if len(ring) < 3:
-            raise ValueError(f"{obj_rel} has no walkmesh ring to invert")
-        inner = imagefield.outset_polygon(ring, -imagefield.COLLISION_OUTSET)
+        inner =imagefield.outset_polygon(ring, -imagefield.COLLISION_OUTSET)
         self._floor = [(round(cx, 1), round(cy, 1))
                        for cx, cy in (imagefield.world_to_click(cam, p) for p in inner)]
         self.canvas.set_floor(self._floor)
@@ -1245,9 +1256,10 @@ class TraceDoc(QWidget):
         self._refresh_cutouts()
         self._refresh_regions()
         drift = self._pitch_drift_note(cam_tbl.get("pitch", imagefield.DEFAULT_PITCH))
-        self._refresh(f"Reopened {path.name} — session REBUILT from the compiled project (no "
-                      f".trace.json yet; the next Generate writes one). Generate goes in place."
-                      + drift, "warn" if drift else "")
+        how = ("" if lead else " (no .trace.json yet; the next Generate writes one)")
+        self._refresh((f"{lead} " if lead else "")
+                      + f"Reopened {path.name} — session REBUILT from the compiled project{how}. "
+                        f"Generate goes in place." + drift, "warn" if (drift or lead) else "")
 
     # ------------------------------------------------------------------ the open-field offer
     def offer_project(self, path):
@@ -1266,8 +1278,12 @@ class TraceDoc(QWidget):
         if pristine:
             try:
                 self.load_project(self._offer_path)
-            except Exception:                          # noqa: BLE001 -- not a traceable project
+            except Exception as e:                     # noqa: BLE001 -- not a traceable project
                 self._offer_rejected = self._offer_path
+                # said, quietly (muted, not an error): the author did not ask for this load, but
+                # a project that half-looked like one used to vanish with no reason (T16)
+                self._refresh(f"{Path(self._offer_path).name} (the open field) was not loaded "
+                              f"here: {e}")
             return
         self.offer_btn.setText(f"Load {Path(self._offer_path).stem.replace('.field', '')} "
                                f"(the open field)")

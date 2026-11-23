@@ -1486,6 +1486,67 @@ def test_a_zone_drawn_beyond_the_int16_world_is_refused_at_the_click(app, tmp_pa
     assert "Int16" in doc.status.text() and doc.status.property("state") == "warn"
 
 
+def _project_whose_photo_is_gone(tmp_path):
+    """A built project + its session record, then the source photo deleted (moved, another PC)."""
+    import json
+    toml, floor = _built_project(tmp_path, with_fg=False)
+    photo = tmp_path / "room.png"
+    side = toml.parent / "room.trace.json"
+    side.write_text(json.dumps({"image": str(photo), "pitch": 21, "floor": [list(p) for p in floor],
+                                "fg": [], "regions": [], "name": "HALL3", "id": "30779"}),
+                    encoding="utf-8")
+    photo.unlink()
+    return toml, side
+
+
+@pytest.mark.parametrize("route", ["trace", "toml", "offer"])
+def test_a_project_whose_photo_is_gone_reopens_from_its_own_art(app, tmp_path, route):
+    """Finding T10: the session record names the photo by its absolute path; once it moved, every
+    reopen failed ('Could not open X.field.toml: No such file ... photo') -- and the open-field
+    offer failed silently -- although art/base.png, the exact crop, sat in the project."""
+    pytest.importorskip("PIL")
+    toml, side = _project_whose_photo_is_gone(tmp_path)
+    doc, _ = _doc(app)
+    if route == "trace":
+        doc.load_trace(side)
+    elif route == "toml":
+        doc.load_project(toml)
+    else:
+        doc.offer_project(toml)
+    assert doc._image == toml.parent / "art" / "base.png"
+    assert doc._project and doc._project["out"] == str(toml.parent) and len(doc._floor) == 4
+    assert "room.png" in doc.status.text() and "missing" in doc.status.text()
+    assert doc.status.property("state") == "warn"
+
+
+def test_a_missing_photo_with_nothing_to_rebuild_from_names_the_photo(app, tmp_path):
+    pytest.importorskip("PIL")
+    import json
+    side = tmp_path / "x.trace.json"
+    side.write_text(json.dumps({"image": str(tmp_path / "gone.png"), "floor": []}), encoding="utf-8")
+    doc, _ = _doc(app)
+    with pytest.raises(ValueError, match="gone.png"):
+        doc.load_trace(side)
+    assert doc._image is None
+
+
+def test_a_broken_project_is_refused_before_any_state_lands(app, tmp_path):
+    """Finding T16: load_project showed the project's art BEFORE reading walkmesh.obj, so a missing
+    obj left the art on the canvas with an empty trace and no project -- and on the auto-offer
+    path, with no word at all. Every refusal now comes first, and the offer says why."""
+    pytest.importorskip("PIL")
+    toml, _floor = _built_project(tmp_path, with_fg=False)
+    (toml.parent / "walkmesh.obj").unlink()
+    doc, _ = _doc(app)
+    with pytest.raises(OSError):
+        doc.load_project(toml)
+    assert doc._image is None and doc._project is None
+    doc2, _ = _doc(app)
+    doc2.offer_project(toml)
+    assert doc2._image is None and doc2._offer_rejected == str(toml)
+    assert "HALL3" in doc2.status.text() and "walkmesh.obj" in doc2.status.text()
+
+
 def test_the_canvas_keeps_a_usable_minimum(app):
     """The canvas had no minimum of its own (66 px, the scroll area's). A floor ABOVE what the
     window can give overpaints the rows below, so it is modest: 96 px (measured natively, the
