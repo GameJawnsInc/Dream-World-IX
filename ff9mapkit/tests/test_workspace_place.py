@@ -169,6 +169,27 @@ def test_an_editable_fork_places_on_its_own_surface_despite_its_donor(app):
     assert d._source == ("real", 2507)
 
 
+def test_forget_surface_drops_a_projects_cached_room_and_only_that(app, tmp_path):
+    """A project surface is read from disk ONCE and then served from the cache for the whole
+    session -- Load returns the cached one. When the file's walkmesh or camera is rewritten (a
+    Trace regenerate), ``forget_surface`` is what makes the next Load read the new floor
+    (review finding T38; the shell calls it from the regenerate hook)."""
+    d, _ = _doc(app)
+    path = tmp_path / "ROOM.field.toml"
+    other = tmp_path / "OTHER.field.toml"
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)
+    key = (d._source, 0)
+    assert key[0] == ("project", str(path))
+    d._bundles[key] = dict(_bundle(), source=d._source)
+    d._bundles[(d._source, 1)] = dict(_bundle(), source=d._source, cam_index=1)   # every camera
+    d._bundles[(("project", str(other)), 0)] = dict(_bundle(), source=("project", str(other)))
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d.forget_surface(str(path).upper() if os.name == "nt" else path)   # a path, however it is cased
+    assert sorted(k[0] for k in d._bundles) == sorted([("project", str(other)), ("real", 351)])
+    d.on_load()                                        # ...so Load goes back to disk instead of
+    assert d._loading == key                           # handing over the stale cached surface
+
+
 def test_a_field_with_no_file_on_disk_still_refuses(app):
     """The surface is resolved FROM THE FILE, so an unsaved doc has nothing to resolve. The
     refusal moved from provenance to that -- it did not disappear."""

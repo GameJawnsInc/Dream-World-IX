@@ -1783,7 +1783,9 @@ class Workspace(QMainWindow):
         # generate a walkable field — the image→field on-ramp as a first-class surface. Streams
         # the same `image-field` CLI through run_job; touches no disk until Open/Generate.
         self.trace_doc = TraceDoc(self.pal, KIT, run=self.run_job, problems=self._show_problems,
-                                  scale=self._text_scale, on_generated=self.open_field)
+                                  scale=self._text_scale, on_generated=self.open_field,
+                                  can_generate=self._trace_can_generate,
+                                  on_regenerated=self._trace_regenerated)
         self.tabs.addTab(self.trace_doc, "Trace")
         # the multiplayer ghost-sync front door: host/join a session point-and-click (wraps `ff9mapkit coop`;
         # the setup streams through run_job, the ws->wss bridge runs in-process inside this app).
@@ -5167,6 +5169,120 @@ class Workspace(QMainWindow):
             return
         doc.show_field(member, fd.data, self.member_paths.get(member),
                        dirty=member in set(self._dirty_members()))
+
+    # ---- the Trace lane and the project that is OPEN here (review finding T38) ----
+    # A Trace regenerate rewrites <name>.field.toml IN PLACE, merging with the file ON DISK, while
+    # this window may hold that same file as an open, editable buffer. Two things must then be
+    # true, and neither used to be: the merge must not run while the buffer has edits the disk has
+    # not seen (they would be left out of the regenerate and later saved back OVER it), and the
+    # buffer must not outlive the rewrite (Save All then writes the old file back -- the session's
+    # new doors, events and camera gone, the regenerated walkmesh kept, so floor and camera no
+    # longer agree).
+
+    def _member_for_path(self, path):
+        """The open member whose field.toml IS ``path``, or None when that file is not open here."""
+        for member, p in (getattr(self, "member_paths", None) or {}).items():
+            try:
+                if os.path.samefile(p, path):
+                    return member
+            except OSError:
+                if os.path.normcase(os.path.abspath(str(p))) == os.path.normcase(os.path.abspath(str(path))):
+                    return member
+        return None
+
+    def _trace_can_generate(self, toml):
+        """Asked by the Trace tab before EVERY Generate: a refusal sentence, or None to proceed.
+        Refuses while the target file is open here with unsaved edits (a pending form counts --
+        it is folded first, the way Save All and Check fold it)."""
+        member = self._member_for_path(toml)
+        if member is None or member not in self._docs:
+            return None
+        if not self._commit_active_ck():
+            return (f"{member} has an invalid value in its open Editor form — fix it (see Problems), "
+                    f"then Generate.")
+        if member in self._unsaved():
+            return (f"{member} has unsaved edits — Save All first (Ctrl+Shift+S). Generate merges "
+                    f"with the file on disk, so unsaved edits would be left out of it and then "
+                    f"saved back over it.")
+        return None
+
+    def _trace_regenerated(self, toml):
+        """The Trace tab REWROTE ``toml`` in place (a clean regenerate). Reload it if it is open
+        here. Edits made while the job ran are never dropped without asking; whatever the answer,
+        Place's cached surface of that project (read from the old walkmesh) is forgotten."""
+        if getattr(self, "place_doc", None) is not None:
+            self.place_doc.forget_surface(toml)
+        member = self._member_for_path(toml)
+        if member is None or member not in self._docs:
+            return                                     # not open (or never loaded): the next read is fresh
+        pending_ok = self._commit_active_ck()          # a half-typed form is an edit too
+        if not pending_ok or member in self._unsaved():
+            name = Path(toml).name
+            if not self._confirm(
+                    "Regenerated on disk",
+                    f"Trace regenerated {name} while {member} had unsaved edits here.\n\n"
+                    f"Reload it from disk and drop those edits?\n\n"
+                    f"No keeps your edits — but saving them will overwrite the regenerated file."):
+                self._show_problems(
+                    fb.Verdict(fb.WARN, f"{member}: kept your unsaved edits over a regenerated file",
+                               f"{name} on disk is the regenerated one; Save All will overwrite it"), [])
+                return
+        self._reload_member(member)
+
+    def _reload_member(self, member) -> bool:
+        """Replace ``member``'s buffer with its file AS IT IS ON DISK NOW (an out-of-band writer
+        moved it), and make every surface that showed the old buffer follow: the mounted form, the
+        tree rows, the three doc tabs' per-field state. The member's undo history goes too -- each
+        step is a snapshot of the WHOLE pre-rewrite document, so one Undo and a Save All would
+        write the old file back as surely as the stale buffer did. Stays on the current tab."""
+        try:
+            doc = FieldDoc.load(self.member_paths[member])
+        except Exception as e:                         # noqa: BLE001
+            self._show_problems(fb.Verdict(fb.ERROR, f"Could not reload {member} from disk"),
+                                [fb.Problem(fb.ERROR, str(e))])
+            return False
+        item = self.tree.currentItem()
+        fa = self._ancestor_field(item) if item is not None else None
+        on_member = fa is not None and (self._payload(fa) or (None, None))[1] == member
+        sel = None
+        if on_member and item is not fa:
+            p = self._payload(item)
+            if p and p[0] in ("object", "group"):
+                sel = (p[0], p[2])                     # the row to land back on (rebuilt rows are NEW items)
+        if self._save_ctx and self._save_ctx.get("member") == member:
+            self._clear_doc()                          # its getters read a form built from the old rows
+        self._docs[member] = doc
+        self._clean[member] = copy.deepcopy(doc.data)
+        self._touched.discard(member)
+        self._undo_stack[:] = [r for r in self._undo_stack if r.member != member]
+        self._redo_stack[:] = [r for r in self._redo_stack if r.member != member]
+        self._seed_undo_base(member)
+        self._logic_maps.pop(member, None)
+        self._scene_names.pop(member, None)
+        mi = getattr(self, "_member_items", {}).get(member)
+        if mi is not None and not (mi.childCount()
+                                   and (self._payload(mi.child(0)) or (None,))[0] == "__lazy__"):
+            self.tree.blockSignals(True)               # (a never-expanded member reads fresh on expand)
+            self._refresh_objects(member)
+            self.tree.blockSignals(False)
+        self._refresh_dirty_marks()
+        self._refresh_undo_actions()
+        for tab in (getattr(self, "behavior_doc", None), getattr(self, "cutscene_doc", None),
+                    getattr(self, "place_doc", None)):
+            if tab is not None and getattr(tab, "_member", None) == member:
+                tab.show_none()                        # warm walkmesh / armed surface / open step editor:
+        #                                                all of it describes the file that was replaced
+        if on_member and mi is not None:
+            node = (self._object_item(member, sel[1], kind=sel[0]) if sel else None) or mi
+            if self.tree.currentItem() is node:
+                self._on_select()                      # selection unchanged -> remount manually
+            else:
+                self.tree.setCurrentItem(node)         # -> _on_select remounts + re-feeds the showing tab
+        self._feed_behavior()                          # cheap by contract (no disk); the showing tab is
+        self._feed_cutscene()                          # current either way, a hidden one re-feeds on show
+        self._feed_place()
+        self.statusBar().showMessage(f"{member} reloaded from disk — Trace regenerated it", 5000)
+        return True
 
     def _activate_group(self, gi, *, switch=True):
         """Show workspace group ``gi``'s tabs (hiding the rest) + check its rail segment. ``switch`` True (a

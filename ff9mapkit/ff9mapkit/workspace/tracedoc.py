@@ -99,7 +99,8 @@ def first_out(parent, image, name) -> Path:
 class TraceDoc(QWidget):
     """Trace a photo into a walkable field, entirely on the art. ``run`` = ``shell.run_job``."""
 
-    def __init__(self, pal, kit_root, *, run, problems=None, scale=100, on_generated=None):
+    def __init__(self, pal, kit_root, *, run, problems=None, scale=100, on_generated=None,
+                 can_generate=None, on_regenerated=None):
         super().__init__()
         self.pal = pal
         self.kit = Path(kit_root)                     # `-m ff9mapkit` cwd (this checkout's package)
@@ -108,6 +109,13 @@ class TraceDoc(QWidget):
         self.on_generated = on_generated              # a clean FIRST Generate hands the project
         #                                               to the shell (the Floorplan compose →
         #                                               open_campaign contract, on this lane)
+        # The project this tab writes may be OPEN in the shell, and Generate merges with the file
+        # ON DISK. Two seams keep the two from diverging (review finding T38):
+        self.can_generate = can_generate              # (toml) -> a refusal sentence, or None: asked
+        #                                               before EVERY Generate (the shell refuses
+        #                                               while that file has unsaved edits here)
+        self.on_regenerated = on_regenerated          # (toml): a clean IN-PLACE regenerate rewrote
+        #                                               it -- the shell reloads its stale buffer
         # Default output base: the repo parent for a checkout; an installed copy writes to a
         # discoverable user folder instead (ImportDoc's own rule, same reason).
         self.proj_base = (self.kit.parent if (self.kit / "pyproject.toml").is_file()
@@ -893,6 +901,11 @@ class TraceDoc(QWidget):
             if out != wanted:                          # said FIRST: the status line clips its tail
                 moved = (f"{wanted.name} already holds another project — this one goes to "
                          f"{out.name}. ")
+        if self.can_generate is not None:              # the file may be open in the Editor with
+            why = self.can_generate(str(out / f"{name}.field.toml"))   # unsaved edits the merge
+            if why:                                    # (which reads DISK) would never see
+                self._refresh(why, "error")
+                return
         argv = [sys.executable, "-m", "ff9mapkit", "image-field", str(self._image),
                 "--floor", " ".join(f"{x:g},{y:g}" for x, y in self._floor),
                 "--out", str(out), "--name", name, "--id", str(fid)]
@@ -935,10 +948,19 @@ class TraceDoc(QWidget):
         ``open_field`` — which is what feeds the Place tab, rung 7d, so 'trace it → place
         content on it' is one flow). Regenerates never yank; failures never open anything.
         ``toml`` was captured AT LAUNCH — reading the live ``self._project`` here would open
-        whatever project the author switched to while the job ran."""
-        if code != 0 or not first or self.on_generated is None:
+        whatever project the author switched to while the job ran.
+
+        A clean REGENERATE rewrote ``toml`` in place, and that file may be the one open in the
+        Editor: the shell is TOLD (``on_regenerated``), so it can reload the buffer it holds. It
+        used to be told nothing, and the next Save All wrote the stale buffer over the
+        regenerated file — the new doors, events and camera gone, the new walkmesh kept."""
+        if code != 0:
             return
-        if Path(toml).is_file():
+        if not first:
+            if self.on_regenerated is not None:
+                self.on_regenerated(str(toml))
+            return
+        if self.on_generated is not None and Path(toml).is_file():
             self.on_generated(str(toml))
 
     def _write_trace_sidecar(self, out):

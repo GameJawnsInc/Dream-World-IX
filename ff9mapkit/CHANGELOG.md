@@ -17,6 +17,12 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   project's art, floor and session record — and merged into its `field.toml` when both kept the default name. A
   first Generate now reuses a folder only when it is empty or is already that same photo's project under the same
   field name; otherwise it writes to `<photo name>-field-2` (then `-3`, ...) and the status line says so.
+- **Regenerating from Trace no longer leaves a stale copy of the project open.** A regenerate rewrote the open
+  project's `field.toml` and the window kept its old copy, so the next Save All wrote the old file back: the doors,
+  events and camera the regenerate added were gone, while its new floor stayed. The open project now reloads after
+  every clean regenerate (its undo history for that field is dropped with it, and the Place tab forgets the old
+  floor). Generate also refuses while the open project has unsaved edits, and says to Save All first; edits made
+  while the job ran are kept or dropped only on your answer.
 
 ### Changed — World tab: faster, and the window no longer freezes while it works
 - **Undo, Redo and every Accept no longer reload the whole 3D map.** Only the blocks whose files changed are drawn

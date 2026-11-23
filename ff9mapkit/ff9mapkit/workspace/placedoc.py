@@ -36,6 +36,7 @@ and the surface matches what the build ships) and touches no game install.
 
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
 
@@ -572,6 +573,18 @@ class PlaceDoc(QWidget):
         else:
             self._sync_modes()
             self._refresh()
+
+    def forget_surface(self, path):
+        """Drop every cached surface built from the PROJECT file ``path``: its walkmesh, camera
+        or art changed on disk (a Trace regenerate), and a project surface is read from disk
+        once and then served from this cache for the whole session — so the art and the floor
+        the clicks raycast would stay the OLD ones, even across a Load click. A donor room's
+        surface (``("real", id)``) is the install's, not this file's, and stays."""
+        want = os.path.normcase(os.path.abspath(str(path)))
+        for key in [k for k in self._bundles
+                    if k[0][0] == "project"
+                    and os.path.normcase(os.path.abspath(k[0][1])) == want]:
+            del self._bundles[key]
 
     # ---------------------------------------------------------------- surface load
     def _cam_index(self):

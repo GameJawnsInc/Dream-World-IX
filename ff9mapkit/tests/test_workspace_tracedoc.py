@@ -919,6 +919,65 @@ def test_first_generate_hands_the_project_to_the_shell_once(app, tmp_path, monke
     assert opened == [str(toml)]
 
 
+def _armed(app, tmp_path, monkeypatch, **hooks):
+    """A session whose FIRST Generate finished cleanly: the next Generate is an in-place
+    regenerate. Returns (doc, run, the project's field.toml)."""
+    run = _Run()
+    doc = TraceDoc(pick_palette("dark"), KIT, run=run, **hooks)
+    doc.load_image(_photo(tmp_path))
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    doc.id_box.setText("30789")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    toml = tmp_path / "photo-field" / "PICTURE.field.toml"
+    toml.parent.mkdir(parents=True, exist_ok=True)
+    toml.write_text('[field]\nid = 30789\nname = "PICTURE"\narea = 11\n', encoding="utf-8")
+    run.calls[0][1]["on_finished"](0)
+    return doc, run, toml
+
+
+def test_a_clean_regenerate_tells_the_shell_which_file_it_rewrote(app, tmp_path, monkeypatch):
+    """The other half of the hand-off (review finding T38): the FIRST Generate opens the project;
+    every later one rewrites the same file in place and must SAY so, or the shell's open buffer
+    goes stale and the next Save All writes it back over the regenerated file."""
+    pytest.importorskip("PIL")
+    opened, rewrote = [], []
+    doc, run, toml = _armed(app, tmp_path, monkeypatch, on_generated=opened.append,
+                            on_regenerated=rewrote.append)
+    assert opened == [str(toml)] and rewrote == []     # a first Generate is not a "regenerate"
+    doc.on_generate()
+    finish = run.calls[1][1]["on_finished"]
+    finish(1)                                          # a FAILED regenerate rewrote nothing
+    assert rewrote == []
+    finish(0)
+    assert rewrote == [str(toml)] and opened == [str(toml)]   # told; and never re-opened
+
+
+def test_generate_asks_first_and_a_refusal_starts_nothing(app, tmp_path, monkeypatch):
+    """``can_generate`` is asked before EVERY Generate with the file it would write; a refusal
+    launches no job, rewrites no session record, and puts the reason on the status line."""
+    pytest.importorskip("PIL")
+    asked, verdict = [], {"why": None}
+
+    def can(toml):
+        asked.append(toml)
+        return verdict["why"]
+
+    doc, run, toml = _armed(app, tmp_path, monkeypatch, can_generate=can)
+    assert asked == [str(toml)]                        # the FIRST Generate asked too
+    side = toml.parent / "photo.trace.json"
+    before = side.read_bytes()
+    doc.canvas._commit_floor([(120, 210), (254, 200), (364, 440), (20, 440)])   # a new session state
+    verdict["why"] = "PICTURE has unsaved edits — Save All first."
+    doc.on_generate()
+    assert len(run.calls) == 1 and asked[-1] == str(toml)
+    assert side.read_bytes() == before                 # the record still matches the project
+    assert doc.status.text().startswith("PICTURE has unsaved edits")
+    verdict["why"] = None
+    doc.on_generate()
+    assert len(run.calls) == 2 and side.read_bytes() != before
+
+
 # ---------------------------------------------------------------------------- the first Generate's folder
 # The folder used to be <parent>/<photo stem>-field, unconditionally. The walkmesh, the base art
 # and the session record are each ONE file in it, so a second photo with the same file name
