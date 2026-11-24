@@ -595,6 +595,15 @@ class PlaceDoc(QWidget):
         self.canvas.marker_deleted.connect(self._on_marker_deleted)
         self.canvas.click_refused.connect(lambda m: self._refresh(m, "warn"))
         root.addWidget(self.canvas, 1)
+        # A refused field (a bundled example, an installed copy, an unsaved doc) has nothing to
+        # draw or click: the canvas gives way to the reason and the way out, centred (P19)
+        self.refused_msg = QLabel("")
+        self.refused_msg.setProperty("role", "muted")
+        self.refused_msg.setWordWrap(True)
+        self.refused_msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.refused_msg.setContentsMargins(48, 0, 48, 0)
+        self.refused_msg.setVisible(False)
+        root.addWidget(self.refused_msg, 1)
 
         self.status = QLabel("")
         self.status.setProperty("role", "muted")
@@ -1369,6 +1378,11 @@ class PlaceDoc(QWidget):
                 note += " · verbatim fork: new content seats below the donor's party band"
         self.status.setText(note)
         widgets.set_state(self.status, state)
+        refused = self._blocked is not None
+        self.refused_msg.setText(note if refused else "")
+        self.refused_msg.setVisible(refused)
+        self.canvas.setVisible(not refused)
+        self.status.setVisible(not refused)
 
     # ---------------------------------------------------------------- shell plumbing
     def crumb_label(self):

@@ -1607,6 +1607,26 @@ def test_the_place_regions_tool_says_zone_and_how_to_cancel(app):
     assert "zones" in tip and "quad" not in tip and "Esc" in tip, tip
 
 
+# --------------------------------------------------------------- batch 4: the refused state (P19)
+def test_a_refused_field_shows_why_in_place_of_an_empty_canvas(app):
+    """P19: on a bundled example the tab kept a large empty canvas frame with its zoom pill, and
+    the one signal was the warn line under it. The canvas gives way to a centred, quiet message
+    that says why nothing can be placed and the way out; a placeable field brings it back."""
+    d, _ = _doc(app)
+    ex = Path(ff9mapkit.__file__).parent.parent / "examples" / "vivi-hut" / "hut_int.field.toml"
+    d.show_field("HUT", {"verbatim_eb": {"donor": 351}}, ex)
+    QApplication.processEvents()
+    assert not d.canvas.isVisibleTo(d)
+    msg = d.refused_msg
+    assert msg.isVisibleTo(d) and msg.property("role") == "muted"
+    assert "bundled example" in msg.text() and "New Field" in msg.text(), msg.text()
+    assert msg.alignment() & Qt.AlignmentFlag.AlignHCenter and msg.wordWrap()
+    assert not d.status.isVisibleTo(d)                  # said once, not twice
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    QApplication.processEvents()
+    assert d.canvas.isVisibleTo(d) and not msg.isVisibleTo(d) and d.status.isVisibleTo(d)
+
+
 # --------------------------------------------------------------- batch 4: the loading line (P14)
 def test_the_loading_line_names_the_room_in_words(app):
     """P14: the status while a room loads printed the request's raw source tuple (fixed when the
