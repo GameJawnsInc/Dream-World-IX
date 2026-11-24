@@ -1,0 +1,233 @@
+# Display names for FF9's audio files, keyed by FILE STEM (music008, se000032, ...).
+#
+# The game ships no title table: a sound is only ever an id and a file name. These names are what the
+# Workspace's Sounds tab and the Music form's song picker show instead of "music008".
+#
+# SOURCE: descriptions adapted from the community table in Memoria's
+# Assembly-CSharp/Memoria/Assets/Text/AudioResources.cs (Albeoris/Memoria, MIT), with spelling fixed and
+# wording trimmed. They are DESCRIPTIONS, not an authoritative track list -- several are a scene the
+# piece plays in rather than its title. No game bytes: titles only.
+#
+# FORMAT: a bare string is the title; an inline table adds search tags --
+#     se000012 = { title = "Door opening", tags = ["door"] }
+# A name you set in the Sounds tab is written to a per-user overlay (not this file) and wins per sound.
+# Most sound effects have no entry here: nobody has named them yet.
+
+[music]
+music000 = "Victory Fanfare"
+music001 = "Game Over"
+music002 = "Dali Village"
+music003 = "Evil Forest"
+music004 = "Passive Sorrow (start of disc 4)"
+music005 = "Amarant's Theme"
+music006 = "Battle Theme"
+music007 = "Steiner's Theme"
+music008 = "Vivi's Theme"
+music009 = "Quina's Theme (frog catching)"
+music010 = "Garnet's Theme (memories of her childhood)"
+music011 = "Freya's Theme (Gizamaluke's Grotto)"
+music012 = "Aloha de Chocobo (Chocobo's Forest)"
+music013 = "Decisive Action (first meeting Steiner)"
+music014 = "Stolen Eyes (Zidane and Dagger on the Prima Vista)"
+music015 = "Vamo' alla Flamenco (Chocobo Hot and Cold)"
+music016 = "King Leo (Prima Vista stage play)"
+music017 = "Sword of Fury (the stage sword fight)"
+music018 = "Strategy Conference (planning the kidnapping)"
+music020 = "Queen of the Abyss (Queen Brahne's theme)"
+music021 = "The Fated Hour (Dagger takes the stage)"
+music022 = "Mistaken Love (the stage play's ending)"
+music023 = "Zidane's Theme (boarding the cargo ship)"
+music024 = "Boss Battle Theme"
+music025 = "Oeilvert"
+music026 = "Tantalus' Theme"
+music027 = "One Danger Put Behind Us (the Lindblum pub, meeting Freya)"
+music028 = "You're Not Alone"
+music029 = "Unforgettable Face (Sir Fratley and Freya)"
+music030 = "Memories of That Day"
+music031 = "Ice Cavern"
+music032 = "Qu's Marsh"
+music033 = "Title music"
+music036 = "Run!"
+music037 = "Jesters of the Moon (Zorn and Thorn)"
+music038 = "Faerie Battle"
+music039 = "Reckless Steiner (Steiner's Theme II)"
+music041 = "Prima Vista music room"
+music042 = "Quad Mist (Tetra Master)"
+music043 = "Far Away in the Village (under Dali)"
+music044 = "Burmecia"
+music045 = "Crossing Those Hills (world map)"
+music046 = "Mognet Central"
+music047 = "Lindblum (town areas)"
+music048 = "Fossil Roo"
+music049 = "Cleyra Settlement"
+music050 = "Eidolon Wall (Madain Sari)"
+music051 = "Unfathomed Reminiscence (Alexandria, discs 3 and 4)"
+music052 = "Orchestra in the Forest (Evil Forest)"
+music053 = "Vivi's Theme II (the cargo ship's black mages)"
+music054 = "Black Mage Village"
+music055 = "Eternal Harvest (Cleyra's ceremonial dance)"
+music056 = "Pandemonium (after You're Not Alone)"
+music057 = "Dark City Treno"
+music058 = "Sneaky Frog and the Scoundrel (Cid's red light, green light)"
+music059 = "Bran Bal"
+music060 = "Eiko's Theme"
+music061 = "Grief Over the Skies (Cleyra, the terrible omen)"
+music062 = "Conde Petie"
+music063 = "Gargan Roo"
+music064 = "Cleyra's Trunk"
+music066 = "Kuja's Theme"
+music067 = "Kuja's Theme Millennium (Desert Palace)"
+music068 = "Immoral Melody (Kuja's Theme II)"
+music069 = "Footsteps of Desire (Kuja's trap)"
+music070 = "Ambush Attack (Iifa Tree, Cleyra)"
+music071 = "Conde Petie marriage ceremony"
+music072 = "Ukulele de Chocobo (Chocobo's theme)"
+music073 = "The Four Medallions (after Ipsen's Castle)"
+music075 = "Ipsen's Heritage (Ipsen's Castle)"
+music077 = "A Transient Past (Oeilvert)"
+music078 = "Ending theme (vocal)"
+music079 = "South Gate (border crossing)"
+music080 = "Iifa Tree"
+music081 = "Mount Gulug"
+music082 = "Hunter's Chance (Festival of the Hunt)"
+music083 = "Hilda Garde 3 (airship)"
+music084 = "Vocal theme (Madain Sari, disc 2)"
+music085 = "Vocal theme (solo)"
+music087 = "Crystal World"
+music088 = "The Chosen Summoner (Alexandria's altar)"
+music089 = "Protecting My Devotion (Steiner and Beatrix)"
+music090 = "Loss of Me (Beatrix's theme)"
+music091 = "Mystery Sword (the battle with Beatrix)"
+music092 = "Pandemonium (before You're Not Alone)"
+music093 = "Secret Library of Daguerreo"
+music094 = "Madain Sari"
+music095 = "Terra"
+music096 = "Place of Memories (Memoria)"
+music097 = "Cid's Theme (Lindblum Castle)"
+music098 = "Dark Messenger (Trance Kuja)"
+music101 = "The Final Battle"
+music102 = "Vocal theme (the Eidolon Wall on fire)"
+music105 = "Eiko's Theme II"
+music106 = "We Are Thieves! (start of disc 3)"
+music108 = "Extraction"
+music109 = "Black Waltz"
+music110 = "Ending Theme I (Prima Vista stage)"
+music111 = "Ending Theme II (Prima Vista stage)"
+music112 = "Ending Theme III (Prima Vista stage)"
+music113 = "Esto Gaza"
+music114 = "Heart of Melting Magic (Cid and Hilda)"
+music115 = "Ending Theme II, alternate (Prima Vista stage)"
+music116 = "Slew of Love Letters"
+music117 = "The Evil Mist's Rebirth (disc 4 world map)"
+music118 = "Successive Battles"
+music120 = "Prelude"
+music121 = "Final Fantasy III theme"
+music122 = "Assault of the White Dragons"
+
+[sfx]
+se000001 = { title = "Menu select", tags = ["menu"] }
+se000002 = { title = "Menu error", tags = ["menu"] }
+se000003 = { title = "Menu cancel", tags = ["menu"] }
+se000004 = { title = "Receive item", tags = ["menu", "jingle"] }
+se000005 = { title = "Equip armor", tags = ["menu"] }
+se000006 = { title = "Menu item heal", tags = ["menu"] }
+se000007 = { title = "EXP counting (looped)", tags = ["menu"] }
+se000008 = { title = "Gil counting (looped)", tags = ["menu"] }
+se000009 = { title = "Random encounter (part 1)", tags = ["battle"] }
+se000010 = { title = "Random encounter (part 2)", tags = ["battle"] }
+se000012 = { title = "Door opening", tags = ["door"] }
+se000013 = { title = "Treasure", tags = ["chest"] }
+se000014 = { title = "Treasure chest opening", tags = ["chest"] }
+se000015 = { title = "Moogle (help)", tags = ["moogle"] }
+se000016 = { title = "Level up", tags = ["jingle"] }
+se000017 = { title = "Ability learned", tags = ["jingle"] }
+se000018 = { title = "Battle command window", tags = ["battle", "menu"] }
+se000019 = { title = "Purchase", tags = ["menu", "shop"] }
+se000020 = { title = "Info", tags = ["menu"] }
+se000021 = { title = "Menu character switch (L1 / R1)", tags = ["menu"] }
+se000022 = { title = "Tent (part 1)", tags = ["tent"] }
+se000023 = { title = "Tent (part 2)", tags = ["tent"] }
+se000024 = { title = "Tent (part 3)", tags = ["tent"] }
+se000025 = { title = "Tent (part 4)", tags = ["tent"] }
+se000026 = { title = "Save or load confirmed", tags = ["menu", "save"] }
+se000027 = { title = "Jump", tags = ["movement"] }
+se000029 = { title = "Active Time Event", tags = ["jingle"] }
+se000030 = { title = "Ladder climb", tags = ["movement"] }
+se000031 = { title = "Knight landing (from a jump)", tags = ["movement"] }
+se000032 = { title = "Moogle welcome", tags = ["moogle"] }
+se000033 = { title = "Moogle tent use", tags = ["moogle", "tent"] }
+se000034 = { title = "Knight footsteps", tags = ["movement"] }
+se000035 = { title = "Jump (part 2)", tags = ["movement"] }
+se000036 = { title = "Landing (from a jump)", tags = ["movement"] }
+se000037 = { title = "Moogle flip landing (after a save)", tags = ["moogle", "save"] }
+se000038 = { title = "Memoria save portal", tags = ["save"] }
+se000040 = { title = "Return from the Memoria save portal", tags = ["save"] }
+se000042 = { title = "Moogle save book opening", tags = ["moogle", "save"] }
+se000043 = { title = "Locked game renewed", tags = ["menu"] }
+se000049 = { title = "Moogle landing", tags = ["moogle"] }
+se010017 = { title = "Rod attack", tags = ["battle", "weapon"] }
+se010018 = { title = "Staff or flute attack", tags = ["battle", "weapon"] }
+se010019 = { title = "Weapon attack", tags = ["battle", "weapon"] }
+se010021 = { title = "Rod attack 2", tags = ["battle", "weapon"] }
+se010022 = { title = "Staff attack 2", tags = ["battle", "weapon"] }
+se010032 = { title = "Weapon swing, miss", tags = ["battle", "weapon"] }
+se010033 = { title = "Weapon swing, miss 2", tags = ["battle", "weapon"] }
+se010034 = { title = "Weapon swing, miss 3", tags = ["battle", "weapon"] }
+se010035 = { title = "Weapon swing, miss 4", tags = ["battle", "weapon"] }
+se010036 = { title = "Weapon swing, miss 5", tags = ["battle", "weapon"] }
+se010037 = { title = "Weapon swing, miss 6", tags = ["battle", "weapon"] }
+se010038 = { title = "Weapon swing, miss 7", tags = ["battle", "weapon"] }
+se010039 = { title = "Racket swing", tags = ["battle", "weapon"] }
+se010040 = { title = "Spear jump", tags = ["battle", "weapon"] }
+se010128 = { title = "Knight sword slash", tags = ["battle", "enemy"] }
+se010132 = { title = "Frontal knock", tags = ["battle", "enemy"] }
+se010136 = { title = "Claw and sting", tags = ["battle", "enemy"] }
+se010140 = { title = "Metallic slice", tags = ["battle", "enemy"] }
+se010144 = { title = "Spear hit", tags = ["battle", "enemy"] }
+se010148 = { title = "Bite and scratch", tags = ["battle", "enemy"] }
+se010152 = { title = "Steal", tags = ["battle"] }
+se010156 = { title = "Rusted slice", tags = ["battle", "enemy"] }
+se010160 = { title = "Stab and suck", tags = ["battle", "enemy"] }
+se010164 = { title = "Heavy slice", tags = ["battle", "enemy"] }
+se010168 = { title = "Tongue knock", tags = ["battle", "enemy"] }
+se010172 = { title = "Wing uppercut", tags = ["battle", "enemy"] }
+se010176 = { title = "Slam", tags = ["battle", "enemy"] }
+se010180 = { title = "Charge and fist", tags = ["battle", "enemy"] }
+se010182 = { title = "Baku crash", tags = ["battle", "enemy"] }
+se010184 = { title = "Beak", tags = ["battle", "enemy"] }
+se010188 = { title = "Rush", tags = ["battle", "enemy"] }
+se010192 = { title = "Spike hit", tags = ["battle", "enemy"] }
+se010196 = { title = "Heave", tags = ["battle", "enemy"] }
+se010197 = { title = "Enemy heave", tags = ["battle", "enemy"] }
+se010200 = { title = "Power up", tags = ["battle", "enemy"] }
+se010204 = { title = "Horn gore", tags = ["battle", "enemy"] }
+se010208 = { title = "Slap", tags = ["battle", "enemy"] }
+se010212 = { title = "Whip", tags = ["battle", "enemy"] }
+se010216 = { title = "Soft tail", tags = ["battle", "enemy"] }
+se010220 = { title = "Nymph happy", tags = ["battle", "enemy"] }
+se010225 = { title = "Mimic call", tags = ["battle", "enemy"] }
+se010226 = { title = "Teleport", tags = ["battle", "enemy"] }
+se010228 = { title = "Head attack", tags = ["battle", "enemy"] }
+se010229 = { title = "Saw", tags = ["battle", "enemy"] }
+se010232 = { title = "Lich cutter", tags = ["battle", "enemy"] }
+se010256 = { title = "Enemy fades away (death)", tags = ["battle", "enemy", "death"] }
+se010257 = { title = "Taharka death (Ipsen's Castle cutscene)", tags = ["battle", "enemy", "death"] }
+se010258 = { title = "Flee (part 1)", tags = ["battle"] }
+se010259 = { title = "Flee (part 2)", tags = ["battle"] }
+se010260 = { title = "Flee (part 3)", tags = ["battle"] }
+se030005 = { title = "Bomb grows", tags = ["battle", "enemy"] }
+se030022 = { title = "Vice appears", tags = ["battle", "enemy"] }
+se030048 = { title = "Groan", tags = ["battle", "enemy"] }
+se030109 = { title = "Prison Cage escape", tags = ["battle", "enemy"] }
+se030284 = { title = "Sand Golem death", tags = ["battle", "enemy", "death"] }
+se030303 = { title = "Armodullahan death", tags = ["battle", "enemy", "death"] }
+se030309 = { title = "Prison Cage death", tags = ["battle", "enemy", "death"] }
+se030314 = { title = "Gizamaluke death", tags = ["battle", "enemy", "death"] }
+se030318 = { title = "Antlion death", tags = ["battle", "enemy", "death"] }
+se030336 = { title = "Silver Dragon death", tags = ["battle", "enemy", "death"] }
+se030338 = { title = "Nova Dragon death", tags = ["battle", "enemy", "death"] }
+se030346 = { title = "Hades death", tags = ["battle", "enemy", "death"] }
+se030347 = { title = "Deathguise death", tags = ["battle", "enemy", "death"] }
+se500432 = { title = "Flee 1", tags = ["battle"] }
+se500433 = { title = "Flee 2", tags = ["battle"] }
+se500434 = { title = "Flee 3", tags = ["battle"] }

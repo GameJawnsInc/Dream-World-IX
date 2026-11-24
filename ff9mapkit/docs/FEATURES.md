@@ -179,6 +179,7 @@ release — both machines must run the same bundle version.
 | Capability | | Docs |
 |---|---|---|
 | Custom music/SFX: replace or mint an Ogg Vorbis track, looping — DLL-free (`audio-import`) | ✓ | `audio-import -h` |
+| Browse, play, name and export every sound in the install (the Workspace's **Sounds** tab; `audio-export`) | ✓ | `audio-export -h` |
 | Field BGM rescore + per-encounter battle BGM | ✓ | [FORMAT](FORMAT.md) |
 
 ## Save & story-state tooling

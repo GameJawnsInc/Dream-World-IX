@@ -61,8 +61,11 @@ assets = ["UnityPy", "numpy>=1.24"]
 # tkinter apps/*.pyw suite is stdlib-only and unaffected; only the Qt shell needs this. Pinned to
 # PySide6-ESSENTIALS (not the full PySide6 meta-package) on purpose: the GPL-only Qt modules
 # (QtCharts/QtDataVisualization/QtGraphs) live in PySide6-Addons, so Essentials keeps the LGPLv3 path
-# clean and guarantees we never ship a GPL-only module. The Workspace uses only Essentials modules
-# (QtCore/QtGui/QtWidgets); audited 2026-06-28, zero Addons imports.
+# clean and guarantees we never ship a GPL-only module. The Workspace NEEDS only Essentials modules
+# (QtCore/QtGui/QtWidgets); audited 2026-06-28. ONE optional Addons import exists and is guarded:
+# workspace/audioplay.py tries QtMultimedia (LGPL, not one of the GPL-only modules) for the Sounds
+# tab's in-app player and falls back to ffplay / the system player when it is absent -- so this pin
+# still installs a fully working app, and nothing here ever REQUIRES Addons.
 gui = ["PySide6-Essentials>=6.5"]
 
 [project.urls]
@@ -92,7 +95,7 @@ include = ["ff9mapkit*"]
 # user's own FF9 install by `ff9mapkit extract-templates` (docs/PROVENANCE.md).
 # (Deliberately NOT globbing data/*.bin or data/blank_field/ so a wheel can never bundle FF9 bytes,
 #  even if a developer has run extract-templates locally.)
-ff9mapkit = ["data/provenance/manifest.json", "data/provenance/*.patch", "data/reference_arcs.toml", "data/region_catalog.toml", "data/journal_catalog.toml", "data/guest_traversal.json", "world/data/donors.toml", "world/data/prefabs.toml", "workspace/dreamworldix.ico"]
+ff9mapkit = ["data/provenance/manifest.json", "data/provenance/*.patch", "data/reference_arcs.toml", "data/region_catalog.toml", "data/journal_catalog.toml", "data/sound_names.toml", "data/guest_traversal.json", "world/data/donors.toml", "world/data/prefabs.toml", "workspace/dreamworldix.ico"]
 
 [tool.ruff]
 target-version = "py311"

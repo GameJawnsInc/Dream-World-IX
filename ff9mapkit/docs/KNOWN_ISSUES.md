@@ -80,13 +80,13 @@ A number of commands are CLI-only for now — use the terminal for:
 - the custom-model suite (`model-gltf` / `model-import` / `model-mint` / `model-anim` /
   `model-export`),
 - the `world-*` overworld suite (terrain, reclaim, coast, water, entrances, encounters, atlas),
-- `audio-import` (custom music / SFX) and `music-list` / `sfx-list`,
 - `logic-map` / `lint-eb` (whole-script analysis of a verbatim fork — the Script panel covers the
   edit flow, not these reports).
 
 (`import-chain`, `import-all`, and whole-campaign / journey builds are no longer on this list — the
 Import tab has panels for the first two, and the Build & Deploy tab compiles and deploys campaigns
-and journeys.)
+and journeys. Custom music and sound effects left it too: the **Sounds** tab replaces, adds and
+exports them. `audio-import`'s loop-point and quality options are still terminal-only.)
 
 ### Custom hub art is set in the TOML, not the dialog
 
