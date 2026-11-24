@@ -133,3 +133,30 @@ def test_model_lane_registry_readers_tolerate_a_utf8_bom(tmp_path):
     dp.write_bytes(b"\xef\xbb\xbf3DModel 7777 GEO_NPC_F9_XYZ\n3DModel 8888 GEO_NPC_F9_GONE\n")
     assert deployed._strip_mint_directive(mod, 7777) is True                # line 1 IS the directive
     assert dp.read_text(encoding="utf-8").splitlines() == ["3DModel 8888 GEO_NPC_F9_GONE"]
+
+
+# ------------------------------------------------- mint ids: the next free one, never a silent overwrite
+
+def _mint_dir(mod, gid, tree="Models", type_int=2):
+    d = Path(mod) / "StreamingAssets" / "Assets" / "Resources" / tree / str(type_int) / str(gid)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{gid}.fbx").write_bytes(b"fbx")
+    return d
+
+
+def test_mint_ids_in_use_reads_directives_and_orphan_folders(tmp_path):
+    (tmp_path / "DictionaryPatch.txt").write_text("3DModel 6000 GEO_NPC_F0_M000\nFieldScene 30003 x\n",
+                                                  encoding="utf-8")
+    _mint_dir(tmp_path, 6001)                               # files but no 3DModel line: still taken
+    _mint_dir(tmp_path, 8)                                  # an OVERRIDE of a real model is not a mint
+    assert deployed.mint_ids_in_use(tmp_path) == {6000, 6001}
+    assert deployed.mint_ids_in_use(tmp_path / "nowhere") == set()
+
+
+def test_next_mint_id_is_the_first_free_id_at_or_above_the_floor(tmp_path):
+    assert deployed.next_mint_id(tmp_path) == 6000, "an empty folder starts at the band's first id"
+    (tmp_path / "DictionaryPatch.txt").write_text("3DModel 6000 A\n3DModel 6001 B\n3DModel 6003 C\n",
+                                                  encoding="utf-8")
+    assert deployed.next_mint_id(tmp_path) == 6002, "the first GAP, not max+1"
+    assert deployed.next_mint_id(tmp_path, floor=6003) == 6004
+    assert deployed.next_mint_id(tmp_path, floor=6100) == 6100, "a free id at the floor is the answer"

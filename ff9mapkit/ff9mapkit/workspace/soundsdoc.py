@@ -189,6 +189,9 @@ class SoundsDoc(QWidget):
         self.listw = QListWidget()
         self.listw.setAccessibleName("Sound catalog")
         self.listw.setUniformItemSizes(True)
+        # elide in the MIDDLE: a long title then keeps its start AND the id at the row's end (elided on
+        # the right, "Assault of the White Dragon…" lost the one number a modder types -- snap-caught)
+        self.listw.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         self.listw.currentItemChanged.connect(self._on_select)
         lv.addWidget(self.listw, 1)
         foot = QHBoxLayout()

@@ -37,6 +37,7 @@ from . import thumbs as thumbs_mod
 class AnimFrameService(QObject):
     """One clip fill at a time, streamed frame by frame into the GUI thread."""
 
+    clipPlanned = Signal(str, int, int)          # (geo name, anim id, frames this fill will render)
     frameReady = Signal(str, int, int, str)      # (geo name, anim id, frame index, png path)
     clipDone = Signal(str, int)                  # (geo name, anim id) -- the fill finished
     clipMissed = Signal(str, int, str)           # (geo name, anim id, reason) -- nothing to play
@@ -106,6 +107,9 @@ class AnimFrameService(QObject):
             return None
         meta = self.cached_meta(*key)
         if meta and all(self.cached_frame(*key, f) for f in (meta.get("rendered_frames") or [])):
+            gid = self._geo_id(key[0])           # PLAYED AGAIN: move it to the back of the eviction line
+            if gid is not None:                  # (one utime -- the size cap evicts least-recently-played)
+                thumbcache.touch_anim_clip(gid, key[1])
             return meta                          # warm disk: the return value IS the answer
         with self._lock:
             if key in self._miss or key in self._pending:
@@ -169,10 +173,17 @@ class AnimFrameService(QObject):
                 except RuntimeError:              # the service's C++ half died (app exit)
                     pass
 
+            def _on_total(n, _g=geo, _a=aid):
+                try:
+                    self.clipPlanned.emit(_g, _a, int(n))               # queued into the GUI thread
+                except RuntimeError:
+                    pass
+
             reason = ""
             try:
                 meta = thumbcache.build_anim_clip(geo, aid, self._ctx, on_frame=_on_frame,
-                                                  should_abort=lambda g=gen: self._stale(g))
+                                                  should_abort=lambda g=gen: self._stale(g),
+                                                  on_total=_on_total)
             except Exception as e:   # noqa: BLE001  (no install / no p0data5 / bad clip) -> a miss
                 meta, reason = None, f"{type(e).__name__}: {e}"
             aborted = self._stale(gen)

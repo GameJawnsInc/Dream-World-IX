@@ -147,7 +147,7 @@ class AnimPickerDialog(clipplayer.ClipPlayer, QDialog):
         # the transport is its OWN full-width row, never inside the fixed preview column (round 13: a
         # control squeezed under its content minimum in a fixed column CLIPS rather than scrolls)
         lay.addWidget(self._build_transport(note="Pick a clip to render and play it."))
-        lay.addWidget(self.anim_note)
+        lay.addWidget(self.anim_foot)             # the note + the speed button (clipplayer owns both)
         self._fill(current)
 
     def _fill(self, current):

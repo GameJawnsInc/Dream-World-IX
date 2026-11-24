@@ -305,6 +305,87 @@ def locate_animation(anim_id, model_id, disc) -> Optional[tuple]:
     return None
 
 
+# ------------------------------------------- which clip a model STANDS in (the preview still) -----
+# The label a clip is ranked by is its ANH ACTION (``split_anh``), matched EXACTLY before it is ever
+# matched as a substring. Substring ranking is what posed the previews from the wrong clip: "stand" is
+# IN ``PUSHED_STAND`` / ``SIT_STAND`` / ``SLEEP_STAND`` / ``STAND_READ_3``, and Zidane's own ``STAND`` is
+# a get-up whose frame 0 lies flat on the floor -- his standing loop is ``IDLE``, like every field rig's.
+# Battle forms name clips by MOTION NUMBER, so no token matched at all and the old pick fell through to
+# the lowest key on disc (a bind pose, or an attack caught mid-swing); ``000`` is the engine's
+# MP_IDLE_NORMAL, the stance a battler actually holds. Census over the 710-model catalog against a
+# real install: 222 stills change -- 203 onto ``000``, 17 onto an exact ``idle``, 1 onto ``stand``, and
+# 1 prop that had matched "walk" inside a HOLDER's name (``..._F0_ZDN_WALK``) back to its lowest key.
+# ~70 of those were compared by eye, old against new; the rest follow the same three rules.
+#
+# What is deliberately NOT ranked: the ``_B`` / ``_P`` pair. ``_P`` reads like "pose" but rendered WORSE
+# than ``_B`` wherever the two were compared (a doll pitched onto its face, a sword turned edge-on), so a
+# rig with nothing stand-like keeps the pick it always had -- the lowest key in its own folder.
+_STAND_VARIANT = ("idle1", "idle_1", "idle2", "idle_2", "stand1", "stand_1", "wait")
+_STAND_TOKENS = ("idle", "stand", "wait")
+STAND_RANK_NONE = 9                             # "this label is not stand-like at all"
+_STAND_DONOR_MAX = 4                            # a DONOR folder is only worth crossing for an exact label
+#                                                 (idle/stand/000/a numbered variant/walk): a different
+#                                                 folder is usually a different FORM, and a loose substring
+#                                                 match is not a reason to pose a rig from another skeleton
+
+
+def stand_action_rank(action) -> int:
+    """How stand-like an ANH action label is -- lower is better, :data:`STAND_RANK_NONE` is "not at all".
+
+    ``idle`` (the field/NPC standing loop) < ``stand`` (the overworld actors' name for it) < ``000``
+    (battle MP_IDLE_NORMAL) < a numbered idle/stand variant < ``walk`` (upright by construction) < a
+    label that merely STARTS with a stand token < one that merely CONTAINS it."""
+    a = str(action or "").lower()
+    if a == "idle":
+        return 0
+    if a == "stand":
+        return 1
+    if a == "000":
+        return 2
+    if a in _STAND_VARIANT:
+        return 3
+    if a == "walk":
+        return 4
+    if a.startswith(_STAND_TOKENS):
+        return 5
+    if any(t in a for t in _STAND_TOKENS):
+        return 6
+    return STAND_RANK_NONE
+
+
+def stand_clip(model_id, disc) -> Optional[tuple]:
+    """The clip a preview still should be posed from -> ``(anim_key, folder_id)``, or None when the
+    model has no clip on disc at all (the caller renders the rest hierarchy). INSTALL-FREE given
+    ``disc`` (``{folder_id: iterable-of-anim-keys}`` -- ``models._gltf_io.anim_disc_map``).
+
+    1. the best-ranked clip in the model's OWN folder (ties -> the lower key);
+    2. if nothing there is stand-like, the best-ranked action of the (group, token) join that
+       :func:`locate_animation` can find in a DONOR folder (an F1+ NPC variant keeps only niche
+       gestures natively and idles out of its F0 sibling's folder);
+    3. else the lowest own key -- unchanged from before this ranking existed."""
+    try:
+        mid = int(model_id)
+    except (TypeError, ValueError):
+        return None
+
+    def _rank(key):
+        s = split_anh(animation_name(key) or "")
+        return stand_action_rank(s[3]) if s else STAND_RANK_NONE
+
+    own = sorted(int(k) for k in (disc.get(mid) or ()))
+    best = min(own, key=lambda k: (_rank(k), k)) if own else None
+    if best is not None and _rank(best) < STAND_RANK_NONE:
+        return best, mid
+    ranked = sorted((stand_action_rank(act), aid) for act, aid in animations_for_model(mid).items())
+    for rank, aid in ranked:
+        if rank > _STAND_DONOR_MAX:
+            break
+        loc = locate_animation(aid, mid, disc)
+        if loc:
+            return loc
+    return (best, mid) if best is not None else None
+
+
 # the five field-NPC animation slots the injector drives (``content.npc.ANIM_ORDER``) and the join
 # action each is resolved from. The engine plays a clip by NAME, so any id naming the right clip works.
 NPC_SLOT_ACTION = {"stand": "idle", "walk": "walk", "run": "run", "left": "turn_l", "right": "turn_r"}

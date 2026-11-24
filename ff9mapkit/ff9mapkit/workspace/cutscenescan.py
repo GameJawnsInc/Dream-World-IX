@@ -55,7 +55,7 @@ class StagingResult:
         # walked is the false green this panel exists to prevent.
         if self.skipped:
             bits.append(f"{len(self.skipped)} scene{'' if len(self.skipped) == 1 else 's'} "
-                        f"NOT checked (unresolved names — run Check)")
+                        f"NOT checked (unresolved names — run the toolbar Check)")
         if bits:
             return " · ".join(bits) + f" across {scope}."
         return f"✓ Every walk in {scope} reaches its target."
@@ -210,13 +210,15 @@ def ladder_rows(raw, scene_idx: int) -> list:
             "kind": k,
             "verb": k or "(empty)",
             "actor": s.get("actor") or "",
+            "speaker": str(s.get("speaker") or ""),     # the NAME on the line (shown, not a key)
             "detail": _forms.step_value_text(s),
             "with_prev": bool(s.get("with_prev")),
             "group": group_of.get(i, i),
             "is_text": k in _forms.TEXT_STEPS,
             "valueless": _forms.STEP_KIND.get(k) == _forms.BOOL,
             "extras": sorted(kk for kk in s
-                             if kk not in _forms.STEP_KIND and kk not in ("actor", "with_prev")),
+                             if kk not in _forms.STEP_KIND
+                             and kk not in ("actor", "with_prev", "speaker")),
         })
     return rows
 
@@ -256,16 +258,16 @@ def _target_names(raw) -> set:
     return names
 
 
-def scene_problems(raw) -> list:
-    """The always-on PROBLEMS lane: cheap raw-only structural checks in plain sentences (the shell's
+def scene_problems(raw, flag_names=None) -> list:
+    """The always-on PROBLEMS lane: structural checks in plain sentences -- a cast scene through the
+    build's own conductor validator, a narration scene through its mirrored rules (the shell's
     ``_node_problems`` speaks HTML; the instruments pane speaks text). Pass the MERGED doc — a
     scene.toml field keeps its markers/NPC positions there. 0-based ``scene #k`` prefixes on a
-    dispatch, the GUI's own convention."""
+    dispatch, the GUI's own convention. ``flag_names`` = the campaign's shared flag names (the
+    build resolves those too)."""
     out = []
     blocks = _blocks(raw)
     names = _target_names(raw)
-    npc_names = {str(n["name"]) for n in (raw or {}).get("npc") or []
-                 if isinstance(n, dict) and n.get("name")}
 
     def _bad_name(v):
         if not isinstance(v, str):
@@ -276,22 +278,26 @@ def scene_problems(raw) -> list:
     for k, b in enumerate(blocks):
         tag = f"scene #{k}: " if len(blocks) > 1 else ""
         cast = ([str(a) for a in b["actors"]] if isinstance(b.get("actors"), list) else [])
-        for a in cast:
-            if a != "player" and a not in npc_names:
-                out.append(f'{tag}cast member "{a}" is not an [[npc]] on this field (or "player")')
         steps = b.get("steps") if isinstance(b.get("steps"), list) else []
+        out += _text_window_problems(steps, tag, cast)
+        if cast:
+            # A CAST scene is the build's conductor: its rules (cast names, per-step actors --
+            # "player" included --, with_prev groups, move targets, animation names, empty steps)
+            # have ONE owner, build._validate_conductor, called here rather than re-derived.
+            out += _conductor_problems(raw, b, tag)
+            continue
+        if not steps:                              # the narration branch of build.validate
+            out.append(f"{tag}needs a non-empty steps = [ {{say=...}}, {{wait=...}}, ... ] list")
         for i, s in enumerate(steps):
             if not isinstance(s, dict):
                 continue
             kk = _forms.step_key(s)
-            actor = s.get("actor")
-            if actor and cast and actor not in cast:
-                out.append(f'{tag}step {i} actor "{actor}" is not in the cast ({", ".join(cast)})')
             if kk in _forms.ACTOR_STEPS and not cast:
                 out.append(f'{tag}step {i} ({kk}) needs a cast -- add actors = ["<npc name>"]')
             if s.get("with_prev"):
                 if i == 0:
-                    out.append(f"{tag}step 0 can't run with a previous beat (there isn't one)")
+                    out.append(f"{tag}step 0 can't run together with a previous step "
+                               "(there isn't one)")
                 elif kk not in _forms.PARALLEL_STEPS:
                     out.append(f"{tag}step {i} ({kk}) can't run in parallel -- only "
                                f"{', '.join(_forms.PARALLEL_STEPS)} can ride with_prev")
@@ -303,6 +309,129 @@ def scene_problems(raw) -> list:
                     if _bad_name(leg):
                         out.append(f'{tag}step {i} path point {j} "{leg}" is not a known '
                                    f'marker/NPC/player')
+    return (out + _once_flag_problems(raw, blocks, flag_names)
+            + _flag_name_problems(raw, blocks, flag_names) + _flag_band_problems(raw, blocks))
+
+
+def _once_flag_problems(raw, blocks, flag_names) -> list:
+    """Two play-once scenes on the SAME once-flag: whichever plays first sets the bit and the
+    other never plays. ``build.cutscene_once_flag_problems`` owns the rule (the flag each scene is
+    COMPILED with, names resolved); it reads the doc, never copies it, and is handed the hardened
+    block list so a garbage section cannot raise. The tab cannot know a campaign member's flag
+    base, so a pin on that member's auto flag is the build's to catch."""
+    from .. import build as _build
+    if len(blocks) < 2:
+        return []
+    view = {**raw, "cutscene": [b for b in blocks if isinstance(b, dict)]}
+    return _build.cutscene_once_flag_problems(_build.FieldProject(view, "."), flag_names,
+                                              pair="scene #{} and scene #{}")
+
+
+def _conductor_problems(raw, block, tag) -> list:
+    """A cast scene through the BUILD'S OWN conductor validator, its sentences verbatim behind
+    the tab's ``scene #k:`` prefix. Never raises: a half-typed scene is this lane's normal input.
+
+    This runs on EVERY render, so it is handed a cheap view, never a deep copy of the field (the
+    validator only reads): the npc/marker rows that are tables, the player, and the steps with
+    an animation NAME swapped for a number. Resolving a name scans the animation catalog (tens
+    of ms each, on the GUI thread); the explicit Check reports a bad name (``_unwalkable``) and
+    the build refuses it. A scene the validator cannot finish still says so -- never "no
+    problems" over a scene it gave up on."""
+    from .. import build as _build
+    raw = raw if isinstance(raw, dict) else {}
+
+    def _tables(key):
+        rows = raw.get(key)
+        return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+    def _no_name_lookup(s):
+        a = s.get("animation") if isinstance(s, dict) else None
+        return {**s, "animation": "0"} if isinstance(a, str) and not a.strip().isdigit() else s
+
+    view = {"npc": _tables("npc"), "marker": _tables("marker"),
+            "player": raw.get("player") if isinstance(raw.get("player"), dict) else {}}
+    steps = block.get("steps")
+    block = {**block, "steps": [_no_name_lookup(s) for s in steps]} \
+        if isinstance(steps, list) else block
+    probs = []
+    try:
+        _build._validate_conductor(_build.FieldProject(view, "."), block, probs, lbl="")
+    except Exception:                              # noqa: BLE001 -- the render loop must survive
+        probs.append("this scene could not be checked to the end -- a step or value is not in "
+                     "a form the build can read yet (each step is a { key = value } table)")
+    return [tag + p.strip() for p in probs]
+
+
+def _text_window_problems(steps, tag, cast) -> list:
+    """The two window keys of a say/open line the build's window-attribute sweep refuses: an
+    unknown ``tail`` code and an unknown ``style``, on a cast scene and a narration scene alike
+    (the sweep is their one owner in the build too). Each verdict comes from the rule's owner
+    (``text.TAIL_CODES`` / ``text.resolve_style``), in the sweep's own sentence. Steps are picked
+    as the sweep picks them (``cutscene.step_text``: any step carrying say/open), and a CAST
+    scene's tail is judged on every step, as the sweep judges it."""
+    from ..content import cutscene as _cutscene
+    from ..content import text as _text
+    out = []
+    for i, s in enumerate(steps):
+        if not isinstance(s, dict):
+            continue
+        is_text = _cutscene.step_text(s) is not None
+        if not is_text and not cast:
+            continue
+        t = s.get("tail")
+        if t is not None and (not isinstance(t, str) or t not in _text.TAIL_CODES):
+            out.append(f"{tag}step {i} tail {t!r} is not a valid TAIL code "
+                       f"({', '.join(sorted(_text.TAIL_CODES))})")
+        if not is_text:
+            continue
+        try:
+            _text.resolve_style(s.get("style"))
+        except ValueError as e:
+            out.append(f"{tag}step {i} {e}")
+        except Exception:                          # noqa: BLE001 -- a half-typed doc is normal here
+            pass
+    return out
+
+
+def _flag_name_problems(raw, blocks, flag_names) -> list:
+    """A flag NAME the build cannot resolve, in the resolver's own sentence: an unknown name
+    refuses the WHOLE field at load. ``flags.resolve_project_flags`` owns the rule; each scene is
+    resolved on a copy so a dispatch line can say WHICH scene. A broken [[flag]] table is not a
+    scene's problem -- the lane stays quiet rather than repeat it per scene."""
+    from .. import flags as _flags
+    try:
+        names = {**(flag_names or {}), **_flags.collect_flag_defs(raw if isinstance(raw, dict) else {})}
+    except (ValueError, TypeError):
+        return []
+    out = []
+    for k, b in enumerate(blocks):
+        try:
+            _flags.resolve_project_flags({"cutscene": [copy.deepcopy(b)]}, names)
+        except ValueError as e:
+            out.append((f"scene #{k}: " if len(blocks) > 1 else "") + str(e))
+        except Exception:                          # noqa: BLE001 -- a half-typed doc is normal here
+            continue
+    return out
+
+
+def _flag_band_problems(raw, blocks) -> list:
+    """Raw story-flag writes into a RESERVED ``gEventGlobal`` band, in the build's own sentence.
+    ``build.lint_flag_bands`` owns the rule (its band table is ``flags.py``'s, its sanctions are
+    its own); validate never runs it, so before this no GUI readout did. Run per scene so a
+    dispatch line can say WHICH scene; a scene that writes no flag never pays for the lint."""
+    from .. import build as _build
+    out = []
+    for k, b in enumerate(blocks):
+        steps = b.get("steps") if isinstance(b.get("steps"), list) else []
+        if not ("flag" in b or b.get("set_flags")
+                or any(isinstance(s, dict) and "set_flag" in s for s in steps)):
+            continue
+        try:
+            lines = _build.lint_flag_bands(_build.FieldProject(dict(raw, cutscene=[b]), "."))
+        except Exception:                          # noqa: BLE001 -- a half-typed doc is normal here
+            continue
+        tag = f"scene #{k}: " if len(blocks) > 1 else ""
+        out += [tag + ln for ln in lines if ln.startswith("cutscene")]
     return out
 
 
@@ -320,6 +449,15 @@ def wrap_width(raw):
         return float(w)
     except (TypeError, ValueError):            # a garbage value: validate() reports it; wrap sanely
         return _text.DEFAULT_WRAP_WIDTH
+
+
+def say_as_built(speaker, text) -> str:
+    """The line the BUILD hands its wrapper for a say/open step (the build's text pass:
+    ``with_speaker(step.speaker, text)``, then ``wrap_text``): the speaker's name line, the curly
+    quotes, ``{colour}`` markup expanded to zero-width tags. The step editor's preview and the
+    storyboard strip both wrap THIS, so neither can show a line the game will not."""
+    from ..content import text as _text
+    return _text.with_speaker(speaker or None, "" if text is None else str(text))
 
 
 # --------------------------------------------------------------------- stage / storyboard
@@ -442,12 +580,13 @@ def storyboard(raw, base_dir, wmesh, scene_idx: int) -> dict:
                 pos[name] = (int(anpc["pos"][0]), int(anpc["pos"][1]))
         safe = [s if isinstance(s, dict) else {} for s in steps]
         for gk, grp in enumerate(_conductor.group_parallel(safe)):
-            say, say_who, legs = None, "", []
+            say, say_who, say_spk, legs = None, "", None, []
             for i, s in grp:
                 kk = _forms.step_key(s)
                 if kk in _forms.TEXT_STEPS and say is None:
                     say = s.get(kk)
                     say_who = s.get("speaker") or s.get("actor") or ""
+                    say_spk = s.get("speaker")     # what the build attributes the line with
                 actor = s.get("actor")
                 if not actor or actor not in pos:
                     continue
@@ -467,17 +606,17 @@ def storyboard(raw, base_dir, wmesh, scene_idx: int) -> dict:
                                  "points": [pos[actor]] + pts})
                     pos[actor] = pts[-1]
             out["beats"].append({"k": gk, "step_idxs": [i for i, _s in grp],
-                                 "say": say, "say_actor": say_who,
+                                 "say": say, "say_actor": say_who, "say_speaker": say_spk,
                                  "positions": dict(pos), "legs": legs})
         # THE HONESTY LEDGER -- on the strip's face, not in a docstring.
         out["notes"] = [
-            "beat axis, no clock -- a say waits for the player, so seconds would be fiction",
+            "one moment at a time, no clock -- a say waits for the player, so seconds would be fiction",
             "walks are the compiler's routed polylines, not the engine's smooth path",
             "@player resolves to [player] spawn; the real player stands wherever they walked",
         ]
         if wmesh is None and cast:
             out["notes"].insert(1, "no walkmesh loaded -- legs shown straight "
-                                   "(Check the staging routes them)")
+                                   "(Check staging routes them)")
     except Exception as e:                     # noqa: BLE001 -- worker material must never raise
         out["error"] = f"Could not build the storyboard -- {e}"
     return out
@@ -570,8 +709,13 @@ def duplicate_scene(raw, k: int) -> str:
         if k != 0:
             raise IndexError(k)
         raw["cutscene"] = cur = [cur]
-    cur.insert(k + 1, copy.deepcopy(cur[k]))
-    return f"duplicate cutscene scene #{k}"
+    dup = copy.deepcopy(cur[k])
+    # a pinned once-flag is the scene's OWN bit: shared, whichever scene plays first sets it and
+    # the other never plays. The copy goes without (the build allocates it one).
+    pinned = dup.pop("flag", None) is not None
+    cur.insert(k + 1, dup)
+    return (f"duplicate cutscene scene #{k}"
+            + (" (the copy does not keep its once-flag)" if pinned else ""))
 
 
 def delete_scene(raw, k: int) -> str:

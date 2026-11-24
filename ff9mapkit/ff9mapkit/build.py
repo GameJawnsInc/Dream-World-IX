@@ -3227,16 +3227,26 @@ def validate(project: FieldProject) -> list[str]:
         _check_window_attrs(f"[[chest]] #{k}", ch, opcode_side=False, text_side=False)
     for k, sp in enumerate(project.raw.get("savepoint", [])):
         _check_window_attrs(f"[[savepoint]] #{k}", sp, opcode_side=False, text_side=False)
-    for _ci, cs in enumerate(_cutscene.blocks(project.raw.get("cutscene"))):
+    _cs_blocks = _cutscene.blocks(project.raw.get("cutscene"))
+    for _ci, cs in enumerate(_cs_blocks):
+        # the ONE owner of a cutscene step's tail/style/window keys, cast or narration; labelled like
+        # the per-scene rules below (plain "[cutscene]" for one scene, "[cutscene] #k" in a dispatch)
+        _cs_lbl = "[cutscene]" if len(_cs_blocks) == 1 else f"[cutscene] #{_ci}"
         for _sk, s in enumerate(cs.get("steps") or []):
             if _cutscene.step_text(s) is not None:
                 # a `say` step is a BLOCKING message (content/cutscene.py:365 -> event.message);
                 # an `open` step is the ASYNC lane the multi-window verbs drive (:374), where a
                 # hold is load-bearing and the window ledger already owns the missing-close case
-                _check_window_attrs(f"[cutscene] step {_sk}", s,
+                _check_window_attrs(f"{_cs_lbl} step {_sk}", s,
                                     actor=("cast" if cs.get("actors") else "no"),
                                     window_close=("async" if "open" in s else "sync"))
-    _cs_blocks = _cutscene.blocks(project.raw.get("cutscene"))
+            elif cs.get("actors") and isinstance(s, dict) and s.get("tail") is not None:
+                # a cast step that shows no window (walk/wait/close...): the tail code is still
+                # judged, as the conductor rule this sweep replaced judged it on every cast step
+                t = s["tail"]
+                if not isinstance(t, str) or t not in _text.TAIL_CODES:
+                    problems.append(f"{_cs_lbl} step {_sk} tail {t!r} is not a valid TAIL code "
+                                    f"({', '.join(sorted(_text.TAIL_CODES))})")
     for _ci, cs in enumerate(_cs_blocks):
         # the [[cutscene]] DISPATCH (#13 v2): several scenes per field, each validated alone. A singleton
         # keeps the plain "[cutscene]" label (identical messages); plural blocks are labelled by index.
@@ -3357,6 +3367,7 @@ def validate(project: FieldProject) -> list[str]:
                                 f"scenes fire, and lock control, on the same load).")
             else:
                 _gates[key] = _ci
+        problems += cutscene_once_flag_problems(project)
 
     # [[mint]] -- a NEW additive GEO model id. resolve_mint() carries the full rule set (band >= 6000,
     # from XOR fbx, novel non-real name, valid group->type); surface its errors as build problems, and
@@ -3372,6 +3383,59 @@ def validate(project: FieldProject) -> list[str]:
         except Exception as e:
             problems.append(f"[[mint]] #{i}: {e}")
     return problems
+
+
+def cutscene_once_flag_problems(project, names=None, pair="[cutscene] #{} and #{}") -> list[str]:
+    """THE SHARED ONCE-FLAG RULE: two play-once [[cutscene]] blocks compiled on the SAME once-flag --
+    whichever plays first sets the bit and the other never plays. Judged on the flag each block is
+    compiled with (build_script's own resolution): a pinned ``flag`` (an int, or a [[flag]] / campaign
+    NAME resolved through ``names`` + the field's [[flag]] table, as the load resolves it), else
+    ``_FlagAlloc.cutscene(k)``. A replaying block (``once = false``) is compiled with NO once-flag, so it
+    never shares one. A flag that does not resolve is another rule's error and is not judged here; a
+    verbatim fork wires at most one scene, so it has no pair. ``pair`` words the two scenes (the
+    Workspace tab says ``scene #a and scene #b``). Read-only over ``project.raw``."""
+    raw = project.raw
+    blocks = _cutscene.blocks(raw.get("cutscene"))
+    once = [(k, cs) for k, cs in enumerate(blocks) if cs.get("once", True)]
+    if "verbatim_eb" in raw or len(once) < 2 or not any("flag" in cs for _k, cs in once):
+        return []                                  # auto picks never collide with each other
+    name_map = dict(names or {})
+    try:
+        name_map.update(_flags.collect_flag_defs(raw))
+    except (ValueError, TypeError):
+        pass                                       # a broken [[flag]] table is load's error
+    pinned = {}
+    for k, cs in once:
+        if "flag" in cs:
+            try:
+                pinned[k] = _flags.resolve(cs["flag"], name_map)
+            except ValueError:
+                continue
+    alloc = _FlagAlloc.for_project(project)
+    # the load resolves names before the allocator reads the project, so a pinned bit is reserved there
+    alloc = _FlagAlloc(alloc.base, alloc.reserved | {f for f in pinned.values() if _flags.is_safe_custom(f)})
+    # a campaign member allows ONE auto scene (_FlagAlloc.cutscene), so there the advice is a pin
+    fix = ("Give the later scene a flag of its own (flag = N) in this member's free band."
+           if alloc.base is not None else
+           "Give one of them a flag of its own (flag = N), or remove a pinned flag so the build "
+           "picks one.")
+    out, first = [], {}
+    for k, cs in once:
+        if "flag" in cs:
+            if k not in pinned:
+                continue
+            idx = pinned[k]
+        else:
+            try:
+                idx = alloc.cutscene(k)
+            except BuildError:                     # a campaign member's 2nd+ auto scene: refused elsewhere
+                continue
+        if idx in first:
+            out.append(f"{pair.format(first[idx], k)} play once on the same once-flag {idx} -- "
+                       f"whichever plays first sets it, and the other never plays. {fix}")
+        else:
+            first[idx] = k
+    return out
 
 
 # Synthesize-path CONTENT blocks (build_script injects these). A VERBATIM fork ([verbatim_eb]) runs the
@@ -9001,32 +9065,44 @@ def _validate_conductor(project, cs, problems, lbl="[cutscene]"):
     npc_names = {n.get("name") for n in project.raw.get("npc", [])}
     for nm in cast:
         if nm != "player" and nm not in npc_names:
-            problems.append(f"{lbl} actors entry {nm!r} is not a defined [[npc]] name (or \"player\")")
+            problems.append(f"{lbl} cast member {nm!r} is not a defined [[npc]] name -- add an [[npc]] "
+                            f"named {nm!r}, or take it out of the cast (actors); \"player\" is always "
+                            f"allowed")
     known = set(cast) | {"player"}
     sole = cast[0] if len(cast) == 1 else None
+    cast_words = ", ".join(cast)
     global_keys = ("say", "wait", "set_flag") + _cutscene.WINDOW_STEP_KINDS
     actor_keys = ("walk", "path", "teleport", "face_player", "animation", "turn")
     npc_by_name = {n.get("name"): n for n in project.raw.get("npc", [])}
     move_reg = _position_registry(project)
     steps = cs.get("steps")
     if not isinstance(steps, list) or not steps:
-        problems.append(f"{lbl} needs a non-empty steps = [ {{actor=..., say=...}}, ... ] list")
+        problems.append(f"{lbl} has no steps -- add at least one "
+                        f"(steps = [ {{actor = \"...\", say = \"...\"}}, ... ])")
         return
     for k, s in enumerate(steps):
         present = [key for key in global_keys + actor_keys if key in s]
-        if len(present) != 1:
-            problems.append(f"{lbl} step {k} needs exactly one action "
-                            f"({' / '.join(global_keys + actor_keys)})")
+        if not present:
+            problems.append(f"{lbl} step {k} has no action -- give it exactly one: "
+                            f"{', '.join(global_keys + actor_keys)}")
+            continue
+        if len(present) > 1:
+            problems.append(f"{lbl} step {k} has more than one action ({', '.join(present[:-1])} and "
+                            f"{present[-1]}) -- a step does exactly one thing; split it into separate "
+                            f"steps")
             continue
         act, who = present[0], s.get("actor", sole if present[0] in actor_keys else None)
         # say/open take an OPTIONAL actor (it attributes the window -- WindowSyncEx/WindowAsyncEx);
         # only validate the name when one is given, since an unattributed line is legitimate narration.
         if (act in actor_keys or (act in _cutscene.TEXT_STEP_KINDS and who is not None)):
             if who is None:
-                problems.append(f"{lbl} step {k} ({act}) needs actor = \"<name>\" (a cast of one lets you "
-                                f"omit it)")
+                problems.append(f"{lbl} step {k} ({act}) needs to say who does it -- set actor = "
+                                f"\"<name>\" to a cast member ({cast_words}) or \"player\"; only a "
+                                f"cast of one can leave it out")
             elif who not in known:
-                problems.append(f"{lbl} step {k} actor {who!r} is not in actors (or \"player\")")
+                problems.append(f"{lbl} step {k}: {who!r} is not in the cast ({cast_words}) -- add "
+                                f"{who!r} to the cast (actors), or give the step to a cast member or "
+                                f"\"player\"")
         if act == "animation":
             a = s.get("animation")
             if isinstance(a, str) and not a.strip().isdigit():
@@ -9051,35 +9127,45 @@ def _validate_conductor(project, cs, problems, lbl="[cutscene]"):
                             _resolve_point(elem, move_reg)
                         except ValueError as e:
                             problems.append(f"{lbl} step {k}: {e}")
-        t = s.get("tail")
-        if t is not None and t not in _text.TAIL_CODES:
-            problems.append(f"{lbl} step {k} tail {t!r} is not a valid TAIL code")
+        # (a step's tail/style/window are validate()'s window-attribute sweep's -- one owner)
     # parallel beats (with_prev): a step marked with_prev runs together with the preceding beat. Only
     # walk/path/animation/turn can run in parallel (say/wait/set_flag/teleport/face_player are sequential),
     # the group leader must be one of those too, and no actor may act twice in a group (one execution context).
     if steps[0].get("with_prev"):
-        problems.append(f"{lbl} step 0 can't have with_prev = true (nothing precedes it)")
+        problems.append(f"{lbl} step 0 can't run together with the previous step (with_prev) -- there "
+                        f"isn't one; turn it off")
     _par_ok = PARALLEL_STEP_KINDS
+
+    def _kind(s):                                          # "(say)" -- the step's one action, if it has one
+        acts = [key for key in global_keys + actor_keys if key in s]
+        return f" ({acts[0]})" if len(acts) == 1 else ""
     for g in _conductor.group_parallel(steps):
         if len(g) < 2:
             continue
         lead_k, lead_s = g[0]
         lead_act = next((key for key in _par_ok if key in lead_s), None)
         if lead_act is None:
-            problems.append(f"{lbl} step {lead_k} has a with_prev beat after it but isn't a "
-                            f"walk/path/animation/turn -- only those run in parallel")
-        seen = {lead_s.get("actor", sole)} if lead_act else set()
+            problems.append(f"{lbl} step {lead_k}{_kind(lead_s)} can't have the next step run together "
+                            f"with it (with_prev on step {g[1][0]}) -- only walk, path, animation and "
+                            f"turn can run together; make step {lead_k} one of those, or turn it off on "
+                            f"step {g[1][0]}")
+        seen = {lead_s.get("actor", sole): lead_k} if lead_act else {}
         for k, s in g[1:]:
             act = next((key for key in _par_ok if key in s), None)
             if act is None:
-                problems.append(f"{lbl} step {k}: only walk/path/animation/turn can run with_prev "
-                                f"(say/wait/set_flag/teleport/face_player are sequential)")
+                problems.append(f"{lbl} step {k}{_kind(s)} can't run together with the previous step "
+                                f"(with_prev) -- only walk, path, animation and turn can; turn it off "
+                                f"on this step")
                 continue
             who = s.get("actor", sole)
+            if who is None:                                # "needs to say who does it" covers it
+                continue
             if who in seen:
-                problems.append(f"{lbl} step {k}: actor {who!r} already acts in this parallel group "
-                                f"(an actor can't do two things at once)")
-            seen.add(who)
+                problems.append(f"{lbl} step {k}: {who!r} already acts in this moment (step {seen[who]}) "
+                                f"-- one actor can't do two things at once; turn off \"runs together "
+                                f"with the previous step\" (with_prev) here, or give the step to "
+                                f"another cast member")
+            seen.setdefault(who, k)
 
 
 # Which step kinds may run IN PARALLEL with the preceding beat (`with_prev = true`). say/wait/set_flag are

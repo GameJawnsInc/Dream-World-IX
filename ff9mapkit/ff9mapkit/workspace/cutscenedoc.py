@@ -30,12 +30,12 @@ from __future__ import annotations
 
 import threading
 
-from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtCore import QEvent, Qt, Signal, QTimer
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPen
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QPlainTextEdit, QPushButton, QScrollArea, QSlider, QSplitter, QStackedLayout,
-    QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QPlainTextEdit, QPushButton, QScrollArea, QSlider, QSplitter, QStackedLayout, QStyle,
+    QStyledItemDelegate, QStyleOptionViewItem, QVBoxLayout, QWidget,
 )
 
 from .. import dialogue as _dlg
@@ -64,6 +64,22 @@ class CutsceneStage(StageCanvas):
         self._beat = 0
         self._verdict_rows = []                    # cutscenescan.stage_verdicts rows
         self._selected_step = None                 # ladder selection -> the accented leg
+        self._fit_zoom = None                      # the zoom the last fit chose
+
+    # -- the re-fit on a pane change (backdrop.BackdropCanvas's rule: only until the author zooms)
+    def _fit(self):
+        super()._fit()
+        self._fit_zoom = self._zoom
+
+    def resizeEvent(self, ev):                     # noqa: N802 (Qt override)
+        """The split or the storyboard strip changed the stage's size: re-fit while the stage
+        still shows the zoom a fit chose. A zoom the author chose (any other) is never reset."""
+        super().resizeEvent(ev)
+        # the zoom pill sat on the routed leg and a name in a short stage: there it gives way
+        self._hint.setVisible(self.viewport().height() >= 6 * self._hint.height())
+        if (self._zoom == self._fit_zoom and not self._fit_pending
+                and not self._scene.sceneRect().isEmpty()):
+            self._fit()
 
     # -- model setters (each ends in one _draw; the host renders, never the reverse) --
     def set_scene(self, model, *, refit=False, handles=None):
@@ -84,6 +100,12 @@ class CutsceneStage(StageCanvas):
         redraws until the host replaces them — a redraw must not silently un-say a stall."""
         self._verdict_rows = list(rows or [])
         self._draw()
+
+    def reveal_verdict(self, v):
+        """Bring one verdict's stall point (and its label above/right of it) into view from its
+        own DOCUMENT point: scrolls only when needed, never zooms -- the author's zoom stays."""
+        sx, sy = self._pt(*v["b"])
+        self.ensureVisible(sx, sy, 1, 1, 140, 60)
 
     def set_selected_step(self, idx):
         if idx == self._selected_step:
@@ -239,10 +261,11 @@ class StepEditor(QFrame):
         self.on_apply = on_apply
         self.on_close = on_close
         self.pick_anim = pick_anim                 # (current_text) -> picked | None
-        self.on_pick_stage = on_pick_stage         # arm a one-shot canvas click -> value
+        self.on_pick_stage = on_pick_stage         # (on) arm/disarm a one-shot canvas click
         self.scene = None                          # the open (scene, step) target; insert_at
         self.step_i = None                         # not None = ADD mode (insert at that row)
         self.insert_at = None
+        self._signal_true = False                  # the opened step said signal = true
         v = QVBoxLayout(self)
         v.setContentsMargins(10, 8, 10, 8)
         v.setSpacing(6)
@@ -255,13 +278,20 @@ class StepEditor(QFrame):
         self.apply_btn.setToolTip("Write this step into the open document (Ctrl+Z undoes).")
         self.apply_btn.clicked.connect(lambda: self.on_apply())
         head.addWidget(self.apply_btn)
-        close_btn = QPushButton("Close")
+        self.close_btn = close_btn = QPushButton("Close")
         close_btn.setProperty("role", "quiet")
         close_btn.clicked.connect(lambda: self.on_close())
         head.addWidget(close_btn)
         hw = QWidget()
         hw.setLayout(head)
         v.addWidget(hw)
+        # What the editor has to SAY (a refusal, an Apply error) goes right under the header:
+        # the panel is taller than the ladder pane at every text size and the pane keeps its TOP
+        # in view, so a note at the bottom was written where nobody could see it (final review).
+        self.note = widgets.caption("")
+        self.note.setWordWrap(True)
+        self.note.hide()                           # no words, no room
+        v.addWidget(self.note)
         v.addWidget(QLabel("Type:"))
         self.kind = QComboBox()
         self.kind.setAccessibleName("Cutscene step type")
@@ -284,8 +314,10 @@ class StepEditor(QFrame):
         self.pick_btn = QPushButton("Pick on the stage")
         self.pick_btn.setProperty("role", "quiet")
         self.pick_btn.setAccessibleName("Pick this movement target by clicking the stage")
-        self.pick_btn.setToolTip("Click a point on the stage below — it lands here as x, z.")
-        self.pick_btn.clicked.connect(lambda: self.on_pick_stage and self.on_pick_stage())
+        self.pick_btn.setToolTip("Click a point on the stage below — it lands here as x, z. "
+                                 "Press again to cancel.")
+        self.pick_btn.setCheckable(True)           # checked = armed: the next stage press is taken
+        self.pick_btn.clicked.connect(lambda on: self.on_pick_stage and self.on_pick_stage(on))
         vrow.addWidget(self.pick_btn)
         v.addLayout(vrow)
         self.value_text = QPlainTextEdit()
@@ -297,9 +329,11 @@ class StepEditor(QFrame):
         self.value_text.setToolTip('Multi-line: press Enter for a line break ("\\n" also works). '
                                    "Use [PAGE] for a new window.")
         v.addWidget(self.value_text)
-        self.say_preview = forms_qt._wrap_preview_panel(
-            self.value_text, lambda: self.value_text.toPlainText(),
-            wrap_width_fn or (lambda: None))
+        self.say_preview = forms_qt._wrap_preview_panel(   # what the BUILD emits, not the raw text
+            self.value_text, self._preview_text, wrap_width_fn or (lambda: None))
+        for box in self.say_preview.findChildren(QPlainTextEdit):   # read-only: a name, no tab stop
+            box.setAccessibleName("In-game wrap preview")
+            box.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         v.addWidget(self.say_preview)
         self.hint = widgets.caption("")
         v.addWidget(self.hint)
@@ -309,8 +343,8 @@ class StepEditor(QFrame):
         self.actor.setAccessibleName("Cutscene step actor")
         self.actor.lineEdit().setPlaceholderText("blank = sole cast member / narration voice")
         v.addWidget(self.actor)
-        self.with_prev = QCheckBox("Runs with the previous beat")
-        self.with_prev.setAccessibleName("Cutscene step runs in parallel with the previous beat")
+        self.with_prev = QCheckBox("Runs together with the previous step")
+        self.with_prev.setAccessibleName("Cutscene step runs together with the previous step")
         v.addWidget(self.with_prev)
         # the kind-aware extras drawer -- text steps get the whole window/pacing family,
         # movement steps just the walk speed; everything blank = absent = byte-identical output
@@ -329,6 +363,7 @@ class StepEditor(QFrame):
 
         self.x_speaker = _erow("speaker", "Speaker name:", QLineEdit(),
                                "optional name before the line, e.g. Vivi (or [VIVI])")
+        self.x_speaker.textChanged.connect(self.say_preview.refresh)   # the name line re-wraps
         self.x_tail = _erow("tail", "Window tail:", QLineEdit(),
                             "speech-bubble pointer corner (UPR/UPL/LOR/LOC/…); blank = default")
         self.x_style = _erow("style", "Window style:", QLineEdit(),
@@ -345,13 +380,23 @@ class StepEditor(QFrame):
         self.x_hold = _erow("hold", "", QCheckBox("Hold until a script closes it ([TIME=-1])"),
                             "undismissable, no auto-close — the unison shape (close it with a "
                             "'Close a window' step)")
-        self.x_signal = _erow("signal", "Signal when typed (n or blank):", QLineEdit(),
-                              "fire the text signal as the line finishes typing — pair with "
+        self.x_signal = _erow("signal", "Signal when typed (+, a number, or blank):", QLineEdit(),
+                              'fire the text signal as the line finishes typing: "+" adds one '
+                              "to it, a number sets it, blank sends none — pair with "
                               "'Wait for text signal'")
         v.addWidget(self.extras)
-        self.note = widgets.caption("")
-        self.note.setWordWrap(True)
-        v.addWidget(self.note)
+
+    def tab_chain(self):
+        """The editor's keyboard order: what the step IS first, then Apply and Close (built first,
+        in the header, they used to come before every field). Hidden ones are skipped by Qt."""
+        return [self.kind, self.value_line, self.anim_browse, self.pick_btn, self.value_text,
+                self.actor, self.with_prev, self.extras.toggle_button,
+                *(w for _lab, w in self._extra_rows.values()), self.apply_btn, self.close_btn]
+
+    def say(self, text=""):
+        """The editor's one line of words: shown while it has any, gone (no gap) when it has not."""
+        self.note.setText(text)
+        self.note.setVisible(bool(text))
 
     # -- kind plumbing --
     def current_kind(self):
@@ -360,8 +405,22 @@ class StepEditor(QFrame):
     def _is_text(self):
         return self.current_kind() in forms.TEXT_STEPS
 
+    def _typed_text(self):
+        """The dialogue as the step will hold it: a typed backslash-n is a line break."""
+        return self.value_text.toPlainText().replace("\\n", "\n")
+
+    def _preview_text(self):
+        text = self._typed_text()
+        if not text:
+            return ""
+        sp = self.x_speaker.text().strip() if hasattr(self, "x_speaker") else ""
+        return cutscenescan.say_as_built(sp, text)
+
     def _on_kind(self, _i=0):
         k = self.current_kind()
+        if self.pick_btn.isChecked() and self.on_pick_stage:
+            self.on_pick_stage(False)              # a new kind / a newly opened step: the armed
+        #                                            pick belonged to the old one
         self.hint.setText(forms.STEP_HELP.get(k, ""))
         text = self._is_text()
         valueless = forms.STEP_KIND.get(k) == forms.BOOL
@@ -395,7 +454,7 @@ class StepEditor(QFrame):
         if not ok:
             self.with_prev.setChecked(False)
         self.with_prev.setToolTip(
-            "Fork this beat alongside the one above it (both finish before the next)."
+            "Run this step alongside the one above it (both finish before the next)."
             if ok else
             ("Step 0 has nothing to run with." if (row or 0) == 0 else
              f"Only {', '.join(forms.PARALLEL_STEPS)} can run in parallel."))
@@ -431,12 +490,14 @@ class StepEditor(QFrame):
             getattr(self, f"x_{key}").setText(str(step.get(key, "") or ""))
         for key in ("window", "speed", "duration", "signal"):
             v = step.get(key)
-            getattr(self, f"x_{key}").setText("" if v is None else str(v))
+            # signal = true means exactly what "+" means to the build ([INCS]): show it as "+"
+            getattr(self, f"x_{key}").setText("" if v is None else "+" if v is True else str(v))
+        self._signal_true = step.get("signal") is True   # read_step gives true back, unchanged
         self.x_instant.setChecked(bool(step.get("instant")))
         self.x_hold.setChecked(bool(step.get("hold")))
         self.title.setText(f"Step {step_i} — edit" if insert_at is None
                            else f"New step — lands at row {insert_at}")
-        self.note.setText("")
+        self.say("")
         widgets.set_state(self.note, "")
         self._on_kind()
         # NO self.show() here: on the FIRST edit the editor is still PARENTLESS, and showing a
@@ -444,11 +505,22 @@ class StepEditor(QFrame):
         # reparents it (playtest-caught flicker -- the phantom-window law, entry side). Only
         # set_inset shows, AFTER seating.
 
+    def typed_state(self) -> dict:
+        """What the author can SEE and type, as one comparable value: the kind, the visible
+        value box, the actor, and the extras. The dirty test compares two of these, so a step
+        opens clean whatever keys it holds that the editor cannot write back."""
+        return {"kind": self.kind.currentIndex(),
+                "value": (self.value_text.toPlainText() if self._is_text()
+                          else self.value_line.text()),
+                "actor": self.actor.currentText(), "with_prev": self.with_prev.isChecked(),
+                "instant": self.x_instant.isChecked(), "hold": self.x_hold.isChecked(),
+                **{k: getattr(self, f"x_{k}").text() for k in
+                   ("speaker", "tail", "style", "window", "speed", "duration", "signal")}}
+
     def read_step(self) -> dict:
         """The step the widgets describe. Raises ValueError with the field named."""
         k = self.current_kind()
-        raw = (self.value_text.toPlainText().replace("\\n", "\n") if self._is_text()
-               else self.value_line.text())
+        raw = self._typed_text() if self._is_text() else self.value_line.text()
         step = forms.make_step(k, raw)
         a = self.actor.currentText().strip()
         if a:
@@ -460,14 +532,22 @@ class StepEditor(QFrame):
             for key in ("speaker", "tail", "style"):
                 s = getattr(self, f"x_{key}").text().strip()
                 if s:
-                    step[key] = s
+                    # an all-digit style is the raw flags BYTE: content.text.resolve_style reads
+                    # a string as a style NAME, so "128" must go back as the int 128
+                    step[key] = (int(s) if key == "style" and s.isdecimal() and s.isascii()
+                                 else s)
             for key in ("window", "speed", "duration", "signal"):
                 s = getattr(self, f"x_{key}").text().strip()
+                if key == "signal" and s == "+":
+                    step[key] = True if self._signal_true else "+"
+                    continue
                 if s:
                     try:
                         step[key] = int(s)
                     except ValueError:
-                        raise ValueError(f"{key} must be a whole number (got {s!r})")
+                        raise ValueError(
+                            f'signal must be "+", a whole number, or blank (got {s!r})'
+                            if key == "signal" else f"{key} must be a whole number (got {s!r})")
             if self.x_instant.isChecked():
                 step["instant"] = True
             if self.x_hold.isChecked():
@@ -484,17 +564,30 @@ class StepEditor(QFrame):
 
 class _StepRow(QFrame):
     """One ladder card. A QFrame with the card role (widgets.card's shape) plus a click-to-
-    select seam — selection drives the stage's accented leg (and, at the flip, the editor)."""
+    select seam — selection drives the stage's accented leg (and, at the flip, the editor).
+    A row is a keyboard stop too: Up / Down select the row above / below, Enter edits it."""
 
-    def __init__(self, on_click=None):
+    def __init__(self, on_click=None, on_key=None):
         super().__init__()
+        self.setObjectName("cutsceneStep")         # the selected / focused rules are scoped to it
         self.setProperty("role", "card")
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._on_click = on_click
+        self._on_key = on_key
 
     def mousePressEvent(self, event):              # noqa: N802 (Qt override)
         if self._on_click:
             self._on_click()
         super().mousePressEvent(event)
+
+    def keyPressEvent(self, event):                # noqa: N802 (Qt override)
+        key = {Qt.Key.Key_Up: "up", Qt.Key.Key_Down: "down", Qt.Key.Key_Return: "enter",
+               Qt.Key.Key_Enter: "enter"}.get(event.key())
+        if key and self._on_key and not event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier:
+            self._on_key(key)
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
 
 class StepLadder(QWidget):
@@ -514,6 +607,8 @@ class StepLadder(QWidget):
         self._idx_chips = []                       # the storyboard's ▶ beat sweep writes these
         self._selected = None
         self._beat_marks = set()
+        self._rows = []                            # the row frames, in step order
+        self._follow = None                        # the row a rebuild hands the keyboard focus to
         self._inset = None                         # THE ACCORDION: one foreign panel unfolded
         #                                            inside the ladder (the step editor under its
         #                                            row / the settings above row 0). The ladder
@@ -553,9 +648,48 @@ class StepLadder(QWidget):
             return f"▸ {i}"
         return str(i)
 
+    def _focused(self):
+        """``(tool, step)`` of the row tool or row that holds the keyboard focus, or None."""
+        fw = QApplication.focusWidget()
+        for i, row in enumerate(self._rows):
+            if fw is row:
+                return ("row", i)
+            if fw is not None and row.isAncestorOf(fw) and fw.property("tool"):
+                return (fw.property("tool"), i)
+        return None
+
+    def _on_row_key(self, i, key):
+        if key == "enter":
+            if self.actions:
+                self.actions["edit"](i)
+            return
+        j = i + (1 if key == "down" else -1)
+        if 0 <= j < len(self._rows) and self.on_select:
+            self._follow = j                       # the rebuild puts the focus on the new row
+            if j != self._selected:
+                self.on_select(j)
+            else:
+                self._refocus(("row", j))
+
+    def _refocus(self, had):
+        """Give the focus back after a rebuild: the same tool on the step's row (the host may have
+        named another row in ``_follow``), or the row itself when that tool is disabled there."""
+        tool, i = had
+        if self._follow is not None:
+            i, self._follow = self._follow, None
+        if not self._rows:
+            return
+        row = self._rows[max(0, min(i, len(self._rows) - 1))]
+        row.show()                                 # added rows show on a queued call: now
+        target = next((b for b in row.findChildren(QPushButton)
+                       if b.property("tool") == tool and b.isEnabled()), row)
+        target.setFocus(Qt.FocusReason.OtherFocusReason)
+
     def set_rows(self, rows, selected=None):
+        had = self._focused()                      # a rebuild destroys the focused tool: find it first
         self._selected = selected
         self._idx_chips = []
+        self._rows = []
         self._lift_inset()                         # the accordion panel is LIFTED, never deleted
         while self._lay.count():
             w = self._lay.takeAt(0).widget()
@@ -567,16 +701,25 @@ class StepLadder(QWidget):
         #                                            caught in the behavior ladder; same teardown,
         #                                            copied not paraphrased).
         for row in rows:
-            self._lay.addWidget(self._row(row))
+            frame = self._row(row, len(rows))
+            self._rows.append(frame)
+            self._lay.addWidget(frame)
+        if had is not None:
+            self._refocus(had)
+        self._follow = None
         if not rows:
             self._lay.addWidget(widgets.caption(
-                "No steps yet — a cutscene is an ordered list of beats: say a line, walk an "
+                "No steps yet — a cutscene is an ordered list of steps: say a line, walk an "
                 "actor, wait, open/close windows, set a flag."))
         self._lay.addStretch(1)
 
-    def _row(self, row):
+    def _row(self, row, n):
         i = row["idx"]
-        frame = _StepRow(on_click=(lambda i=i: self.on_select(i)) if self.on_select else None)
+        frame = _StepRow(on_click=(lambda i=i: self.on_select(i)) if self.on_select else None,
+                         on_key=lambda key, i=i: self._on_row_key(i, key))
+        frame.setProperty("selected", i == self._selected)   # the visible selection (C24): a
+        #                                                       rule, so the storyboard's beat
+        #                                                       marks on the chip cannot hide it
         h = QHBoxLayout(frame)
         h.setContentsMargins(10, 6, 10, 6)
         h.setSpacing(7)
@@ -602,14 +745,22 @@ class StepLadder(QWidget):
                 else:
                     btn = QPushButton(glyph)
                 btn.setProperty("role", "rowtool")
+                btn.setProperty("tool", glyph)     # a rebuild gives the focus back by this
                 btn.setToolTip(tip)
                 btn.setAccessibleName(f"{tip} — step {i}")
+                # nothing to move past: the first row's up and the last row's down are no stop
+                btn.setEnabled(not (glyph == "↑" and i == 0 or glyph == "↓" and i == n - 1))
                 btn.clicked.connect(cb)
                 h.addWidget(btn)
         if row["actor"]:
             chip = widgets.role_label(row["actor"], "chip")
             chip.setProperty("mono", True)
             h.addWidget(chip)
+        if row["speaker"]:                         # who TALKS, in the actor's slot: the body face,
+            spk = widgets.role_label(               # not the actor's mono, and "as" beside an actor
+                ("as " if row["actor"] else "") + row["speaker"], "chip")
+            spk.setToolTip(f"The name shown on this line: {row['speaker']}")
+            h.addWidget(spk)
         verb = widgets.role_label(row["verb"], "cardtitle")
         verb.setProperty("mono", True)
         h.addWidget(verb)
@@ -621,14 +772,33 @@ class StepLadder(QWidget):
             h.addStretch(1)
         if row["with_prev"]:
             h.addWidget(widgets.status_chip("‖ with previous", "info"))
-        if row["extras"]:
-            ex = widgets.status_chip("+" + ", ".join(row["extras"]), "info")
-            ex.setToolTip("Extra keys on this step: " + ", ".join(row["extras"]))
+        if row["extras"]:                          # a quiet note of what else the step sets,
+            ex = widgets.caption(", ".join(row["extras"]))   # not a chip that reads like a button
+            ex.setToolTip("Also set on this step: " + ", ".join(row["extras"])
+                          + " (open the step to see them)")
             h.addWidget(ex)
         frame.setAccessibleName(
             f"step {i}: " + (f"{row['actor']} " if row["actor"] else "") + row["verb"]
-            + (" runs with the previous beat" if row["with_prev"] else ""))
+            + (f" as {row['speaker']}" if row["speaker"] else "")
+            + (" runs together with the previous step" if row["with_prev"] else ""))
         return frame
+
+
+class _WrapHintDelegate(QStyledItemDelegate):
+    """A word-wrapped row's height, measured at the width the row's text is PAINTED at. The
+    stock hint wraps at the whole row width while the sheet's item padding and rail narrow the
+    painted text, so a long sentence lost its last line to an ellipsis."""
+
+    def sizeHint(self, option, index):             # noqa: N802 (Qt override)
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        w = opt.widget
+        st = w.style() if w is not None else QApplication.style()
+        inset = opt.rect.width() - st.subElementRect(
+            QStyle.SubElement.SE_ItemViewItemText, opt, w).width()
+        if 0 < inset < opt.rect.width():
+            opt.rect.setWidth(opt.rect.width() - inset)
+        return super().sizeHint(opt, index)
 
 
 class CutsceneDoc(QWidget):
@@ -658,12 +828,18 @@ class CutsceneDoc(QWidget):
         self._dirty = False
         self._scene = 0                            # the rail's selected scene (0-based, lint's own)
         self._selected_step = None
+        self._ed_block = None                      # the open editor's scene dict and step dict:
+        self._ed_step = None                       # found by IDENTITY at Apply, never by index
+        self._ed_typed = None                      # the editor's widgets as loaded (the dirty test)
         self._board = None                         # the storyboard model (when the strip is on)
         self._guide_state = "nofield"
         self._wmesh = None                         # the staging lane's cached walkmesh (per field)
         self._last_stage = None                    # the last StagingResult (tests/snaps read it)
+        self._verdicts = []                        # EVERY scene's verdict rows; the stage paints
+        #                                            only the selected scene's (_paint_verdicts)
         self._stage_busy = False
         self._stage_armed = False                  # first EXPLICIT check arms auto re-judges
+        self._stage_explicit = False               # the run in flight is the button's, not a re-judge
         self._stage_gen = 0                        # field switch/close drops in-flight results
         self._stage_done.connect(self._finish_stage)
         self._restage_timer = QTimer(self)
@@ -682,12 +858,12 @@ class CutsceneDoc(QWidget):
         self._stack.setCurrentWidget(self._guide_page)
 
     # -- pages --
-    def _build_guide(self, state):
+    def _build_guide(self, state, note=""):
         glyph = icons.pixmap("play", self.pal["muted"], 46)
         if state == "noscene":
             return widgets.empty_state(
                 "", "This field has no [[cutscene]] scene",
-                teach="A cutscene is an ordered list of steps that runs with control locked: "
+                teach=(note + "\n\n" if note else "") + "A cutscene is an ordered list of steps that runs with control locked: "
                       "say lines, walks, animations, windows, flags. A CAST (actors = "
                       "[names]) stages NPCs and the player; no cast = narration. Repeat "
                       "[[cutscene]] blocks — each gated to its own story beat — for the "
@@ -697,13 +873,13 @@ class CutsceneDoc(QWidget):
         return widgets.empty_state(                # "nofield" -- the front door
             "", "Cutscene stages a field's [[cutscene]] scenes",
             teach="Open a campaign or a loose field and select a field in the tree — its "
-                  "scenes, steps, staging, and the beat storyboard render here.",
+                  "scenes, steps, staging, and the storyboard render here.",
             icon_pixmap=glyph)
 
-    def _show_guide(self, state):
+    def _show_guide(self, state, note=""):
         self._guide_state = state
         old = self._guide_page
-        self._guide_page = self._build_guide(state)
+        self._guide_page = self._build_guide(state, note)
         self._stack.addWidget(self._guide_page)
         self._stack.setCurrentWidget(self._guide_page)
         self._stack.removeWidget(old)
@@ -733,6 +909,10 @@ class CutsceneDoc(QWidget):
         self.rail.setAccessibleDescription(
             "Every [[cutscene]] scene of this field's dispatch, with its story gate. "
             "At most one fires per field load.")
+        # no sideways scroll: a list that scrolls never elides, and cut a row mid-glyph over a
+        # permanent scrollbar; elided, the row's tooltip carries the whole line
+        self.rail.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.rail.setTextElideMode(Qt.TextElideMode.ElideRight)
         self.rail.currentRowChanged.connect(self._on_scene_select)
         rv.addWidget(self.rail, 1)
         self.add_scene_btn = QPushButton("＋ Add scene…")
@@ -792,7 +972,8 @@ class CutsceneDoc(QWidget):
         self.board_btn.setProperty("role", "quiet")
         self.board_btn.setCheckable(True)
         self.board_btn.setToolTip(
-            "Scrub the scene BEAT by BEAT — positions chain the way the compiler chains "
+            "Step through the scene one MOMENT at a time (the steps that run together) — "
+            "positions chain the way the compiler chains "
             "them, the say line shows with its final in-game wrapping.\n"
             "No clock, on purpose: a say waits for the player, so seconds would be fiction.")
         self.board_btn.toggled.connect(self._toggle_board)
@@ -826,6 +1007,7 @@ class CutsceneDoc(QWidget):
         self.settings_note.setWordWrap(True)
         sc_lay.addWidget(self.settings_note)
         self._settings_getters = None
+        self._settings_built = None                # _settings_key() of the form on show
         self.settings_card.hide()
         # the storyboard strip (hidden until ▶ Storyboard)
         self.board_bar = QWidget()
@@ -834,7 +1016,7 @@ class CutsceneDoc(QWidget):
         sv.setSpacing(2)
         srow = QHBoxLayout()
         srow.setSpacing(8)
-        for glyph, d, name in (("◀", -1, "Previous beat"), ("▶", +1, "Next beat")):
+        for glyph, d, name in (("◀", -1, "Previous moment"), ("▶", +1, "Next moment")):
             b = QPushButton(glyph)                 # text glyphs, the rowtool family's idiom --
             b.setProperty("role", "quiet")         # NOT U+23xx media glyphs (the emoji-face law)
             b.setToolTip(name)
@@ -842,8 +1024,8 @@ class CutsceneDoc(QWidget):
             b.clicked.connect(lambda _=False, k=d: self._show_beat(self._beat_pos() + k))
             srow.addWidget(b)
         self.board_slider = QSlider(Qt.Orientation.Horizontal)
-        self.board_slider.setAccessibleName("Storyboard beat")   # a slider is a real Tab stop
-        self.board_slider.setToolTip("Scrub the scene's beats")
+        self.board_slider.setAccessibleName("Storyboard moment")   # a slider is a real Tab stop
+        self.board_slider.setToolTip("Scrub the scene's moments")
         self.board_slider.valueChanged.connect(self._on_board_scrub)
         self.board_slider.setMinimumWidth(int(120 * self._scale / 100))   # never a sliver
         srow.addWidget(self.board_slider, 1)
@@ -853,7 +1035,7 @@ class CutsceneDoc(QWidget):
         sv.addLayout(srow)
         self.board_say = QLabel("")                # the beat's line, PRE-wrapped by the build's
         self.board_say.setProperty("mono", True)   # own wrapper -- what the FF9 window shows
-        self.board_say.setAccessibleName("The say line at this beat")
+        self.board_say.setAccessibleName("The say line at this moment")
         self.board_say.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         sv.addWidget(self.board_say)
         self.board_note = widgets.ElideLabel("")   # the honesty ledger's one-line face
@@ -886,6 +1068,15 @@ class CutsceneDoc(QWidget):
         self._vsplit.addWidget(self.canvas)
         k = self._scale / 100
         self._vsplit.setSizes([int(340 * k), int(280 * k)])
+        # _balance_split owns this split from here: the ladder pane takes its content up to half
+        # while the author has not dragged the handle (splitterMoved fires only on a drag).
+        self._split_chosen = False
+        self._vsplit.splitterMoved.connect(self._split_dragged)
+        self._balance_timer = QTimer(self)         # a resize re-balances AFTER the splitter laid
+        self._balance_timer.setSingleShot(True)    # itself out (a filter runs before it does)
+        self._balance_timer.setInterval(0)
+        self._balance_timer.timeout.connect(self._balance_split)
+        self._vsplit.installEventFilter(self)
         cl.addWidget(self._vsplit, 1)
         split.addWidget(center)
         split.setStretchFactor(1, 1)
@@ -911,8 +1102,11 @@ class CutsceneDoc(QWidget):
         v.addWidget(widgets.role_label("STAGING", "subtle"))
         srow = QHBoxLayout()
         srow.setSpacing(8)
-        self.stage_btn = QPushButton("Check the staging")
-        self.stage_btn.setAccessibleName("Check that every cutscene walk can reach its target")
+        # The two buttons ELIDE: a QPushButton's floor is its whole label, and the docked column
+        # took that floor wider than the Inspector at 150% ("Check the stagi", cut at the edge).
+        # Their floor is set in _yield_buttons, re-derived from the text-size dial.
+        self.stage_btn = widgets.ElideButton("")
+        self._stage_label("Check staging")
         self.stage_btn.setToolTip(
             "Walk every cast scene against the field's walkmesh — a blocked leg paints on "
             "the stage at the exact spot, with the build's own sentence. Walkmesh from the "
@@ -927,16 +1121,38 @@ class CutsceneDoc(QWidget):
         v.addWidget(self.stage_note)
         self.stage_list = QListWidget()
         self.stage_list.setAccessibleName("Cutscene staging problems")
+        self.stage_list.setToolTip("Click a problem to select its step and show it on the stage.")
+        # the docked inspector is narrow: the build's sentence WRAPS (a sideways-scrolling list
+        # showed a stub of it), and a row is a door to its step and its spot on the stage
+        self.stage_list.setWordWrap(True)
+        self.stage_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.stage_list.setResizeMode(QListWidget.ResizeMode.Adjust)   # re-wrap when docked
+        self.stage_list.setItemDelegate(_WrapHintDelegate(self.stage_list))
+        self.stage_list.itemClicked.connect(self._on_stage_item)
+        self.stage_list.itemActivated.connect(self._on_stage_item)   # Enter: the keyboard's click
         self.stage_list.setVisible(False)
         v.addWidget(self.stage_list, 1)
-        self.toml_btn = QPushButton("Open the .toml")
+        self.toml_btn = widgets.ElideButton("Open .toml")
         self.toml_btn.setProperty("role", "quiet")
         self.toml_btn.setToolTip("Open this field's .toml in your editor — every key the "
                                  "forms don't reach is authorable there.")
         self.toml_btn.clicked.connect(self._open_toml)
         v.addWidget(self.toml_btn)
         v.addStretch(0)
+        self._yield_buttons()
         return col
+
+    def _yield_buttons(self):
+        """The instruments' buttons may shrink (eliding) to a floor that scales with the dial;
+        the column then fits whatever width the Inspector gives it."""
+        for b in (self.stage_btn, self.toml_btn):
+            b.setMinimumWidth(int(72 * self._scale / 100))
+
+    def _stage_label(self, text):
+        """Relabel the staging button. ElideButton names itself after its label; this button's
+        name says what it checks."""
+        self.stage_btn.setText(text)
+        self.stage_btn.setAccessibleName("Check that every cutscene walk can reach its target")
 
     def _open_toml(self):
         if self.open_toml and self._member:
@@ -951,6 +1167,8 @@ class CutsceneDoc(QWidget):
         if hasattr(self, "canvas"):
             self.canvas.set_scale(pct)
             self.board_slider.setMinimumWidth(int(120 * pct / 100))
+            self._balance_split()                  # the floors are in dial units
+        self._yield_buttons()
 
     def retheme(self, pal):
         self.pal = pal
@@ -980,14 +1198,28 @@ class CutsceneDoc(QWidget):
     def show_field(self, member, raw, path=None, *, dirty=False, merged_fn=None):
         """Render the OPEN field's parsed dict — BY REFERENCE, the feed contract (the flip's
         ops mutate exactly the buffer the Editor and Save see). ``merged_fn`` re-merges the
-        sibling scene.toml per call, so staging and the board see spatial truth."""
-        same_field = member == self._member
+        sibling scene.toml per call, so staging and the board see spatial truth.
+        "Same field" is the member AND its file: a copied field or a re-imported fork keeps the
+        name, and must not inherit the other file's warm walkmesh or verdict."""
+        same_field = member == self._member and path == self._path
         if not same_field:
             if self.board_btn.isChecked():
                 self.board_btn.setChecked(False)   # another field: the board is void
             if self.settings_btn.isChecked():
                 self.settings_btn.setChecked(False)
             self._close_editor()
+        elif self.editor.scene is not None:
+            # the same field re-fed (undo / redo / reload swap the buffer; the Editor tree edits
+            # it in place): the editor follows its own scene and step, or closes if they are gone
+            if raw is not self._raw:
+                self._rebind_editor(raw)
+            loc = self._editor_locate(raw) if self.editor.scene is not None else None
+            if loc is None:
+                self._close_editor()
+            else:
+                self._scene, self.editor.scene = loc[0], loc[0]
+                if loc[1] is not None:
+                    self.editor.step_i = self._selected_step = loc[1]
         self._member, self._raw, self._path = member, raw, path
         self._merged_fn, self._dirty = merged_fn, dirty
         if not cutscenescan.scene_rows(raw):
@@ -1001,6 +1233,27 @@ class CutsceneDoc(QWidget):
             self._reset_stage()
         self._stack.setCurrentWidget(self._content)
         self._render(refit=not same_field)
+        if same_field and self._stage_armed and self._wmesh is not None:
+            self._restage_timer.start()            # undo / redo / another tab's edit re-judge too
+
+    def follow_history(self, member, path, data):
+        """Undo / Redo is about to feed ``data`` in place of the buffer this doc shows: select
+        the scene the history step touched -- the one it put back (an undone delete, a redone
+        add or copy), the one before the one it took away (an undone add or copy, a redone
+        delete), or the one whose content it changed. Found from the two buffers themselves, and
+        only when they are the same field (member AND file); a field the doc is not showing keeps
+        its own selection rules."""
+        if self._raw is None or member != self._member or path != self._path:
+            return
+        old, new = cutscenescan._blocks(self._raw), cutscenescan._blocks(data)
+        n = min(len(old), len(new))
+        first = next((i for i in range(n) if old[i] != new[i]), n)
+        if len(new) == len(old) and first == n:
+            return                                 # no scene changed: keep the selection
+        k = first if len(new) >= len(old) else first - 1
+        k = max(0, min(k, len(new) - 1))
+        if k != self._scene:
+            self._scene, self._selected_step = k, None
 
     def _merged(self) -> dict:
         return self._merged_fn() if self._merged_fn else (self._raw or {})
@@ -1025,11 +1278,15 @@ class CutsceneDoc(QWidget):
         self.rail.clear()
         for r in rows:
             kind = "narration" if r["narration"] else f"cast {len(r['cast'])}"
-            text = (f"{r['label']} · {r['gate']} · {kind} · {r['steps']} "
-                    f"step{'s' if r['steps'] != 1 else ''}")
+            steps = f"{r['steps']} step{'s' if r['steps'] != 1 else ''}"
+            # What tells scenes apart FIRST and SHORT, on two lines that each elide right: the
+            # rail has room for about 13 characters a line at 125%, and the gate's sentence
+            # ("plays at beat 100") lost its number there. The header and the tooltip keep it.
+            text = f"#{r['idx']} · {r['gate'].removeprefix('plays at ')}\n{steps} · {kind}"
             self.rail.addItem(text)
             it = self.rail.item(self.rail.count() - 1)
-            tip = text + (("\ncast: " + ", ".join(r["cast"])) if r["cast"] else "")
+            tip = (f"{r['label']} · {steps}\n{kind} · {r['gate']}"
+                   + (("\ncast: " + ", ".join(r["cast"])) if r["cast"] else ""))
             if not r["once"]:
                 tip += "\nreplays every visit (once = false)"
             it.setToolTip(tip)
@@ -1046,12 +1303,18 @@ class CutsceneDoc(QWidget):
         handles = self._stage_handles()
         self.canvas.set_edit(bool(handles))
         self.canvas.set_selected_step(self._selected_step)
+        self._paint_verdicts()                     # a scene switch re-filters the rows
         self.canvas.set_scene(cutscenescan.stage_model(raw, self._scene), refit=refit,
                               handles=handles)
-        if self.settings_btn.isChecked():          # isChecked, not isVisible: visibility is a lie
-            self._fill_settings()                  # under a never-shown test window
+        if self.settings_btn.isChecked() and self._settings_key() != self._settings_built:
+            self._fill_settings()                  # isChecked, not isVisible (a never-shown test
+        #                                            window lies). Only when what the form shows
+        #                                            really changed: a rebuild throws away typing.
         self._sync_insets()
-        problems = cutscenescan.dispatch_problems(raw) + cutscenescan.scene_problems(raw)
+        self._balance_timer.start()                # the ladder's content just changed; its
+        #                                            new rows count once they are shown (queued)
+        problems = cutscenescan.dispatch_problems(raw) + cutscenescan.scene_problems(
+            raw, self.flag_names_fn() if self.flag_names_fn else None)
         if problems:
             self.problems_lbl.setText("\n".join(f"• {p}" for p in problems))
             widgets.set_state(self.problems_lbl, "error")
@@ -1063,6 +1326,11 @@ class CutsceneDoc(QWidget):
 
     def _on_scene_select(self, row):
         if row < 0 or row == self._scene:
+            return
+        if self._editor_refuses():                 # the rail must not show a scene it did not open
+            self.rail.blockSignals(True)
+            self.rail.setCurrentRow(self._scene)
+            self.rail.blockSignals(False)
             return
         self._close_editor()                       # the editor's (scene, step) target is stale
         self._scene = row
@@ -1096,6 +1364,23 @@ class CutsceneDoc(QWidget):
             at = ((self.editor.step_i + 1) if self.editor.insert_at is None
                   else self.editor.insert_at)
             self.ladder.set_inset(self.editor, at=at)
+        self._chain_tabs()
+
+    def _chain_tabs(self):
+        """Rebuilt rows join the window's focus chain LAST (after the toolbar, Deploy and the
+        Inspector). Put them back in reading order: the scene bar, each row and its tools (the open
+        step editor under its row), then the stage."""
+        seq = [self.board_btn]
+        lay = self.ladder._lay
+        for n in range(lay.count()):
+            w = lay.itemAt(n).widget()
+            if isinstance(w, _StepRow):
+                seq += [w] + [b for b in w.findChildren(QPushButton) if b.property("tool")]
+            elif w is self.editor:
+                seq += self.editor.tab_chain()
+        seq.append(self.canvas)
+        for a, b in zip(seq, seq[1:]):
+            QWidget.setTabOrder(a, b)
 
     # -- edits (all through cutscenescan's pure ops; the shell checkpoints via on_edit) --
     def _after_edit(self, label):
@@ -1109,32 +1394,69 @@ class CutsceneDoc(QWidget):
             self._render()
         if self.on_edit and self._member:
             self.on_edit(self._member, label)
+        if self._stage_busy:
+            self._stage_moved = True               # a check in flight judged the OLD scenes: its rows
+        #                                            must not paint (see _finish_stage)
         if self._stage_armed and self._wmesh is not None:
             self._restage_timer.start()            # the armed lane: re-judge on the warm mesh
 
+    def _editor_dirty(self):
+        """Would closing the step editor throw away the author's typing? Judged only from what
+        the author can see. Add mode: a value in the visible value box. Edit mode: the editor's
+        widgets differ from what they showed when the step was loaded (``_ed_typed``, re-taken
+        at Apply and when a stage drag rewrites the value) -- so a step opens clean whatever
+        keys it holds that the editor normalises, and an unreadable value typed in is typing."""
+        ed = self.editor
+        if ed.scene is None:
+            return False
+        if ed.insert_at is not None:
+            return bool(ed.typed_state()["value"])
+        return ed.typed_state() != self._ed_typed
+
+    def _editor_refuses(self):
+        """Refuse a gesture that would close (or reload) a DIRTY step editor, and say how to go
+        on. A clean editor closes as before; nothing is ever applied on the author's behalf."""
+        if not self._editor_dirty():
+            return False
+        self.editor.say("This step has changes that are not applied. Apply them, or "
+                                 "Close to drop them, then try again.")
+        widgets.set_state(self.editor.note, "error")
+        self._reveal_editor()
+        return True
+
     def _add_scene(self):
-        if self._raw is None:
+        if self._raw is None or self._editor_refuses():
             return
+        self._close_editor()                       # the selection moves to the new scene
         label = cutscenescan.add_scene(self._raw)
         self._scene = len(cutscenescan.scene_rows(self._raw)) - 1
         self._selected_step = None
         self._after_edit(label)
 
     def _dup_scene(self):
-        if self._raw is None:
+        if self._raw is None or self._editor_refuses():
             return
+        self._close_editor()                       # the selection moves to the copy
         label = cutscenescan.duplicate_scene(self._raw, self._scene)
         self._scene += 1
         self._after_edit(label)
 
     def _del_scene(self):
-        if self._raw is None:
+        if self._raw is None or self._editor_refuses():
             return
         self._close_editor()
+        k, n = self._scene, len(self._steps())
         label = cutscenescan.delete_scene(self._raw, self._scene)
         self._scene = max(0, self._scene - 1)
         self._selected_step = None
         self._after_edit(label)
+        # no confirm (undo-first, as the step delete): say what went and how to get it back, where
+        # the author is looking -- the next render puts the summary back
+        said = f"Deleted scene #{k} ({n} step{'s' if n != 1 else ''}) — Ctrl+Z restores it."
+        if self._stack.currentWidget() is self._guide_page:
+            self._show_guide("noscene", said)      # that was the last scene
+        else:
+            self.head_sum.setText(said)
 
     # -- scene settings (Apply-committed: a per-keystroke checkpoint would spam undo) --
     def _toggle_settings(self, on):
@@ -1145,8 +1467,25 @@ class CutsceneDoc(QWidget):
             self.settings_card.hide()              # the phantom-window flicker's other half)
         if self._raw is not None and self._stack.currentWidget() is self._content:
             self._render()                         # seat / clear the inset
+            if on:
+                self._balance_split(opened=True)   # the card opens inside a pane sized to rows
+
+    def _settings_key(self):
+        """What the settings form is built FROM: the scene and the values the form shows (not
+        the steps -- a stage drag must not wipe a typed gate). Another field never reaches this
+        comparison: show_field closes the card on a field switch (member AND path)."""
+        blocks = forms.all_blocks((self._raw or {}).get("cutscene"))
+        if not 0 <= self._scene < len(blocks):
+            return None
+        # the COUNT too: Apply writes by index, and a scene added or removed elsewhere can put a
+        # twin with equal values (Duplicate Scene makes them) at this index (final review).
+        # Scenes have no id of their own, so a change that KEEPS the count -- a hand-edited
+        # .toml reloaded with one scene removed and another added -- is not seen here.
+        return (self._scene, len(blocks),
+                forms.entity_to_values(forms.CUTSCENE_SPEC, blocks[self._scene]))
 
     def _fill_settings(self):
+        self._settings_built = self._settings_key()
         while self._settings_host.count():
             w = self._settings_host.takeAt(0).widget()
             if w is not None:
@@ -1186,15 +1525,20 @@ class CutsceneDoc(QWidget):
         b = blocks[self._scene] if 0 <= self._scene < len(blocks) else {}
         return [str(a) for a in b["actors"]] if isinstance(b.get("actors"), list) else []
 
-    def _steps(self):
+    def _block_now(self):
         blocks = forms.all_blocks((self._raw or {}).get("cutscene"))
-        b = blocks[self._scene] if 0 <= self._scene < len(blocks) else {}
+        return blocks[self._scene] if 0 <= self._scene < len(blocks) else None
+
+    def _steps(self):
+        b = self._block_now() or {}
         return b.get("steps") if isinstance(b.get("steps"), list) else []
 
     def _edit_step(self, i):
         st = self._steps()
         if not 0 <= i < len(st):
             return
+        if self._editor_refuses():                 # this row's own pencil (or Enter on it)
+            return                                 # would fold it, another's would load over it
         if (self.editor.scene is not None and self.editor.insert_at is None
                 and self.editor.step_i == i):
             self._close_editor()                   # reclicking the open row's Edit FOLDS it
@@ -1204,38 +1548,136 @@ class CutsceneDoc(QWidget):
             self.settings_btn.setChecked(False)    # the accordion holds ONE panel at a time
         self._selected_step = i
         self.editor.open_step(self._scene, i, st[i], self._cast())
+        self._ed_block, self._ed_step = self._block_now(), st[i]
+        self._ed_typed = self.editor.typed_state()
         self._render()                             # seats the editor under its row
-        self._ladder_guard()
+        self._balance_split(opened=True)
         self._reveal_editor()
 
     def _add_step(self):
-        if self._raw is None:
+        if self._raw is None or self._editor_refuses():
             return
         if self.settings_btn.isChecked():
             self.settings_btn.setChecked(False)
         at = (self._selected_step + 1) if self._selected_step is not None else len(self._steps())
         self.editor.open_step(self._scene, None, {"say": ""}, self._cast(), insert_at=at)
+        self._ed_block, self._ed_step = self._block_now(), None
         self._sync_insets()                        # no data changed -- just seat the panel
-        self._ladder_guard()
+        self._balance_split(opened=True)
         self._reveal_editor()
 
-    def _ladder_guard(self):
-        """Opening a panel must leave the ladder pane USABLE: grow it from the canvas if the
-        split has been dragged to a sliver (canvas floor 140 -- the behavior guard's shape)."""
+    def _split_dragged(self, *_):
+        self._split_chosen = True                  # the author's split is a choice: keep it
+
+    def eventFilter(self, obj, ev):                # noqa: N802 (Qt override)
+        if obj is self._vsplit and ev.type() == QEvent.Type.Resize and not self._split_chosen:
+            self._balance_timer.start()
+        return super().eventFilter(obj, ev)
+
+    def _balance_split(self, *, board=False, opened=False):
+        """THE one owner of the ladder / stage split. Until the author drags the handle, the
+        ladder pane takes its content's height, up to half -- a short scene leaves no dead pane
+        and the stage gets the rest. While a panel is open the split is left alone, except that
+        opening a panel (the step editor or Scene settings) still gets a usable ladder (the old guard: up to 300 px at 100%,
+        the stage keeps 140). The storyboard's
+        toggle keeps the stage at least 200 px at 100% (or half), even under a dragged split."""
         s = self._vsplit.sizes()
-        need = int(300 * self._scale / 100)
-        if s and s[0] < need:
-            total = sum(s)
-            canvas = max(140, total - need)
-            self._vsplit.setSizes([total - canvas, canvas])
+        total = sum(s)
+        if len(s) != 2 or total <= 0:
+            return                                 # not laid out yet: the resize will come back
+        k = self._scale / 100
+        if self.settings_btn.isChecked() or self.editor.scene is not None:
+            if not opened:
+                return                             # a panel's split is set when it opens, only
+            need = int(300 * k)                    # the panel's guard, as it always was
+            ladder = s[0] if s[0] >= need else total - max(140, total - need)
+        else:
+            floor = min(int(200 * k), total // 2)
+            if self._split_chosen:
+                ladder = s[0]
+                if not board:
+                    floor = 0                      # a dragged stage keeps its size
+            else:
+                content = self.ladder.sizeHint().height() + 2 * self._lscroll.frameWidth()
+                ladder = min(content, total // 2)
+            ladder = max(0, min(ladder, total - floor))
+        if ladder != s[0]:
+            self._vsplit.setSizes([ladder, total - ladder])
 
     def _reveal_editor(self):
-        self._lscroll.ensureWidgetVisible(self.editor, 0, 40)
+        """Bring the editor into view TOP FIRST, with the row above it (the line being edited, or
+        the one an add lands after): Apply/Close and the conversation. A panel taller than the
+        viewport is never centred -- that scrolled its header and its row away. Otherwise the
+        least scroll that shows the whole panel. Deferred: the rows were just rebuilt, and their
+        geometry exists only once the layout has run."""
+        QTimer.singleShot(0, self._scroll_to_editor)
+
+    def _scroll_to_editor(self):
+        lay = self.ladder._lay
+        idx = lay.indexOf(self.editor)
+        if self.editor.scene is None or idx < 0:
+            return                                 # closed (or moved off) before the layout ran
+        from PySide6.QtCore import QCoreApplication, QEvent
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.LayoutRequest)   # a first seat's rows
+        above = lay.itemAt(idx - 1).widget() if idx > 0 else None
+        top = (above if above is not None else self.editor).y() - 8
+        bottom = self.editor.geometry().bottom() + 8
+        sb = self._lscroll.verticalScrollBar()
+        vh = self._lscroll.viewport().height()
+        lo, hi = bottom - vh, max(0, top)
+        sb.setValue(hi if lo > hi else max(lo, min(sb.value(), hi)))
+        if self.editor.note.isVisible():           # in a pane too short for the row above, the
+            self._lscroll.ensureWidgetVisible(self.editor.note, 0, 4)   # header AND the words:
+                                                   # the words win (Apply sits right above them)
 
     def _close_editor(self):
         self.editor.hide()                         # hidden takes no space; the next refill lifts it
         self.editor.scene = self.editor.step_i = self.editor.insert_at = None
+        self._ed_block = self._ed_step = None
         self._disarm_stage_pick()
+
+    def _editor_locate(self, raw):
+        """``(scene, step)`` indices of the open editor's scene dict and step dict in ``raw``,
+        found by IDENTITY (ADD mode: ``(scene, None)``), or None when either is gone. An index
+        is only where a row sits NOW -- an in-place writer shifts it under the editor."""
+        blocks = forms.all_blocks((raw or {}).get("cutscene"))
+        k = next((n for n, b in enumerate(blocks) if b is self._ed_block), None)
+        if k is None or self.editor.insert_at is not None:
+            return None if k is None else (k, None)
+        st = blocks[k].get("steps") if isinstance(blocks[k].get("steps"), list) else []
+        i = next((n for n, s in enumerate(st) if s is self._ed_step), None)
+        return None if i is None else (k, i)
+
+    def _rebind_editor(self, raw):
+        """A NEW buffer (undo / redo / reload) holds copies, so identity is lost and the editor's
+        scene must be re-found by its contents. ITS OWN INDEX FIRST, and under both rules: the
+        scene there is still equal to the one it opened on, or (edit mode) its row still holds an
+        equal step. Only when its own index fails both may it move, and then only to the ONE
+        other scene equal to it -- with duplicated scenes about ("Duplicate scene" makes them
+        routine), "some equal scene" used to carry the editor into a scene the author never
+        opened, and Apply wrote their line there. Otherwise unbind: the caller closes."""
+        blocks = forms.all_blocks((raw or {}).get("cutscene"))
+        k0, i = self.editor.scene, self.editor.step_i
+        add = self.editor.insert_at is not None
+
+        def own(n):
+            if not 0 <= n < len(blocks):
+                return False
+            if blocks[n] == self._ed_block:
+                return True
+            st = blocks[n].get("steps") if isinstance(blocks[n].get("steps"), list) else []
+            return (not add) and 0 <= i < len(st) and st[i] == self._ed_step
+
+        k = k0 if own(k0) else None
+        if k is None:
+            equal = [n for n in range(len(blocks)) if n != k0 and blocks[n] == self._ed_block]
+            k = equal[0] if len(equal) == 1 else None
+        if k is None:
+            self._ed_block = self._ed_step = None
+            return
+        self._ed_block = blocks[k]
+        if not add:
+            self._ed_step = self._ed_block["steps"][i]
 
     def _apply_step(self):
         if self._raw is None:
@@ -1243,25 +1685,41 @@ class CutsceneDoc(QWidget):
         try:
             step = self.editor.read_step()
         except ValueError as e:
-            self.editor.note.setText(str(e))
+            self.editor.say(str(e))
             widgets.set_state(self.editor.note, "error")
+            self._reveal_editor()
             return
-        self.editor.note.setText("")
+        loc = self._editor_locate(self._raw)
+        if loc is None:                            # its scene or its step is gone (an edit elsewhere)
+            self.editor.say("This step is no longer in the scene (it was removed "
+                                     "elsewhere) — Close, then open the step again.")
+            widgets.set_state(self.editor.note, "error")
+            self._reveal_editor()
+            return
+        k = self.editor.scene = loc[0]
+        if loc[1] is not None:
+            self.editor.step_i = loc[1]
+        self.editor.say("")
         widgets.set_state(self.editor.note, "")
+        self._disarm_stage_pick()                  # Apply ends the pick (it would steal a drag)
         if self.editor.insert_at is not None:      # ADD: insert, then ADVANCE -- the next Apply
-            at = self.editor.insert_at             # lands the NEXT line. The conversation loop
-            label = cutscenescan.add_step(self._raw, self._scene, at, step)   # the old form's
+            at = min(self.editor.insert_at,        # lands the NEXT line. The conversation loop
+                     len(self._ed_block.get("steps") or []))   # (clamped: rows may have gone)
+            label = cutscenescan.add_step(self._raw, k, at, step)   # the old form's
             self.editor.insert_at = at + 1         # same-kind overwrite made impossible.
+            self.editor._sync_with_prev()          # a new row: with_prev is judged by row too
             self.editor.title.setText(f"New step — lands at row {self.editor.insert_at}")
             self._selected_step = at
-            (self.editor.value_text.clear() if self.editor._is_text()
-             else self.editor.value_line.clear())
+            self.editor.value_text.clear()         # both: a value carried across a kind
+            self.editor.value_line.clear()         # switch must not linger in the hidden box
             self._after_edit(label)
             self._reveal_editor()                  # the panel just advanced a row -- keep it in view
         else:
             i = self.editor.step_i
-            label = cutscenescan.update_step(self._raw, self._scene, i, step,
+            label = cutscenescan.update_step(self._raw, k, i, step,
                                              managed=STEP_EDITOR_KEYS)
+            self._ed_step = self._ed_block["steps"][i]     # update_step wrote a NEW dict there
+            self._ed_typed = self.editor.typed_state()     # what is shown is now applied
             self._selected_step = i
             self._after_edit(label)
 
@@ -1270,22 +1728,26 @@ class CutsceneDoc(QWidget):
         j = i + (1 if delta > 0 else -1)
         if not (0 <= i < len(st)) or not (0 <= j < len(st)):
             return                                 # the boundary: nothing to move past
+        if self._editor_refuses():
+            return
         self._close_editor()                       # indices shift under a structural edit
         label = cutscenescan.move_step(self._raw, self._scene, i, delta)
         if self._selected_step == i:
             self._selected_step = j
+        self.ladder._follow = j                    # the keyboard stays on the moved step
         self._after_edit(label)
 
     def _dup_step(self, i):
-        if not 0 <= i < len(self._steps()):
+        if not 0 <= i < len(self._steps()) or self._editor_refuses():
             return
         self._close_editor()
         label = cutscenescan.duplicate_step(self._raw, self._scene, i)
         self._selected_step = i + 1
+        self.ladder._follow = i + 1                # ...on the copy
         self._after_edit(label)
 
     def _del_step(self, i):
-        if not 0 <= i < len(self._steps()):
+        if not 0 <= i < len(self._steps()) or self._editor_refuses():
             return
         self._close_editor()
         label = cutscenescan.remove_step(self._raw, self._scene, i)
@@ -1299,14 +1761,22 @@ class CutsceneDoc(QWidget):
             return self.pick_anim(self._member, actor, self._cast(), current)
         return None
 
-    def _arm_stage_pick(self):
+    def _arm_stage_pick(self, on=True):
+        """The pick button's toggle. Armed SHOWS: the button stays pressed and the stage wears a
+        crosshair, because the next left press on the stage is taken (not a drag, not a pan)."""
+        if not on:
+            self._disarm_stage_pick()
+            return
         self.canvas.on_sim_click = self._stage_picked
         self.canvas.set_sim_mode(True)             # the base canvas's one-click input lane
+        self.canvas.viewport().setCursor(Qt.CursorShape.CrossCursor)
 
     def _disarm_stage_pick(self):
+        self.editor.pick_btn.setChecked(False)
         if self.canvas.on_sim_click is not None:
             self.canvas.on_sim_click = None
             self.canvas.set_sim_mode(False)
+            self.canvas.viewport().setCursor(Qt.CursorShape.OpenHandCursor)   # the pan's own
 
     def _stage_picked(self, x, z):
         self._disarm_stage_pick()
@@ -1344,7 +1814,17 @@ class CutsceneDoc(QWidget):
         else:
             _kind, k, i, j = hid
             label = cutscenescan.set_step_target(self._raw, k, i, x, z, waypoint=j)
+        self._show_dragged_value(k, i)
         self._after_edit(label)
+
+    def _show_dragged_value(self, k, i):
+        """A stage edit of the OPEN step lands in the editor's value too -- else its next
+        Apply writes the old target back over the drag."""
+        if (self.editor.scene is not None and self._editor_locate(self._raw) == (k, i)
+                and self.editor.current_kind() == forms.step_key(self._ed_step)):
+            self.editor.value_line.setText(forms.step_value_text(self._ed_step))
+            if self._ed_typed is not None:         # the drag is applied: not the author's typing
+                self._ed_typed["value"] = self.editor.value_line.text()
 
     def _on_stage_insert(self, lid):
         _kind, k, i, j = lid
@@ -1353,6 +1833,7 @@ class CutsceneDoc(QWidget):
         except ValueError as e:                    # a NAMED point: refuse and say why
             self._say_problem(str(e))
             return
+        self._show_dragged_value(k, i)
         self._after_edit(label)
 
     def _on_stage_delete(self, lid):
@@ -1362,11 +1843,15 @@ class CutsceneDoc(QWidget):
         except ValueError as e:                    # the 1-point floor: refuse and say why
             self._say_problem(str(e))
             return
+        self._show_dragged_value(k, i)
         self._after_edit(label)
 
     # -- the storyboard strip --
     def _toggle_board(self, on):
         self.board_bar.setVisible(on)
+        if on:                                     # the strip takes its height from this split:
+            self._vsplit.parentWidget().layout().activate()   # lay it out now, then keep the
+            self._balance_split(board=True)        # stage its floor (the stage re-fits itself)
         if on:
             self._refresh_board()
         else:
@@ -1395,18 +1880,24 @@ class CutsceneDoc(QWidget):
         self.board_slider.setEnabled(bool(beats))
         self.board_slider.blockSignals(False)
         if err:
-            self.board_say.setText(err)
+            self._board_text(err)
             widgets.set_state(self.board_say, "error")
             self.board_pos.setText("")
             self.board_note.setFullText("the storyboard needs every name to resolve — "
-                                        "fix the step above, or run Check")
+                                        "fix the step above, or run the toolbar Check")
             self.ladder.set_beat_marks(())
             self.canvas.set_storyboard(None)
             return
         widgets.set_state(self.board_say, "")
         notes = self._board.get("notes") or []
-        self.board_note.setFullText("offline storyboard — beats, not seconds (hover for why)")
+        self.board_note.setFullText("offline storyboard — moments, not seconds (hover for why)")
         self.board_note.setToolTip("\n".join(notes))
+        if not beats:                              # every step deleted: nothing of the old board
+            self._board_text("No steps yet — add one to storyboard this scene.", placeholder=True)
+            self.board_pos.setText("")
+            self.ladder.set_beat_marks(())
+            self.canvas.set_storyboard(None)
+            return
         self._show_beat(min(self._beat_pos(), max(0, len(beats) - 1)))
 
     def _on_board_scrub(self, v):
@@ -1422,38 +1913,51 @@ class CutsceneDoc(QWidget):
         self.board_slider.setValue(k)
         self.board_slider.blockSignals(False)
         b = beats[k]
-        self.board_pos.setText(f"beat {k + 1} of {len(beats)}")
+        self.board_pos.setText(f"moment {k + 1} of {len(beats)}")
         if b["say"] is not None:
             ww = cutscenescan.wrap_width(self._merged())
-            line = _dlg.wrap_preview(b["say"], ww) if ww is not None else b["say"]
-            who = f"{b['say_actor']}:\n" if b["say_actor"] else ""
-            self.board_say.setText(who + line)
+            line = cutscenescan.say_as_built(b["say_speaker"], b["say"])   # the build's line
+            self._board_text(_dlg.wrap_preview(line, ww) if ww is not None else line)
         else:
-            self.board_say.setText("(no line this beat)")
+            self._board_text("(no line at this moment)", placeholder=True)
         self.ladder.set_beat_marks(set(b["step_idxs"]))
         self.canvas.set_storyboard(self._board, k)
 
+    def _board_text(self, text, *, placeholder=False):
+        """The strip's line: the game window's mono for a real line (or the error), a quiet
+        caption for a placeholder -- an empty state must not out-shout the scene title."""
+        self.board_say.setProperty("role", "caption" if placeholder else None)
+        self.board_say.setProperty("mono", not placeholder)
+        widgets.repolish(self.board_say)
+        self.board_say.setText(text)
+
     # -- the staging lane (the one disk read; the shell's old strip, moved home) --
-    def stage_now(self, *, sync=False):
+    def stage_now(self, *, sync=False, warm=False):
+        """Check the staging. An explicit check (the button) reads the walkmesh from the SAVED
+        file every time, as its tooltip promises -- a regenerate or re-export may have replaced
+        it. Only the automatic re-judge (``warm=True``) rides the cached mesh."""
         raw = self._merged()
         if self._stage_busy or self._raw is None:
             return
+        self._stage_explicit = not warm            # only the author's own check moves the view
         if not cutscenescan.has_cast_scene(raw):
             res = cutscenescan.StagingResult(
                 scenes=len(cutscenescan.scene_rows(raw)))
             self._finish_stage((self._stage_gen, res, [], self._wmesh))
             return
-        if self._wmesh is None and not self._path:
+        wmesh = self._wmesh if warm else None
+        if wmesh is None and not self._path:
             self.stage_note.setText("This document has no saved file yet — the walkmesh "
                                     "comes from disk, so save first, then check.")
             widgets.set_state(self.stage_note, "warn")
             return
         self._stage_busy = True
+        self._stage_moved = False
         self.stage_btn.setEnabled(False)
-        self.stage_btn.setText("Checking…")
+        self._stage_label("Checking…")
         import copy as _copy
         snap = _copy.deepcopy(raw)                 # the worker must never race the GUI's dict
-        gen, path, wmesh = self._stage_gen, self._path, self._wmesh
+        gen, path = self._stage_gen, self._path
         flags = self.flag_names_fn() if self.flag_names_fn else None
         base = self._base_dir()
         if sync:                                   # the deterministic test/snap lane
@@ -1479,7 +1983,7 @@ class CutsceneDoc(QWidget):
         except Exception as e:                     # noqa: BLE001 -- the message is the teaching
             res = cutscenescan.StagingResult()
             res.error = f"Could not check the staging — {e}"
-            return res, [], None
+            return res, [], wmesh                  # None only when no floor was loaded
 
     def _stage_worker(self, gen, path, raw, base_dir, wmesh, flags):
         payload = (gen, *self._stage_work(path, raw, base_dir, wmesh, flags))
@@ -1495,28 +1999,84 @@ class CutsceneDoc(QWidget):
         self._last_stage = res                     # the tests'/snaps' deterministic readback
         self._stage_busy = False
         self.stage_btn.setEnabled(True)
-        self.stage_btn.setText("Check the staging")
+        self._stage_label("Check staging")
         if wmesh is not None:
             self._wmesh = wmesh
             self._stage_armed = True
+        else:                                      # the floor did not load: nothing may be judged
+            self._wmesh = None                     # on the OLD one (an edit's re-judge would paint
+            self._stage_armed = False              # its checkmark over this error)
+            self._restage_timer.stop()
         self.stage_note.setText(res.summary())
         widgets.set_state(self.stage_note,
                           "warn" if (res.warnings or res.skipped or res.error) else "")
+        self._verdicts = list(rows or [])
+        if getattr(self, "_stage_moved", False):   # the scenes were edited while this ran: a stall
+            self._stage_moved = False              # would paint on whichever scene now has its
+            self._verdicts = []                    # number. Paint nothing; judge the doc as it is.
+            if self._stage_armed and self._wmesh is not None:
+                self._restage_timer.start()
         self.stage_list.clear()
-        for w in res.warnings:
-            self.stage_list.addItem(f"⚠ {w}")
+        unused = list(self._verdicts)              # each sentence is ONE verdict row's own text
+        for w in res.warnings:                     # (stage_verdicts is parity-fenced to it)
+            v = next((r for r in unused if r["text"] == w), None)
+            if v is not None:
+                unused.remove(v)
+            self._stage_item(f"⚠ {self._scene_words(w)}", v)
         for lbl, why in res.skipped:
-            self.stage_list.addItem(f"? {lbl} not checked — {why}")
+            k = int(lbl.split("#")[1]) if "#" in lbl else 0
+            self._stage_item(f"? {self._scene_words(lbl)} not checked — {why}", {"scene": k})
         self.stage_list.setVisible(self.stage_list.count() > 0)
-        self.canvas.set_verdicts(rows)
+        self._paint_verdicts()
+        if self._stage_explicit:                   # the author asked: show them where it stalls
+            mine = [r for r in self._verdicts if r.get("scene") == self._scene]
+            if mine:
+                self.canvas.reveal_verdict(mine[0])
         if self.board_btn.isChecked():
             self._refresh_board()                  # the warm mesh upgrades straight legs to routes
+
+    @staticmethod
+    def _scene_words(text):
+        """The build labels a scene ``[cutscene] #k`` -- and the ONLY scene of a field plain
+        ``[cutscene]``; the rail and PROBLEMS call it ``scene #k``. One name for one scene in
+        this column (the leading label only -- the sentence is the build's own)."""
+        if text.startswith("[cutscene] #"):
+            return "scene " + text[len("[cutscene] "):]
+        if text == "[cutscene]" or text.startswith("[cutscene] "):
+            return "scene #0" + text[len("[cutscene]"):]
+        return text
+
+    def _stage_item(self, text, where):
+        self.stage_list.addItem(text)
+        self.stage_list.item(self.stage_list.count() - 1).setData(Qt.ItemDataRole.UserRole, where)
+
+    def _on_stage_item(self, item):
+        """A staging row is a door: select its scene and step, and show its stall on the stage
+        (scrolled into view from the verdict's own point; the zoom stays the author's)."""
+        where = item.data(Qt.ItemDataRole.UserRole)
+        if not where or self._raw is None:
+            return
+        k = where["scene"]
+        if k != self._scene:
+            self.rail.setCurrentRow(k)             # the rail's own path (a dirty editor refuses)
+            if self._scene != k:
+                return
+        step = where.get("step")
+        if step is not None and step != self._selected_step:
+            self._on_step_select(step)
+        if "b" in where:
+            self.canvas.reveal_verdict(where)
+
+    def _paint_verdicts(self):
+        """The stage shows ONE scene, so it paints only that scene's verdicts: another scene's
+        stall would land on this scene's step of the same number (a different, fine step)."""
+        self.canvas.set_verdicts([r for r in self._verdicts if r.get("scene") == self._scene])
 
     def _restage(self):
         if self._stage_busy:
             self._restage_timer.start()            # let the in-flight run land first
             return
-        self.stage_now()
+        self.stage_now(warm=True)
 
     def _reset_stage(self):
         """Field switch / project close: another field's mesh or verdicts must not linger."""
@@ -1526,10 +2086,11 @@ class CutsceneDoc(QWidget):
         self._stage_armed = False
         self._stage_busy = False
         self.stage_btn.setEnabled(True)
-        self.stage_btn.setText("Check the staging")
+        self._stage_label("Check staging")
         self.stage_note.setText("")
         widgets.set_state(self.stage_note, "")
         self.stage_list.clear()
         self.stage_list.setVisible(False)
+        self._verdicts = []
         if hasattr(self, "canvas"):
             self.canvas.set_verdicts([])

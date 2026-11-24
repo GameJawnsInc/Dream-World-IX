@@ -64,6 +64,37 @@ def parse_mint_directives(mod_folder) -> dict:
     return out
 
 
+def mint_ids_in_use(mod_folder) -> set:
+    """Every mint-band id this mod folder already holds: its ``3DModel`` registrations plus any model
+    folder at a non-real id (a mint whose line went missing still owns its files). Pure filesystem."""
+    used = set(parse_mint_directives(mod_folder))
+    root = _res_root(mod_folder)
+    for base in (root / "Models", root / "BattleMap" / "BattleModel"):
+        if not base.is_dir():
+            continue
+        for type_dir in base.iterdir():
+            if not (type_dir.is_dir() and type_dir.name.isdigit()):
+                continue
+            for id_dir in type_dir.iterdir():
+                if id_dir.is_dir() and id_dir.name.isdigit() and _model_name(int(id_dir.name)) is None:
+                    used.add(int(id_dir.name))
+    return used
+
+
+def next_mint_id(mod_folder, *, floor: int = 6000) -> int:
+    """The lowest id >= ``floor`` this mod folder is not already using. Minting at a taken id REPLACES
+    that model's files without a word (``deploy_mint`` writes the folder and only appends the
+    ``3DModel`` line when it is new), so a constant default is a silent-overwrite default."""
+    try:
+        used = mint_ids_in_use(mod_folder)
+    except OSError:
+        used = set()
+    mid = int(floor)
+    while mid in used:
+        mid += 1
+    return mid
+
+
 def scan_mod(mod_folder) -> list:
     """Every deployed model-side entry in ``mod_folder``, sorted overrides/reskins -> mints -> anims
     -> dangling directives. Pure filesystem walk (no install); an empty/missing tree returns []."""

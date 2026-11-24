@@ -1,0 +1,197 @@
+# Landmass PREFABS (studies/overworld-editor/PREFABS.md, rung P1) -- read by ff9mapkit/world/prefab.py.
+#
+# A prefab is a world-fuse recipe written RELATIVE to an anchor block: one [[island]] mint (first, with its seed)
+# plus carried relief ([[mountain]] / [[forest]] / [[hill]]). Every `center = [dx, dz]` is an offset from the anchor
+# block's frame origin -- its corner at the lowest x and z, (64*bx, -64*(by+1)). Placement shifts the rows by whole
+# blocks and turns the prefab frame on for the island and the mountain; never write prefab_frame, step or near here.
+#
+# `fingerprint` + `footprint` are taken by the tool, never typed:  ff9mapkit world-prefab NAME --fingerprint --cell BX,BY
+# A placement refuses unless the staged land matches them, so a fingerprint names the bytes that were walked.
+# An island prefab's fingerprint is taken at a CLEAN site (no stock ground within 16u of the footprint) and names
+# it in fingerprint_cell: beside stock land the coast-nav stamp re-classes the nearest sea (THE NAV MARGIN), so a
+# placement there is judged against a reference copy staged at that clean site (world/prefab.py).
+#
+# turns = the quarter turns a prefab places at (default [0]). A turn is the WALKED land turned whole (world/prefab.py
+# THE QUARTER TURN), never a re-mint, so it shares the fingerprint; a prefab that turns names fingerprint_cell, the
+# site it is composed at before turning. Each turn below was measured offline at 2-4 sites (identity + the engine
+# ground query, studies/overworld-editor/evidence/prefab-turn/). walked_turns = the turns other than 0 walked in game.
+#
+# status: "candidate" until the owner walks it in game (rim, every carry), then "qualified" with the walk noted.
+# Each prefab is a composition the verbs' own gates passed whole; the walk, not the gates, is the verdict
+# (A GREEN GATE SUITE IS A REGRESSION HARNESS, NOT AN ORACLE).
+
+[[prefab]]
+name = "desert-peak-isle"
+status = "qualified"
+walked = "2026-11-08: owner walk on the live map, anchored at block (10,9) -- passed; turned 90 on (1,16) -- passed"
+walked_turns = [90]
+ground = "desert"
+note = "A r60 desert island with the desert peak (19,3) on its home ground, turned 90 deg: 139 rock tris, peak 14.5u."
+fingerprint = "732af2c5e7a973a7591b6935f7f583795a117c4794bcaf5c900152c831f0f338"
+fingerprint_cell = [1, 14]
+footprint = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 0], [0, 1], [1, -1], [1, 0], [1, 1]]
+turns = [0, 90, 180, 270]
+
+[[prefab.rows]]
+table = "island"
+center = [32.0, 32.0]
+radius = 60.0
+seed = 5.0
+ground = "desert"
+
+[[prefab.rows]]
+table = "mountain"
+center = [24.0, 36.0]
+rot = 90.0
+donor = "19,3"
+ground = "desert"
+
+[[prefab]]
+name = "meadow-grove-isle"
+status = "qualified"
+walked = "2026-11-08: owner walk on the live map, anchored at block (19,18) beside stock land -- passed"
+ground = "grass"
+note = "A r60 meadow island (verbatim meadow stamps) with the clean canopy blob (15,15) and a r14 grass hill beside it."
+fingerprint = "78196ce1e7e11c6b8aafc58efd0aa65cbb6f68a55eb2e5d31d80cf3e94a1ada7"
+fingerprint_cell = [1, 14]
+footprint = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 0], [0, 1], [1, -1], [1, 0], [1, 1]]
+turns = [0, 90, 180, 270]
+
+[[prefab.rows]]
+table = "island"
+center = [32.0, 32.0]
+radius = 60.0
+seed = 5.0
+
+[[prefab.rows]]
+table = "forest"
+center = [52.0, 20.0]
+
+[[prefab.rows]]
+table = "hill"
+center = [4.0, 24.0]
+radius = 14.0
+
+[[prefab]]
+name = "snow-ridge-isle"
+status = "qualified"
+walked = "2026-11-08: owner walk on the live map, anchored at block (21,1) -- passed"
+ground = "snow"
+note = "A two-lobe r88 snow island with the coastal snow ridge (8-10,0-1, comp9) and its inlet floor, turned 270: 403 rock tris + 2 plugs, peak 20.4u. Terrain study round 21's lab island and carve (owner-passed), framed."
+fingerprint = "383c93d9e66439c76596b3a0f845de91af7bc8d9e10aac85f415429e74f6fc11"
+fingerprint_cell = [1, 14]
+footprint = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 0], [0, 1], [1, -1], [1, 0], [1, 1]]
+turns = [0, 90, 180, 270]
+
+[[prefab.rows]]
+table = "island"
+center = [64.0, 32.0]
+radius = 88.0
+lobes = 2
+patches = 0
+seed = 42.0
+ground = "snow"
+
+[[prefab.rows]]
+table = "mountain"
+center = [30.0, 48.0]
+rot = 270.0
+donor = "8-10,0-1"
+ground = "snow"
+
+[[prefab]]
+name = "desert-scrub-isle"
+status = "qualified"
+walked = "2026-11-08: owner walk on the live map, anchored at block (23,5) across the x seam -- passed"
+ground = "desert"
+note = "A r55 desert island with the desert scrub crag (14-15,3, comp26) and its walled scrub canopy: 139 rock + canopy tris, peak 9.75u. Terrain study round 22's lab island and carve (owner-passed), framed."
+fingerprint = "06a7f01fed4746c966ba15615c44253ba239b998350d5ce984db08058bac5983"
+fingerprint_cell = [1, 14]
+footprint = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 0], [0, 1], [1, -1], [1, 0], [1, 1]]
+turns = [0, 90, 180, 270]
+
+[[prefab.rows]]
+table = "island"
+center = [36.0, 28.0]
+radius = 55.0
+patches = 0
+seed = 42.0
+ground = "desert"
+
+[[prefab.rows]]
+table = "mountain"
+center = [38.0, 24.0]
+donor = "14-15,3"
+ground = "desert"
+
+# ---- walked stock carry units (donors.toml class "coast"): the base is a transplant, no minted surface at all.
+# Each was walked in game as a carry at the rotation given (studies/overworld-editor/C5.md, C20.md); the prefab
+# entry is that carry, placed by block with its fingerprint measured identical at two anchors.
+
+[[prefab]]
+name = "comma-isle"
+status = "qualified"
+ground = "desert"
+walked = "as the carry unit the-comma, turned 90, onto (20,0): party at 9.551 (predicted 9.554), C5.md"
+note = "The comma, turned 90: a teardrop island ~190u long, a bare rock spine to 26.5u and a green arm 51u out."
+fingerprint = "dc977f24e67110f56dce43e967a58f786aa6777a9ef6b36358ed56eec8dfbe26"
+fingerprint_cell = [20, 0]
+footprint = [[0, 0], [1, 0], [1, 1], [2, 0], [2, 1]]
+turns = [0, 90, 180, 270]
+
+[[prefab.rows]]
+table = "transplant"
+cell = [0, 0]
+donor = [9, 5]
+size = [2, 3]
+rot = 90
+
+[[prefab]]
+name = "crystal-reef"
+status = "qualified"
+ground = "crystal"
+walked = "as the carry unit crystal-reef, turn 0, onto (11,1): party on a shard at 9.266 (predicted 9.265), C5.md"
+note = "The Shimmering crystal reef: six small unwalkable crystal masses in 2x2 blocks."
+fingerprint = "fd9e3b22d0300c16c9e4ba332cb7f40317b44d7de78e0f9aceb35cbdca92a014"
+fingerprint_cell = [11, 1]
+footprint = [[0, 0], [0, 1], [1, 0], [1, 1]]
+turns = [0, 90, 180, 270]
+
+[[prefab.rows]]
+table = "transplant"
+cell = [0, 0]
+donor = [6, 4]
+size = [2, 2]
+
+[[prefab]]
+name = "terminus-pair"
+status = "qualified"
+ground = "grass"
+walked = "as the carry unit terminus-pair, turn 0, onto (3,0): party on its grass at 5.039 (predicted 5.044), C5.md"
+note = "Two small grass islands stacked north-south in 1x2 blocks."
+fingerprint = "04746eb89a45460ee0765d4e3f0d7145ab310c81154367b9d576fb66284688bd"
+fingerprint_cell = [3, 0]
+footprint = [[0, 0], [0, 1]]
+turns = [0, 90, 180, 270]
+
+[[prefab.rows]]
+table = "transplant"
+cell = [0, 0]
+donor = [10, 17]
+size = [1, 2]
+
+[[prefab]]
+name = "beach-chain"
+status = "qualified"
+ground = "grass"
+walked = "as the carry unit beach-chain, turn 0, onto (19,1): party on its grass at 6.516 (predicted 6.521), C20.md"
+note = "The beach island and its chain of dots, 4x2 blocks: real beaches. Turn 0 only."
+fingerprint = "49bcb6f4a96a61e3dcfcee419438873fa4ca533b1a9b9e4cdf0173087e834e99"
+footprint = [[0, 0], [1, 0], [1, 1], [2, 0], [2, 1], [3, 0], [3, 1]]
+turns_note = "Chocobo's Lagoon's object rides on (9,17), which no file overrides: turn 0 only"
+
+[[prefab.rows]]
+table = "transplant"
+cell = [0, 0]
+donor = [7, 17]
+size = [4, 2]

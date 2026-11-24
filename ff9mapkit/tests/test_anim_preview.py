@@ -92,6 +92,7 @@ class _StubAnimFrames(QObject):
     ``test_the_stub_double_covers_the_whole_service_surface`` below -- a double that drifts off the
     real surface is how a GUI fence starts passing against a service that no longer exists."""
 
+    clipPlanned = Signal(str, int, int)
     frameReady = Signal(str, int, int, str)
     clipDone = Signal(str, int)
     clipMissed = Signal(str, int, str)
@@ -136,6 +137,8 @@ class _StubThumbs(QObject):
         super().__init__()
         self.requests = []
         self._cached = {}
+        self.bulk = []
+        self.invalidated = []
 
     def cached(self, name):
         return self._cached.get(name)
@@ -143,6 +146,33 @@ class _StubThumbs(QObject):
     def request(self, name):
         self.requests.append(name)
         return self._cached.get(name)
+
+    # the bulk lane + invalidate -- no worker here, so "queued" is just a list a test can read
+    def request_many(self, names):
+        fresh = [n for n in names if self.cached(n) is None and n not in self.bulk]
+        self.bulk.extend(fresh)
+        return len(fresh)
+
+    def bulk_pending(self):
+        return len(self.bulk)
+
+    def cancel_bulk(self):
+        n = len(self.bulk)
+        self.bulk.clear()
+        return n
+
+    def invalidate(self, name=None):
+        self.invalidated.append(name)
+        if name is None:
+            self._cached.clear()
+        else:
+            self._cached.pop(name, None)
+
+    def hold(self):
+        pass
+
+    def release(self):
+        pass
 
 
 def test_the_stub_double_covers_the_whole_service_surface():
@@ -224,18 +254,21 @@ def test_a_missed_clip_is_remembered_with_its_reason(app, pin_cache, thumbs_on, 
 def test_the_worker_streams_every_frame_with_the_full_identity(app, pin_cache, thumbs_on,
                                                                monkeypatch):
     """frameReady carries (geo, anim, frame, path) so the consumer can drop what it did not arm."""
-    def _fake_build(token, anim_id, ctx=None, *, on_frame=None, should_abort=None):
+    def _fake_build(token, anim_id, ctx=None, *, on_frame=None, should_abort=None, on_total=None):
+        on_total(2)
         for f in (0, 1):
             on_frame(f, f"frame{f}.png")
         return {"rendered_frames": [0, 1], "fps": 30.0, "stride": 1, "frame_count": 2}
     monkeypatch.setattr(thumbcache, "build_anim_clip", _fake_build)
     svc = animframes.AnimFrameService()
-    got, done = [], []
+    got, done, planned = [], [], []
+    svc.clipPlanned.connect(lambda *a: planned.append(a))
     svc.frameReady.connect(lambda *a: got.append(a))
     svc.clipDone.connect(lambda *a: done.append(a))
     svc.request_clip(_VIV, _STAND)
     svc._worker.join(timeout=10)
     app.processEvents()
+    assert planned == [(_VIV, _STAND, 2)], "the total must reach the strip BEFORE the first frame"
     assert got == [(_VIV, _STAND, 0, "frame0.png"), (_VIV, _STAND, 1, "frame1.png")]
     assert done == [(_VIV, _STAND)]
 
@@ -342,12 +375,15 @@ def test_a_frame_for_a_clip_nobody_armed_paints_nothing(doc, thumbs_on):
     assert [p for _f, p in doc._seq] == ["right.png"]
 
 
-def test_playback_loops_the_contiguous_prefix_as_it_grows(doc, thumbs_on):
-    """Never gate on 'all frames': two landed frames are already a loop, and the loop EXTENDS."""
+def test_playback_follows_the_frontier_of_a_fill_then_loops_the_whole_clip(doc, thumbs_on):
+    """Never gate on 'all frames': two landed frames already play. But DURING a fill the playhead
+    HOLDS on the newest frame instead of wrapping -- a fill lands ~8 frames a second against a 30fps
+    clock, so a looping prefix restarts every few frames and reads as a stutter. The loop begins the
+    moment the clip is whole. (This fence used to pin the prefix-loop; it was the wrong thing to keep.)"""
     _select_vivi(doc)
     doc.clip_list.setCurrentRow(0)
     doc._anim_svc.frameReady.emit(_VIV, _STAND, 0, "f0.png")
-    assert not doc.anim_play.isEnabled(), "one frame is not a loop"
+    assert not doc.anim_play.isEnabled(), "one frame is not motion"
     doc._anim_svc.frameReady.emit(_VIV, _STAND, 1, "f1.png")
     assert doc.anim_play.isEnabled()
     doc.anim_play.setChecked(True)
@@ -355,9 +391,16 @@ def test_playback_loops_the_contiguous_prefix_as_it_grows(doc, thumbs_on):
     doc._advance()
     assert doc.anim_slider.value() == 1
     doc._advance()
-    assert doc.anim_slider.value() == 0, "the prefix LOOPS"
+    assert doc.anim_slider.value() == 1, "mid-fill the playhead HOLDS on the frontier -- it must not wrap"
     doc._anim_svc.frameReady.emit(_VIV, _STAND, 2, "f2.png")
-    assert doc.anim_slider.maximum() == 2, "a late frame extends the loop without a re-arm"
+    assert doc.anim_slider.maximum() == 2, "a late frame extends the clip without a re-arm"
+    doc._advance()
+    assert doc.anim_slider.value() == 2, "...and the held playhead steps onto it"
+    doc._anim_svc.warm[(_VIV, _STAND)] = {"rendered_frames": [0, 1, 2], "fps": 30.0, "stride": 1,
+                                          "frame_count": 3, "sample_rate": 30.0}
+    doc._anim_svc.clipDone.emit(_VIV, _STAND)
+    doc._advance()
+    assert doc.anim_slider.value() == 0, "a WHOLE clip loops"
     doc.anim_play.setChecked(False)
     assert not doc._play_timer.isActive()
 
@@ -460,7 +503,8 @@ def test_the_counter_is_budgeted_by_the_layout_not_handed_zero(doc):
 
 # ------------------------------------------------------------------------------- a11y + the sheet
 def test_every_transport_control_announces_itself(doc):
-    for w in (doc.anim_play, doc.anim_reset_btn, doc.anim_slider, doc.clip_list):
+    for w in (doc.anim_play, doc.anim_reset_btn, doc.anim_slider, doc.anim_speed, doc.clip_list,
+              doc.clip_filter):
         assert w.accessibleName(), f"{type(w).__name__} has no screen-reader name"
 
 
@@ -482,3 +526,174 @@ def test_the_transport_wears_svg_icons_not_unicode_glyphs(doc):
     for b in (doc.anim_play, doc.anim_reset_btn):
         assert b.text() == "", f"{b.accessibleName()} carries a text glyph"
         assert not b.icon().isNull(), f"{b.accessibleName()} has no icon"
+
+
+# ------------------------------------------------------- the strip is built around a 5-10s fill
+@pytest.fixture
+def motion_on():
+    """Motion is OPT-IN and default off everywhere but production; a test that turns it on must put
+    it back, or every later test in the process autoplays."""
+    from ff9mapkit.workspace import anim
+    was = anim.enabled()
+    anim.set_enabled(True)
+    yield
+    anim.set_enabled(was)
+
+
+def test_the_strip_says_how_far_a_fill_is(doc, thumbs_on):
+    """A fill is seconds of rasterizing. An open-ended 'rendering...' for that long reads as a hang."""
+    _select_vivi(doc)
+    doc.clip_list.setCurrentRow(0)
+    assert doc._filling and "Rendering" in doc.anim_note.text()
+    doc._anim_svc.clipPlanned.emit(_VIV, _STAND + 1, 99)       # somebody else's clip: not ours to show
+    assert "99" not in doc.anim_note.text()
+    doc._anim_svc.clipPlanned.emit(_VIV, _STAND, 16)
+    for f in range(5):
+        doc._anim_svc.frameReady.emit(_VIV, _STAND, f, f"f{f}.png")
+    assert "5 of 16" in doc.anim_note.text(), doc.anim_note.text()
+    doc._anim_svc.warm[(_VIV, _STAND)] = {"rendered_frames": list(range(5)), "fps": 30.0,
+                                          "stride": 1, "frame_count": 5, "sample_rate": 30.0}
+    doc._anim_svc.clipDone.emit(_VIV, _STAND)
+    assert not doc._filling and doc.anim_note.text().startswith("Ready"),         "the progress line must not outlive the fill"
+
+
+def test_frames_that_land_before_the_total_still_count_honestly(doc, thumbs_on):
+    _select_vivi(doc)
+    doc.clip_list.setCurrentRow(0)
+    doc._anim_svc.frameReady.emit(_VIV, _STAND, 0, "f0.png")
+    assert "1 so far" in doc.anim_note.text() and " of " not in doc.anim_note.text()
+
+
+def test_an_armed_clip_waits_for_play_when_motion_is_off(doc, thumbs_on):
+    """Reduce-motion means the user starts motion. This is also the state every other fence here
+    runs in, which is why none of them had to change."""
+    from ff9mapkit.workspace import anim
+    assert not anim.enabled(), "this fence assumes the opt-in default"
+    _select_vivi(doc)
+    doc.clip_list.setCurrentRow(0)
+    for f in (0, 1, 2):
+        doc._anim_svc.frameReady.emit(_VIV, _STAND, f, f"f{f}.png")
+    assert not doc.anim_play.isChecked() and not doc._play_timer.isActive()
+
+
+def test_a_streaming_clip_plays_unasked_with_motion_on(doc, thumbs_on, motion_on):
+    _select_vivi(doc)
+    doc.clip_list.setCurrentRow(0)
+    doc._anim_svc.frameReady.emit(_VIV, _STAND, 0, "f0.png")
+    assert not doc._play_timer.isActive(), "one frame is not motion"
+    doc._anim_svc.frameReady.emit(_VIV, _STAND, 1, "f1.png")
+    assert doc.anim_play.isChecked() and doc._play_timer.isActive(),         "picking a clip is asking to watch it -- two frames in, it plays"
+    doc.stop_playback()
+
+
+def test_a_warm_clip_plays_unasked_with_motion_on(doc, thumbs_on, motion_on):
+    _select_vivi(doc)
+    doc._anim_svc.warm[(_VIV, _STAND)] = {"rendered_frames": [0, 1, 2], "fps": 30.0, "stride": 1,
+                                          "frame_count": 3, "sample_rate": 30.0}
+    for f in (0, 1, 2):
+        doc._anim_svc.frames[(_VIV, _STAND, f)] = f"f{f}.png"
+    doc.clip_list.setCurrentRow(0)
+    assert doc.anim_play.isChecked() and doc._play_timer.isActive()
+    doc.reset_player()
+    assert not doc._play_timer.isActive(), "Reset still stops an autoplayed clip"
+
+
+def test_a_single_frame_clip_never_autoplays(doc, thumbs_on, motion_on):
+    _select_vivi(doc)
+    doc._anim_svc.warm[(_VIV, _STAND)] = {"rendered_frames": [0], "fps": 30.0, "stride": 1,
+                                          "frame_count": 1, "sample_rate": 30.0}
+    doc._anim_svc.frames[(_VIV, _STAND, 0)] = "only.png"
+    doc.clip_list.setCurrentRow(0)
+    assert not doc.anim_play.isChecked() and not doc._play_timer.isActive()
+
+
+def test_the_speed_button_cycles_and_retimes_a_running_clock(doc, thumbs_on):
+    from ff9mapkit.workspace import clipplayer
+    _select_vivi(doc)
+    doc._anim_svc.warm[(_VIV, _STAND)] = {"rendered_frames": [0, 1], "fps": 30.0, "stride": 1,
+                                          "frame_count": 2, "sample_rate": 30.0}
+    doc._anim_svc.frames.update({(_VIV, _STAND, 0): "a.png", (_VIV, _STAND, 1): "b.png"})
+    doc.clip_list.setCurrentRow(0)
+    assert doc.anim_speed.isEnabled() and doc._play_interval() == 33
+    doc.anim_play.setChecked(True)
+    seen = []
+    for _ in clipplayer.SPEEDS:
+        doc.anim_speed.click()
+        seen.append((doc._speed, doc._play_interval(), doc._play_timer.interval(), doc.anim_speed.text()))
+    assert [s for s, *_ in seen] == [0.5, 0.25, 2.0, 1.0], "1x -> slow-mo -> slower -> fast -> home"
+    assert [i for _s, i, *_ in seen] == [67, 133, 17, 33]
+    assert all(i == live for _s, i, live, _t in seen), "a RUNNING clock must re-time on the click"
+    assert len({t for *_x, t in seen}) == len(clipplayer.SPEEDS), "every speed has its own label"
+    doc.stop_playback()
+
+
+def test_the_speed_survives_a_clip_switch(doc, thumbs_on):
+    _select_vivi(doc)
+    doc.anim_speed.setEnabled(True)
+    doc.anim_speed.click()
+    doc.clip_list.setCurrentRow(0)
+    doc.clip_list.setCurrentRow(1)
+    assert doc._speed == 0.5, "slow-mo is a way of LOOKING, not a property of one clip"
+
+
+def test_the_speed_button_lives_on_the_note_row_not_the_transport(doc):
+    """SNAP-CAUGHT, twice. On the transport row a fifth control squeezed the counter to 'f 9/16 · 3…'
+    at the default window; on the note row with a growable policy it stretched across half the picker
+    dialog (a caption is width-capped, so the surplus went to the only item that would take it)."""
+    from PySide6.QtWidgets import QSizePolicy
+    assert doc.anim_speed.parentWidget() is doc.anim_foot
+    assert doc.anim_note.parentWidget() is doc.anim_foot
+    assert doc.anim_speed.parentWidget() is not doc.anim_strip
+    assert doc.anim_speed.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Fixed
+    assert doc.anim_foot.parentWidget() is not None, "the HOST must place the foot row, or it floats"
+
+
+def test_previews_off_hides_the_speed_button_but_keeps_the_sentence(app, pin_cache, monkeypatch):
+    from ff9mapkit.editor import jobs
+    monkeypatch.setattr(jobs, "detect_game_mod", lambda repo_root=None: None)
+    d = ModelsDoc(pick_palette("dark"), ".", run=lambda *a, **k: True,
+                  model_thumbs=_StubThumbs(), anim_frames=_StubAnimFrames())
+    assert d.anim_speed.isHidden() and not d.anim_note.isHidden() and not d.anim_foot.isHidden()
+    assert d.cache_btn.isHidden(), "previews off -> there is no cache to manage"
+
+
+# --------------------------------------------------------------------------- the clip filter
+def test_the_clip_filter_narrows_the_list_without_re_arming(doc, thumbs_on):
+    _select_vivi(doc)
+    total = doc.clip_list.count()
+    assert not doc.clip_filter.isHidden() and str(total) in doc.clip_filter.placeholderText()
+    doc.clip_list.setCurrentRow(0)                              # arm 'stand'
+    asked = list(doc._anim_svc.requests)
+    doc.clip_filter.setText("WALK")
+    rows = [doc.clip_list.item(i).text() for i in range(doc.clip_list.count())]
+    assert 0 < len(rows) < total and all("walk" in r.lower() for r in rows)
+    assert doc._armed == (_VIV, _STAND) and doc._anim_svc.requests == asked,         "typing in the filter must not cancel or restart the clip that is playing"
+    doc.clip_filter.setText("")
+    assert doc.clip_list.count() == total
+    cur = doc.clip_list.currentItem()
+    assert cur is not None and cur.data(Qt.ItemDataRole.UserRole) == _STAND,         "the armed clip's row is re-selected when it comes back into view"
+    assert doc._anim_svc.requests == asked
+
+
+def test_the_filter_matches_ids_too_and_an_empty_result_is_just_empty(doc):
+    _select_vivi(doc)
+    doc.clip_filter.setText(f"id {_STAND}")
+    rows = [doc.clip_list.item(i) for i in range(doc.clip_list.count())]
+    # the SAME clip sits under two labels (the 'stand' movement slot and the 'idle' gesture) -- both
+    # rows are right, and nothing else may ride along
+    assert rows and {r.data(Qt.ItemDataRole.UserRole) for r in rows} == {_STAND}
+    assert all(f"id {_STAND}" in r.text() for r in rows)
+    doc.clip_filter.setText("no clip is called this")
+    assert doc.clip_list.count() == 0
+
+
+def test_a_new_model_starts_unfiltered_and_a_short_list_has_no_filter(doc):
+    _select_vivi(doc)
+    doc.clip_filter.setText("walk")
+    few = next(m for m in catalog.all_models()
+               if 0 < len(catalog.clip_inventory(m.id)) <= 5)
+    doc.search.setText(few.name)
+    doc.listw.setCurrentRow(0)
+    assert doc._current.id == few.id
+    assert doc.clip_filter.text() == "" and doc.clip_filter.isHidden(),         "five rows fit the list -- a filter box over them is furniture"
+    assert doc.clip_list.count() == len(catalog.clip_inventory(few.id))

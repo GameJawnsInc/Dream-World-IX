@@ -19,6 +19,7 @@ id box validates through ``pack.check_custom_id`` (the shared band validator, no
 from __future__ import annotations
 
 import io
+import math
 import sys
 from pathlib import Path
 
@@ -36,14 +37,108 @@ from . import widgets
 from .backdrop import BackdropCanvas
 
 PITCH_BAND = (6, 48)             # the tracer's slider band (vanilla room pitches)
+# what a cut-out PNG is, said the same way by the tool tip, the Attach tip and the picker (T14)
+_CUTOUT_WHAT = ("a copy of the photo (or of the 384×448 frame) with everything but the object "
+                "erased to transparent — it lines up by itself — or a crop of just the object, "
+                "which you then drag into place")
+
+
+def _image_errors():
+    """What reading or writing a cut-out PNG raises on a bad file or a folder it cannot write."""
+    from PIL import UnidentifiedImageError
+    return (OSError, UnidentifiedImageError)
+
+
+_CUTOUT_PICKER_TITLE = ("The cut-out PNG — a copy of the photo with all but the object erased, "
+                        "or a crop of the object")
 _HISTORY_CAP = 100
+
+
+def _same_file(a, b) -> bool:
+    """True when two paths name one file (``samefile`` when both exist; else a case-folded
+    absolute compare, so a recorded photo that has since moved still compares sanely)."""
+    import os
+    try:
+        return os.path.samefile(a, b)
+    except (OSError, ValueError):
+        return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+
+def _file_stamp(path):
+    """``(mtime_ns, size)`` of ``path``, or None when it is absent: did a job write it?"""
+    try:
+        st = Path(path).stat()
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size)
+
+
+def may_generate_into(out, image, name) -> bool:
+    """May a FRESH session (``image`` traced as field ``name``) write its project into ``out``?
+
+    One project per folder: ``walkmesh.obj``, ``art/base.png`` and the session record are each a
+    SINGLE file in it. Free = absent, empty, or holding nothing but the record of THIS session's
+    own failed first attempt (the tab writes ``<stem>.trace.json`` at launch, so a job that then
+    fails leaves exactly that behind: same photo, same name, no field.toml) -- the retry goes
+    back where it started instead of scattering -2, -3 folders.
+
+    A folder that holds a generated project is NEVER free, not even this photo's own: a fresh
+    session knows nothing of that project's doors, zones and cut-outs, so "updating" it would
+    regenerate them away and replace its floor -- and the file may be open in the Editor. To
+    update a project, open ITS field.toml or .trace.json; this tab then regenerates in place."""
+    import json
+    out = Path(out)
+    if not out.exists():
+        return True
+    if not out.is_dir():
+        return False
+    entries = list(out.iterdir())
+    if not entries:
+        return True
+    if any(not e.name.endswith(".trace.json") for e in entries):
+        return False                           # a project, or somebody's files: not ours
+    for side in entries:
+        try:
+            rec = json.loads(side.read_text(encoding="utf-8"))
+            if (isinstance(rec, dict) and isinstance(rec.get("image"), str)
+                    and _same_file(rec["image"], image) and str(rec.get("name")) == str(name)):
+                continue
+        except (OSError, ValueError):
+            pass
+        return False                           # another session's record (or an unreadable one)
+    return True
+
+
+def first_out(parent, image, name) -> Path:
+    """The folder a session's FIRST Generate writes: ``<parent>/<photo stem>-field``, or — when
+    that one is not free (:func:`may_generate_into`) — the first free ``…-field-2``, ``-3``, …
+    It used to be the bare stem unconditionally, so a second photo with the same file name
+    (image.png, photo.jpg, IMG_0001.jpg) silently replaced the first project's art and session
+    record, and merged into its field.toml when both kept the default name (finding E9)."""
+    import itertools
+    base = Path(parent) / f"{Path(image).stem}-field"
+    if may_generate_into(base, image, name):
+        return base
+    for n in itertools.count(2):
+        out = base.with_name(f"{base.name}-{n}")
+        if may_generate_into(out, image, name):
+            return out
 
 
 class TraceDoc(QWidget):
     """Trace a photo into a walkable field, entirely on the art. ``run`` = ``shell.run_job``."""
 
-    def __init__(self, pal, kit_root, *, run, problems=None, scale=100, on_generated=None):
+    _TEACH = ""                 # the bare tab's status: the centred prompt already says it
+    _DETECT_TIP = ("Find the floor from the photo's colours and lay down a STARTING outline — then "
+                   "drag its vertices onto the floor's real edges (it cannot tell where a doorway "
+                   "ends). Works on an empty floor; one Undo takes it back.")
+
+    def __init__(self, pal, kit_root, *, run, problems=None, scale=100, on_generated=None,
+                 can_generate=None, on_regenerated=None, was_stopped=None):
         super().__init__()
+        self.was_stopped = was_stopped                # () -> True while the job just finishing was
+        #                                               STOPPED by the author (the shell's Stop); the
+        #                                               shared run seam reports only an exit code
         self.pal = pal
         self.kit = Path(kit_root)                     # `-m ff9mapkit` cwd (this checkout's package)
         self._run = run
@@ -51,6 +146,14 @@ class TraceDoc(QWidget):
         self.on_generated = on_generated              # a clean FIRST Generate hands the project
         #                                               to the shell (the Floorplan compose →
         #                                               open_campaign contract, on this lane)
+        # The project this tab writes may be OPEN in the shell, and Generate merges with the file
+        # ON DISK. Two seams keep the two from diverging (review finding T38):
+        self.can_generate = can_generate              # (toml) -> a refusal sentence, or None: asked
+        #                                               before EVERY Generate (the shell refuses
+        #                                               while that file has unsaved edits here)
+        self.on_regenerated = on_regenerated          # (toml): an IN-PLACE regenerate FINISHED,
+        #                                               clean or not -- the shell looks at the disk
+        #                                               and reloads the buffer it holds if it moved
         # Default output base: the repo parent for a checkout; an installed copy writes to a
         # discoverable user folder instead (ImportDoc's own rule, same reason).
         self.proj_base = (self.kit.parent if (self.kit / "pyproject.toml").is_file()
@@ -66,7 +169,14 @@ class TraceDoc(QWidget):
                                                       # change re-judges, exactly like vertices)
         self._history = []                            # prior snapshots, one per gesture (undo)
         self._region_rows_cache = []                  # the last judged canvas feed
-        self._region_back = []                        # feed row -> self._regions index
+        self._region_back = []                        # feed row -> the row it shows (by identity):
+        #                                               a session region, or a _context row
+        # the project file's OWN [[gateway]]/[[event]] rows -- a door drawn in Place, a zone written
+        # by hand (finding E12): drawn and judged by the overlap law as CONTEXT, nothing else. Never
+        # in the argv, the zone count, the record or the unsaved test; every gesture on one is
+        # refused here. Re-read whenever the tab reads the project file.
+        self._context = []
+        self._context_error = ""                      # why the file's own rows could not be read
         self._project = None                          # {"out", "name", "fid"} after a Generate:
                                                       # later Generates go IN PLACE (no dialog)
         self._stamped = True                          # False = gestures since the last Generate
@@ -84,15 +194,13 @@ class TraceDoc(QWidget):
         root.setSpacing(8)
         # ONE line of standing prose — at CALIBRE 150 every fixed row here is height the canvas
         # (the primary surface) loses; the tracing teach lives in the status line's empty state.
-        crown, _ = widgets.nameplate(
-            "", "Trace",
-            "Turn a photo into a walkable field by clicking its floor — the build uses the "
-            "exact crop shown here.")
+        # Short enough to stay ONE line at 150% (the crop promise lives on Open's tooltip).
+        crown, _ = widgets.nameplate("", "Trace", "Click a photo's floor to make a walkable field.")
         root.addWidget(crown)
 
         row = QHBoxLayout()
         row.setSpacing(8)
-        self.open_btn = QPushButton("Open an image…")
+        self.open_btn = QPushButton("Open a photo…")
         self.open_btn.setToolTip("Pick the photo/painting to trace. It appears as the exact "
                                  "384×448 cover-crop the build will use.")
         self.open_btn.clicked.connect(self.on_open)
@@ -103,7 +211,7 @@ class TraceDoc(QWidget):
         self.offer_btn.clicked.connect(self.on_offer)
         self.offer_btn.hide()
         row.addWidget(self.offer_btn)
-        self.img_label = QLabel("no image")
+        self.img_label = QLabel("no photo")
         self.img_label.setProperty("role", "muted")
         row.addWidget(self.img_label)
         row.addSpacing(12)
@@ -118,7 +226,8 @@ class TraceDoc(QWidget):
             "Downward camera angle in degrees; the dashed horizon line re-derives from it")
         self.pitch.setMinimumWidth(140)
         self.pitch.setToolTip("Slide until the dashed horizon sits on the image's own eye "
-                              "level — floor clicks must stay below it.")
+                              "level — floor clicks must stay below it. When the horizon is off "
+                              "the frame, the readout beside this slider says how far.")
         self.pitch.valueChanged.connect(self._on_pitch)
         pl.setBuddy(self.pitch)
         row.addWidget(self.pitch)
@@ -129,8 +238,12 @@ class TraceDoc(QWidget):
 
         # the TOOLS row (rung 2c/4): the strip + the active tool's own cluster + the gesture
         # verbs — its OWN row, because sharing the photo row squeezed the strip to a blank chip
-        # (the snap caught it: an oversubscribed row shaves every control, the round-7 law)
-        row = QHBoxLayout()
+        # (the snap caught it: an oversubscribed row shaves every control, the round-7 law).
+        # The cut-out strip rides on it as a SpillRow tail: one line when the width allows, its
+        # own line below when not (it used to ALWAYS take a row of canvas height -- finding T23).
+        lead = QWidget()
+        row = QHBoxLayout(lead)
+        row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
         # the per-canvas TOOL strip: one explicit click semantic at a time
         self.tools = widgets.ToolStrip(
@@ -138,12 +251,25 @@ class TraceDoc(QWidget):
                                 "the horizon."),
              ("cutout", "Cut-outs", "Mark a foreground occluder (a pillar, a crate): click where "
                                     "the object MEETS the floor — its base — then attach its "
-                                    "full-canvas cut-out PNG. Occlusion flips exactly there."),
-             ("regions", "Regions", "Draw trigger quads on the photo — gateways and walk-in "
-                                    "events (4 clicks = one zone).")])
+                                    f"cut-out PNG: {_CUTOUT_WHAT}. Occlusion flips exactly "
+                                    "there."),
+             ("regions", "Regions", "Draw trigger zones on the photo — gateways and walk-in "
+                                    "events (4 clicks = one zone; Esc cancels a half-drawn "
+                                    "one).")])
         self.tools.changed.connect(self._on_tool)
         row.addWidget(self.tools)
         self.fg_btn = self.tools.button("cutout")      # the Add-cut-out control, now a segment
+        # the Floor tool's own control (T33): imagefield.auto_floor seeds an EMPTY floor with a
+        # starting outline the author drags into shape -- the seed the retired CLI tracer had
+        import importlib.util
+        self._has_numpy = importlib.util.find_spec("numpy") is not None
+        self.detect_btn = QPushButton("Detect floor")
+        self.detect_btn.setToolTip(
+            self._DETECT_TIP if self._has_numpy else
+            "Detect floor needs the numpy package (py -m pip install numpy) — trace the floor "
+            "by hand instead.")
+        self.detect_btn.clicked.connect(self.on_detect_floor)
+        row.addWidget(self.detect_btn)
         # the Regions tool's own cluster (visible only while it is the active tool)
         from PySide6.QtWidgets import QButtonGroup, QRadioButton, QSpinBox
         self.rkind_group = QButtonGroup(self)
@@ -174,39 +300,45 @@ class TraceDoc(QWidget):
                                "dispatch on.")
         self.gw_ent_label.setBuddy(self.gw_ent)
         row.addWidget(self.gw_ent)
-        self.ev_msg = QLineEdit("...")
-        self.ev_msg.setMaximumWidth(180)
+        # uncapped, and no '...' pre-fill (left alone it shipped a literal ellipsis popup); an
+        # empty box still falls back to '...' at draw time (finding T31). Its placeholder and
+        # accessible name are its label: a visible 'Message' label spilled Undo/Clear onto a
+        # second line in Regions mode and the drawn zones fell out of view (review of T23)
+        self.ev_msg = QLineEdit()
+        self.ev_msg.setPlaceholderText("what the zone says on walk-in")
         self.ev_msg.setAccessibleName("Event message")
-        self.ev_msg.setToolTip("The message a drawn event zone shows on walk-in (captured per "
-                               "zone as you draw it — the photo lane regenerates its toml, so "
-                               "the words live in this session, not in the file).")
-        row.addWidget(self.ev_msg)
-        row.addStretch(1)
-        self.undo_btn = QPushButton("Undo")
-        self.undo_btn.setToolTip("Take back the last vertex or cut-out gesture.")
-        self.undo_btn.clicked.connect(self.on_undo)
-        row.addWidget(self.undo_btn)
-        self.clear_btn = QPushButton("Clear")
-        self.clear_btn.setToolTip("Remove every traced vertex (one Undo brings them back).")
-        self.clear_btn.clicked.connect(self.on_clear)
-        row.addWidget(self.clear_btn)
-        root.addLayout(row)
+        self.ev_msg.setToolTip("The line the NEXT event zone you draw shows on walk-in (captured "
+                               "per zone as you draw it; right-click a drawn zone to reword it). "
+                               "Generate writes it into the project's field.toml and keeps it in "
+                               "its .trace.json.")
+        row.addWidget(self.ev_msg, 4)                  # takes the spare width (a line of words);
+        row.addStretch(0)                              # the zero-stretch spacer only fills the
+        #                                                row when the box is hidden (Gateway mode)
 
-        # rung 2's strip: the marked cut-outs (hidden until one exists — canvas height is precious)
-        fg_row = QHBoxLayout()
+        # the TAIL: rung 2's cut-out strip (hidden until one exists — canvas height is precious)
+        # + the gesture verbs. Undo/Clear ride here too, so the row's floor is the wider HALF,
+        # never the tool cluster + the verbs summed (a labelled Event box and "Clear regions"
+        # summed to a 1286 px window floor at 150%). The strip carries no "Cut-outs" label of
+        # its own: the tool strip right above names it, the combo has its accessible name, and
+        # the label's width alone put the contacts state's floor past 1280 at 150% (measured).
+        self._fg_tail = QWidget()
+        fg_row = QHBoxLayout(self._fg_tail)
+        fg_row.setContentsMargins(0, 0, 0, 0)
         fg_row.setSpacing(8)
-        self.fg_label = QLabel("Cut-outs")
-        fg_row.addWidget(self.fg_label)
         self.fg_box = QComboBox()
         self.fg_box.setAccessibleName("Foreground cut-outs")
-        self.fg_box.setToolTip("Each marked occluder: its floor-contact pixel, the overlay depth "
-                              "the build will emit, and its attached cut-out PNG.")
-        self.fg_box.setMinimumWidth(260)
-        self.fg_label.setBuddy(self.fg_box)
+        self.fg_box.setToolTip("Each marked occluder: its attached cut-out PNG (or that it still "
+                               "needs one) and whether it is a placed snip. Hover an entry for its "
+                               "floor-contact pixel and the overlay depth the build will emit.")
+        # sized in CHARACTERS (hears the text-size dial), and enough for 'fg0 · <png> · snip' --
+        # the entry leads with what matters, so a long PNG name is what gets cut (T32)
+        self.fg_box.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.fg_box.setMinimumContentsLength(14)
         fg_row.addWidget(self.fg_box)
         self.fg_attach_btn = QPushButton("Attach PNG…")
-        self.fg_attach_btn.setToolTip("Attach the selected contact's cut-out — a full-canvas PNG "
-                                      "with alpha (only the object opaque).")
+        self.fg_attach_btn.setToolTip(f"Attach the selected contact's cut-out PNG: "
+                                      f"{_CUTOUT_WHAT}.")
         self.fg_attach_btn.clicked.connect(self.on_fg_attach)
         fg_row.addWidget(self.fg_attach_btn)
         self.fg_remove_btn = QPushButton("Remove")
@@ -219,13 +351,24 @@ class TraceDoc(QWidget):
                                 "hiding under one).")
         self.fg_show.toggled.connect(lambda _on: self._refresh_cutouts())
         fg_row.addWidget(self.fg_show)
-        fg_row.addStretch(1)
-        root.addLayout(fg_row)
-        self._fg_widgets = (self.fg_label, self.fg_box, self.fg_attach_btn, self.fg_remove_btn,
-                            self.fg_show)
+        self.undo_btn = QPushButton("Undo")
+        self.undo_btn.setToolTip("Take back the last gesture (a vertex, cut-out or region). A "
+                                 "pitch change is not undone — slide the pitch back instead.")
+        self.undo_btn.clicked.connect(self.on_undo)
+        fg_row.addWidget(self.undo_btn)
+        # ONE fixed label: 'Clear regions' spilled Undo/Clear onto a second line in Regions mode,
+        # the canvas lost the height and the drawn zones fell out of view (review of T23/T12).
+        # The tool strip above names what it acts on; the tip says it (_refresh)
+        self.clear_btn = QPushButton("Clear")
+        self.clear_btn.clicked.connect(self.on_clear)
+        fg_row.addWidget(self.clear_btn)
+        self.tool_row = widgets.SpillRow(lead, self._fg_tail, margins=(0, 0, 0, 0))
+        root.addWidget(self.tool_row)
+        self._fg_widgets = (self.fg_box, self.fg_attach_btn, self.fg_remove_btn, self.fg_show)
 
         self.canvas = BackdropCanvas(pal, scale=scale, on_floor=self._on_floor)
         self.canvas.set_trace_mode(True)
+        self.canvas.mark_horizon_off_frame = True      # the pitch is matched by its horizon (T27)
         self.canvas.set_backdrop(None, self._camera())   # pure math — no disk at construction
         self.canvas.click_refused.connect(self._on_refused)
         self.canvas.contact_clicked.connect(self._on_contact)
@@ -236,7 +379,21 @@ class TraceDoc(QWidget):
         self.canvas.region_deleted.connect(self._on_region_deleted)
         self.canvas.region_retarget.connect(self._on_region_retarget)
         self.canvas.region_reword.connect(self._on_region_reword)
+        # the primary surface never collapses to nothing (T23). Not more: at 1024x720 and 125%,
+        # with the cut-out strip and a two-line status showing, the canvas has ~100 px left, and a
+        # floor above what the window can give makes Qt PAINT THE CANVAS OVER the rows below it
+        # (240 and 120 both did, in the snaps). The height it gains comes from fewer rows instead.
+        self.canvas.setMinimumHeight(96)
         root.addWidget(self.canvas, 1)
+        # with nothing open the canvas gives way to a centred prompt (T35; Place's P19 idiom:
+        # an existing role, no new style)
+        self.empty_msg = QLabel("Open or drop a photo to trace its floor — or open a traced "
+                                "project's field.toml.")
+        self.empty_msg.setProperty("role", "muted")
+        self.empty_msg.setWordWrap(True)
+        self.empty_msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_msg.setContentsMargins(48, 0, 48, 0)
+        root.addWidget(self.empty_msg, 1)
         self._sync_region_cluster()                    # the boxes exist now: settle visibility
 
         out_row = QHBoxLayout()
@@ -263,10 +420,104 @@ class TraceDoc(QWidget):
         out_row.addStretch(1)
         root.addLayout(out_row)
 
-        self.status = QLabel("Open an image to begin.")
+        self.status = QLabel("")
         self.status.setProperty("role", "muted")
+        self.status.setWordWrap(True)                  # its text width is never the page minimum
         root.addWidget(self.status)
+        self.instruments = self._build_instruments()   # docked into the shell's Inspector (T41)
         self._refresh()
+
+    def _build_instruments(self):
+        """The session summary the shell docks into its INSPECTOR while this tab shows (finding
+        T41; the Cutscene tab's contract). The column is narrow: every sentence wraps, and a name
+        (the photo, the project folder) elides with its whole text in the tooltip -- nothing here
+        may set a width floor under the window."""
+        col = QWidget()
+        v = QVBoxLayout(col)
+        v.setContentsMargins(0, 8, 0, 0)
+        v.setSpacing(6)
+
+        def line():
+            lb = widgets.caption("")
+            lb.setWordWrap(True)
+            v.addWidget(lb)
+            return lb
+        v.addWidget(widgets.role_label("THIS TRACE", "subtle"))
+        self.ins_photo = widgets.ElideLabel("", "caption")
+        v.addWidget(self.ins_photo)
+        self.ins_pitch, self.ins_floor, self.ins_fg, self.ins_zones = line(), line(), line(), line()
+        v.addWidget(widgets.role_label("PROJECT", "subtle"))
+        self.ins_proj = widgets.ElideLabel("", "caption")
+        v.addWidget(self.ins_proj)
+        self.ins_stamp = line()
+        v.addWidget(widgets.role_label("NEXT", "subtle"))
+        self.ins_next = line()
+        v.addStretch(1)
+        return col
+
+    def _refresh_instruments(self, good, bad, crossed, fg_invalid, fg_unattached, rg_untargeted,
+                             rg_bad, ctx_hidden, nxt):
+        """Fill the docked summary from what :meth:`_refresh` already judged -- no new checks."""
+        def plural(n, word):
+            return f"{n} {word}{'' if n == 1 else 's'}"
+
+        def say(lb, parts, warn=False):
+            lb.setText(" · ".join(p for p in parts if p))
+            widgets.set_state(lb, "warn" if warn else "")
+        own_art = False
+        if self._image is not None and self._project is not None:
+            try:
+                own_art = (self._image.resolve()
+                           == (Path(self._project["out"]) / "art" / "base.png").resolve())
+            except OSError:
+                pass
+        self.ins_photo.setText("No photo open" if self._image is None else
+                               "Photo: the project's own art" if own_art else
+                               f"Photo: {self._image.name}")
+        for lb in (self.ins_pitch, self.ins_floor, self.ins_fg, self.ins_zones):
+            lb.setVisible(self._image is not None)     # nothing to count without a photo
+        pose = ("" if (self._distance, self._fov) ==
+                (imagefield.DEFAULT_DISTANCE, imagefield.DEFAULT_FOV)
+                else f"distance {self._distance:g}, field of view {self._fov:g}°")
+        say(self.ins_pitch, [f"Pitch {self.pitch.value()}°", pose])
+        n = good + bad
+        size = ""
+        if good >= 3 and not bad:                      # how big it is in the game (T34)
+            cam = self.canvas.camera()
+            world = [imagefield.click_to_world(cam, p) for p in self._floor]
+            w = max(x for x, _ in world) - min(x for x, _ in world)
+            d = max(z for _, z in world) - min(z for _, z in world)
+
+            def about(v):
+                return int(round(v, -2 if v >= 1000 else -1))
+            size = f", about {about(w)} × {about(d)} units"
+        say(self.ins_floor, [f"Floor: {n} {'vertex' if n == 1 else 'vertices'}{size}",
+                             f"⚠ {bad} above the horizon" if bad else "",
+                             f"⚠ {crossed}" if crossed else ""], warn=bool(bad or crossed))
+        say(self.ins_fg, [f"Cut-outs: {len(self._fg)}",
+                          f"⚠ {fg_invalid} with an invalid contact" if fg_invalid else "",
+                          f"⚠ {plural(fg_unattached, 'PNG')} missing" if fg_unattached else ""],
+            warn=bool(fg_invalid or fg_unattached))
+        # a project row never carries a verdict (_refresh_regions drops it): the status's own count
+        warned = sum(1 for r in self._region_rows_cache if r.get("warn"))
+        say(self.ins_zones,
+            [f"Zones: {len(self._regions)}",
+             f"⚠ {plural(rg_untargeted, 'door')} without a target" if rg_untargeted else "",
+             f"⚠ {warned} with law warnings" if warned else "",
+             f"⚠ {rg_bad} hidden above the horizon" if rg_bad else "",
+             f"plus {len(self._context)} of the project's own" if self._context else "",
+             f"⚠ {ctx_hidden} of those cannot be drawn at this pitch" if ctx_hidden else ""],
+            warn=bool(rg_untargeted or warned or rg_bad or ctx_hidden))
+        if self._project:
+            self.ins_proj.setText(f"Folder: {Path(self._project['out']).name}")
+            self.ins_proj.setToolTip(str(self._project["out"]))
+            say(self.ins_stamp, ["The last Generate has seen every change." if self._stamped else
+                                 "⚠ Changed since the last Generate."], warn=not self._stamped)
+        else:
+            self.ins_proj.setText("Not generated yet")
+            say(self.ins_stamp, ["Generate writes the project folder, then later Generates "
+                                 "update it in place."])
+        say(self.ins_next, [nxt])
 
     # ------------------------------------------------------------------ camera + status
     def _camera(self):
@@ -276,11 +527,12 @@ class TraceDoc(QWidget):
     def _pitch_drift_note(self, wanted):
         """The slider is integer and banded 6–48; a project pitch it cannot represent used to
         clamp SILENTLY — and a Regenerate would then re-project the floor through the clamped
-        value, moving shipped geometry with no warning. Say it."""
+        value, moving shipped geometry with no warning. Say it -- FIRST: it heads the status, a
+        clause the author must act on is never the tail a narrow window cuts (finding T23)."""
         got = float(self.pitch.value())
         if abs(got - float(wanted)) > 0.01:
-            return (f" · ⚠ pitch {float(wanted):g} is outside this slider (now {got:g}) — a "
-                    f"Regenerate re-projects through {got:g} and MOVES the floor")
+            return (f"⚠ pitch {float(wanted):g} is outside this slider (now {got:g}) — a "
+                    f"Regenerate re-projects through {got:g} and MOVES the floor · ")
         return ""
 
     def _valid_count(self):
@@ -318,16 +570,32 @@ class TraceDoc(QWidget):
         pixel-for-pixel where the artist painted it, inert). Anything else -> a positionable
         SNIP: shown at its natural photo scale with its base parked on the contact, draggable —
         the first playtest's 531x473 object crop is a feature now, not a giant dog. Returns a
-        short teach note for snips (None for registered)."""
+        short teach note for snips (None for registered). The file is READ before anything is
+        set, so an unreadable one raises one of :func:`_image_errors` with the session as it was
+        -- each caller says so on the status (finding T20; a Qt slot shows no traceback)."""
         from PIL import Image
         with Image.open(path) as im:
             sw, sh = im.size
+            # no transparent pixel at all (no alpha, or alpha all 255): the build ships it as an
+            # occluder that hides the actor everywhere behind the contact line (finding T21)
+            opaque = im.convert("RGBA").getchannel("A").getextrema()[0] == 255
         f = self._fg[i]
         f["image"] = str(path)
         f["size"] = (sw, sh)
+        f["opaque"] = opaque
         f["pm"] = QPixmap(str(path))
+        # Qt gives a file named '...@2x.png' device pixel ratio 2, and the canvas would draw it at
+        # half the size the build ships (finding V1): a cut-out's pixels are photo pixels
+        f["pm"].setDevicePixelRatio(1)
         pw, ph = self._photo_wh()
-        if abs(sw / sh - pw / ph) <= 0.02 * (pw / ph):
+        cw, ch = imagefield.CANVAS_W, imagefield.CANVAS_H
+        # the photo's aspect (the owner's rule: same shape as the photo = aligned), OR the build's
+        # own frame, which the build fills 1:1 and the old wording told the author to make
+        # (finding T14). The frame is judged by SIZE -- 384x448 or a whole multiple -- never by
+        # shape: a 60x70 crop of a lamp has the frame's shape too, and stretched over the room
+        # as a full-frame layer (the final review of T14).
+        frame = sw % cw == 0 and sw * ch == sh * cw
+        if frame or abs(sw / sh - pw / ph) <= 0.02 * (pw / ph):
             f["kind"], f["offset"] = "full", None
             return None
         k = self._canvas_scale()
@@ -335,6 +603,36 @@ class TraceDoc(QWidget):
         f["kind"] = "snip"
         f["offset"] = (round(cx - sw * k / 2, 1), round(cy - sh * k, 1))
         return "a snip — drag it into place on the art (its contact anchor rides along)"
+
+    def _outline_problem(self):
+        """Why the build would refuse this floor outline, or None -- the build's own two rules.
+        Sides that cross (finding T5), judged on the traced canvas pixels: the map from canvas to
+        floor keeps straight lines straight, so a crossing here is the crossing the build would
+        refuse. And a floor too narrow to walk once grown by the walking margin (finding T4),
+        through :func:`imagefield.walk_edge` -- the call the canvas makes for its dashed ring,
+        so a ring that is not drawn is always explained here (the final review: it vanished
+        without a word while Generate stayed on offer)."""
+        if len(self._floor) < 3:
+            return None
+        crossed = imagefield.outline_problem(self._floor)
+        if crossed:
+            return crossed
+        cam = self.canvas.camera()
+        try:
+            world = [imagefield.click_to_world(cam, p) for p in self._floor]
+        except imagefield.ImageFieldError:
+            return None                            # a vertex above the horizon: its own gate
+        try:
+            imagefield.walk_edge(world)
+        except imagefield.ImageFieldError as e:
+            return str(e)
+        return None
+
+    def _crossed_note(self):
+        """A reopened session whose outline the rule now refuses still OPENS (so it can be
+        repaired); its status leads with what Generate will refuse."""
+        crossed = self._outline_problem()
+        return f"⚠ {crossed} — Generate is held until it is fixed · " if crossed else ""
 
     def _fg_problems(self):
         """(invalid, unattached) counts across the marked cut-outs — the Generate gates."""
@@ -347,15 +645,20 @@ class TraceDoc(QWidget):
         pose = ("" if (self._distance, self._fov) ==
                 (imagefield.DEFAULT_DISTANCE, imagefield.DEFAULT_FOV)
                 else f" · distance {self._distance:g} · fov {self._fov:g}")
-        self.pitch_label.setText(
-            (f"{self.pitch.value()}° · horizon y {hy:.0f}" if 0 <= hy < imagefield.CANVAS_H
-             else f"{self.pitch.value()}° · horizon above the frame") + pose)
+        # off the frame, say HOW FAR: the default pitch's horizon sits just above it, where no
+        # dashed line can be drawn (finding T27; the canvas marks the top edge with the same)
+        where = (f"horizon y {hy:.0f}" if 0 <= hy < imagefield.CANVAS_H
+                 else f"horizon {max(1, round(-hy))} px above" if hy < 0   # no longer than
+                 #                                     the old 'horizon above the frame' (150%)
+                 else "horizon below the frame")
+        self.pitch_label.setText(f"{self.pitch.value()}° · {where}{pose}")
         good, bad = self._valid_count()
         fg_invalid, fg_unattached = self._fg_problems()
-        _shim, _back, rg_bad = self._region_shim()
+        _shim, _back, rg_bad, ctx_hidden = self._region_shim()
         rg_untargeted = sum(1 for r in self._regions
                             if r["kind"] == "gateway" and not r.get("to"))
-        ready = (self._image is not None and good >= 3 and bad == 0
+        crossed = self._outline_problem()
+        ready = (self._image is not None and good >= 3 and bad == 0 and crossed is None
                  and fg_invalid == 0 and fg_unattached == 0 and rg_bad == 0
                  and rg_untargeted == 0)
         self.gen_btn.setEnabled(ready)
@@ -367,50 +670,93 @@ class TraceDoc(QWidget):
         elif ready:
             tip = ("Build the field project (walkmesh + art + field.toml) with the exact command "
                    "the CLI tracer emits — it streams to the Output panel.")
+        elif crossed:
+            tip = f"The floor cannot be built: {crossed}."
         elif fg_invalid or fg_unattached:
             tip = ("Every cut-out needs a valid floor contact (below the horizon, below the base "
                    "layer) and an attached PNG — fix or Remove the flagged ones.")
         elif rg_untargeted:
             tip = ("A drawn door has NO target field — it would compile to Field(0), a "
-                   "guaranteed black screen. Right-click the quad → Set gateway target.")
+                   "guaranteed black screen. Right-click the zone → Set gateway target.")
         elif rg_bad:
-            tip = ("A region has a corner above the horizon at this pitch — reshape or delete "
-                   "it (right-click the quad).")
+            # its quad cannot be drawn above the horizon, so there is nothing to right-click:
+            # the pitch that made it is the way back (finding T6)
+            tip = ("A region has a corner above the horizon at this pitch, so it is hidden from "
+                   "the canvas — slide the pitch back to see it again (or Undo the change).")
         else:
             tip = "Needs an open image and at least 3 traced vertices, all below the horizon."
         self.gen_btn.setToolTip(tip)
+        unstamped = bool(self._project) and not self._stamped
+        if self._image is None:
+            nxt = "Open or drop a photo to begin."
+        elif not ready:
+            nxt = tip
+        elif unstamped:
+            nxt = f"Regenerate {self._project['name']} to update the project."
+        elif self._project:                            # F9 deploys the field the EDITOR has open,
+            name = self._project["name"]               # which need not be this one: say how to aim it
+            nxt = (f"{name} is up to date. To play it, open {name}.field.toml in the Editor "
+                   f"(Field → Open Field…), then press Deploy (F9).")
+        else:
+            nxt = "Generate the field project."
+        self._refresh_instruments(good, bad, crossed, fg_invalid, fg_unattached, rg_untargeted,
+                                  rg_bad, ctx_hidden, nxt)
         self.undo_btn.setEnabled(bool(self._history))
-        self.clear_btn.setEnabled(bool(self._floor))
+        what, attr, tip = self._CLEARS[self.tools.current()]
+        self.clear_btn.setToolTip(f"Clear {what}: {tip.lower()} (one Undo brings them back).")
+        self.clear_btn.setEnabled(bool(getattr(self, attr)))
         for key in ("cutout", "regions"):
             self.tools.button(key).setEnabled(self._image is not None)
+        self.detect_btn.setEnabled(self._has_numpy and self._image is not None
+                                   and not self._floor)
+        if self._has_numpy:                            # a disabled button says why
+            self.detect_btn.setToolTip(
+                "Clear the floor first — Detect floor lays a starting outline on an empty floor."
+                if self._floor else self._DETECT_TIP)
+        self.canvas.setVisible(self._image is not None)
+        self.empty_msg.setVisible(self._image is None)
         self._refresh_fg_strip()
         if not note:
             if self._image is None:
-                note = "Open an image to begin."
+                note = self._TEACH
             elif not self._floor:
-                note = ("Click the floor's outline in order, below the dashed horizon — "
-                        "drag a vertex to adjust, right-click one to delete it.")
+                note = ("Click the floor's outline in order — only below the horizon counts (the "
+                        "Pitch readout says where it is) — drag a vertex to adjust, right-click "
+                        "one to delete it.")
             else:
-                note = f"{good} vertices traced" + (f" · {bad} above the horizon (red)" if bad
-                                                    else "")
-                if self._fg:
-                    note += f" · {len(self._fg)} cut-out{'' if len(self._fg) == 1 else 's'}"
-                    if fg_invalid:
-                        note += f" · {fg_invalid} contact{'' if fg_invalid == 1 else 's'} invalid"
-                    if fg_unattached:
-                        note += f" · {fg_unattached} PNG{'' if fg_unattached == 1 else 's'} missing"
+                # the ⚠ clauses LEAD: the status wraps, but what the author must act on is never
+                # the tail a narrow window pushes out of sight (finding T23). The plain tally
+                # lives in the Inspector (finding T41): with nothing to fix, the status is the
+                # next step alone
+                warns = [f"⚠ {crossed}"] if crossed else []
+                if bad:
+                    warns.append(f"⚠ {bad} above the horizon (red)")
+                if fg_invalid:
+                    warns.append(f"⚠ {fg_invalid} cut-out contact{'' if fg_invalid == 1 else 's'} "
+                                 f"invalid")
+                if fg_unattached:
+                    warns.append(f"⚠ {fg_unattached} PNG{'' if fg_unattached == 1 else 's'} "
+                                 f"missing")
+                note = "" if unstamped else nxt        # the stamp clause below IS the next step
                 if self._regions:
-                    note += f" · {len(self._regions)} region{'' if len(self._regions) == 1 else 's'}"
                     warned = sum(1 for r in getattr(self, '_region_rows_cache', []) if r.get("warn"))
                     if rg_untargeted:
-                        note += (f" · ⚠ {rg_untargeted} door{'' if rg_untargeted == 1 else 's'} "
-                                 f"without a target (right-click → Set gateway target)")
+                        warns.append(f"⚠ {rg_untargeted} door{'' if rg_untargeted == 1 else 's'} "
+                                     f"without a target (right-click → Set gateway target)")
                     if warned:
-                        note += f" · ⚠ {warned} with law warnings"
+                        warns.append(f"⚠ {warned} with law warnings")
                     if rg_bad:
-                        note += f" · {rg_bad} above the horizon"
-        if self._project and not self._stamped:        # edits the project on disk doesn't have
-            note += f" · ⚠ not stamped — Regenerate {self._project['name']} to update the project"
+                        warns.append(f"⚠ {rg_bad} zone{'' if rg_bad == 1 else 's'} above the "
+                                     f"horizon, hidden — slide the pitch back to see "
+                                     f"{'it' if rg_bad == 1 else 'them'}")
+                note = (self._context_note(ctx_hidden)
+                        + " · ".join(warns or [note])).rstrip(" ·")
+        if unstamped:                                  # edits the project on disk doesn't have
+            stamp = (f"⚠ Changed since the last Generate — Regenerate {self._project['name']} "
+                     f"to update the project")
+            # an explicit error (a refusal) still leads: it is what the click just ran into
+            note = (stamp if not note else
+                    f"{note} · {stamp}" if state == "error" else f"{stamp} · {note}")
             state = state or "warn"
         self.status.setText(note)
         widgets.set_state(self.status, state)
@@ -425,14 +771,23 @@ class TraceDoc(QWidget):
         self.fg_box.blockSignals(True)
         self.fg_box.clear()
         for i, f in enumerate(self._fg):
+            # what the author must know LEADS (the closed combo cuts the tail): the PNG or its gap,
+            # snip vs full frame, a bad contact. The pixel and z ride on the item's tooltip --
+            # the canvas label shows them too (finding T32)
             cx, cy = f["contact"]
             z, err = self._fg_state(f)
-            head = f"fg{i} @ ({cx:g},{cy:g})"
-            head += f" · z {z}" if err is None else " · ⚠ invalid contact"
-            head += f" · {Path(f['image']).name}" if f.get("image") else " · ⚠ needs its PNG"
+            # the short facts first, the free-length PNG name LAST: it is the part the closed
+            # combo cuts, and the snap showed '· snip' cut off when it came after the name
+            parts = [f"fg{i}"]
+            if err is not None:
+                parts.append("⚠ invalid contact")
             if f.get("kind") == "snip":
-                head += " · snip"
-            self.fg_box.addItem(head)
+                parts.append("snip")
+            parts.append(Path(f["image"]).name if f.get("image") else "⚠ needs its PNG")
+            self.fg_box.addItem(" · ".join(parts))
+            self.fg_box.setItemData(i, f"contact ({cx:g},{cy:g}) · "
+                                       + (f"z {z}" if err is None else err),
+                                    Qt.ItemDataRole.ToolTipRole)
         if 0 <= keep < self.fg_box.count():
             self.fg_box.setCurrentIndex(keep)
         elif self.fg_box.count():
@@ -487,9 +842,39 @@ class TraceDoc(QWidget):
         self._refresh_cutouts()
         self._refresh(err if err else f"fg{i} re-anchored → z {z}", "error" if err else "")
 
+    # ------------------------------------------------------------------ unsaved work (T25)
+    def has_unsaved(self) -> bool:
+        """Traced work the last Generate has not seen: the session lives only in memory until
+        Generate writes its record, so this is what Open and closing the app would discard."""
+        if self._image is None or not (self._floor or self._fg or self._regions):
+            return False
+        return self._project is None or not self._stamped
+
+    def _ask_discard(self):
+        """Instance dialog behind a seam (a static execs in C++ past every test patch).
+        Headless never blocks, like the shell's own unsaved prompt."""
+        import os
+        if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+            return True
+        from PySide6.QtWidgets import QMessageBox
+        box = QMessageBox(self)
+        box.setWindowTitle("Discard the traced session?")
+        box.setText("This trace has work the last Generate has not written.")
+        box.setInformativeText("Opening something else discards it. Continue?")
+        box.setStandardButtons(QMessageBox.StandardButton.Discard
+                               | QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        return box.exec() == QMessageBox.StandardButton.Discard
+
     # ------------------------------------------------------------------ image
     def on_open(self):
-        path = self._ask_image()
+        self.open_path(self._ask_image())
+
+    def open_path(self, path):
+        """Open a photo, a project's field.toml or its .trace.json -- the Open button's path, and
+        the window's for a dropped photo (T35): unwritten traced work is asked about first."""
+        if path and self.has_unsaved() and not self._ask_discard():
+            return
         if path:
             try:
                 if str(path).endswith(".trace.json"):  # a generated project's session record
@@ -504,8 +889,7 @@ class TraceDoc(QWidget):
     def load_image(self, path):
         """The one image ingest: the SAME cover-crop the build performs, at 2x display res.
         Opening a new image clears the trace (the old polygon means nothing on new art)."""
-        from PIL import Image
-        src = Image.open(path).convert("RGB")
+        src = imagefield.open_rgb(path)                # the build's own reader (T19, E11)
         self._img_size = src.size
         disp = imagefield._cover_crop(src, imagefield.CANVAS_W * 2, imagefield.CANVAS_H * 2)
         buf = io.BytesIO()
@@ -514,9 +898,20 @@ class TraceDoc(QWidget):
         pm.loadFromData(buf.getvalue(), "PNG")
         self._image = Path(path)
         self._pixmap = pm
+        # a new photo is a new FIELD: its own name, and never the last project's id -- a second
+        # room went out under the first one's and replaced it in the game on deploy (finding T13).
+        # load_trace / load_project set both again from the project right after this.
+        from ..hub import name_token
+        self.name_box.setText(name_token(self._image.stem, fallback="PICTURE").upper())
+        teach = ""
+        if self._project and str(self._project.get("fid")) == self.id_box.text().strip():
+            self.id_box.clear()
+            teach = (f"New photo, new field — give it its own Field id ({self._project['fid']} "
+                     f"is {self._project['name']}'s).")
         self._floor = []
         self._fg = []                                  # old contacts mean nothing on new art
         self._regions = []                             # nor do old zones
+        self._context, self._context_error = [], ""    # nor another project's own rows (E12)
         self._history = []
         self._project = None                           # a new photo is a NEW project
         self._distance = imagefield.DEFAULT_DISTANCE   # a new photo shoots on the default rig
@@ -528,7 +923,7 @@ class TraceDoc(QWidget):
         self._region_rows_cache, self._region_back = [], []
         self.canvas.set_backdrop(pm, self._camera(), refit=True)
         self.img_label.setText(self._image.name)
-        self._refresh()
+        self._refresh(teach, "warn" if teach else "")
 
     def _on_pitch(self, _v):
         self._stamped = False                          # a camera change alters the build
@@ -558,6 +953,7 @@ class TraceDoc(QWidget):
         if not self._history:
             return
         snap = self._history.pop()
+        self._stamped = False                          # the canvas left what the last Generate wrote
         self._floor = list(snap["floor"])
         self._fg = [dict(f) for f in snap["fg"]]
         self._regions = [dict(r) for r in snap.get("regions", [])]
@@ -566,13 +962,67 @@ class TraceDoc(QWidget):
         self._refresh_regions()
         self._refresh()
 
+    # Clear empties what the ACTIVE tool owns -- it used to empty the floor whatever tool was
+    # showing, so with Regions active it wiped the floor and kept every zone (finding T12)
+    _CLEARS = {"floor": ("floor", "_floor", "Remove every traced floor vertex"),
+               "cutout": ("cut-outs", "_fg", "Remove every marked cut-out"),
+               "regions": ("regions", "_regions", "Remove every drawn zone, gateways and events")}
+
     def on_clear(self):
-        if not self._floor:
+        _what, attr, _tip = self._CLEARS[self.tools.current()]
+        if not getattr(self, attr):
             return
-        self._push_history()
-        self._floor = []
-        self.canvas.set_floor([])
+        self._push_history()                           # one undoable gesture
+        setattr(self, attr, [])
+        self.canvas.set_floor(self._floor)             # the host write path: no on_floor echo
+        self._refresh_cutouts()
+        self._refresh_regions()
         self._refresh()
+
+    def on_detect_floor(self):
+        """Seed an EMPTY floor from the photo (finding T33): ``imagefield.auto_floor``'s polygon
+        lands as ONE gesture through the canvas's own commit path (one Undo), and is judged by
+        the same Generate gate as a hand trace. It never replaces a traced floor -- Clear does,
+        with its own Undo. It takes about a quarter of a second on a 12-megapixel photo, so the
+        window shows it is busy rather than looking hung."""
+        if self._image is None or not self._has_numpy:
+            return
+        if self._floor:
+            self._refresh("Clear the floor first — Detect floor lays a starting outline on an "
+                          "empty floor.", "warn")
+            return
+        from PySide6.QtGui import QGuiApplication
+        self._refresh("Detecting the floor…")
+        self.status.repaint()
+        QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            seed = imagefield.auto_floor(self._image, pitch=float(self.pitch.value()),
+                                         fov=self._fov, distance=self._distance)
+        except imagefield.ImageFieldError as e:
+            self._refresh(f"⚠ No floor found — {self._authors_words(e)}", "warn")
+            return
+        except (OSError, ValueError) as e:            # it re-reads the photo: moved, or unreadable
+            self._refresh(f"⚠ No floor found — could not read {self._image.name}: {e}", "warn")
+            return
+        finally:
+            QGuiApplication.restoreOverrideCursor()
+        self.canvas._commit_floor(seed["floor"])      # the gesture path: on_floor -> one Undo
+        self._refresh(self._crossed_note()
+                      + f"Detected a starting outline ({len(self._floor)} vertices) — drag its "
+                        f"vertices onto the floor's real edges; it cannot tell where a doorway "
+                        f"ends.", "warn" if self._outline_problem() else "")
+
+    @staticmethod
+    def _authors_words(err):
+        """auto_floor speaks to the command line (its flags, its own name); say it as this tab."""
+        s = str(err).removeprefix("auto floor-seed: ")
+        for cli, tab in ((" -- hand-trace it with --trace", " — trace it by hand"),
+                         ("; hand-trace it with --trace", " — trace it by hand"),
+                         (" -- steepen --pitch, or hand-trace it with --trace",
+                          " — raise the pitch, or trace it by hand"),
+                         ("hand-trace it with --trace", "trace it by hand")):
+            s = s.replace(cli, tab)
+        return s.replace(" -- ", " — ")
 
     # ------------------------------------------------------------------ the tool strip
     def _on_tool(self, key):
@@ -596,6 +1046,7 @@ class TraceDoc(QWidget):
         if getattr(self, "ev_msg", None) is None:
             return                                 # construction order: radios fire before the boxes
         on = self.tools.current() == "regions"
+        self.detect_btn.setVisible(self.tools.current() == "floor")
         gw = on and self.rkind_btns["gateway"].isChecked()
         for w in (self.rkind_btns["gateway"], self.rkind_btns["event"]):
             w.setVisible(on)
@@ -618,49 +1069,163 @@ class TraceDoc(QWidget):
 
     def _region_shim(self):
         """The session's regions as the doc-dict shape ``placedoc.region_rows`` judges — ONE
-        owner of the labels + both region laws for every host. Returns (shim, map) where map
-        takes the shim's (kind, per-kind index) back to ``self._regions`` indices; rows with an
-        above-horizon corner are left OUT of the shim (counted in the status instead)."""
+        owner of the labels + both region laws for every host. Returns (shim, map, bad, hidden)
+        where map takes the shim's (kind, per-kind index) back to the ROW it came from (a session
+        region or a project context row, by identity); session rows with an above-horizon corner
+        are left OUT of the shim (``bad``, counted in the status instead). The project's own rows
+        (E12) ride in the shim as they are in the file -- world zones, so the overlap law judges
+        them at any pitch; ``hidden`` counts those the canvas cannot draw at this one."""
         shim = {"gateway": [], "event": []}
         back = {}
-        bad = 0
-        for ri, r in enumerate(self._regions):
+        bad = hidden = 0
+        nth = {"gateway": 0, "event": 0}               # as on_generate numbers them: every row,
+        for r in self._regions:                        # drawn at this pitch or not
+            n = nth[r["kind"]]
+            nth[r["kind"]] += 1
             worlds = self._region_worlds(r["quad"])
             if any(w is None for w in worlds):
                 bad += 1
                 continue
             zone = [[int(round(x)), int(round(z))] for x, z in worlds]
             kind = r["kind"]
-            row = {"name": f"door{len(shim['gateway'])}" if kind == "gateway"
-                   else f"zone{len(shim['event'])}", "zone": zone}
+            # the names Generate writes them under: the Editor shows these, and a door the
+            # Place tab made is the one called door0
+            row = {"name": f"{imagefield.TRACED_GATEWAY_PREFIX}{n}" if kind == "gateway"
+                   else f"{imagefield.TRACED_EVENT_PREFIX}{n}", "zone": zone}
             if kind == "gateway":
                 row["to"] = r.get("to", 0)
                 if r.get("entrance"):
                     row["entrance"] = r["entrance"]
             else:
                 row["message"] = r.get("message") or "..."
-            back[(kind, len(shim[kind]))] = ri
+            back[(kind, len(shim[kind]))] = r
             shim[kind].append(row)
-        return shim, back, bad
+        cam = self.canvas.camera()
+        for c in self._context:                        # AFTER the session's: door0 stays door0
+            kind = c["kind"]
+            row = {"name": f"{c.get('name') or kind} (project)", "zone": c["zone"]}
+            if kind == "gateway":
+                row["to"] = c.get("to")
+                if c.get("entrance"):
+                    row["entrance"] = c["entrance"]
+            try:
+                for p in c["zone"]:
+                    imagefield.world_to_click(cam, (float(p[0]), float(p[1])))
+            except imagefield.ImageFieldError:
+                hidden += 1
+            back[(kind, len(shim[kind]))] = c
+            shim[kind].append(row)
+        return shim, back, bad, hidden
 
     def _refresh_regions(self):
         """Feed the canvas from the session's regions, laws judged (the placedoc derivation —
-        one owner). The row list is kept for gesture routing."""
+        one owner). The row list is kept for gesture routing. A project row keeps only the
+        overlap law's verdict, and only on the session row it judges: its own flags (a target,
+        a placeholder message) are the Place tab's and the Editor's to show (E12)."""
         from . import placedoc
-        shim, back, _bad = self._region_shim()
+        shim, back, _bad, _hidden = self._region_shim()
         rows = placedoc.region_rows(shim)
-        self._region_rows_cache = rows
         self._region_back = [back[(r["kind"], r["index"])] for r in rows]
+        for r, row in zip(rows, self._region_back):
+            if self._is_context(row):
+                r["warn"] = None
+                # the tab refuses every gesture on it (_session_region), so the canvas must not
+                # offer one: no grab cursor, no handles, no menu
+                r["locked"] = ("That is the project's own, not this trace's — move, change or "
+                               "delete it in the Place tab or the Editor.")
+        self._region_rows_cache = rows
         self.canvas.set_regions(rows)
+
+    def _is_context(self, row):
+        return any(row is c for c in self._context)
+
+    def _session_region(self, i):
+        """The session region behind canvas row ``i`` -- or None, having REFUSED, when the row is
+        the project's own (E12): it is redrawn from the file (a drag snaps back) and the status
+        says where it can be changed."""
+        if not 0 <= i < len(self._region_back):
+            return None
+        row = self._region_back[i]
+        if not self._is_context(row):
+            return row
+        what = "door" if row["kind"] == "gateway" else "zone"
+        self._refresh_regions()
+        self._refresh(f"{row.get('name') or what} is the project's own {what}, not this trace's — "
+                      f"move, change or delete it in the Place tab or the Editor.", "warn")
+        return None
+
+    def _read_context(self, toml):
+        """Re-read the project file's own gateway and event rows as context (E12). True when
+        they changed. A file that cannot be read leaves none, and says so on the status."""
+        import tomllib
+        try:
+            data = tomllib.loads(Path(toml).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            said = f"⚠ could not read the project's own doors and zones ({e}) · "
+            changed = bool(self._context) or said != self._context_error
+            self._context, self._context_error = [], said
+            return changed
+        was_error, self._context_error = bool(self._context_error), ""   # readable: the note goes
+        # a project from before the traced_ prefix calls its traced doors door0/zone0: one whose
+        # quad the session re-emits is the session's own -- the regenerate merge replaces it with
+        # the session's (imagefield.merge_project_toml), so it is not drawn twice
+        twins = set()
+        if not imagefield._has_traced_rows(data):
+            old_cam = imagefield._camera_of(data)       # ...at this pitch OR the file's own, as
+            for r in self._regions:                    # the merge matches (a pitch change must
+                worlds = self._region_worlds(r["quad"])    # not turn the author's own door into
+                if all(w is not None for w in worlds):     # "the project's")
+                    twins.add((r["kind"], imagefield._zone_key(worlds)))
+                if old_cam is not None:
+                    try:
+                        twins.add((r["kind"], imagefield._zone_key(
+                            imagefield.unproject_floor(old_cam, r["quad"]))))
+                    except (imagefield.ImageFieldError, ValueError):
+                        pass
+        ctx = []
+        for kind in ("gateway", "event"):
+            for e in data.get(kind) or []:
+                if not isinstance(e, dict) or imagefield.is_generated_region(kind, e.get("name")):
+                    continue
+                try:                                   # no zone to draw: region_rows' own rule
+                    z = [(float(p[0]), float(p[1])) for p in e.get("zone")]
+                except (TypeError, ValueError, IndexError):
+                    continue
+                if len(z) not in (4, 5) or not all(math.isfinite(c) for p in z for c in p):
+                    continue                           # an inf / nan corner: nothing to draw
+                # the merge retakes a twin only while it still has its pre-prefix NAME: a door
+                # the author renamed is theirs, kept beside the session's, so it is drawn
+                if (imagefield._is_pre_prefix_name(kind, e.get("name"))
+                        and (kind, imagefield._zone_key(z)) in twins):
+                    continue
+                ctx.append({"kind": kind, "name": e.get("name"), "zone": z, "to": e.get("to"),
+                            "entrance": e.get("entrance")})
+        if ctx == self._context and not was_error:
+            return False
+        self._context = ctx
+        return True
+
+    def _context_note(self, hidden=None):
+        """The status clause for the project's own rows this pitch cannot draw ('' when none)."""
+        if hidden is None:
+            hidden = self._region_shim()[3]
+        return self._context_error + (f"⚠ {hidden} of the project's own doors and zones cannot "
+                                      f"be drawn at this pitch · " if hidden else "")
 
     def _on_region_drawn(self, quad_world):
         """Four accepted clicks: store the quad in CANVAS px (the authoring truth — the exact
         inverse of the click conversion, so the round-trip is the tripwire's own)."""
         cam = self.canvas.camera()
+        if any(not (-32767 <= c <= 32767) for w in quad_world for c in w):
+            # the build packs zone corners as Int16 (the floor's own bound): refuse at the click,
+            # not after a Generate (finding T9)
+            self._refresh("That zone reaches too far up the photo for the game's world at this "
+                          "pitch — draw it lower, or raise the pitch.", "warn")
+            return
         quad_px = [tuple(round(v, 1) for v in imagefield.world_to_click(cam, w))
                    for w in quad_world]
         self._push_history()
-        kind = "gateway" if self.rkind_btns["gateway"].isChecked() else "event"
+        kind ="gateway" if self.rkind_btns["gateway"].isChecked() else "event"
         self._regions.append({"kind": kind, "to": self.gw_to.value(),
                               "entrance": self.gw_ent.value(),
                               "message": self.ev_msg.text().strip() or "...",
@@ -669,37 +1234,41 @@ class TraceDoc(QWidget):
         note = "drew a gateway zone" if kind == "gateway" else "drew an event zone"
         if kind == "gateway" and not self.gw_to.value():
             note += " — set its target field id (the 'to field' box)"
+        elif kind == "event" and not self.ev_msg.text().strip():
+            note += " — it has no words yet: right-click it → Set message"
         self._refresh(note)
 
     def _on_region_changed(self, i, quad_world):
-        if not 0 <= i < len(getattr(self, "_region_back", [])):
+        r = self._session_region(i)
+        if r is None:
             return
         cam = self.canvas.camera()
         try:
             quad_px = [tuple(round(v, 1) for v in imagefield.world_to_click(cam, w))
                        for w in quad_world]
-        except imagefield.ImageFieldError:
-            return                                     # a corner behind the camera: keep the old quad
+        except imagefield.ImageFieldError:             # a corner behind the camera: keep the old
+            self._refresh("That reshape put a corner where the camera cannot see it — the zone "   # quad,
+                          "kept its old shape. Drag the corner lower on the photo.", "warn")      # and say so
+            return
         self._push_history()
-        self._regions[self._region_back[i]]["quad"] = quad_px
+        r["quad"] = quad_px
         self._refresh_regions()
         self._refresh("region reshaped")
 
     def _on_region_deleted(self, i):
-        if not 0 <= i < len(getattr(self, "_region_back", [])):
+        r = self._session_region(i)
+        if r is None:
             return
         self._push_history()
-        del self._regions[self._region_back[i]]
+        self._regions = [q for q in self._regions if q is not r]
         self._refresh_regions()
         self._refresh("region deleted")
 
     def _on_region_retarget(self, i):
         """Retarget a drawn door in place (the Field(0) black-screen lesson: the 'to field' box
         feeds NEW draws only, so an already-drawn door needs its own edit path)."""
-        if not 0 <= i < len(getattr(self, "_region_back", [])):
-            return
-        r = self._regions[self._region_back[i]]
-        if r["kind"] != "gateway":
+        r = self._session_region(i)
+        if r is None or r["kind"] != "gateway":
             return
         to = self._ask_field_id(r.get("to") or 0)
         if to is None:
@@ -712,10 +1281,8 @@ class TraceDoc(QWidget):
     def _on_region_reword(self, i):
         """Reword a drawn event zone in place (its message lives in this SESSION — the photo
         lane's toml is regenerated, so there is no other editor for it)."""
-        if not 0 <= i < len(getattr(self, "_region_back", [])):
-            return
-        r = self._regions[self._region_back[i]]
-        if r["kind"] != "event":
+        r = self._session_region(i)
+        if r is None or r["kind"] != "event":
             return
         cur = r.get("message") or ""
         text = self._ask_message("" if cur == "..." else cur)
@@ -769,15 +1336,22 @@ class TraceDoc(QWidget):
         self.tools.set_current("floor")                # one contact per arm -> back to tracing
         self.fg_box.setCurrentIndex(len(self._fg) - 1)
         path = self._ask_cutout()
-        teach = None
+        teach = failed = None
         if path:
-            teach = self._attach_cutout(len(self._fg) - 1, path)
+            try:
+                teach = self._attach_cutout(len(self._fg) - 1, path)
+            except _image_errors() as e:               # the contact stands; its PNG is still owed
+                failed = f"Could not read {Path(path).name} ({e}) — attach a PNG before Generate"
         note = (f"cut-out fg{len(self._fg) - 1} anchored at ({contact[0]:g},{contact[1]:g})"
                 f" → z {z}" + ("" if path else " — attach its PNG before Generate"))
         if teach:
             note += f" · {teach}"
         self._refresh_cutouts()
-        self._refresh(note)
+        if failed:
+            self._refresh(f"{failed} · {note}", "error")
+        else:
+            self._refresh(self._opaque_note(len(self._fg) - 1) + note,
+                          "warn" if self._fg[-1].get("opaque") else "")
 
     def on_fg_attach(self):
         i = self.fg_box.currentIndex()
@@ -786,10 +1360,28 @@ class TraceDoc(QWidget):
         path = self._ask_cutout()
         if not path:
             return
+        stamped = self._stamped
         self._push_history()
-        teach = self._attach_cutout(i, path)
+        try:
+            teach = self._attach_cutout(i, path)
+        except _image_errors() as e:                   # nothing changed: no Undo step for it
+            self._history.pop()
+            self._stamped = stamped
+            self._refresh(f"Could not read {Path(path).name} ({e}) — fg{i} still needs its PNG.",
+                          "error")
+            return
         self._refresh_cutouts()
-        self._refresh(f"fg{i}: {teach}" if teach else "")
+        warn = self._opaque_note(i)
+        self._refresh((warn + (f"fg{i}: {teach}" if teach else "")).rstrip(" ·"),
+                      "warn" if warn else "")
+
+    def _opaque_note(self, i):
+        """The T21 warning for cut-out ``i``, leading the status ('' when it has transparency)."""
+        if not self._fg[i].get("opaque"):
+            return ""
+        return (f"⚠ fg{i}'s PNG has no transparent pixels — in the game it hides the actor "
+                f"everywhere behind its contact line. Erase all but the object, then attach it "
+                f"again · ")
 
     def on_fg_remove(self):
         i = self.fg_box.currentIndex()
@@ -803,11 +1395,15 @@ class TraceDoc(QWidget):
     # ------------------------------------------------------------------ generate
     def on_generate(self):
         if self._image is None:
-            self._refresh("Open an image first.", "error")
+            self._refresh("Open a photo first.", "error")
             return
         good, bad = self._valid_count()
         if good < 3 or bad:
             self._refresh("Trace at least 3 vertices, all below the horizon.", "error")
+            return
+        crossed = self._outline_problem()
+        if crossed:
+            self._refresh(f"⚠ The floor cannot be built: {crossed}.", "error")
             return
         fg_invalid, fg_unattached = self._fg_problems()
         if fg_invalid or fg_unattached:
@@ -821,24 +1417,60 @@ class TraceDoc(QWidget):
             self._refresh(str(e), "error")
             return
         name = self.name_box.text().strip() or "PICTURE"
-        first = self._project is None                  # only the FIRST Generate opens the
+        try:
+            # the backend's own rule, asked first (T7), with the backend's own exemption: a name
+            # that already names a field.toml in the armed folder. A project built before the rule
+            # may be called attic-room; refusing that left it with no Name that could regenerate
+            # it (the one-field-per-folder refusal below refuses every other)
+            imagefield.check_field_name(name, self._project["out"] if self._project else None)
+        except imagefield.ImageFieldError as e:
+            self._refresh(str(e), "error")
+            return
+        first = self._project is None                 # only the FIRST Generate opens the
         #                                                result in the Editor; a regenerate
         #                                                never yanks the author off this canvas
+        moved = ""
         if self._project is not None:                  # set up once -> every later Generate is
             out = Path(self._project["out"])           # IN PLACE (owner-asked; no dialog)
+            own = f"{name}.field.toml".lower()
+            others = sorted(q.name for q in out.glob("*.field.toml") if q.name.lower() != own)
+            if others:
+                # the folder holds ONE floor and ONE set of art. Whatever the Name box (or a field
+                # renamed in the Editor) says, writing <name>.field.toml beside another field's file
+                # would replace the walkmesh and art under THAT one, which keeps its old [camera]
+                self._refresh(f"This folder already holds {others[0]} — one field per folder "
+                              f"(a second would share its floor and art). Set Name to "
+                              f"{others[0][:-len('.field.toml')]} to regenerate that one.", "error")
+                return
         else:
             parent = self._ask_out()
             if not parent:
                 return
-            out = Path(parent) / f"{self._image.stem}-field"
+            out = first_out(parent, self._image, name)   # never another project's folder (E9)
+            wanted = Path(parent) / f"{self._image.stem}-field"
+            if out != wanted:                          # said FIRST: the status line clips its tail
+                moved = f"{wanted.name} is already in use — this one goes to {out.name}. "
+        if self.can_generate is not None:              # the file may be open in the Editor with
+            why = self.can_generate(str(out / f"{name}.field.toml"))   # unsaved edits the merge
+            if why:                                    # (which reads DISK) would never see
+                self._refresh(why, "error")
+                return
         argv = [sys.executable, "-m", "ff9mapkit", "image-field", str(self._image),
                 "--floor", " ".join(f"{x:g},{y:g}" for x, y in self._floor),
-                "--out", str(out), "--name", name, "--id", str(fid)]
+                # a value the author TYPED rides as --flag=value: '-Stop!' as its own argv item
+                # is read by argparse as an option and the job fails (finding T17)
+                "--out", str(out), f"--name={name}", "--id", str(fid)]
         for i, f in enumerate(self._fg):               # the tracer's own form: path@cx,cy anchors
             cx, cy = f["contact"]                      # the occluder at its floor-contact pixel
             img = f["image"]
             if f.get("kind") == "snip":                # a placed snip ships as a composed full frame
-                img = str(self._composed_fg_path(i, f))
+                try:
+                    img = str(self._composed_fg_path(i, f))
+                except _image_errors() as e:           # a folder it cannot write (T20): said,
+                    self._refresh(f"Could not write cut-out fg{i}'s placed image beside the "   # and
+                                  f"photo ({e}). Put the photo in a folder you can write to, "  # nothing
+                                  f"then Generate again.", "error")                            # starts
+                    return
             argv += ["--foreground", f"{img}@{cx:g},{cy:g}"]
         for r in self._regions:                        # zones ride in canvas px, the same frame as
             pts = ";".join(f"{cx:g},{cy:g}" for cx, cy in r["quad"])   # --floor (pitch-coupled)
@@ -846,52 +1478,171 @@ class TraceDoc(QWidget):
                 head = f"{r.get('to', 0)},{r['entrance']}" if r.get("entrance") else str(r.get("to", 0))
                 argv += ["--gateway", f"{head}@{pts}"]
             else:
-                argv += ["--event-zone", f"{r.get('message') or '...'}@{pts}"]
+                argv += [f"--event-zone={r.get('message') or '...'}@{pts}"]
         if float(self.pitch.value()) != imagefield.DEFAULT_PITCH:
             argv += ["--pitch", f"{self.pitch.value():g}"]
         if float(self._fov) != imagefield.DEFAULT_FOV:        # a reopened project regenerates
             argv += ["--fov", f"{self._fov:g}"]               # through its OWN rig, not the
         if float(self._distance) != imagefield.DEFAULT_DISTANCE:   # default one
             argv += ["--distance", f"{self._distance:g}"]
+        toml = out / f"{name}.field.toml"
+        proj = {"out": str(out), "name": name, "fid": int(fid)}
+        before = _file_stamp(toml)                     # the disk, not the exit code, says what moved
+        try:                                           # the file as the regenerate found it: the
+            old = None if first else imagefield.load_project_tables(toml)   # finish compares (E13)
+        except imagefield.ImageFieldError:
+            old = None
+        last = None if first else imagefield.generated_spawn(out)   # the generator's own spawn
         started = self._run(
             argv, cwd=str(self.kit), subject="Image → field",
             ok_headline=f"{name} generated → {out}",
-            ok_next=f"Deploy it: py tools/deploy_field.py {out / (name + '.field.toml')} "
-                    f"--id {fid} — then ~ → Warp to field → {fid}.",
+            # the app's own Deploy, not a terminal line (tools/ is a checkout's; an installed
+            # project folder has a space in it) -- and no warp id: a Build-tab test slot
+            # overrides the field's own, so the deploy verdict names it (finding T22)
+            # F9 deploys the field the Editor has OPEN, which after a regenerate need not be
+            # this one (the first Generate hands its project to the Editor; a reopen does not)
+            ok_next=("It opened in the Editor — press Deploy (F9); the deploy verdict names the "
+                     "warp id." if first else
+                     f"To play the update, open {Path(toml).name} in the Editor (Field → Open "
+                     f"Field…) if it is not the open field, then press Deploy (F9); the deploy "
+                     f"verdict names the warp id."),
             fail_hint="See the Output panel — the usual causes are a vertex above the horizon "
                       "or a floor larger than the Int16 world bound.",
-            on_finished=lambda code, _t=str(out / f"{name}.field.toml"):
-                self._after_generate(code, first, _t))
+            on_finished=lambda code, _t=str(toml):
+                self._after_generate(code, first, _t, proj=proj, before=before, old=old,
+                                     last_spawn=last))
         if started:
-            self._project = {"out": str(out), "name": name, "fid": int(fid)}
+            self._project = proj
             self._stamped = True                       # the project now matches the session
             self._write_trace_sidecar(out)             # the re-editable session record
-            self._refresh(f"Generating {name} → {out} …")
+            self._refresh(f"{moved}Generating {name} → {out} …")
+        else:                                          # run_job refuses while a job runs (T30)
+            self._refresh("Another job is running — Generate after it finishes (the Output "
+                          "panel shows it).", "warn")
 
-    def _after_generate(self, code, first, toml):
+    def _after_generate(self, code, first, toml, *, proj=None, before=None, old=None,
+                        last_spawn=None):
         """A clean FIRST Generate opens the project in the Editor (through the shell's own
         ``open_field`` — which is what feeds the Place tab, rung 7d, so 'trace it → place
         content on it' is one flow). Regenerates never yank; failures never open anything.
         ``toml`` was captured AT LAUNCH — reading the live ``self._project`` here would open
-        whatever project the author switched to while the job ran."""
-        if code != 0 or not first or self.on_generated is None:
-            return
-        if Path(toml).is_file():
+        whatever project the author switched to while the job ran.
+
+        A REGENERATE rewrites ``toml`` in place, and that file may be the one open in the
+        Editor: the shell is TOLD (``on_regenerated``), so it can reload the buffer it holds. It
+        used to be told nothing, and the next Save All wrote the stale buffer over the
+        regenerated file — the new doors, events and camera gone, the new walkmesh kept. It is
+        told on EVERY finish, clean or not: the job writes its files and only then prints, so a
+        job can rewrite the project and still exit non-zero (a console that cannot encode a
+        character in the report — finding E10). Whether the file moved is the disk's to say, not
+        the exit code's; the shell looks.
+
+        Then the tab settles (finding T8) -- unless the author moved on to another session while
+        the job ran (``proj`` is the launch's own record, compared by identity): the status says how
+        it ended; a FIRST Generate that wrote no project disarms, so the retry is a first Generate
+        again (it goes back into the same folder, which holds only this session's record); a
+        regenerate that failed and left the file as it was (``before``, its stat at launch) is not
+        stamped."""
+        if not first:
+            if self.on_regenerated is not None:
+                self.on_regenerated(str(toml))
+        elif code == 0 and self.on_generated is not None and Path(toml).is_file():
             self.on_generated(str(toml))
+        if proj is None or self._project is not proj:
+            return
+        name, out = proj["name"], proj["out"]
+        if Path(toml).is_file() and self._read_context(toml):   # the file was rewritten (E12)
+            self._refresh_regions()
+        stopped = code != 0 and self.was_stopped is not None and bool(self.was_stopped())
+        if first and not Path(toml).is_file():
+            self._project = None
+            self._refresh("Generate stopped — no field.toml was written. Generate again when "
+                          "ready." if stopped else
+                          "Generate failed — no field.toml was written. See the Output panel, fix "
+                          "the cause, then Generate again.", "warn" if stopped else "error")
+        elif code == 0:
+            took = self._what_it_took(old, toml, last_spawn)
+            self._refresh(f"{took}{'Generated' if first else 'Regenerated'} {name} → {out}",
+                          "warn" if took else "")
+        elif _file_stamp(toml) != before:
+            self._refresh(f"{self._what_it_took(old, toml, last_spawn)}{name} was written to {out}, but the "
+                          + ("job was stopped before it finished." if stopped else
+                             "job reported an error — see the Output panel."), "warn")
+        else:
+            self._stamped = False                      # the job writes walkmesh + art BEFORE the toml,
+            self._refresh(f"Regenerate {'stopped' if stopped else 'failed'} — {name}.field.toml "
+                          f"was not updated (its walkmesh and art may have been). "
+                          + ("Regenerate again when ready." if stopped else
+                             "See the Output panel, then Regenerate again."),
+                          "warn" if stopped else "error")   # only the toml's own stat is known here
+
+    @staticmethod
+    def _what_it_took(old, toml, last_spawn=None):
+        """What a regenerate took from the file it found (``old``, read at launch), judged by the
+        disk -- the merge names it in the Output console, and the tab's own status said nothing
+        (finding E13): a hand row that went, a key dropped from a regenerated row, a start point
+        the author placed that moved. '' when nothing was.
+
+        A traced_ row is named by its POSITION, so deleting the first of three renumbers the rest:
+        judged by name, the status named the wrong door as removed (review of E13). The author
+        deleted traced rows here, so their going is not reported; a traced row's dropped key is
+        reported only against the new row with the SAME zone. ``last_spawn`` is the spawn the
+        last generate stamped (:func:`imagefield.generated_spawn`): the generator's own spawn
+        following a reshaped floor took nothing from the author."""
+        if not old:
+            return ""
+        try:
+            new = imagefield.load_project_tables(toml) or {}
+        except imagefield.ImageFieldError:
+            return ""
+        from ..editor import forms as _forms
+        said = []
+        for kind in ("gateway", "event"):
+            # a dropped key is named the way the Editor form labels it, never as the raw key
+            # (minus the label's own format hint: "Give item (id, count)" -> "Give item")
+            words = {f.key: f.label.split(" (")[0] for f in
+                     (_forms.GATEWAY_SPEC if kind == "gateway" else _forms.EVENT_SPEC)}
+            rows = [r for r in new.get(kind) or [] if isinstance(r, dict)]
+            for r in old.get(kind) or []:
+                if not isinstance(r, dict):
+                    continue
+                nm = str(r.get("name"))
+                if imagefield.is_generated_region(kind, r.get("name")):
+                    twin = next((q for q in rows if imagefield.is_generated_region(kind, q.get("name"))
+                                 and q.get("zone") == r.get("zone")), None)
+                else:
+                    twin = next((q for q in rows if str(q.get("name")) == nm), None)
+                    if twin is None:
+                        said.append(f"removed {nm}")
+                if twin is not None:
+                    said += [f"{twin.get('name')} lost “{words.get(k, str(k).replace('_', ' '))}”"
+                             for k in r if k not in twin]
+        was = (old.get("player") or {}).get("spawn") if isinstance(old.get("player"), dict) else None
+        now = (new.get("player") or {}).get("spawn") if isinstance(new.get("player"), dict) else None
+        if was is not None and was != now and was != last_spawn:
+            said.append("the spawn point moved" + (" (it was off the new floor)"
+                                                   if last_spawn is not None else ""))
+        return f"⚠ {', '.join(said)} · " if said else ""
 
     def _write_trace_sidecar(self, out):
         """The tab's session as ``<out>/<image-stem>.trace.json`` — floor, pitch, cut-outs
         (contacts + offsets + PNG paths), name/id — so Open can restore the whole editable
         state later (the 'set it up once' half of in-place regeneration). Best-effort: a
-        sidecar failure must never block the build itself."""
+        sidecar failure must never block the build itself.
+
+        One project per folder, ONE record: a folder that already holds one is rewritten under
+        THAT name (the one ``load_project`` reads back). A session rebuilt from art/base.png after
+        its photo went missing used to write a second, base.trace.json, beside the stale one --
+        and a reopen could then arm the stale floor as in sync (review of T10)."""
         import json
         try:
             Path(out).mkdir(parents=True, exist_ok=True)
             fg = [{"contact": list(f["contact"]), "image": f.get("image"),
                    "offset": (list(f["offset"]) if f.get("offset") else None)}
                   for f in self._fg]
-            (Path(out) / f"{self._image.stem}.trace.json").write_text(json.dumps({
-                "image": str(self._image), "pitch": self.pitch.value(),
+            held = sorted(Path(out).glob("*.trace.json"))
+            (held[0] if held else Path(out) / f"{self._image.stem}.trace.json").write_text(json.dumps({
+                "image": str(self._image), "upright": True, "pitch": self.pitch.value(),
                 "distance": self._distance, "fov": self._fov,
                 "floor": [list(p) for p in self._floor], "fg": fg,
                 "regions": [{"kind": r["kind"], "to": r.get("to", 0),
@@ -909,7 +1660,29 @@ class TraceDoc(QWidget):
         goes straight IN PLACE."""
         import json
         data = json.loads(Path(path).read_text(encoding="utf-8"))
-        self.load_image(data["image"])                 # clears floor/fg/history/project
+        photo = Path(str(data.get("image") or ""))
+        why = lead = ""
+        if not photo.is_file():                        # moved, deleted, another machine (T10)
+            why = f"its source photo {photo} is missing (moved or deleted)"
+            lead = (f"⚠ the source photo {photo.name} is missing — reopened from the project's "
+                    f"own art (art/base.png).")
+        elif not data.get("upright") and imagefield.exif_turned(photo):
+            # A record from before the kit turned phone photos upright (T19) holds its floor,
+            # zones and contacts in the photo's RAW, sideways frame. Under the turned photo they
+            # land on the wrong part of the picture, armed as in sync, and the next Generate
+            # would rotate the art under an unchanged walkmesh.
+            why = f"it was traced on {photo.name} before the kit turned sideways photos upright"
+            lead = (f"⚠ {photo.name} has a camera orientation tag that the kit now applies, and "
+                    f"this project was traced before it did — reopened from the project's own "
+                    f"art (art/base.png), so the floor stays where you drew it.")
+        if why:                                        # the project's own art IS the frame the
+            tomls = sorted(Path(path).parent.glob("*.field.toml"))   # record was traced on
+            if not tomls:
+                raise ValueError(f"{why}, and this folder has no field.toml to rebuild the "
+                                 f"session from")
+            self.load_project(tomls[0], sidecar=False, lead=lead)
+            return
+        self.load_image(photo)                         # clears floor/fg/history/project
         self._distance = float(data.get("distance", imagefield.DEFAULT_DISTANCE))
         self._fov = float(data.get("fov", imagefield.DEFAULT_FOV))
         self.pitch.setValue(int(data.get("pitch", imagefield.DEFAULT_PITCH)))
@@ -921,8 +1694,9 @@ class TraceDoc(QWidget):
             self._fg.append({"contact": tuple(e["contact"]), "image": None})
             if e.get("image") and Path(e["image"]).is_file():
                 self._attach_cutout(len(self._fg) - 1, e["image"])
-                if e.get("offset") and self._fg[-1].get("offset") is not None:
-                    self._fg[-1]["offset"] = tuple(e["offset"])   # the dragged spot wins
+                if e.get("offset"):                # a record with a dragged spot IS a snip,
+                    self._fg[-1]["kind"] = "snip"      # whatever today's classifier calls the
+                    self._fg[-1]["offset"] = tuple(e["offset"])   # file: old records keep meaning
         self._regions = [{"kind": r.get("kind", "gateway"), "to": int(r.get("to", 0)),
                           "entrance": int(r.get("entrance", 0)),
                           "message": str(r.get("message", "...")),
@@ -934,22 +1708,27 @@ class TraceDoc(QWidget):
         self._project = {"out": str(Path(path).parent), "name": self.name_box.text(),
                          "fid": data.get("id")}
         self._stamped = True                           # the record IS the project's state
+        tomls = sorted(Path(path).parent.glob("*.field.toml"))   # one field per folder
+        if tomls:
+            self._read_context(tomls[0])
         self._refresh_cutouts()
         self._refresh_regions()
         drift = self._pitch_drift_note(data.get("pitch", imagefield.DEFAULT_PITCH))
-        self._refresh(f"Reopened {Path(path).name} — Generate updates the project in place."
-                      + drift, "warn" if drift else "")
+        drift += self._crossed_note() + self._context_note()
+        self._refresh(drift + f"Reopened {Path(path).name} — Generate updates the project in "
+                              f"place.", "warn" if drift else "")
 
-    def load_project(self, path):
+    def load_project(self, path, *, sidecar=True, lead=""):
         """Reopen a generated image-field PROJECT from its field.toml: prefer the folder's
-        ``.trace.json`` session record; without one (a pre-sidecar project) BACKFILL the
-        session from the compiled artifacts themselves — the walkmesh ring inverted back
-        through the -48u collision outset, the [camera] pitch, and the generator's own
-        anchored-contact comments. Either way the project ends armed for in-place Generate."""
+        ``.trace.json`` session record; without one (a pre-sidecar project, or ``sidecar=False``:
+        a record whose photo is gone) BACKFILL the session from the compiled artifacts themselves
+        — the walkmesh ring inverted back through the -48u collision outset, the [camera] pitch,
+        and the generator's own anchored-contact comments. Either way the project ends armed for
+        in-place Generate. ``lead`` heads the status (why this route was taken)."""
         import re
         import tomllib
         path = Path(path)
-        side = sorted(path.parent.glob("*.trace.json"))
+        side = sorted(path.parent.glob("*.trace.json")) if sidecar else []
         if side:
             self.load_trace(side[0])
             return
@@ -982,20 +1761,30 @@ class TraceDoc(QWidget):
             raise ValueError("a scrolling room — the Trace canvas serves the fixed "
                              f"{imagefield.CANVAS_W}×{imagefield.CANVAS_H} frame; reshape it in "
                              "the Floorplan tab, or place content on it in the Place tab")
+        for kind in ("gateway", "event"):              # a traced_ row the session cannot carry
+            for e in data.get(kind, []) or []:         # (a zone edited by hand into five corners):
+                if (isinstance(e, dict) and imagefield.is_generated_region(kind, e.get("name"))
+                        and imagefield._zone_key(e.get("zone")) is None):
+                    # left out of the session it would be DELETED by the next Generate, and every
+                    # traced_ row after it renumbered -- so refuse to arm at all, and say the way out
+                    raise ValueError(f"{e.get('name')} has a zone that is not four corners — the "
+                                     f"Trace session cannot carry it, and regenerating would "
+                                     f"delete it. Rename it in the Editor (drop the traced_ "
+                                     f"prefix) to keep it as your own row, then reopen")
+        ring = []                                      # read + judged BEFORE any state lands (T16):
+        for line in (path.parent / obj_rel).read_text(encoding="utf-8").splitlines():
+            if line.startswith("v "):                  # a missing/ringless obj used to leave the
+                p = line.split()                       # art showing over an empty, unarmed trace
+                ring.append((float(p[1]), float(p[3])))
+        if len(ring) < 3:
+            raise ValueError(f"{obj_rel} has no walkmesh ring to invert")
         self.load_image(path.parent / base_rel)        # the flattened base IS the photo, 1:1
         self._distance = float(cam_tbl.get("distance", imagefield.DEFAULT_DISTANCE))
         self._fov = float(cam_tbl.get("fov", imagefield.DEFAULT_FOV))
         self.pitch.setValue(int(round(float(cam_tbl.get("pitch", imagefield.DEFAULT_PITCH)))))
         self.canvas.set_backdrop(self._pixmap, self._camera(), refit=False)  # the pose lands
         cam = self.canvas.camera()                     # even when the pitch did not change
-        ring = []
-        for line in (path.parent / obj_rel).read_text(encoding="utf-8").splitlines():
-            if line.startswith("v "):
-                p = line.split()
-                ring.append((float(p[1]), float(p[3])))
-        if len(ring) < 3:
-            raise ValueError(f"{obj_rel} has no walkmesh ring to invert")
-        inner = imagefield.outset_polygon(ring, -imagefield.COLLISION_OUTSET)
+        inner =imagefield.outset_polygon(ring, -imagefield.COLLISION_OUTSET)
         self._floor = [(round(cx, 1), round(cy, 1))
                        for cx, cy in (imagefield.world_to_click(cam, p) for p in inner)]
         self.canvas.set_floor(self._floor)
@@ -1010,15 +1799,18 @@ class TraceDoc(QWidget):
                 self._attach_cutout(len(self._fg) - 1, str(fg_path))
         # regions: the compiled toml's WORLD zones invert to canvas px through the same camera.
         # Only the GENERATOR'S OWN rows join the session (one owner: is_generated_region —
-        # the same claim the regenerate merge makes); a hand/Place row stays file-side, where
-        # the merge preserves it verbatim.
+        # the same claim the regenerate merge makes, and it is the traced_ prefix alone); a
+        # hand/Place row stays file-side, where the merge preserves it verbatim. A pre-prefix
+        # door0 is NOT absorbed: the Place tab mints that name too, and absorbing one re-emits
+        # it as a traced_ row stripped to to/entrance/zone (review finding T1).
         for kind in ("gateway", "event"):
             for e in data.get(kind, []) or []:
-                if not imagefield.is_generated_region(data, kind, e.get("name")):
+                if not imagefield.is_generated_region(kind, e.get("name")):
                     continue
                 z = e.get("zone")
-                if not isinstance(z, (list, tuple)) or len(z) not in (4, 5):
-                    continue
+                if imagefield._zone_key(z) is None:    # not a 4-corner quad (a hand-edited 5-point
+                    continue                           # zone): the session cannot carry it, so it
+                #                                        stays file-side instead of failing Generate
                 pts = [tuple(map(float, p)) for p in z]
                 if len(pts) == 5 and pts[-1] == pts[-2]:
                     pts = pts[:4]                      # the IsInQuad-safe doubled stored form
@@ -1037,12 +1829,15 @@ class TraceDoc(QWidget):
             self.id_box.setText(str(fid))
         self._project = {"out": str(path.parent), "name": name, "fid": fid}
         self._stamped = True                           # rebuilt FROM the project = in sync
+        self._read_context(path)
         self._refresh_cutouts()
         self._refresh_regions()
         drift = self._pitch_drift_note(cam_tbl.get("pitch", imagefield.DEFAULT_PITCH))
-        self._refresh(f"Reopened {path.name} — session REBUILT from the compiled project (no "
-                      f".trace.json yet; the next Generate writes one). Generate goes in place."
-                      + drift, "warn" if drift else "")
+        drift += self._crossed_note() + self._context_note()
+        how =("" if lead else " (no .trace.json yet; the next Generate writes one)")
+        self._refresh((f"{lead} " if lead else "") + drift
+                      + f"Reopened {path.name} — session REBUILT from the compiled project{how}. "
+                        f"Generate goes in place.", "warn" if (drift or lead) else "")
 
     # ------------------------------------------------------------------ the open-field offer
     def offer_project(self, path):
@@ -1056,13 +1851,23 @@ class TraceDoc(QWidget):
             return
         cur = Path(self._project["out"]) if self._project else None
         if cur is not None and Path(self._offer_path).parent == cur:
-            return                                     # already this project
+            # already this project: its own rows may have moved since (a door drawn in Place and
+            # saved) -- re-read them (E12); the status changes only when they did
+            if Path(self._offer_path).is_file() and self._read_context(self._offer_path):
+                self._refresh_regions()
+                self._refresh()
+            return
         pristine = self._image is None and not self._floor and not self._fg
         if pristine:
             try:
                 self.load_project(self._offer_path)
-            except Exception:                          # noqa: BLE001 -- not a traceable project
+            except Exception as e:                     # noqa: BLE001 -- not a traceable project
                 self._offer_rejected = self._offer_path
+                # said, quietly (muted, not an error): the author did not ask for this load, but
+                # a project that half-looked like one used to vanish with no reason (T16)
+                # after the opening teach, never instead of it (batch 4's T39 leftover)
+                self._refresh(f"{Path(self._offer_path).name} (the open field) was not loaded "
+                              f"here: {e}")
             return
         self.offer_btn.setText(f"Load {Path(self._offer_path).stem.replace('.field', '')} "
                                f"(the open field)")
@@ -1070,6 +1875,8 @@ class TraceDoc(QWidget):
 
     def on_offer(self):
         if not self._offer_path:
+            return
+        if self.has_unsaved() and not self._ask_discard():
             return
         try:
             self.load_project(self._offer_path)
@@ -1081,7 +1888,7 @@ class TraceDoc(QWidget):
     # ------------------------------------------------------------------ dialog seams
     def _ask_image(self):
         """Instance dialog behind a seam (a static execs in C++ past every test patch)."""
-        dlg = QFileDialog(self, "Open an image, a generated project's field.toml, or its "
+        dlg = QFileDialog(self, "Open a photo, a generated project's field.toml, or its "
                           ".trace.json", str(self._image.parent if self._image else Path.home()))
         dlg.setFileMode(QFileDialog.FileMode.ExistingFile)
         dlg.setNameFilter("Images or trace projects (*.png *.jpg *.jpeg *.bmp *.webp "
@@ -1121,9 +1928,9 @@ class TraceDoc(QWidget):
         return out
 
     def _ask_cutout(self):
-        """The cut-out PNG picker (instance dialog behind a seam, like the others): a full-canvas
-        image with alpha — only the occluding object opaque."""
-        dlg = QFileDialog(self, "The cut-out PNG (full canvas, alpha — only the object opaque)",
+        """The cut-out PNG picker (instance dialog behind a seam, like the others): a copy of the
+        photo (or of the build's frame) with only the object left opaque, or a crop to place."""
+        dlg = QFileDialog(self, _CUTOUT_PICKER_TITLE,
                           str(self._image.parent if self._image else Path.home()))
         dlg.setFileMode(QFileDialog.FileMode.ExistingFile)
         dlg.setNameFilter("Cut-out images (*.png *.webp)")

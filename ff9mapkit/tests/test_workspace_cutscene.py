@@ -399,6 +399,46 @@ def test_the_staging_BUTTON_is_wired(win, tmp_path):
     assert doc._last_stage.warnings, "the off-mesh walk should have been caught"
 
 
+def test_close_project_drops_the_staging_and_its_verdict(win, tmp_path):
+    """E3: Close kept the Cutscene doc's member, buffer, warm walkmesh and the ✓ note. The next
+    project with a same-named member then wore the old project's verdict over a walk that is
+    actually blocked, until the user pressed Check again."""
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    _doc_fed(win, a, _HEAD + '[cutscene]\nactors = ["Cid"]\nsteps = [ { walk = "altar" } ]\n')
+    doc = win.cutscene_doc
+    doc.stage_now(sync=True)
+    assert "reaches its target" in doc.stage_note.text()
+    win._close_project()
+    assert doc._member is None and doc._raw is None and doc._wmesh is None, \
+        "Close must not keep the closed project's field in the Cutscene doc"
+    assert doc.stage_note.text() == ""
+    _doc_fed(win, b, _HEAD + '[cutscene]\nactors = ["Cid"]\n'
+             'steps = [ { walk = [9000, 9000] } ]\n')       # same member name, blocked walk
+    assert "reaches its target" not in doc.stage_note.text(), \
+        "the closed project's ✓ is showing over a blocked walk"
+    assert doc._wmesh is None and not doc._stage_armed
+
+
+def test_close_project_drops_the_behavior_sweep_mesh(win, tmp_path):
+    """The Behavior tab's sweep cache has the same shape (C4/E3): Close must drop it."""
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location(   # the behavior suite OWNS its fixture field
+        "_behaviordoc_fixture", Path(__file__).with_name("test_behaviordoc.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    win.open_field(mod.make_behavior_field(tmp_path))
+    win.tabs.setCurrentWidget(win.behavior_doc)
+    bd = win.behavior_doc
+    assert bd._member is not None, "the tab-show feed must land on the open field"
+    bd.sweep_now(sync=True)
+    assert bd._wmesh is not None and bd._sweep_armed
+    win._close_project()
+    assert bd._wmesh is None and not bd._sweep_armed and bd._member is None
+
+
 def test_a_crashing_worker_re_enables_the_button(win, tmp_path, monkeypatch):
     """The only re-enable is _finish_stage; an exception in the worker used to strand the old
     form's button disabled and reading 'Checking…' forever, with no way back."""
@@ -408,7 +448,7 @@ def test_a_crashing_worker_re_enables_the_button(win, tmp_path, monkeypatch):
     _doc_fed(win, tmp_path, _HEAD + '[cutscene]\nactors = ["Cid"]\nsteps = [ { walk = "altar" } ]\n')
     win.cutscene_doc.stage_now(sync=True)
     assert win.cutscene_doc.stage_btn.isEnabled(), "the button must never strand disabled"
-    assert win.cutscene_doc.stage_btn.text() == "Check the staging"
+    assert win.cutscene_doc.stage_btn._full == "Check staging"
     assert "boom" in win.cutscene_doc.stage_note.text(), "the crash must be SAID, not eaten"
 
 

@@ -291,6 +291,8 @@ def test_load_fills_the_browser(doc):
     assert doc.count_lbl.fullText() == f"{total} sounds  ·  {total - named} unnamed"
     assert _rows(doc)[1] == "Vivi's Theme  ·  id 9"                   # the kit's own names table, spent
     assert doc.listw.item(1).toolTip() == "Vivi's Theme — Sounds01/BGM_/music008, id 9"
+    assert doc.listw.textElideMode() == Qt.TextElideMode.ElideMiddle, \
+        "a long title must elide in the middle, so the id at the row's end survives a narrow pane"
     assert doc.t_players == [], "loading the list must not build an audio player"
     assert not doc.play_btn.isEnabled(), "nothing is selected yet"
 

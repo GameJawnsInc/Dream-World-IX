@@ -242,3 +242,96 @@ def test_invalidate_drops_an_in_flight_stale_build(cache):
         assert svc.cached("IC_ENT") is None, "a stale in-flight result landed after invalidate()"
     finally:
         thumbs.build_thumb = real_build
+
+
+# ------------------------------------------------- the model service's BULK lane ("render all previews")
+
+def _lane(cache, monkeypatch):
+    """A ModelThumbService whose renders are recorded instead of run (no install in CI)."""
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    out = cache / "fake_model.png"
+    Image.new("RGB", (8, 8), (10, 10, 10)).save(out)
+    built = []
+
+    def _build(name, ctx):
+        built.append(name)
+        return str(out)
+    monkeypatch.setattr(thumbs, "build_model_thumb", _build)
+    return thumbs.ModelThumbService(), built
+
+
+def _until(cond, seconds=10):
+    import time
+    deadline = time.monotonic() + seconds
+    while not cond() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return cond()
+
+
+def test_an_interactive_request_jumps_the_bulk_lane(cache, monkeypatch):
+    """The whole point of a second lane: a 400-model warm-up must never sit in front of the model
+    somebody just clicked."""
+    svc, built = _lane(cache, monkeypatch)
+    svc.hold()
+    assert svc.request_many(["GEO_A", "GEO_B", "GEO_C"]) == 3
+    assert svc.bulk_pending() == 3 and svc._worker is None, "held: queued, no worker"
+    assert svc.request("GEO_CLICKED") is None
+    svc.release()
+    assert _until(lambda: len(built) == 4)
+    assert built[0] == "GEO_CLICKED", f"the clicked model rendered behind the warm-up: {built}"
+    assert built[1:] == ["GEO_A", "GEO_B", "GEO_C"] and svc.bulk_pending() == 0
+
+
+def test_clicking_a_model_that_is_waiting_in_the_bulk_lane_promotes_it_once(cache, monkeypatch):
+    svc, built = _lane(cache, monkeypatch)
+    svc.hold()
+    svc.request_many(["GEO_A", "GEO_B", "GEO_C"])
+    assert svc.request("GEO_C") is None                     # it was last in line
+    assert svc.bulk_pending() == 2
+    svc.release()
+    assert _until(lambda: len(built) == 3)
+    assert built[0] == "GEO_C" and built.count("GEO_C") == 1, f"promoted, and rendered ONCE: {built}"
+
+
+def test_cancelling_the_bulk_lane_renders_nothing_and_frees_the_names(cache, monkeypatch):
+    svc, built = _lane(cache, monkeypatch)
+    svc.hold()
+    svc.request_many(["GEO_A", "GEO_B"])
+    assert svc.cancel_bulk() == 2 and svc.bulk_pending() == 0
+    assert svc.request("GEO_KEPT") is None                  # an interactive request survives a cancel
+    svc.release()
+    assert _until(lambda: built == ["GEO_KEPT"])
+    assert svc.request("GEO_A") is None, "a cancelled name must be requestable again, not stuck pending"
+    assert _until(lambda: built == ["GEO_KEPT", "GEO_A"])
+
+
+def test_the_bulk_lane_skips_what_is_already_rendered_or_already_asked_for(cache, monkeypatch):
+    svc, built = _lane(cache, monkeypatch)
+    svc.hold()
+    svc._done["GEO_WARM"] = "warm.png"
+    svc.request("GEO_ASKED")
+    assert svc.request_many(["GEO_WARM", "GEO_ASKED", "GEO_NEW", "GEO_NEW"]) == 1
+    assert svc.bulk_pending() == 1
+    svc.invalidate()
+    assert svc.bulk_pending() == 0, "invalidate() forgets the lane too"
+
+
+def test_a_bulk_request_wakes_a_worker_that_is_parked_on_the_empty_queue(cache, monkeypatch):
+    """The worker blocks 2s at a time on the interactive queue. Without the wake sentinel a warm-up
+    asked for while it is parked would sit out the rest of that wait."""
+    import time
+    svc, built = _lane(cache, monkeypatch)
+    svc.request("GEO_FIRST")
+    assert _until(lambda: built == ["GEO_FIRST"])
+    time.sleep(0.15)                                        # the worker is now parked in get(timeout=2)
+    t = time.monotonic()
+    svc.request_many(["GEO_BULK"])
+    assert _until(lambda: "GEO_BULK" in built, seconds=5)
+    assert time.monotonic() - t < 1.0, "the bulk job waited out the parked worker's timeout"
+
+
+def test_the_lane_is_gated_by_the_no_thumbs_flag(cache, monkeypatch):
+    svc, built = _lane(cache, monkeypatch)
+    monkeypatch.setenv("FF9MAPKIT_NO_THUMBS", "1")
+    assert svc.request_many(["GEO_A"]) == 0 and svc.bulk_pending() == 0 and svc._worker is None

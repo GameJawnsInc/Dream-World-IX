@@ -120,28 +120,44 @@ def test_the_library_box_is_a_function_of_its_font(app):
         lib.close()
 
 
+def _app_sheet_host(sheet):
+    """THE APP SHEET, WHERE THE APP PUTS IT. The Workspace sets its QSS on its OWN window
+    (``shell.Workspace.__init__``: ``self.setStyleSheet(qss(...))``) and opens the library as
+    ``CatalogLibrary(self, ...)``, so the library inherits the sheet through its parent chain. Build the
+    library on this host and it meets the same sheet by the same cascade.
+
+    These fences used to stand in with ``QApplication.setStyleSheet``, which is not what the app does
+    and which repolishes EVERY widget alive in the process, once to set and once to restore. An xdist
+    worker keeps thousands alive (``qt_drain`` parks them on purpose), so the badge / sidebar fences took
+    0.22 s / 0.14 s alone and 878 s / 740 s in the 2026-11-03 nightly. The host polishes only the subject's own
+    tree and leaves nothing app-wide to restore. ``test_qt_app_sheet_guard`` keeps every test off the
+    app sheet. Keep the returned host referenced: it owns the library."""
+    host = QWidget()
+    host.setStyleSheet(sheet)
+    assert host.styleSheet(), "no sheet on the host -- the fence would measure the bare style, not the app"
+    assert not QApplication.instance().styleSheet(), \
+        "an app-wide sheet is set -- the fence would measure that sheet's cascade, not the Workspace's"
+    return host
+
+
 def test_the_library_sidebar_never_scrolls_sideways_under_the_app_sheet(app):
     """THE REGRESSION FENCE, red on the shipped block: under the real app QSS the ctor-time split
     request (summed to the DIALOG's width, against a never-laid-out splitter, blind to the detail
     pane's ~451px button-bar floor) was settled by a proportional shave of every pane, and the library
     opened with an h-scrollbar on its own category sidebar (viewport 134 vs col hint 156, range 22,
-    measured 2026-07-28). The app sheet is restored in a finally so this test never pollutes later
-    modules (the round-9 disease)."""
+    measured 2026-07-28). The sheet rides a host window (``_app_sheet_host``), so nothing app-wide is
+    set and nothing can pollute later modules (the round-9 disease)."""
     from ff9mapkit.workspace import style
 
-    inst = QApplication.instance()
-    inst.setStyleSheet(style.qss(pick_palette("dark")))
+    host = _app_sheet_host(style.qss(pick_palette("dark")))
+    lib = CatalogLibrary(host, None, pick_palette("dark"))
+    _room_the_library(app, lib)
     try:
-        lib = CatalogLibrary(None, None, pick_palette("dark"))
-        _room_the_library(inst, lib)
-        try:
-            assert lib.cats.horizontalScrollBar().maximum() == 0, \
-                "the category sidebar must fit its own longest row under the app QSS"
-            assert lib._split.sizes()[0] == lib.cats.maximumWidth()
-        finally:
-            lib.close()
+        assert lib.cats.horizontalScrollBar().maximum() == 0, \
+            "the category sidebar must fit its own longest row under the app QSS"
+        assert lib._split.sizes()[0] == lib.cats.maximumWidth()
     finally:
-        inst.setStyleSheet("")
+        lib.close()
 
 
 def test_the_help_badge_keeps_its_glyph_at_150(app):
@@ -149,22 +165,21 @@ def test_the_help_badge_keeps_its_glyph_at_150(app):
     SCALED button padding (the old widget stylesheet set fill and font, never padding) left the "?" a
     zero-ink empty circle at 150% (measured ink px: 14 at 100 -> 0 at 150). The box now lives in the
     sheet, keyed to badge_box(scale, HELP_HALF) with padding 0 -- so at 150 the box must hear the dial
-    and the glyph must actually render. Sheet and module scale are restored in a finally (the round-9
-    disease)."""
+    and the glyph must actually render. The sheet rides a host window (``_app_sheet_host``); the module
+    scale is restored in a finally (the round-9 disease)."""
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QPushButton
 
     from ff9mapkit.editor.theme import derive
     from ff9mapkit.workspace import style
 
-    inst = QApplication.instance()
-    inst.setStyleSheet(style.qss(pick_palette("dark"), scale=150))
+    host = _app_sheet_host(style.qss(pick_palette("dark"), scale=150))
     forms_qt.set_text_scale(150)
     try:
-        lib = CatalogLibrary(None, None, pick_palette("dark"))
+        lib = CatalogLibrary(host, None, pick_palette("dark"))
         lib.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
         lib.show()
-        inst.processEvents()
+        app.processEvents()
         try:
             helpb = lib.findChild(QPushButton, "libraryHelp")
             assert helpb is not None, "the badge lost its objectName -- the sheet rule reaches nothing"
@@ -179,7 +194,6 @@ def test_the_help_badge_keeps_its_glyph_at_150(app):
         finally:
             lib.close()
     finally:
-        inst.setStyleSheet("")
         forms_qt.set_text_scale(100)
 
 

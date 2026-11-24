@@ -52,6 +52,13 @@ CACHE_SEED = ["fields", "thumbs", "model_thumbs", "battlemap", "worldstock.json"
 TASK_LIMIT_MIN = 240
 PRESUITE_BUDGET_MIN = 15
 DEFAULT_TIMEOUT_MIN = 225
+# THE SCHEDULER. xdist's default ``load`` hands a worker up to (pending / workers / 2) CONSECUTIVE tests and never takes
+# them back, so a run of slow neighbours lands on one worker: on 2026-11-09 gw4 got the adjacent test_coop_world_{battle,
+# follow,wait,walk} files (497 tests, ~12,250 s) and the whole night waited on it -- busy 12,397 s on gw4 against 5,033-
+# 7,074 s on the other five. ``worksteal`` lets an idle worker take half of the busiest one's queue. Replaying that night's
+# per-test times through both schedulers (the ``load`` replay reproduced every worker's busy time within 4 s) gives
+# 12,397 s under ``load`` and 6,989 s under ``worksteal`` (nightly_gate.md, "The time budget").
+DEFAULT_DIST = "worksteal"
 
 
 # ---- path resolution ------------------------------------------------------------------------------
@@ -508,6 +515,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--smoke", action="store_true", help="provision + collect check only, no suite run")
     ap.add_argument("--workers", type=int, default=6, help="xdist workers (default 6; 0 = serial)")
+    ap.add_argument("--dist", default=DEFAULT_DIST,
+                    help=f"xdist scheduler (default {DEFAULT_DIST}: an idle worker takes half the busiest one's queue; "
+                         f"xdist's own `load` never takes back a block of slow neighbours -- see DEFAULT_DIST). "
+                         f"'' = xdist's default")
     ap.add_argument("--collect-floor", type=int, default=6500,
                     help="abort if fewer tests collect (the worktree skip-trap guard). This is the "
                          "BOOTSTRAP bound: each run ratchets the effective floor to 98%% of the last "
@@ -519,11 +530,12 @@ def main() -> int:
                     help="record this run's ruff F count without judging it against the last full "
                          "green's -- the deliberate escape hatch for a one-run INCREASE (say why in "
                          "the merge message); the new count becomes the baseline")
-    ap.add_argument("--skip-ceiling", type=int, default=32,
+    ap.add_argument("--skip-ceiling", type=int, default=48,
                     help="POST-run verdict (audit rec 18): a green run that SKIPPED more than this "
                          "is flagged skip-long (rc 1) -- the collect floor cannot see a module-level "
-                         "skipif, which still COLLECTS the family it silences. Seeded at ~2x the "
-                         "last green run's skipped count (16); rationale in nightly_gate.md")
+                         "skipif, which still COLLECTS the family it silences. The baseline skipped "
+                         "count (32) + 16 of headroom, so a silenced family of 17+ trips it; "
+                         "rationale in nightly_gate.md")
     ap.add_argument("--pytest-args", default=None,
                     help="extra tokens appended to the suite pytest command -- for narrowed "
                          "verification runs of the gate itself, never the nightly schedule")
@@ -601,13 +613,17 @@ def main() -> int:
             return 0
 
         cmd = [py_exe(), "-m", "pytest", "-q", "--durations=25"]
+        workers = args.workers if args.workers and xdist_available(kit) else 0
+        if workers and args.dist:
+            # BEFORE the caller's --pytest-args: a narrowed run may still pick its own --dist (the last one wins)
+            cmd += ["--dist", args.dist]
+            entry["dist"] = args.dist
         if args.pytest_args:
             import shlex
             cmd += shlex.split(args.pytest_args)
         else:
             # A FULL run covers both trees; a narrowed run keeps whatever paths the caller gave it.
             cmd += [".", str(kit.parent / "docsite")]
-        workers = args.workers if args.workers and xdist_available(kit) else 0
         if workers:
             cmd += ["-n", str(workers)]
         entry["workers"] = workers or 1

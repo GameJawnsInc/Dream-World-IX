@@ -86,6 +86,8 @@ class _StubThumbs(QObject):
         super().__init__()
         self.requests = []
         self._cached = {}
+        self.bulk = []
+        self.invalidated = []
 
     def cached(self, name):
         return self._cached.get(name)
@@ -93,6 +95,33 @@ class _StubThumbs(QObject):
     def request(self, name):
         self.requests.append(name)
         return self._cached.get(name)
+
+    # the bulk lane + invalidate -- no worker here, so "queued" is just a list a test can read
+    def request_many(self, names):
+        fresh = [n for n in names if self.cached(n) is None and n not in self.bulk]
+        self.bulk.extend(fresh)
+        return len(fresh)
+
+    def bulk_pending(self):
+        return len(self.bulk)
+
+    def cancel_bulk(self):
+        n = len(self.bulk)
+        self.bulk.clear()
+        return n
+
+    def invalidate(self, name=None):
+        self.invalidated.append(name)
+        if name is None:
+            self._cached.clear()
+        else:
+            self._cached.pop(name, None)
+
+    def hold(self):
+        pass
+
+    def release(self):
+        pass
 
 
 # ------------------------------------------------------------------ absent_ids (the sidecar scan)
@@ -462,3 +491,314 @@ def test_models_tab_keys_its_install_target_on_its_checkout(app, pin_cache, monk
     kit.mkdir(parents=True)
     ModelsDoc(pick_palette("dark"), str(kit), run=lambda *a, **k: True, model_thumbs=_StubThumbs())
     assert seen == [Path(kit).parent]
+
+
+# ------------------------------------------------------------------ the service double stays honest
+def test_the_thumb_double_covers_the_whole_model_service_surface():
+    """THE CALL-SITE LAW's mirror (the anim double has had this since Stage B): every public member
+    the real service ships must exist on the double, or a doc fence proves nothing about it."""
+    real = {n for n in dir(thumbs_mod.ModelThumbService)
+            if not n.startswith("_") and n not in dir(QObject)}
+    stub = {n for n in dir(_StubThumbs) if not n.startswith("_")}
+    assert real <= stub, f"the double is missing {sorted(real - stub)}"
+
+
+# ------------------------------------------------------------------ what the still shows
+def test_the_pose_fact_says_what_the_picture_shows():
+    f = ModelsDoc._pose_fact
+    assert "idle" in f({"bones": 48, "pose": "ANH_X_IDLE", "pose_action": "idle", "pose_rank": 0})
+    assert "battle idle" in f({"bones": 27, "pose": "ANH_X_000", "pose_action": "000", "pose_rank": 2})
+    rest = f({"bones": 27, "pose": None, "pose_action": None, "pose_rank": None})
+    assert "REST pose" in rest
+    bind = f({"bones": 27, "pose": "ANH_X_B", "pose_action": "b", "pose_rank": 9})
+    assert "bind pose" in bind and "'b'" in bind.replace("‘", "'").replace("’", "'")
+
+
+def test_the_pose_fact_does_not_caution_about_a_prop():
+    """A barrel has 2 bones and a weapon 1. 'This may be a bind pose' is a caution about a character
+    standing in a T; under a treasure chest it is noise."""
+    f = ModelsDoc._pose_fact
+    assert f({"bones": 2, "pose": "ANH_X_B", "pose_action": "b", "pose_rank": 9}) == ""
+    assert f({"bones": 1, "pose": None, "pose_action": None, "pose_rank": None}) == ""
+    assert f({"bones": 2, "pose": "ANH_X_IDLE", "pose_action": "idle", "pose_rank": 0}) != "",         "a prop genuinely posed from an idle clip may still say so"
+    assert f({"bones": 48, "meshes": 3}) == "", "a sidecar from before the field says nothing"
+    assert f(None) == ""
+
+
+def _write_sidecar(gid, **fields):
+    _png, meta = thumbcache.model_thumb_paths(gid)
+    meta.parent.mkdir(parents=True, exist_ok=True)
+    meta.write_text(json.dumps({"id": gid, **fields}), encoding="utf-8")
+
+
+def test_selecting_a_model_shows_its_pose_line(doc, pin_cache):
+    _write_sidecar(8, bones=48, meshes=3, verts=1284, textures=["a", "b"],
+                   pose="ANH_MAIN_F0_VIV_IDLE", pose_action="idle", pose_rank=0)
+    doc.search.setText(_VIV)
+    doc.listw.setCurrentRow(0)
+    assert "idle" in doc.d_pose.text() and not doc.d_pose.isHidden()
+    assert "48 bones" in doc.d_facts.text()
+
+
+def test_a_still_that_lands_late_fills_the_facts_without_touching_the_clip_filter(doc, pin_cache):
+    """The sidecar is written WITH the still, so a first-time selection used to show no counts until
+    the model was re-selected. And the refresh must not reset what the author typed."""
+    doc.search.setText(_VIV)
+    doc.listw.setCurrentRow(0)
+    assert "bones" not in doc.d_facts.text() and doc.d_pose.isHidden()
+    doc.clip_filter.setText("walk")
+    shown = doc.clip_list.count()
+    _write_sidecar(8, bones=48, meshes=3, verts=1284, textures=[], pose=None, pose_action=None,
+                   pose_rank=None)
+    png = _write_cached_png(pin_cache, "art", "late")
+    doc._thumb_ready(_VIV, str(png))
+    assert "48 bones" in doc.d_facts.text() and "REST pose" in doc.d_pose.text()
+    assert doc.clip_filter.text() == "walk" and doc.clip_list.count() == shown
+
+
+# ------------------------------------------------------------------ renders follow the viewport
+def test_scrolling_the_list_renders_what_came_into_view(doc, app, thumbs_on):
+    """Only the first _THUMB_BATCH rows were ever requested; the other two thirds of the catalog was a
+    text list until a row was SELECTED."""
+    from ff9mapkit.workspace import modelsdoc
+    doc.resize(900, 600)
+    doc.show()
+    try:
+        app.processEvents()
+        n = doc.listw.count()
+        assert n > modelsdoc._THUMB_BATCH * 2, "the fence needs a list longer than the warm batch"
+        doc._svc.requests.clear()
+        doc.listw.scrollToBottom()
+        app.processEvents()
+        doc._request_visible()
+        asked = doc._svc.requests
+        last = doc.listw.item(n - 1).data(Qt.ItemDataRole.UserRole)
+        assert last in asked, "the row at the bottom of the viewport was not rendered"
+        tail = {doc.listw.item(i).data(Qt.ItemDataRole.UserRole) for i in range(n - 40, n)}
+        assert 0 < len(asked) <= modelsdoc._VISIBLE_BATCH and set(asked) <= tail,             "it must ask for the VIEWPORT, never the whole list"
+    finally:
+        doc.hide()
+
+
+def test_the_viewport_pass_skips_warm_rows_and_known_no_geometry_ids(doc, app, thumbs_on):
+    doc.search.setText("GEO_MAIN_F0")
+    doc.resize(900, 600)
+    doc.show()
+    try:
+        app.processEvents()
+        names = [doc.listw.item(i).data(Qt.ItemDataRole.UserRole) for i in range(doc.listw.count())]
+        warm, gone = names[0], names[1]
+        doc._svc._cached[warm] = "warm.png"
+        doc._absent = {thumbs_mod._geo_id(gone)}
+        doc._svc.requests.clear()
+        doc._request_visible()
+        assert warm not in doc._svc.requests and gone not in doc._svc.requests
+        assert names[2] in doc._svc.requests
+    finally:
+        doc.hide()
+
+
+def test_a_hidden_tabs_refill_arms_no_timer(doc):
+    """The tab is built (and refilled) at Workspace construction. A single-shot armed there fires in
+    whichever later test next runs an event loop."""
+    doc.search.setText("GEO_NPC")
+    doc.listw.verticalScrollBar().valueChanged.emit(3)
+    assert not doc._scroll_timer.isActive()
+
+
+def test_leaving_the_tab_stops_the_scroll_timer(doc, app):
+    doc.show()
+    app.processEvents()
+    doc._scroll_timer.start()
+    doc.hide()
+    app.processEvents()
+    assert not doc._scroll_timer.isActive()
+
+
+def test_showing_the_tab_does_not_read_the_mod_folder(doc, app, monkeypatch, tmp_path):
+    """SNAP-CAUGHT. A first-show scan painted THIS MACHINE's deployed models into a picture; any
+    harness that shows the tab would have reported on its developer."""
+    from ff9mapkit.models import deployed
+
+    def _boom(_mod):
+        raise AssertionError("showing the Models tab must not scan the mod folder")
+    monkeypatch.setattr(deployed, "scan_mod", _boom)
+    doc.mdl_mod.setText(str(tmp_path))
+    doc.show()
+    app.processEvents()
+    doc.hide()
+    assert doc.dep_list.count() == 0
+
+
+# ------------------------------------------------------------------ the preview cache menu
+def test_the_cache_menu_reads_its_status_only_when_it_opens(doc, pin_cache, monkeypatch):
+    calls = []
+    real = thumbcache.still_cache_stats
+    monkeypatch.setattr(thumbcache, "still_cache_stats", lambda: calls.append(1) or real())
+    d2 = ModelsDoc(pick_palette("dark"), ".", run=lambda *a, **k: True, model_thumbs=_StubThumbs())
+    assert calls == [], "the directory scan belongs to aboutToShow, never to construction"
+    d2.cache_menu.aboutToShow.emit()
+    assert calls == [1]
+
+
+def test_the_cache_menu_status_lines_read_cleanly(doc, pin_cache):
+    """SNAP-CAUGHT: the first cut said '0 of 256 MB MB'."""
+    _write_cached_png(pin_cache, "model_thumbs", f"8_v{thumbcache._MODEL_RENDER_V}")
+    _write_absent_sidecar(pin_cache, 9)
+    doc._refresh_cache_menu()
+    stills, clips = doc.cache_status_act.text(), doc.cache_clips_act.text()
+    assert stills.startswith("1 of ") and "previews rendered" in stills and "1 have no geometry" in stills
+    assert "MB MB" not in stills + clips and "0 MB" not in stills, (stills, clips)
+    assert "256 MB budget" in clips
+    assert not doc.cache_status_act.isEnabled(), "a status line is not a command"
+    assert doc.cache_render_act.text() == "Render all previews"
+
+
+def test_render_all_queues_every_unrendered_model_and_toggles_to_stop(doc, pin_cache, thumbs_on):
+    from ff9mapkit import catalog
+    doc._svc._cached[_VIV] = "warm.png"
+    doc._absent = {9}
+    doc.on_render_all()
+    every = [m for m in catalog.all_models()]
+    assert _VIV not in doc._svc.bulk and catalog.model(9).name not in doc._svc.bulk
+    assert len(doc._svc.bulk) == len(every) - 2
+    assert "rendering previews" in doc.count_lbl.text() and str(len(doc._svc.bulk)) in doc.count_lbl.text()
+    doc._refresh_cache_menu()
+    assert doc.cache_render_act.text().startswith("Stop rendering")
+    doc.on_render_all()                                          # the SAME verb stops it
+    assert doc._svc.bulk == [] and "rendering previews" not in doc.count_lbl.text()
+
+
+def test_the_count_line_ticks_down_as_the_warm_up_lands(doc, pin_cache, thumbs_on):
+    doc._svc.bulk = ["GEO_A", "GEO_B"]
+    doc._update_count()
+    assert "2 to go" in doc.count_lbl.text()
+    doc._svc.bulk = ["GEO_B"]
+    doc._svc.missed.emit("GEO_A")                                # a plain miss still ticks it
+    assert "1 to go" in doc.count_lbl.text()
+    doc._svc.bulk = []
+    png = _write_cached_png(pin_cache, "art", "b")
+    doc._svc.ready.emit("GEO_B", str(png))
+    assert "to go" not in doc.count_lbl.text(), "the last arrival must clear the progress text"
+
+
+def test_clearing_the_cache_asks_first_then_forgets_everything(doc, pin_cache, thumbs_on, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    still = _write_cached_png(pin_cache, "model_thumbs", f"8_v{thumbcache._MODEL_RENDER_V}")
+    frame = _write_cached_png(pin_cache, "anim_frames", "8_148_f0_v1a1")
+    doc._icons[_VIV] = object()
+    doc._absent = {9}
+    answers = [QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes]
+    asked = []
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: (asked.append(a[2]), answers.pop(0))[1])
+    doc.on_clear_cache()
+    assert still.exists() and frame.exists() and doc._svc.invalidated == [], "No means no"
+    doc.on_clear_cache()
+    assert not still.exists() and not frame.exists()
+    assert doc._svc.invalidated == [None] and doc._icons == {}
+    assert 9 not in doc._absent_ids(),         "the no-geometry set is rebuilt from the sidecars -- and the sidecars just went"
+    assert "cleared" in doc.count_lbl.text()
+    assert "Nothing of yours is lost" in asked[0], "the prompt must say the cache is re-derivable"
+
+
+# ------------------------------------------------------------------ the mint id
+def _mod_with_mints(tmp_path, *ids):
+    mod = tmp_path / "mod"
+    mod.mkdir()
+    (mod / "DictionaryPatch.txt").write_text(
+        "".join(f"3DModel {i} GEO_NPC_F0_M{i % 1000:03d}\n" for i in ids), encoding="utf-8")
+    return mod
+
+
+def test_refresh_moves_the_mint_id_off_a_taken_one(doc, tmp_path):
+    """The constant 6000 meant the SECOND mint into a folder silently replaced the first."""
+    mod = _mod_with_mints(tmp_path, 6000, 6001)
+    assert doc.mdl_mint_id.text() == "6000"
+    doc.mdl_mod.setText(str(mod))
+    doc.on_deployed_refresh()
+    assert doc.mdl_mint_id.text() == "6002"
+
+
+def test_refresh_never_moves_a_free_id_the_author_typed(doc, tmp_path):
+    mod = _mod_with_mints(tmp_path, 6000, 6100)
+    doc.mdl_mod.setText(str(mod))
+    doc.mdl_mint_id.setText("6500")
+    doc.on_deployed_refresh()
+    assert doc.mdl_mint_id.text() == "6500", "a free id is the author's choice -- leave it alone"
+    doc.mdl_mint_id.setText("6100")
+    doc.on_deployed_refresh()
+    assert doc.mdl_mint_id.text() == "6101", "a TAKEN id advances from where the author was, not to 6000"
+
+
+def _recording_doc(monkeypatch):
+    from ff9mapkit.editor import jobs
+    monkeypatch.setattr(jobs, "detect_game_mod", lambda repo_root=None: None)
+    runs = []
+
+    def _run(argv, **kw):
+        runs.append((argv, kw))
+        return True
+    d = ModelsDoc(pick_palette("dark"), ".", run=_run, model_thumbs=_StubThumbs())
+    d.search.setText(_VIV)
+    d.listw.setCurrentRow(0)
+    return d, runs
+
+
+def test_minting_onto_a_taken_id_asks_before_it_replaces(app, pin_cache, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    d, runs = _recording_doc(monkeypatch)
+    mod = _mod_with_mints(tmp_path, 6000)
+    d.mdl_mod.setText(str(mod))
+    answers = [QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes]
+    prompts = []
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: (prompts.append(a[2]), answers.pop(0))[1])
+    d.on_model_mint()
+    assert runs == [], "No must not start the job"
+    assert "REPLACES" in prompts[0] and "6001" in prompts[0], "the prompt names the next free id"
+    d.on_model_mint()
+    assert len(runs) == 1 and runs[0][0][-6:] == ["model-mint", _VIV, "--id", "6000", "--deploy", str(mod)]
+    d.mdl_mint_id.setText("6001")                                # a FREE id never prompts
+    d._busy(False)
+    d.on_model_mint()
+    assert len(runs) == 2 and len(prompts) == 2
+
+
+def test_a_finished_deploy_refreshes_the_deployed_list(app, pin_cache, tmp_path, monkeypatch):
+    """The list went stale the instant a deploy landed, and said so only if you clicked Refresh."""
+    d, runs = _recording_doc(monkeypatch)
+    mod = _mod_with_mints(tmp_path, 6000)
+    d.mdl_mod.setText(str(mod))
+    d._kit(["model-anim", _VIV, "--out", "x"], subject="t")      # not a deploy: no refresh on success
+    runs[-1][1]["on_finished"](0)
+    assert d.dep_list.count() == 0
+    d._kit(["model-mint", _VIV, "--id", "6000", "--deploy", str(mod)], subject="t")
+    runs[-1][1]["on_finished"](1)                                # a FAILED deploy changed nothing
+    assert d.dep_list.count() == 0
+    d._kit(["model-mint", _VIV, "--id", "6000", "--deploy", str(mod)], subject="t")
+    runs[-1][1]["on_finished"](0)
+    assert d.dep_list.count() == 1, "the dangling 3DModel line is the folder's one entry"
+    assert d.mdl_mint_id.text() == "6001", "...and the id that was just minted is no longer offered"
+
+
+def test_the_mint_id_box_is_sized_by_its_font_not_by_a_pixel_constant(doc, app):
+    """SNAP-CAUGHT at the 150% rung: a fixed 70px showed ';000' for 6000. A px constant cannot hear
+    the text-size dial; a hint measured in the box's own font can. Offscreen metrics are fiction, but
+    this COMPARISON is not -- both sides are measured in the same font."""
+    from PySide6.QtGui import QFont
+    box = doc.mdl_mint_id
+    assert box.minimumWidth() != box.maximumWidth() or box.maximumWidth() > 10000, \
+        "a fixed pixel width is back on the mint id"
+    small = QFont(box.font())
+    small.setPixelSize(12)
+    big = QFont(box.font())
+    big.setPixelSize(24)
+    box.setFont(small)
+    w_small = box.sizeHint().width()
+    assert w_small >= box.fontMetrics().horizontalAdvance("65535"), "the box must fit its widest id"
+    box.setFont(big)
+    w_big = box.sizeHint().width()
+    assert w_big >= box.fontMetrics().horizontalAdvance("65535")
+    assert w_big > w_small, "the hint did not grow with the font -- the box is deaf to the dial"
+    assert box.minimumSizeHint().width() == w_big, "it may not be squeezed under its own digits"

@@ -246,3 +246,46 @@ def test_frames_live_apart_from_the_model_thumbs_and_prune_by_version(anim_env, 
     thumbcache.build_anim_clip(VIVI, IDLE, {})
     assert not stale_png.exists() and not stale_json.exists()
     assert thumbcache.cached_anim_frame(VIVI, IDLE, 0) is not None
+
+
+# ------------------------------------------------- the fill says how far it is, and caps the cache -----
+
+def test_a_fill_announces_its_total_once_before_the_first_frame(anim_env, monkeypatch):
+    _pin_clip(monkeypatch, _slide_clip(4))
+    log = []
+    thumbcache.build_anim_clip(VIVI, IDLE, {}, on_total=lambda n: log.append(("total", n)),
+                               on_frame=lambda i, p: log.append(("frame", i)))
+    assert log[0] == ("total", 4), "the total must arrive BEFORE any frame -- it is the progress bar's 'of N'"
+    assert [k for k, _ in log].count("total") == 1
+    log.clear()                                             # ...and the WARM path keeps the same order
+    thumbcache.build_anim_clip(VIVI, IDLE, {}, on_total=lambda n: log.append(("total", n)),
+                               on_frame=lambda i, p: log.append(("frame", i)))
+    assert log[0] == ("total", 4) and len(log) == 5
+
+
+def test_a_strided_fill_announces_the_RENDERED_count_not_the_clips(anim_env, monkeypatch):
+    monkeypatch.setattr(thumbcache, "MAX_ANIM_FRAMES", 3)
+    _pin_clip(monkeypatch, _slide_clip(7))
+    totals = []
+    meta = thumbcache.build_anim_clip(VIVI, IDLE, {}, on_total=totals.append)
+    assert totals == [len(meta["rendered_frames"])] == [3]
+
+
+def test_a_built_clip_prunes_the_cache_and_spares_itself(anim_env, monkeypatch):
+    _pin_clip(monkeypatch, _slide_clip(2))
+    calls = []
+    monkeypatch.setattr(thumbcache, "prune_anim_cache", lambda budget=None, *, keep=(): calls.append(keep))
+    thumbcache.build_anim_clip(VIVI, IDLE, {})
+    assert calls == [(VIVI, IDLE)], "a fresh build caps the cache -- and names itself as the keep"
+    thumbcache.build_anim_clip(VIVI, IDLE, {})              # WARM: no scan on the hot path
+    assert calls == [(VIVI, IDLE)]
+
+
+def test_a_warm_read_stamps_the_clip_as_played(anim_env, monkeypatch):
+    import os
+    _pin_clip(monkeypatch, _slide_clip(2))
+    thumbcache.build_anim_clip(VIVI, IDLE, {})
+    meta = thumbcache.anim_meta_path(VIVI, IDLE)
+    os.utime(meta, (1000.0, 1000.0))
+    thumbcache.build_anim_clip(VIVI, IDLE, {})
+    assert meta.stat().st_mtime > 1000.0, "the LRU clock only works if a replay moves it"

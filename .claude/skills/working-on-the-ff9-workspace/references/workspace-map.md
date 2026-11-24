@@ -29,7 +29,8 @@ Lookup detail for `working-on-the-ff9-workspace`. The narrative record is
 | `conceptmap.py` / `concepts.py` | The "how it all fits" diagram and the newcomer concept cards |
 | `builddoc.py` `importdoc.py` `battledoc.py` `modelsdoc.py` `savedoc.py` `setupdialog.py` `tuningdialog.py` | The per-tab / per-dialog documents |
 | `fieldcards.py` `modelcards.py` `thumbs.py` `icons.py` `anim.py` `gamewin.py` | Card pickers, the thumbnail cache, the SVG icon family, the ONE motion module, the post-deploy game-raise |
-| `animframes.py` `clipplayer.py` `animpicker.py` | The animation-preview trio: the clip-frame service (clip-shaped queue, `supersede()` cancels, warm disk answers sync), the transport + playback mixin BOTH surfaces spend (`ModelsDoc`, `AnimPickerDialog`), and the picker dialog itself (gesture / movement / slots) |
+| `soundsdoc.py` + `audioplay.py` | The Sounds tab (browse / play / name / export every sound; reads NOTHING until the user's Load click, and every outside thing is a ctor seam: `catalog_fn` `audio_fn` `player_factory` `names_path` `mod_fn`, `sync=True` = the inline lane) and its tiered player. ⚠ `QtMultimedia` is a PySide6-**Addons** module and the `gui` extra pins Essentials: it is imported in ONE place, inside `QtPlayer.__init__`, and `make_player` falls back to `ffplay`, then the system player. The data half is `ff9mapkit/soundcat.py` (Qt-free) |
+| `animframes.py` `clipplayer.py` `animpicker.py` | The animation-preview trio: the clip-frame service (clip-shaped queue, `supersede()` cancels, warm disk answers sync, `clipPlanned` carries the fill's total), the transport + playback mixin BOTH surfaces spend (`ModelsDoc`, `AnimPickerDialog` — each places `anim_strip` then `anim_foot`), and the picker dialog itself (gesture / movement / slots). Which clip a STILL is posed from is `catalog.stand_clip`; where previews live, their two-part version key and the clip cache's size cap are `models/thumbcache.py` |
 
 ## `ff9mapkit/ff9mapkit/editor/` (the shared, mostly Qt-free backend)
 
@@ -47,7 +48,8 @@ home:fresh|midway|ready|veteran|open
 tab:build|import|models|battle|story|items          (tab:coop and tab:world are pinned-only)
 dlg:new-field|new-campaign|new-journey|fork-regions|import-fields|setup|prefs|about
     |concept-map|infohub|updates|fork-battle|campaign-newgame|anim-picker|animset-picker
-models:cliplist|player
+models:cliplist|player|filling|filtered|restpose|cachemenu
+sounds:guide|nogame|list|playing|naming
 coop:nogame|stock|s36|s37|ready|live                 map:empty|plain|art
 world:guide|nogame|atlas                             console:log|find|miss|jobs
 drift:none|synced|ahead|campaign                     script:tree|panel
@@ -68,10 +70,19 @@ forced OFF, so `advanced` fields are inline instead of inside a collapsed drawer
 `doc_host`, not the window — a hint or placeholder judged inside an 850px window shot is unreadable.
 
 `models:*` and `dlg:anim*-picker` render the animation preview, seeded by `_pin_anim_cache` (a scratch
-`FF9MAPKIT_DATA` holding the still + 16 deterministic frame PNGs + the clip meta, with `NO_THUMBS`
-lifted for the surface only). The two dialog surfaces open through their REAL call sites — the
+`FF9MAPKIT_DATA` holding the still + its sidecar in the real posed shape + 16 deterministic frame PNGs +
+the clip meta, with `NO_THUMBS` lifted for the surface only). `filling` drives a COLD arm through the
+service's own signals (total announced, 5 of 16 landed) with no render; `restpose` seeds a sidecar with
+no pose clip; `cachemenu` grabs the Previews QMenu itself. The seeds are placeholders (a lollipop) —
+judging real art means rendering through `thumbcache` into a scratch cache and reading the PNGs. The two dialog surfaces open through their REAL call sites — the
 `[[npc]]` form's `anims` Browse and the cutscene step's `animation` Browse, reached with `snap_form`'s
 field-open scaffolding — because a bare `_make_win` has no open field to browse from.
+
+`sounds:*` builds the tab through the real Workspace, then swaps its seams for the doubles owned by
+`tests/test_workspace_sounds.py` (`rewire`: a 23-row kit-authored catalog, a silent `FakePlayer`, a scratch
+names file) -- so no surface reads an install or opens an audio device. `list` / `playing` also grab the
+detail pane, the transport strip at 3x and the Use card, and PRINT the detail pane's viewport against its
+content floor per card: a pane under its content's floor grows an h-bar (the first cut did at 125% and 150%).
 
 `script:*` renders the verbatim Script presentation over a KIT-AUTHORED synthetic .eb (zero SE bytes —
 the builder is owned by `tests/test_workspace_script_tree.py` and loaded by path), so it works in a
@@ -126,7 +137,8 @@ Output: `tools/scroll_out/gui_snaps/<name>_<theme>_<scale>.png`.
 `test_gui_mode_lever.py`, `test_gui_wave2_wiring.py` (the call-site fences), `test_editor_theme.py`
 (the token/contrast fences), `test_prefs.py`, `test_coop_tab.py`, `test_worldscan.py`,
 `test_worlddoc.py`, `test_builddoc_dest_ledger.py`, `test_home_beginner.py`, `test_field_cards.py`,
-`test_model_cards.py`, `test_workspace_script_tree.py` (the verbatim Script presentation, over a
+`test_model_cards.py`, `test_workspace_sounds.py` (the Sounds tab + the player tiers; its backend is
+`test_soundcat.py`), `test_workspace_script_tree.py` (the verbatim Script presentation, over a
 synthetic .eb — runs in every worktree).
 
 `tests/conftest.py`'s one autouse fixture repoints `prefs._path` at a tmp file. Anything else that
