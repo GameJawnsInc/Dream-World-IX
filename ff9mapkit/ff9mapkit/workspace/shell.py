@@ -5803,6 +5803,9 @@ class Workspace(QMainWindow):
         if key == "cutscene_tab":                    # a Cutscene-DOC edit -> land back on that tab
             node = getattr(self, "_member_items", {}).get(member)    # (the bare "cutscene" token is
             if getattr(self, "cutscene_doc", None) is not None:      # the Editor TREE node's, below)
+                fd = self._safe_doc(member)                          # select the scene this step
+                if fd is not None:                                   # touched, BEFORE any feed
+                    self.cutscene_doc.follow_history(member, self.member_paths.get(member), fd.data)
                 self.tabs.setCurrentWidget(self.cutscene_doc)        # fires _feed_cutscene on show
             if node is not None and self.tree.currentItem() is not node:
                 self.tree.setCurrentItem(node)       # _on_select re-feeds from the restored data

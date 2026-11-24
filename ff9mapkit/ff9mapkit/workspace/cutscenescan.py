@@ -257,7 +257,8 @@ def _target_names(raw) -> set:
 
 
 def scene_problems(raw, flag_names=None) -> list:
-    """The always-on PROBLEMS lane: cheap raw-only structural checks in plain sentences (the shell's
+    """The always-on PROBLEMS lane: structural checks in plain sentences -- a cast scene through the
+    build's own conductor validator, a narration scene through its mirrored rules (the shell's
     ``_node_problems`` speaks HTML; the instruments pane speaks text). Pass the MERGED doc — a
     scene.toml field keeps its markers/NPC positions there. 0-based ``scene #k`` prefixes on a
     dispatch, the GUI's own convention. ``flag_names`` = the campaign's shared flag names (the
@@ -265,8 +266,6 @@ def scene_problems(raw, flag_names=None) -> list:
     out = []
     blocks = _blocks(raw)
     names = _target_names(raw)
-    npc_names = {str(n["name"]) for n in (raw or {}).get("npc") or []
-                 if isinstance(n, dict) and n.get("name")}
 
     def _bad_name(v):
         if not isinstance(v, str):
@@ -277,17 +276,20 @@ def scene_problems(raw, flag_names=None) -> list:
     for k, b in enumerate(blocks):
         tag = f"scene #{k}: " if len(blocks) > 1 else ""
         cast = ([str(a) for a in b["actors"]] if isinstance(b.get("actors"), list) else [])
-        for a in cast:
-            if a != "player" and a not in npc_names:
-                out.append(f'{tag}cast member "{a}" is not an [[npc]] on this field (or "player")')
         steps = b.get("steps") if isinstance(b.get("steps"), list) else []
+        out += _text_window_problems(steps, tag, cast)
+        if cast:
+            # A CAST scene is the build's conductor: its rules (cast names, per-step actors --
+            # "player" included --, with_prev groups, move targets, animation names, empty steps)
+            # have ONE owner, build._validate_conductor, called here rather than re-derived.
+            out += _conductor_problems(raw, b, tag)
+            continue
+        if not steps:                              # the narration branch of build.validate
+            out.append(f"{tag}needs a non-empty steps = [ {{say=...}}, {{wait=...}}, ... ] list")
         for i, s in enumerate(steps):
             if not isinstance(s, dict):
                 continue
             kk = _forms.step_key(s)
-            actor = s.get("actor")
-            if actor and cast and actor not in cast:
-                out.append(f'{tag}step {i} actor "{actor}" is not in the cast ({", ".join(cast)})')
             if kk in _forms.ACTOR_STEPS and not cast:
                 out.append(f'{tag}step {i} ({kk}) needs a cast -- add actors = ["<npc name>"]')
             if s.get("with_prev"):
@@ -304,7 +306,83 @@ def scene_problems(raw, flag_names=None) -> list:
                     if _bad_name(leg):
                         out.append(f'{tag}step {i} path point {j} "{leg}" is not a known '
                                    f'marker/NPC/player')
-    return out + _flag_name_problems(raw, blocks, flag_names) + _flag_band_problems(raw, blocks)
+    return (out + _once_flag_problems(blocks) + _flag_name_problems(raw, blocks, flag_names)
+            + _flag_band_problems(raw, blocks))
+
+
+def _once_flag_problems(blocks) -> list:
+    """Two play-once scenes pinned to the SAME once-flag: whichever plays first sets the bit and
+    the other never plays. (The tab's rule; ``build.validate`` does not check it yet.)"""
+    out, seen = [], {}
+    for k, b in enumerate(blocks):
+        f = b.get("flag")
+        if f is None or not b.get("once", True) or isinstance(f, (dict, list)):
+            continue
+        if f in seen:
+            out.append(f"scene #{seen[f]} and scene #{k} share the once-flag {f!r} -- whichever "
+                       f"plays first sets it, and the other never plays. Give one its own flag "
+                       f"(or clear it to let the build pick one).")
+        else:
+            seen[f] = k
+    return out
+
+
+def _conductor_problems(raw, block, tag) -> list:
+    """A cast scene through the BUILD'S OWN conductor validator, its sentences verbatim behind
+    the tab's ``scene #k:`` prefix. Never raises: a half-typed scene is this lane's normal input.
+
+    This runs on EVERY render, so it is handed a cheap view, never a deep copy of the field (the
+    validator only reads): the npc/marker rows that are tables, the player, and the steps with
+    an animation NAME swapped for a number. Resolving a name scans the animation catalog (tens
+    of ms each, on the GUI thread); the explicit Check reports a bad name (``_unwalkable``) and
+    the build refuses it. A scene the validator cannot finish still says so -- never "no
+    problems" over a scene it gave up on."""
+    from .. import build as _build
+    raw = raw if isinstance(raw, dict) else {}
+
+    def _tables(key):
+        rows = raw.get(key)
+        return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+    def _no_name_lookup(s):
+        a = s.get("animation") if isinstance(s, dict) else None
+        return {**s, "animation": "0"} if isinstance(a, str) and not a.strip().isdigit() else s
+
+    view = {"npc": _tables("npc"), "marker": _tables("marker"),
+            "player": raw.get("player") if isinstance(raw.get("player"), dict) else {}}
+    steps = block.get("steps")
+    block = {**block, "steps": [_no_name_lookup(s) for s in steps]} \
+        if isinstance(steps, list) else block
+    probs = []
+    try:
+        _build._validate_conductor(_build.FieldProject(view, "."), block, probs, lbl="")
+    except Exception:                              # noqa: BLE001 -- the render loop must survive
+        probs.append("this scene could not be checked to the end -- a step or value is not in "
+                     "a form the build can read yet (each step is a { key = value } table)")
+    return [tag + p.strip() for p in probs]
+
+
+def _text_window_problems(steps, tag, cast) -> list:
+    """The two window keys of a say/open line the build's window-attribute sweep refuses: an
+    unknown ``tail`` code and an unknown ``style``. Each verdict comes from the rule's owner
+    (``text.TAIL_CODES`` / ``text.resolve_style``); a cast scene's tail is already the conductor
+    validator's, so it is judged only on narration here."""
+    from ..content import text as _text
+    out = []
+    for i, s in enumerate(steps):
+        if not isinstance(s, dict) or _forms.step_key(s) not in _forms.TEXT_STEPS:
+            continue
+        t = s.get("tail")
+        if not cast and t is not None and t not in _text.TAIL_CODES:
+            out.append(f"{tag}step {i} tail {t!r} is not a valid TAIL code "
+                       f"({', '.join(sorted(_text.TAIL_CODES))})")
+        try:
+            _text.resolve_style(s.get("style"))
+        except ValueError as e:
+            out.append(f"{tag}step {i} {e}")
+        except Exception:                          # noqa: BLE001 -- a half-typed doc is normal here
+            pass
+    return out
 
 
 def _flag_name_problems(raw, blocks, flag_names) -> list:
@@ -623,8 +701,13 @@ def duplicate_scene(raw, k: int) -> str:
         if k != 0:
             raise IndexError(k)
         raw["cutscene"] = cur = [cur]
-    cur.insert(k + 1, copy.deepcopy(cur[k]))
-    return f"duplicate cutscene scene #{k}"
+    dup = copy.deepcopy(cur[k])
+    # a pinned once-flag is the scene's OWN bit: shared, whichever scene plays first sets it and
+    # the other never plays. The copy goes without (the build allocates it one).
+    pinned = dup.pop("flag", None) is not None
+    cur.insert(k + 1, dup)
+    return (f"duplicate cutscene scene #{k}"
+            + (" (the copy does not keep its once-flag)" if pinned else ""))
 
 
 def delete_scene(raw, k: int) -> str:
