@@ -1209,8 +1209,16 @@ def test_cast_scene_problems_speak_the_tabs_plain_words(tmp_path):
     for old in ("actors entry", "is not in actors", "parallel group", "beat", "needs exactly one",
                 "non-empty steps", "can run with_prev", "with_prev = true", " / "):
         assert not any(old in p for p in got), (old, got)
+    # (after review) two UNTAGGED actor steps in one moment: the "needs to say who" line covers each,
+    # and the duplicate-actor line must not say "None already acts"
+    two = copy.deepcopy(raw)
+    two["cutscene"] = {"actors": ["Cid", "Mira"],
+                       "steps": [{"turn": 0}, {"walk": [0, -300], "with_prev": True}]}
+    got = said(two)
+    assert sum("needs to say who does it" in p for p in got) == 2, got
+    assert not any("None" in p or "already acts" in p for p in got), got
     raw["cutscene"]["steps"] = []
-    assert said(raw)[-1] == ('[cutscene] has no steps -- add at least one '
+    assert said(raw)[-1] ==('[cutscene] has no steps -- add at least one '
                              '(steps = [ {actor = "...", say = "..."}, ... ])')
 
 
@@ -1237,6 +1245,16 @@ def test_cutscene_step_window_keys_are_said_once_and_name_the_scene(tmp_path):
     one = probs('[cutscene]\nactors = ["Cid"]\nsteps = [ {say = "b", tail = "XYZ"} ]\n')
     tails = [s for s in one if "TAIL code" in s]
     assert len(tails) == 1 and tails[0].startswith("[cutscene] step 0 tail 'XYZ' is not a valid"), one
+    # (after review) the conductor used to judge a cast scene's tail on EVERY step; the sweep must
+    # keep refusing a bad code on a cast step that shows no window (walk / wait / close), once
+    for step in ('{walk = [0, -300], actor = "Cid", tail = "BOGUS"}', '{wait = 5, tail = "BOGUS"}'):
+        got = probs(f'[cutscene]\nactors = ["Cid"]\nsteps = [ {{say = "a"}}, {step} ]\n')
+        tails = [s for s in got if "TAIL code" in s]
+        assert len(tails) == 1 and tails[0].startswith("[cutscene] step 1 tail 'BOGUS' is not a "
+                                                       "valid TAIL code ("), got
+    # ...and a valid code there stays accepted, as it was
+    ok = probs('[cutscene]\nactors = ["Cid"]\nsteps = [ {walk = [0, -300], tail = "UPR"} ]\n')
+    assert not [s for s in ok if "tail" in s], ok
 
 
 def test_two_play_once_cutscenes_on_one_once_flag_are_refused(tmp_path):
@@ -1266,7 +1284,11 @@ def test_two_play_once_cutscenes_on_one_once_flag_are_refused(tmp_path):
     assert [g.split(" play")[0] for g in got] == ["[cutscene] #0 and #1", "[cutscene] #0 and #2"], got
     # a campaign member: scene #0's AUTO once-flag is the member's flag_base, and #1 pins the same bit
     camp = scene(5) + scene(6, "flag = 9100\n")
-    assert len(probs(camp, flag_base=9100)) == 1
+    got = probs(camp, flag_base=9100)
+    assert len(got) == 1, got
+    # (after review) there, removing the pin makes a 2nd AUTO scene, which a campaign member refuses
+    # -- so the advice is a flag of its own in the member's band, never "let the build pick one"
+    assert "remove a pinned flag" not in got[0] and "flag = N" in got[0], got
     assert probs(camp, flag_base=9200) == []
     # ...and a 2nd auto scene there (which the build refuses on its own) is not judged, nor raised
     assert len(probs(camp + scene(7), flag_base=9100)) == 1

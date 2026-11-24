@@ -251,6 +251,9 @@ _PARITY = [
     ("C7e a tail code the build does not know (narration)",
      _raw({"steps": [{"say": "hi", "tail": "SIDEWAYS"}]}),
      _raw({"steps": [{"say": "hi", "tail": "UPR"}]})),
+    ("C16 a tail code the build does not know on a cast step that shows no window",
+     _two_cast([{"walk": [0, 300], "actor": "Cid", "tail": "SIDEWAYS"}]),
+     _two_cast([{"walk": [0, 300], "actor": "Cid", "tail": "UPR"}])),
     ("C7e a window style the build does not know",
      _raw({"steps": [{"say": "hi", "style": "fancy"}]}),
      _raw({"steps": [{"say": "hi", "style": "notail"}]})),
@@ -295,6 +298,15 @@ def test_scene_problems_speaks_the_builds_own_conductor_sentences(tmp_path):
     # a cast scene's bad tail is said once (the window sweep owns it), in the tab and the build
     assert len(cs.scene_problems(_two_cast([{"say": "hi", "tail": "SIDEWAYS"}]))) == 1
     assert len(_build_cutscene_problems(_two_cast([{"say": "hi", "tail": "SIDEWAYS"}]), tmp_path)) == 1
+    # (after review) the tab picks a step's window keys the way the build's sweep does: a step
+    # that carries say/open is a text step whatever key comes first, and a cast scene's tail is
+    # judged on every step (the conductor rule it replaced did) -- each in the build's sentence
+    for steps in ([{"walk": [0, 300], "say": "hi", "actor": "Cid", "tail": "SIDEWAYS"}],
+                  [{"say": "hi"}, {"wait": 5, "tail": "SIDEWAYS"}]):
+        raw = _two_cast(steps)
+        theirs = [p for p in _build_cutscene_problems(raw, tmp_path) if "TAIL code" in p]
+        ours = [p for p in cs.scene_problems(raw) if "TAIL code" in p]
+        assert len(theirs) == 1 and ["[cutscene] " + p for p in ours] == theirs, (ours, theirs)
     # a tail that is not text is refused too, never raised out of the render
     assert any("tail" in p for p in cs.scene_problems(_raw({"steps": [{"say": "hi", "tail": ["x"]}]})))
     # and a half-typed cast scene never raises out of the render (a step that is not a table)

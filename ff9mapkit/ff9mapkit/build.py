@@ -3240,6 +3240,13 @@ def validate(project: FieldProject) -> list[str]:
                 _check_window_attrs(f"{_cs_lbl} step {_sk}", s,
                                     actor=("cast" if cs.get("actors") else "no"),
                                     window_close=("async" if "open" in s else "sync"))
+            elif cs.get("actors") and isinstance(s, dict) and s.get("tail") is not None:
+                # a cast step that shows no window (walk/wait/close...): the tail code is still
+                # judged, as the conductor rule this sweep replaced judged it on every cast step
+                t = s["tail"]
+                if not isinstance(t, str) or t not in _text.TAIL_CODES:
+                    problems.append(f"{_cs_lbl} step {_sk} tail {t!r} is not a valid TAIL code "
+                                    f"({', '.join(sorted(_text.TAIL_CODES))})")
     for _ci, cs in enumerate(_cs_blocks):
         # the [[cutscene]] DISPATCH (#13 v2): several scenes per field, each validated alone. A singleton
         # keeps the plain "[cutscene]" label (identical messages); plural blocks are labelled by index.
@@ -3407,6 +3414,11 @@ def cutscene_once_flag_problems(project, names=None, pair="[cutscene] #{} and #{
     alloc = _FlagAlloc.for_project(project)
     # the load resolves names before the allocator reads the project, so a pinned bit is reserved there
     alloc = _FlagAlloc(alloc.base, alloc.reserved | {f for f in pinned.values() if _flags.is_safe_custom(f)})
+    # a campaign member allows ONE auto scene (_FlagAlloc.cutscene), so there the advice is a pin
+    fix = ("Give the later scene a flag of its own (flag = N) in this member's free band."
+           if alloc.base is not None else
+           "Give one of them a flag of its own (flag = N), or remove a pinned flag so the build "
+           "picks one.")
     out, first = [], {}
     for k, cs in once:
         if "flag" in cs:
@@ -3420,8 +3432,7 @@ def cutscene_once_flag_problems(project, names=None, pair="[cutscene] #{} and #{
                 continue
         if idx in first:
             out.append(f"{pair.format(first[idx], k)} play once on the same once-flag {idx} -- "
-                       f"whichever plays first sets it, and the other never plays. Give one of them a "
-                       f"flag of its own (flag = N), or remove a pinned flag so the build picks one.")
+                       f"whichever plays first sets it, and the other never plays. {fix}")
         else:
             first[idx] = k
     return out
@@ -9147,6 +9158,8 @@ def _validate_conductor(project, cs, problems, lbl="[cutscene]"):
                                 f"on this step")
                 continue
             who = s.get("actor", sole)
+            if who is None:                                # "needs to say who does it" covers it
+                continue
             if who in seen:
                 problems.append(f"{lbl} step {k}: {who!r} already acts in this moment (step {seen[who]}) "
                                 f"-- one actor can't do two things at once; turn off \"runs together "
