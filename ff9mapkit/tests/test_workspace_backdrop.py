@@ -1890,6 +1890,31 @@ def test_the_hint_names_the_keys_only_for_keyboard_focus(app):
     assert c._kb_pt is None and not _cross_visible(c)
 
 
+# --------------------------------------------------------------- batch 5: the dial and the theme reach the paint (V14)
+def test_set_scale_and_retheme_reach_every_painted_label(app):
+    """V14: the old fences checked that ``_scale`` and ``pal`` were ASSIGNED, so they stayed green
+    with a rebuild that ignored both. Read what is painted: every label's font follows the text
+    size dial, and after a retheme its ink and its plate are the new theme's."""
+    from PySide6.QtGui import QColor
+    c = _furnished(app, "dark", "#808080")
+    base = {lab["text"].text(): lab["text"].font().pointSize() for lab in c._labels}
+    assert base and set(base.values()) == {8}
+    c.set_scale(150)
+    assert {lab["text"].text(): lab["text"].font().pointSize() for lab in c._labels} == \
+        {t: 12 for t in base}
+    light = pick_palette("light")
+    c.retheme(light)
+    assert {lab["text"].text() for lab in c._labels} == set(base)
+    for lab in c._labels:
+        assert lab["text"].font().pointSize() == 12          # the dial survives a retheme
+        assert lab["plate"].brush().color() == QColor(light["surface"])
+    mira = next(lab for lab in c._labels if lab["text"].text() == "Mira")
+    assert mira["text"].brush().color() == QColor(light["text"])
+    bad = next(lab for lab in c._labels if "✕" in lab["text"].text())
+    from ff9mapkit.editor.theme import derive
+    assert bad["text"].brush().color() == QColor(derive(light)["error_text"])
+
+
 # --------------------------------------------------------------- batch 5: the view, natively (V12)
 # Every fence above runs offscreen at one canvas size. The view grammar's defects (V2-V5, T24)
 # live in Qt's own integer re-centring and in the real font database, so this child runs the
