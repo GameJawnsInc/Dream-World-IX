@@ -54,6 +54,8 @@ _ZOOM_MIN, _ZOOM_MAX = 0.1, 8.0
 _CLICK_SLOP_PX = 4          # press->release travel at/under this = a click, past it = a pan
 _HANDLE_R = 4               # a trace vertex handle's screen radius (px, zoom-immune)
 _LABEL_TIERS = 3            # how far a label may be pushed from home, in plate heights
+_KEY_STEP = 8               # an arrow key moves the keyboard crosshair this many canvas px
+                            # (Shift: one canvas px)
 
 
 class BackdropCanvas(QGraphicsView):
@@ -116,6 +118,12 @@ class BackdropCanvas(QGraphicsView):
         self._labels = []                    # on-art labels, for the de-collision pass (P21)
         self._glyphs = []                    # haloed glyphs: obstacles for that pass
         self._ink = derive(palette)
+        self._kb_pt = None                   # the keyboard crosshair, CANVAS px (a document
+                                             # point: the view follows it, never the reverse);
+                                             # None until an arrow key first shows it (E7/E15)
+        self._kb_item = None                 # its anchor in the current scene
+        self._kb_hint = False                # the canvas took the keyboard from a key: the pill
+                                             # names the keys
         self._kids = []                      # STRONG refs to child items (labels/dots/glyphs):
                                              # a parented QGraphicsItem whose only Python wrapper
                                              # dies can be GC-DELETED on the C++ side mid-handler
@@ -131,7 +139,10 @@ class BackdropCanvas(QGraphicsView):
         self.setAccessibleName("Field backdrop")
         self.setAccessibleDescription(
             "The field's background art under its camera: click the floor to get an exact "
-            "world position; the dashed line is the camera's horizon, above which no floor exists")
+            "world position; the dashed line is the camera's horizon, above which no floor "
+            "exists. From the keyboard, the arrow keys aim a crosshair (Shift moves it one "
+            "pixel), Enter or Space clicks there, Shift+F10 or the Menu key opens the menu of "
+            "what is under it, and Delete deletes that thing")
         self._hint = QLabel("", self.viewport())   # the mode's own words: _sync_hint
         self._hint.setObjectName("backdropHint")   # selector-scoped (the round-9 census law)
         self._hint.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -146,9 +157,14 @@ class BackdropCanvas(QGraphicsView):
         """The pill says what a click does in THIS mode (P18), and is shown again: called on a
         mode change and a new field. The first click or drag hides it -- it covers the art's
         bottom-right, where the near floor edge, doors and contacts live."""
+        self._hint.setText(self._hint_text())
+        self._hint.show()
+        self._place_hint()
+
+    def _hint_text(self):
         if self._cam is None:
-            what = ""                              # nothing on this canvas resolves a click
-        elif self._region_mode:
+            return "Ctrl+scroll zooms · Ctrl+0 fits"   # nothing on this canvas resolves a click
+        if self._region_mode:
             what = "click 4 corners"               # (Esc: the tool's tooltip -- this pill hides on
             #                                        the first corner, before Esc can do anything)
         elif self._contact_mode:
@@ -157,10 +173,9 @@ class BackdropCanvas(QGraphicsView):
             what = "click the floor's outline"
         else:
             what = "click the floor"
-        self._hint.setText(f"{what} · Ctrl+scroll zooms" if what else
-                           "Ctrl+scroll zooms · Ctrl+0 fits")
-        self._hint.show()
-        self._place_hint()
+        keys = ("\narrows aim · Enter clicks · Shift+F10 menu · Delete deletes"
+                if self._kb_hint else "")          # only for a canvas reached from the keyboard
+        return f"{what} · Ctrl+scroll zooms{keys}"
 
     # -- text + geometry (CALIBRE) --
     def _font(self, pt, bold=False):
@@ -355,6 +370,7 @@ class BackdropCanvas(QGraphicsView):
             self.resetTransform()
             self._zoom = 1.0
             self._fit_pending = True
+            self._kb_pt = None                     # a new frame: the crosshair starts over
             self._sync_hint()                      # a new field: the pill teaches again
         self._rebuild()
 
@@ -527,6 +543,7 @@ class BackdropCanvas(QGraphicsView):
         self._labels = []                          # every _label call, for the de-collision pass
         self._glyphs = []                          # (anchor, screen box) of every haloed glyph
         self._ink = derive(pal)                    # the *_text inks fenced on the plate's surface
+        self._kb_item = None
         self._coords.hide()
         sc.clear()
         w, h = self._frame_wh()
@@ -550,6 +567,32 @@ class BackdropCanvas(QGraphicsView):
         self._draw_region_handles()
         self._draw_markers()
         self._decollide_labels()
+        self._draw_kb_cross()                      # topmost: it is where the next key acts
+
+    def _draw_kb_cross(self):
+        """The keyboard crosshair: four arms around an open centre (the aimed pixel stays
+        visible), a white stroke on a black one so it holds on any art (the handles' halo).
+        Inert to the mouse; shown only while the canvas has the keyboard."""
+        self._kb_item = None
+        if self._kb_pt is None:
+            return
+        sc = self._scene
+        a = sc.addRect(QRectF(0, 0, 0, 0), QPen(Qt.PenStyle.NoPen))
+        a.setPos(*self._kb_pt)
+        a.setFlag(a.GraphicsItemFlag.ItemIgnoresTransformations)
+        a.setData(0, "kbcross")
+        a.setZValue(3)
+        path = QPainterPath()
+        for sx, sy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            path.moveTo(3 * sx, 3 * sy)
+            path.lineTo(10 * sx, 10 * sy)
+        for color, width in ((QColor(0, 0, 0), 4.4), (QColor(255, 255, 255), 1.6)):
+            pen = QPen(color, width)
+            pen.setCapStyle(Qt.PenCapStyle.SquareCap)
+            arm = self._child(sc.addPath(path, pen), a)
+            arm.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+        a.setVisible(self.hasFocus())
+        self._kb_item = a
 
     def _draw_horizon(self, w, h):
         """The refusal boundary, visible: a dashed line at ``horizon_canvas_y`` with a
@@ -1439,7 +1482,138 @@ class BackdropCanvas(QGraphicsView):
                 self._decollide_labels()
                 event.accept()
                 return
+        if self._key_gesture(event):
+            event.accept()
+            return
         super().keyPressEvent(event)
+
+    # -- the keyboard path (E7, E15): ONE grammar for every tool of both tabs. The arrows aim a
+    # crosshair; Enter/Space, the Menu key/Shift+F10 and Delete then run the MOUSE's own code at
+    # its canvas point (a synthesized press+release, the context-menu handler, that menu's
+    # Delete), so everything the mouse refuses there, the keys refuse in the same words. No
+    # keyboard dragging: moving a thing by keyboard is Delete, then place it again.
+    _ARROWS = {Qt.Key.Key_Left: (-1, 0), Qt.Key.Key_Right: (1, 0),
+               Qt.Key.Key_Up: (0, -1), Qt.Key.Key_Down: (0, 1)}
+
+    def _key_gesture(self, event) -> bool:
+        k = event.key()
+        mods = event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier
+        shift = mods == Qt.KeyboardModifier.ShiftModifier
+        bare = mods == Qt.KeyboardModifier.NoModifier
+        if k in self._ARROWS and (bare or shift):
+            self._kb_note_keyboard()
+            self._kb_move(*self._ARROWS[k], fine=shift)
+            return True
+        act = None
+        if bare and k in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            act = self._kb_click
+        elif (bare and k == Qt.Key.Key_Menu) or (shift and k == Qt.Key.Key_F10):
+            act = self._kb_menu
+        elif bare and k == Qt.Key.Key_Delete:
+            act = self._kb_delete
+        if act is None:
+            return False
+        self._kb_note_keyboard()
+        if self._kb_pt is None:                    # the first key shows WHERE it would act
+            self._kb_move(0, 0)
+        else:
+            act()
+        return True
+
+    def _kb_step(self):
+        return _KEY_STEP
+
+    def _kb_note_keyboard(self):
+        if not self._kb_hint:                      # a key user: the pill (if still up) says the keys
+            self._kb_hint = True
+            self._hint.setText(self._hint_text())
+            self._place_hint()
+
+    def _kb_move(self, dx, dy, fine=False):
+        """Aim the crosshair. Its first appearance is the middle of what the view shows; after
+        that it is a DOCUMENT point the view follows (ensureVisible from its own scene point)."""
+        w, h = self._frame_wh()
+        if self._kb_pt is None:
+            vp = self.viewport()
+            c = self._widget_to_canvas(QPointF(vp.width() / 2, vp.height() / 2))
+            x, y = round(c.x()), round(c.y())
+        else:
+            s = 1 if fine else self._kb_step()
+            x, y = self._kb_pt[0] + dx * s, self._kb_pt[1] + dy * s
+        self._kb_pt = (float(min(max(x, 0), w - 1)), float(min(max(y, 0), h - 1)))   # on the art
+        try:
+            if self._kb_item is None:
+                self._draw_kb_cross()
+            else:
+                self._kb_item.setPos(*self._kb_pt)
+                self._kb_item.setVisible(self.hasFocus())
+        except RuntimeError:                       # a scene rebuilt under a stale wrapper
+            self._draw_kb_cross()
+        x, y = self._kb_pt
+        self.ensureVisible(QRectF(x - 1, y - 1, 2, 2), 24, 24)
+
+    def _kb_viewport_pt(self) -> QPointF:
+        return self.viewportTransform().map(QPointF(*self._kb_pt))
+
+    def _kb_click(self):
+        """Enter: the mouse's click at the crosshair -- a press and a release that do not
+        travel, delivered the way Qt delivers them, so the press resolution (a marker or a handle
+        under it) and the click's own refusals are the mouse's, not a copy of them."""
+        from PySide6.QtCore import QEvent
+        from PySide6.QtGui import QMouseEvent
+        from PySide6.QtWidgets import QApplication
+        vp = self.viewport()
+        p = self._kb_viewport_pt()
+        g = QPointF(vp.mapToGlobal(p))
+        left, none = Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton
+        for t, held in ((QEvent.Type.MouseButtonPress, left),
+                        (QEvent.Type.MouseButtonRelease, none)):
+            QApplication.sendEvent(vp, QMouseEvent(t, p, g, left, held,
+                                                   Qt.KeyboardModifier.NoModifier))
+
+    def _kb_menu(self):
+        """The Menu key / Shift+F10: the right-click handler at the crosshair."""
+        from PySide6.QtGui import QContextMenuEvent
+        p = self._kb_viewport_pt().toPoint()
+        self.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Reason.Keyboard, p,
+                                                self.viewport().mapToGlobal(p)))
+
+    def _kb_delete(self):
+        """Delete: the Delete of the menu of what is under the crosshair. A marker's is always
+        sent: the host owns that delete and says why when it refuses one (a locked marker)."""
+        t = self._menu_target(self._kb_viewport_pt().toPoint())
+        kind, i = t or (None, None)
+        if kind == "vertex":
+            self._delete_vertex(i)
+        elif kind == "region":
+            self.region_deleted.emit(i)
+        elif kind == "marker":
+            self.marker_deleted.emit(i)
+
+    def focusInEvent(self, event):                 # noqa: N802 (Qt override)
+        super().focusInEvent(event)
+        if event.reason() in (Qt.FocusReason.TabFocusReason, Qt.FocusReason.BacktabFocusReason,
+                              Qt.FocusReason.ShortcutFocusReason):
+            self._kb_hint = True
+            self._sync_hint()                      # reached by keys: the pill names them
+        self._kb_show_cross()
+
+    def focusOutEvent(self, event):                # noqa: N802 (Qt override)
+        super().focusOutEvent(event)
+        if event.reason() == Qt.FocusReason.PopupFocusReason:
+            return                                 # its own menu: still the keyboard's canvas
+        if event.reason() != Qt.FocusReason.ActiveWindowFocusReason:
+            self._kb_hint = False
+            self._hint.setText(self._hint_text())  # re-worded, never re-shown
+            self._place_hint()
+        self._kb_show_cross()
+
+    def _kb_show_cross(self):
+        try:
+            if self._kb_item is not None:
+                self._kb_item.setVisible(self.hasFocus())
+        except RuntimeError:
+            self._kb_item = None
 
     # -- click vs pan: slop, not modes. In trace mode a press ON a handle starts a drag;
     # a slop-click elsewhere appends a vertex; everything else stays a pan.
@@ -1583,37 +1757,44 @@ class BackdropCanvas(QGraphicsView):
             return
         self.floor_clicked.emit(x, z)
 
-    def contextMenuEvent(self, event):             # noqa: N802 (Qt override)
+    def _menu_target(self, pos):
+        """What a right-click at viewport ``pos`` is about, as ``(kind, index)`` -- "pending"
+        (a quad mid-draw), "region", "marker" or "vertex" -- or None. ONE resolution for the
+        mouse's menu, the Menu key and Delete."""
+        under = self.items(pos)
         if self._region_mode:
-            if self._pending_region:               # right-click abandons the quad mid-draw
-                self._pending_region = []
-                self._rebuild()
-                event.accept()
-                return
-            for it in self.items(event.pos()):
+            if self._pending_region:
+                return ("pending", None)
+            for it in under:
                 for tag in ("regionpt", "regionquad", "regionedge", "regionlabel"):
                     pay = self._resolve_data(it, tag)
                     if pay is not None:
-                        i = pay[0] if tag == "regionpt" else int(pay)
-                        self._region_menu(i, event.globalPos())
-                        event.accept()
-                        return
-            return super().contextMenuEvent(event)
-        if self._place_mode:
-            for it in self.items(event.pos()):
+                        return ("region", pay[0] if tag == "regionpt" else int(pay))
+        elif self._place_mode:
+            for it in under:
                 mi = self._resolve_data(it, "marker")
                 if mi is not None:
-                    m = self._markers[int(mi)]
-                    if not (m.get("locked") or m.get("keep")):   # no Delete the host refuses
-                        self._marker_menu(int(mi), event.globalPos())
-                    event.accept()
-                    return
+                    return ("marker", int(mi))
+        elif self._trace_mode:
+            i = next((v for v in (self._resolve_vertex(it) for it in under) if v is not None),
+                     None)
+            if i is not None:
+                return ("vertex", i)
+        return None
+
+    def contextMenuEvent(self, event):             # noqa: N802 (Qt override)
+        kind, i = self._menu_target(event.pos()) or (None, None)
+        if kind is None:
             return super().contextMenuEvent(event)
-        if not self._trace_mode:
-            return super().contextMenuEvent(event)
-        i = next((v for v in (self._resolve_vertex(it) for it in self.items(event.pos()))
-                  if v is not None), None)
-        if i is None:
-            return super().contextMenuEvent(event)
-        self._vertex_menu(i, event.globalPos())
+        if kind == "pending":                      # right-click abandons the quad mid-draw
+            self._pending_region = []
+            self._rebuild()
+        elif kind == "region":
+            self._region_menu(i, event.globalPos())
+        elif kind == "marker":
+            m = self._markers[i]
+            if not (m.get("locked") or m.get("keep")):   # no Delete the host refuses
+                self._marker_menu(i, event.globalPos())
+        else:
+            self._vertex_menu(i, event.globalPos())
         event.accept()

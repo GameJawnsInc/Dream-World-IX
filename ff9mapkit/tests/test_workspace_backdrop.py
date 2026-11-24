@@ -1647,3 +1647,244 @@ def test_a_locked_marker_advertises_no_gesture_the_host_refuses(app, monkeypatch
     assert spawn.hasCursor() and "right-click" not in spawn.toolTip(), spawn.toolTip()
     _mouse(c, "press", _px(c, _SPAWN))
     assert c._drag and c._drag["kind"] == "marker"
+
+
+# --------------------------------------------------------------- batch 5: the keyboard path (E7, E15)
+# Every key reaches the canvas the way Qt delivers it (QTest key events on the focused canvas);
+# a key "click" or "right-click" must land on the SAME code the mouse runs at that canvas point,
+# so a refusal is the mouse's refusal, word for word.
+def _focus(c):
+    c.activateWindow()
+    c.setFocus(Qt.FocusReason.TabFocusReason)
+    QApplication.processEvents()
+
+
+def _key(c, key, mods=Qt.KeyboardModifier.NoModifier, n=1):
+    for _ in range(n):
+        QTest.keyClick(c, key, mods)
+
+
+def _aim(c, target):
+    """Drive the crosshair onto a canvas point with the arrow keys alone (coarse, then Shift)."""
+    if c._kb_pt is None:
+        _key(c, Qt.Key.Key_Down)                     # the first arrow shows the cross where it is
+    for axis, (neg, pos) in enumerate(((Qt.Key.Key_Left, Qt.Key.Key_Right),
+                                       (Qt.Key.Key_Up, Qt.Key.Key_Down))):
+        for _ in range(400):
+            d = target[axis] - c._kb_pt[axis]
+            if abs(d) < 0.5:
+                break
+            fine = abs(d) < c._kb_step()
+            _key(c, pos if d > 0 else neg,
+                 Qt.KeyboardModifier.ShiftModifier if fine else Qt.KeyboardModifier.NoModifier)
+    assert abs(c._kb_pt[0] - target[0]) < 0.5 and abs(c._kb_pt[1] - target[1]) < 0.5, c._kb_pt
+
+
+def _words(msg):
+    """A refusal's sentence without the pixel it names."""
+    import re
+    return re.sub(r"-?\d+(\.\d+)?", "#", msg)
+
+
+def _cross_visible(c):
+    it = c._kb_item
+    return it is not None and it.isVisible()
+
+
+@pytest.mark.parametrize("w", [501, 500])
+def test_the_trace_tools_work_from_the_keyboard_alone(app, w):
+    """E15: arrows aim a crosshair, Enter adds a vertex where it stands, Shift+F10 opens the
+    vertex's own menu, Delete removes it -- and a key click above the horizon is refused in the
+    mouse's own words."""
+    c, cam, calls = _trace_canvas(app)
+    c.resize(w, 560)
+    QApplication.processEvents()
+    _focus(c)
+    assert c.hasFocus() and c._kb_pt is None and not _cross_visible(c)   # a mouse user sees none
+    _key(c, Qt.Key.Key_Return)                        # the first key only shows WHERE it would act:
+    assert not calls and _cross_visible(c)            # the middle of what the view shows
+    mid = c.mapToScene(c.viewport().rect().center())
+    assert abs(c._kb_pt[0] - mid.x()) <= 1 and abs(c._kb_pt[1] - mid.y()) <= 1
+    _aim(c, (120.0, 320.0))
+    assert _cross_visible(c)
+    _key(c, Qt.Key.Key_Return)
+    assert len(calls) == 1 and c.floor() == [(120.0, 320.0)], c.floor()
+    _aim(c, (300.0, 330.0))
+    _key(c, Qt.Key.Key_Space)
+    assert len(c.floor()) == 2
+    refused = []
+    c.click_refused.connect(refused.append)
+    up = (192.0, round(C.horizon_canvas_y(cam) - 8))
+    _aim(c, up)
+    _key(c, Qt.Key.Key_Enter)
+    assert len(c.floor()) == 2 and len(refused) == 1
+    _click(c, up)                                     # the mouse at the very same pixel
+    assert len(refused) == 2 and refused[0] == refused[1], refused
+    opened = []
+    real_menu = c._vertex_menu
+    c._vertex_menu = lambda i, gp: opened.append(i)
+    _aim(c, (300.0, 330.0))                           # ON vertex 1
+    _key(c, Qt.Key.Key_F10, Qt.KeyboardModifier.ShiftModifier)
+    _key(c, Qt.Key.Key_Menu)
+    assert opened == [1, 1]
+    c._vertex_menu = real_menu
+    n = len(calls)
+    _key(c, Qt.Key.Key_Return)                        # Enter ON a vertex: a press there grabs it,
+    assert len(calls) == n and len(c.floor()) == 2    # so no vertex lands on top (as the mouse)
+    _key(c, Qt.Key.Key_Delete)
+    assert c.floor() == [(120.0, 320.0)] and len(calls) == n + 1
+
+
+def test_the_cutouts_tool_marks_a_contact_from_the_keyboard(app):
+    c, cam, _ = _trace_canvas(app)
+    c.set_contact_mode(True)
+    got = []
+    c.contact_clicked.connect(lambda x, y: got.append((x, y)))
+    _focus(c)
+    _aim(c, (230.0, 320.0))
+    _key(c, Qt.Key.Key_Return)
+    assert got and abs(got[0][0] - 230.0) < 1e-6 and abs(got[0][1] - 320.0) < 1e-6, got
+
+
+@pytest.mark.parametrize("w", [501, 500])
+def test_the_regions_tool_draws_opens_and_deletes_a_zone_from_the_keyboard(app, w, monkeypatch):
+    """E7: four Enters draw a zone (the mouse's corner code, so the corners are the click's), the
+    Menu key opens the zone's menu at the crosshair, Delete is that menu's Delete, and Esc still
+    abandons a half-drawn zone."""
+    c, drawn, changed, deleted, refused = _region_canvas(app)
+    c.resize(w, 560)
+    QApplication.processEvents()
+    _focus(c)
+    corners = [IF.world_to_click(c.camera(), p) for p in _GW_QUAD]
+    aimed = []
+    for cx, cy in corners:
+        _aim(c, (round(cx), round(cy)))
+        aimed.append(c._kb_pt)
+        _key(c, Qt.Key.Key_Return)
+    assert len(drawn) == 1 and not refused
+    for (gx, gz), pt in zip(drawn[0], aimed):         # each corner is the click AT the crosshair
+        ex, ez = IF.click_to_world(c.camera(), pt)
+        assert (gx, gz) == (round(ex, 1), round(ez, 1))
+    c.set_regions([{"i": 0, "quad": _GW_QUAD, "label": "door0", "kind": "gateway", "warn": None}])
+    inside = IF.world_point_to_click(c.camera(), (0.0, 0.0, 1200.0))
+    _aim(c, (round(inside[0]), round(inside[1])))
+    opened = []
+    monkeypatch.setattr(c, "_region_menu", lambda i, gp: opened.append(i))
+    _key(c, Qt.Key.Key_Menu)
+    assert opened == [0]
+    _key(c, Qt.Key.Key_Delete)
+    assert deleted == [0]
+    _key(c, Qt.Key.Key_Return)                        # a first corner inside a zone (P24)
+    assert len(c._pending_region) == 1
+    _key(c, Qt.Key.Key_Escape)
+    assert not c._pending_region
+    low = guide.make_camera(10.0, 3000.0, fov_x_deg=42.0)   # a horizon inside the frame
+    c.set_backdrop(c._pixmap, low, refit=False)
+    up = (192.0, round(C.horizon_canvas_y(low) - 8))
+    _aim(c, up)                                       # above the horizon: the click's refusal
+    _key(c, Qt.Key.Key_Return)
+    assert len(refused) == 1 and not c._pending_region
+    _click(c, up)
+    assert len(refused) == 2 and _words(refused[0]) == _words(refused[1]), refused
+
+
+@pytest.mark.parametrize("w", [501, 500])
+def test_the_place_tool_places_and_refuses_from_the_keyboard(app, w):
+    """E7: Enter places where the crosshair stands (the walkmesh raycast the mouse runs), is
+    refused off the floor in the mouse's words, reports a marker instead of placing on it, and
+    Delete on a marker is its menu's Delete -- the host refuses what it may not delete."""
+    c, hits, refused, moved, clicked, deleted = _marker_canvas(app, w)
+    _focus(c)
+    spot = IF.world_point_to_click(c.camera(), (-600.0, 0.0, 1300.0))
+    _aim(c, (round(spot[0]), round(spot[1])))
+    _key(c, Qt.Key.Key_Return)
+    assert len(hits) == 1 and not refused
+    x, z = hits[0]["xz"]
+    ex, ez = IF.click_to_world(c.camera(), c._kb_pt)
+    assert math.hypot(x - ex, z - ez) < 1e-6         # exactly the crosshair's point
+    _aim(c, (4.0, 4.0))                               # no floor up there
+    _key(c, Qt.Key.Key_Return)
+    assert len(refused) == 1 and len(hits) == 1
+    _click(c, (4.0, 4.0))                             # (the mouse lands on a whole screen px)
+    assert len(refused) == 2 and _words(refused[0]) == _words(refused[1]), refused
+    mx, my = _px(c, _MIRA)
+    _aim(c, (round(mx), round(my)))
+    _key(c, Qt.Key.Key_Return)
+    assert clicked == [0] and len(hits) == 1 and not moved
+    _key(c, Qt.Key.Key_Delete)
+    assert deleted == [0]
+    c.set_markers([{"pos": _MIRA, "label": "Mira", "kind": "npc", "locked": "Placed in Blender."}])
+    _key(c, Qt.Key.Key_Delete)                        # a locked one: the host says why not
+    assert deleted == [0, 0]
+
+
+def test_keys_never_trap_focus_and_keep_their_old_meanings(app):
+    """Tab and Shift+Tab still leave the canvas; Ctrl+0 still fits; with the crosshair up, the
+    arrows move it instead of scrolling a zoomed view, and the view follows it."""
+    from PySide6.QtWidgets import QPushButton, QVBoxLayout, QWidget
+    host = QWidget()
+    lay = QVBoxLayout(host)
+    before, after = QPushButton("before"), QPushButton("after")
+    c = BackdropCanvas(pick_palette("dark"))
+    pm = QPixmap(384, 448)
+    pm.fill(Qt.GlobalColor.darkGray)
+    c.set_backdrop(pm, guide.make_camera(26.0, 3000.0, fov_x_deg=42.0))
+    c.set_place_mode(True)
+    for wdg in (before, c, after):
+        lay.addWidget(wdg)
+    host.resize(520, 700)
+    host.show()
+    QApplication.processEvents()
+    _focus(c)
+    _key(c, Qt.Key.Key_Tab)
+    assert after.hasFocus()
+    _focus(c)
+    _key(c, Qt.Key.Key_Backtab, Qt.KeyboardModifier.ShiftModifier)
+    assert before.hasFocus()
+    _focus(c)
+    _ctrl_wheel(c, 120, n=6)
+    assert c.verticalScrollBar().maximum() > 0
+    v0 = c.verticalScrollBar().value()
+    _key(c, Qt.Key.Key_Down)                          # shows the cross: no scroll, no move
+    start = c._kb_pt
+    assert c.verticalScrollBar().value() == v0
+    _key(c, Qt.Key.Key_Down, n=20)
+    assert c._kb_pt[1] > start[1] and c.verticalScrollBar().value() > v0   # the view followed...
+    vp = c.mapFromScene(QPointF(*c._kb_pt))
+    assert c.viewport().rect().contains(vp), (vp, c.viewport().rect())   # ...far enough
+    _key(c, Qt.Key.Key_Up, n=20)
+    assert c._kb_pt == start                          # a document point: no drift
+    _ctrl_key(c, Qt.Key.Key_0)
+    assert _art_fits(c)
+    host.close()
+
+
+def test_the_hint_names_the_keys_only_for_keyboard_focus(app):
+    c, *_ = _marker_canvas(app)
+    c.activateWindow()
+    c.setFocus(Qt.FocusReason.MouseFocusReason)
+    QApplication.processEvents()
+    assert c.hasFocus() and "Enter" not in c._hint.text()
+    _key(c, Qt.Key.Key_Down)                           # ...until a key is used there
+    assert "Enter" in c._hint.text()
+    c.clearFocus()
+    QApplication.processEvents()
+    assert not _cross_visible(c)                       # only while the canvas has the keyboard,
+    c.set_markers(list(c._markers))                    # a redraw behind its back included
+    assert not _cross_visible(c)
+    assert "Enter" not in c._hint.text()
+    _focus(c)
+    assert "Enter" in c._hint.text() and "arrow" in c._hint.text() and c._hint.isVisibleTo(c)
+    assert "Enter" in c.accessibleDescription() and "arrow" in c.accessibleDescription()
+    assert _cross_visible(c)
+    from PySide6.QtWidgets import QMenu
+    menu = QMenu(c)                                    # its own menu keeps the cross up, on the
+    menu.addAction("Delete")                           # thing it is about, and the pill's keys
+    menu.popup(c.mapToGlobal(QPoint(40, 40)))
+    QApplication.processEvents()
+    assert _cross_visible(c) and "Enter" in c._hint.text()
+    menu.close()
+    QApplication.processEvents()
+    assert _cross_visible(c) and "Enter" in c._hint.text()
+    c.set_backdrop(c._pixmap, c.camera())              # another field: the cross starts over
+    assert c._kb_pt is None and not _cross_visible(c)
