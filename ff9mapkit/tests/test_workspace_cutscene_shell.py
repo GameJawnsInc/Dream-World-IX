@@ -123,6 +123,15 @@ def test_undo_of_a_step_edit_in_another_scene_goes_to_that_scene(win):
     assert _says(win)[2] == "scene 2" and _shown(win) == 2
 
 
+def test_the_first_run_banner_calls_a_standalone_field_a_field(win, monkeypatch):
+    """C32: the first-run banner said 'Your fork is ready' for every field, beside a status bar
+    reading '<name> — standalone field'. 'Field' is true of a fork and of an authored field."""
+    from ff9mapkit import prefs
+    monkeypatch.setattr(prefs, "has_deployed", lambda: False)
+    text, _acts = win._next_actions()
+    assert text == "Your field is ready — press Deploy to put it in your game.", text
+
+
 def test_a_scene_delete_says_what_went_and_how_to_get_it_back(win):
     """C25: '− Scene' deletes at once (undo-first, no confirm, like the step delete) and said
     nothing: the scene just vanished from the rail. It says what went and that Ctrl+Z restores
