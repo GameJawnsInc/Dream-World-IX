@@ -1607,6 +1607,31 @@ def test_the_place_regions_tool_says_zone_and_how_to_cancel(app):
     assert "zones" in tip and "quad" not in tip and "Esc" in tip, tip
 
 
+# --------------------------------------------------------------- batch 4: the loading line (P14)
+def test_the_loading_line_names_the_room_in_words(app):
+    """P14: the status while a room loads printed the request's raw source tuple (fixed when the
+    bundle key gained its source, batch 2 -- fenced here), still said 'camera 0' on a room with one
+    camera, and said 'extracting + compositing' over a field's own files, which are only read."""
+    d, _ = _doc(app)
+    d._loader.start = lambda *a: None
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    d.on_load()
+    real = d.status.text()
+    d._loading = None
+    d.show_field("NOVEL", {"field": {"id": 30058}}, Path("C:/somewhere/NOVEL.field.toml"))
+    d.on_load()
+    own = d.status.text()
+    for text in (real, own):
+        assert "('" not in text and "camera 0" not in text and "\\" not in text, text
+    assert "donor field #351" in real, real
+    assert "NOVEL" in own and "extract" not in own and "composit" not in own, own
+    d._loading = None
+    d._sync_cam_box(3)                                  # a multi-camera room says which angle
+    d._cam_pick[d._source] = 2
+    d.on_load()
+    assert "camera 2" in d.status.text(), d.status.text()
+
+
 # --------------------------------------------------------------- batch 4: placed markers (P16)
 def _send(c, kind, canvas_pt, buttons=None):
     """One mouse event at a CANVAS point, delivered the way Qt delivers it (sendEvent)."""

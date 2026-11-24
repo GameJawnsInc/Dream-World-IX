@@ -802,8 +802,12 @@ class PlaceDoc(QWidget):
             self._resume.add(key[0])                # the author wants THIS room on the canvas
         self._loading = key
         self.load_btn.setEnabled(False)
-        what = f"field #{key[0][1]}" if key[0][0] == "real" else str(self._member)
-        self._refresh(f"Loading {what} (camera {key[1]}) — extracting + compositing…")
+        angle = f" (camera {key[1]})" if self.cam_box.count() > 1 else ""
+        if key[0][0] == "real":
+            self._refresh(f"Loading donor field #{key[0][1]}{angle} — extracting its art, camera "
+                          "and walkmesh…")
+        else:
+            self._refresh(f"Loading {self._member}{angle} — reading its camera, walkmesh and art…")
         self._loader.start(*key)
 
     def _settle(self, key) -> bool:
