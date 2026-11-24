@@ -74,6 +74,7 @@ from . import logfind
 from . import icons
 from .animframes import AnimFrameService
 from .modelsdoc import ModelsDoc
+from .soundsdoc import SoundsDoc
 from .thumbs import ModelThumbService, ThumbService
 from .widgets import (PlaceholderListWidget, install_wheel_guard, nameplate,
                       prose as widgets_prose, repolish, section)
@@ -953,6 +954,8 @@ class Workspace(QMainWindow):
             self.map.retheme(pal)                             # the custom-painted campaign map (nodes + empty-state)
         if getattr(self, "world_doc", None) is not None:
             self.world_doc.retheme(pal)                       # the world atlas canvas + its tinted guide glyph
+        if getattr(self, "sounds_doc", None) is not None:
+            self.sounds_doc.retheme(pal)                      # its transport icons + guide glyph are tinted
         if getattr(self, "behavior_doc", None) is not None:
             self.behavior_doc.retheme(pal)                    # the stage canvas + guide glyph paint too
         if getattr(self, "cutscene_doc", None) is not None:
@@ -1767,6 +1770,12 @@ class Workspace(QMainWindow):
         self.models_doc = ModelsDoc(self.pal, KIT, run=self.run_job, problems=self._show_problems,
                                     model_thumbs=self.model_thumbs, anim_frames=self.anim_frames)
         self.tabs.addTab(self.models_doc, "Models")
+        # the audio pillar's front door: browse / hear / name every sound in the install + the DLL-free
+        # round trip (export .ogg / replace / add). It reads NOTHING until the user's own Load click
+        # (the startup-spend law) and does not even choose an audio player until the first Play.
+        self.sounds_doc = SoundsDoc(self.pal, KIT, run=self.run_job, problems=self._show_problems,
+                                    on_setup=self._open_setup)
+        self.tabs.addTab(self.sounds_doc, "Sounds")
         # Phase 6b: Build & Deploy + Import folded in as documents (retiring the standalone tkinter apps).
         # They build argv via editor.jobs and stream through run_job -> the bottom Output panel.
         self.build_deploy = BuildDoc(self.pal, REPO, run=self.run_job, problems=self._show_problems,
@@ -1844,7 +1853,7 @@ class Workspace(QMainWindow):
             # share the Author rail.
             ("Author", [self.doc_scroll, self.map, self.behavior_doc, self.cutscene_doc,
                         self.place_doc, self.floorplan_doc]),
-            ("Assets", [self.import_field, self.trace_doc, self.models_doc, self.battle]),
+            ("Assets", [self.import_field, self.trace_doc, self.models_doc, self.sounds_doc, self.battle]),
             ("State", [self.story_state, self.item_equip]),
             ("Ship", [self.build_deploy, self.coop_doc, self.world_doc]),
         ]
@@ -2470,6 +2479,9 @@ class Workspace(QMainWindow):
         v.addWidget(self._home_row("assets", "Models", "browse every FF9 3D model with previews — export, edit "
                                    "in Blender, reimport",
                                    [("Go to Models", lambda: self.tabs.setCurrentWidget(self.models_doc), False)]))
+        v.addWidget(self._home_row("sound", "Sounds", "hear every FF9 music track and sound effect — "
+                                   "name them, export one, swap in your own",
+                                   [("Go to Sounds", lambda: self.tabs.setCurrentWidget(self.sounds_doc), False)]))
         v.addWidget(self._home_row("save", "Save", "edit a real save's story flags / items / equipment "
                                    "(orthogonal state)",
                                    [("Open Save…", self._open_save, False)]))
@@ -4980,6 +4992,9 @@ class Workspace(QMainWindow):
         elif w is self.models_doc:
             self.crumb.set([bc.Crumb("model", w.crumb_label())])
             self._set_chip("model")
+        elif w is self.sounds_doc:                 # the browser names its selection; nothing is edited
+            self.crumb.set([bc.Crumb("sound", w.crumb_label())])
+            self._set_chip(None)
         elif w is self.world_doc:                  # the atlas names its scanned folder; no edit chip
             self.crumb.set([bc.Crumb("world", w.crumb_label())])
             self._set_chip(None)
@@ -5262,6 +5277,8 @@ class Workspace(QMainWindow):
             ("Go to Story State", "view", lambda: self.tabs.setCurrentWidget(self.story_state)),
             ("Go to Item & Equip", "view", lambda: self.tabs.setCurrentWidget(self.item_equip)),
             ("Go to Models", "view", lambda: self.tabs.setCurrentWidget(self.models_doc)),
+            ("Go to Sounds (hear and name every sound)", "view",
+             lambda: self.tabs.setCurrentWidget(self.sounds_doc)),
             ("Go to Build & Deploy", "view", lambda: self.tabs.setCurrentWidget(self.build_deploy)),
             ("Go to Import", "view", lambda: self.tabs.setCurrentWidget(self.import_field)),
             ("Go to Co-op", "view", lambda: self.tabs.setCurrentWidget(self.coop_doc)),
@@ -7716,6 +7733,7 @@ class Workspace(QMainWindow):
         if self._maybe_prompt_unsaved():
             self._save_layout()                    # window/splitters/console come back next launch
             self.world_doc.shutdown()              # a live-folder write runs to its end; an in-game edit goes back
+            self.sounds_doc.shutdown()             # silence the preview: release the device / end ffplay
             event.accept()
         else:
             event.ignore()

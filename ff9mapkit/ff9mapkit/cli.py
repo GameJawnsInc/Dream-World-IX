@@ -3937,13 +3937,40 @@ def _cmd_sound_list(args: argparse.Namespace) -> int:
     except Exception as e:                                 # noqa: BLE001
         print(f"could not read the {kind} manifest: {e}", file=sys.stderr)
         return 2
+    try:                                                   # the kit's titles + the user's own (best-effort)
+        from . import soundcat as SC
+        titles = SC.load_names().get(kind) or {}
+    except Exception:                                      # noqa: BLE001
+        titles = {}
+
+    def _title(r):
+        return (titles.get(r["resource_id"].rsplit("/", 1)[-1].lower()) or {}).get("title") or ""
+
     filt = (args.filter or "").strip().lower()
-    rows = [r for r in table if not filt or filt in r["resource_id"].lower() or filt == str(r["id"])]
+    rows = [r for r in table if not filt or filt in r["resource_id"].lower() or filt == str(r["id"])
+            or filt in _title(r).lower()]
     print(f"{len(rows)} {kind} track(s) (id -> ResourceID):")
     for r in rows:
-        print(f"  {r['id']:>5}  {r['resource_id']}")
+        name = _title(r)
+        print(f"  {r['id']:>5}  {r['resource_id']}" + (f"  {name}" if name else ""))
     print(f"\n  override one:  ff9mapkit audio-import <in.wav> --song <id>"
           f"{' --kind sfx' if kind == 'sfx' else ''} --deploy <modfolder>")
+    return 0
+
+
+def _cmd_audio_export(args: argparse.Namespace) -> int:
+    """Write one of the game's sounds out as a plain ``.ogg`` (the read half of the audio round trip:
+    export -> edit in any audio editor -> ``audio-import``)."""
+    from . import sound as S, soundcat as SC
+    try:
+        rid = S.resolve_resource_id(args.id, args.kind, game=args.game)
+        out = SC.export_ogg(rid, args.out or (rid.rsplit("/", 1)[-1] + ".ogg"),
+                            mod_folder=args.mod_folder, game=args.game)
+    except Exception as e:                                 # noqa: BLE001
+        print(f"audio-export failed: {e}", file=sys.stderr)
+        return 2
+    print(f"exported {args.kind} id {args.id} = {rid}")
+    print(f"  wrote: {out}")
     return 0
 
 
@@ -10080,6 +10107,17 @@ def build_parser() -> argparse.ArgumentParser:
     ai.add_argument("--deploy", metavar="MODFOLDER", default=None, help="mod folder to write the override into")
     ai.add_argument("--game", default=argparse.SUPPRESS, help="path to the FF9 install (default: auto-detect)")
     ai.set_defaults(func=_cmd_audio_import)
+
+    ax = sub.add_parser("audio-export",
+                        help="write one of the game's sounds out as a plain .ogg (edit it, then audio-import)")
+    ax.add_argument("id", type=int, help="the sound's id (see `music-list` / `sfx-list`)")
+    ax.add_argument("--kind", choices=["music", "sfx", "stream", "movie"], default="music",
+                    help="music (default), sfx, stream (ambience / vocals) or movie (FMV audio)")
+    ax.add_argument("--out", default=None, help="the .ogg to write (default: <file name>.ogg here)")
+    ax.add_argument("--mod-folder", default=None,
+                    help="export this mod folder's replacement of the sound, when it has one")
+    ax.add_argument("--game", default=argparse.SUPPRESS, help="path to the FF9 install (default: auto-detect)")
+    ax.set_defaults(func=_cmd_audio_export)
 
     bb = sub.add_parser("battle-build", help="compile a battle.toml into a Memoria mod (custom battle map)")
     bb.add_argument("battle", nargs="+", help="one or more battle.toml files")

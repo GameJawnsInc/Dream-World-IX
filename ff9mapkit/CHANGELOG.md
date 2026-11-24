@@ -5,6 +5,26 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — Sounds tab: browse, hear and name every sound in the game
+- **A new Sounds tab (Assets, beside Models).** It lists every music track, sound effect, ambience stream and
+  movie-audio track in your install (about 3,200), and plays the selected one in the app: play, pause, seek, a
+  volume slider, and a Loop box that repeats a track's own loop region. *Load sounds* reads your install once
+  (about five seconds) and is instant after that; nothing in the game is changed.
+- **Search by name, id, tag, bank, or the place a sound plays.** The kit now knows which field scripts name each
+  sound, so `lindblum` finds what plays in Lindblum, and each sound's panel lists its places. Battle-effect sounds
+  show the effects that load them.
+- **Names.** Music tracks and about ninety sound effects carry a title ("Vivi's Theme", "Door opening") instead of
+  `music008`. The other ~3,000 effects have no name anywhere, so the tab lets you name and tag a sound as you
+  listen: *Unnamed only* is the queue, *Play on select* auditions each row, and Shift+Enter saves and moves on.
+  Your names are kept in your own file and survive kit updates.
+- **The audio round trip in one place:** copy the `[music] song = N` or `sfx = N` line, export a sound as a plain
+  `.ogg`, replace it with your own audio file, or add yours as a brand-new id. Replaced and added tracks from your
+  mod folder show in the list.
+- **The Music form's song picker and `music-list` / `sfx-list` show the same titles**, and `--filter` matches them.
+- **`audio-export <id> [--kind music|sfx|stream|movie]`** writes one of the game's sounds out as an `.ogg`.
+- In-app playback uses Qt's audio module when your Python has it, else `ffplay` (it ships with ffmpeg), else your
+  system's default player. The app's install requirement is unchanged.
+
 ### Changed — World tab: faster, and the window no longer freezes while it works
 - **Undo, Redo and every Accept no longer reload the whole 3D map.** Only the blocks whose files changed are drawn
   again: Undo and Redo come back in under a second (8-11 s before), a forest Accept in about 5 s (22-25 s).

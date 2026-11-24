@@ -113,6 +113,11 @@ _ICONS: dict[str, str] = {
     "play": '<path d="M8 5.5l11 6.5-11 6.5V5.5z"/>',
     "pause": '<path d="M8 5v14"/><path d="M16 5v14"/>',
     "reset": '<path d="M5.5 9A8 8 0 1 1 4 13"/><path d="M5.5 4v5H10"/>',
+    # stop (the Sounds tab's audio transport — Reset is "rewind to the still", this is "silence").
+    "stop": '<rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/>',
+    # sound (the Sounds tab): a beamed pair of notes.
+    "sound": '<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/>'
+             '<circle cx="16.5" cy="16" r="2.5"/>',
     # edit (the Cutscene accordion's unfold affordance) — SVG, never U+270E: the pencil
     # codepoint falls back to a legacy bitmap-ish font on Windows and renders as a pixelly
     # smudge (playtest-caught on the Settings toggle).

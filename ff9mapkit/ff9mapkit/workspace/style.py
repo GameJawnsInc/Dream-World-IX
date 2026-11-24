@@ -463,6 +463,9 @@ _QSS = Template(
        for the same reason as the first: the rule above deliberately refuses to go app-wide. */
     QSlider#animFrameSlider { border: 1px solid transparent; border-radius: 6px; }
     QSlider#animFrameSlider:focus { border: 1px solid $focus; }
+    /* The Sounds tab's seek + volume sliders -- id-scoped for the same reason again. */
+    QSlider#soundSeek, QSlider#soundVolume { border: 1px solid transparent; border-radius: 6px; }
+    QSlider#soundSeek:focus, QSlider#soundVolume:focus { border: 1px solid $focus; }
     /* NB: pseudo-ELEMENT before pseudo-CLASS -- `::indicator:focus`, NEVER `:focus::indicator`. Qt does
        not reject the wrong order: `Selector::pseudoElement()` reads the FIRST pseudo, sees the known class
        `focus`, and returns ""; `pseudoClass()` then returns 0 on the unknown `indicator`, so the match test

@@ -71,7 +71,7 @@ First-time walkthroughs → [`docs/tutorials/`](docs/tutorials/README.md).
   `world-water` / `world-island` / `world-forest` / `world-hill` / `world-mountain` /
   `world-entrance` / `world-encounters` and the rest of the `world-*` suite
 - **Multiplayer** — `coop` (host / join / show; experimental)
-- **Audio** — `audio-import` · `music-list` / `sfx-list`
+- **Audio** — `audio-import` · `audio-export` · `music-list` / `sfx-list` (and the Workspace's **Sounds** tab)
 - **Catalogs & dialogue** — `catalog` / `models` / `animations` / `archetypes` / `items` /
   `scenes` / `encounters` / `flags` / `sps` · `dialogue` / `dialogue-import`
 - **Saves** — `flags-inspect` / `flags-diff` / `save-edit` · `items-inspect` / `items-set-*`

@@ -1631,6 +1631,86 @@ def _grab_strip(ctx: _Ctx, name: str, w, factor: int = 3) -> None:
     ctx.saved.append(path)
 
 
+SOUND_STATES = ("guide", "nogame", "list", "playing", "naming")
+
+
+def _load_sounds_fixture():
+    """The Sounds tab's catalog / audio / player doubles live in tests/test_workspace_sounds.py -- ONE
+    owner (kit-authored ids and file names, zero game bytes), loaded by path because tests/ is not a
+    package. Its env setdefaults land after the native QApplication already exists."""
+    import importlib.util
+    p = REPO / "ff9mapkit" / "tests" / "test_workspace_sounds.py"
+    spec = importlib.util.spec_from_file_location("_sounds_fixture", p)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def snap_sounds(ctx: _Ctx, state: str) -> None:
+    """The Sounds tab: its front door ('guide'), the no-install teach ('nogame'), the loaded browser
+    with a music track selected ('list'), that track mid-play with its loop on ('playing'), and the
+    naming queue -- Unnamed only, an effect selected, a name half typed ('naming').
+
+    The real Workspace builds the tab; the snap then swaps the tab's five seams for the test file's
+    doubles and loads it on the inline lane, so no surface here reads an install, opens an audio device
+    or writes a names file. Stable scratch paths (never mkdtemp): a path painted into the status line
+    must not differ between runs."""
+    if state not in SOUND_STATES:
+        raise ValueError(f"unknown sounds state {state!r} (know: {', '.join(SOUND_STATES)})")
+    win = _make_win(ctx)
+    sd = win.sounds_doc
+    win.tabs.setCurrentWidget(sd)
+    if state == "guide":
+        _grab(ctx, "sounds-guide", win)
+        _close(win)
+        return
+    fx = _load_sounds_fixture()
+
+    def _catalog(force):
+        if state == "nogame":
+            from ff9mapkit import config as _config
+            raise _config.ConfigError("FF9 install not found")       # what production raises
+        return fx.sample_map()
+
+    players = fx.rewire(sd, ctx.out / "_sounds_fixture", catalog=_catalog)   # ONE owner for the swap
+    sd.load()
+    if state == "nogame":
+        _grab(ctx, "sounds-nogame", win)
+        _close(win)
+        return
+    from PySide6.QtWidgets import QFrame, QScrollArea
+    right = sd._browser_page.findChild(QScrollArea)
+    if state in ("list", "playing"):
+        sd.select("music", 9)
+        if state == "playing":
+            sd.loop_chk.setChecked(True)
+            sd.play_btn.click()
+            players[0].tick(31400)
+        _grab(ctx, f"sounds-{state}", win)
+        _grab(ctx, f"sounds-{state}-detail", right)
+        _grab_strip(ctx, f"sounds-{state}-transport", sd.transport)
+        # the squeeze numbers: a detail pane narrower than its content's floor grows an h-bar
+        host = right.widget()
+        floors = {c.title_label.text(): c.minimumSizeHint().width()
+                  for c in host.findChildren(QFrame) if hasattr(c, "title_label")}
+        print(f"      detail viewport {right.viewport().width()}px  content floor "
+              f"{host.minimumSizeHint().width()}px  cards {floors}")
+        use = next(c for c in host.findChildren(QFrame)
+                   if hasattr(c, "title_label") and c.title_label.text() == "Use it in a mod")
+        right.ensureWidgetVisible(use)                               # it sits below the fold at 850px
+        _grab(ctx, f"sounds-{state}-use", use)
+    else:                                                            # naming
+        sd.unnamed_only.setChecked(True)
+        sd.kind.setCurrentIndex(sd.kind.findText("Sound effects"))
+        sd.listw.setCurrentRow(1)
+        sd.name_edit.setText("Castle bell, far off")
+        sd.tags_edit.setText("bell, alexandria")
+        _grab(ctx, "sounds-naming", win)
+        _grab(ctx, "sounds-naming-detail", right)
+    sd.shutdown()
+    _close(win)
+
+
 def snap_drift(ctx: _Ctx, state: str) -> None:
     """The drift chip + the change list: "am I looking at what the game is running?"
 
@@ -2576,6 +2656,7 @@ def all_surfaces() -> list[str]:
             + [f"dlg:{d}" for d in DIALOGS] + [f"coop:{s}" for s in COOP_STATES]
             + [f"map:{s}" for s in MAP_STATES] + [f"world:{s}" for s in WORLD_STATES]
             + [f"models:{s}" for s in MODEL_STATES]
+            + [f"sounds:{s}" for s in SOUND_STATES]
             + [f"console:{s}" for s in CONSOLE_STATES]
             + [f"panes:{s}" for s in PANE_STATES]
             + [f"drift:{s}" for s in DRIFT_STATES]
@@ -2628,6 +2709,8 @@ def main() -> None:
                 snap_world(ctx, rest)
             elif kind == "models":
                 snap_models(ctx, rest)
+            elif kind == "sounds":
+                snap_sounds(ctx, rest)
             elif kind == "console":
                 snap_console(ctx, rest)
             elif kind == "panes":

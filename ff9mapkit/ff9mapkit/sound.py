@@ -24,8 +24,12 @@ from pathlib import Path
 from . import config, fsutil
 
 # manifest TextAsset name per audio kind (in resources.assets); the ResourceID carries its own subfolder
-# (music -> "Sounds01/BGM_/music###", sfx -> "Sounds02/SE##/name").
-MANIFESTS = {"music": "MusicMetaData.txt", "sfx": "SoundEffectMetaData.txt"}
+# (music -> "Sounds01/BGM_/music###", sfx -> "Sounds02/SE##/name"). "stream" is the engine's Song profile
+# (FF9SOUND_OBJ_STREAM: ambience / vocals under Sounds02/song_) -- NOT called "song" here, because the kit
+# already spends that word on a MUSIC id (`[music] song = N`). "movie" is the FMV audio table. Only
+# music + sfx are importable (audio-import / mint_song); the other two are read-only catalog kinds.
+MANIFESTS = {"music": "MusicMetaData.txt", "sfx": "SoundEffectMetaData.txt",
+             "stream": "SongMetaData.txt", "movie": "MovieAudioMetaData.txt"}
 
 
 def override_rel_path(resource_id: str) -> str:
@@ -96,6 +100,30 @@ def read_manifest(kind: str = "music", game=None, use_cache: bool = True) -> lis
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_text(json.dumps(table), encoding="utf-8")
     return table
+
+
+def read_text_assets(names, game=None) -> dict:
+    """``{name: text}`` for the named TextAssets in resources.assets, in ONE pass over the file (the sound
+    catalog needs six manifests; six :func:`read_manifest` calls would load the file six times). A name
+    that is not present is simply absent from the result. Uncached -- the caller owns its own cache."""
+    want = set(names)
+    out: dict = {}
+    from .models.extract import _unitypy
+    env = _unitypy().load(str(resources_assets_path(game)))
+    for o in env.objects:
+        if o.type.name != "TextAsset":
+            continue
+        try:
+            ta = o.read()
+        except Exception:       # noqa: BLE001 -- one unreadable asset must not lose the rest
+            continue
+        name = getattr(ta, "m_Name", None)
+        if name in want and name not in out:
+            out[name] = ta.m_Script if isinstance(ta.m_Script, str) else \
+                bytes(ta.m_Script).decode("utf-8", "replace")
+            if len(out) == len(want):
+                break
+    return out
 
 
 def resolve_resource_id(song_id: int, kind: str = "music", game=None) -> str:
@@ -249,6 +277,8 @@ def mint_song(in_path, mod_folder, *, kind: str = "music", new_id=None, resource
     ResourceID and deploy the OGG. Accumulates onto an existing override manifest (mint several). Returns
     ``{song_id, resource_id, manifest, ogg, ...}``. TRIGGER it in a field: ``[music] song = <song_id>`` (or
     ``RunSoundCode(0, <song_id>)`` in the ``.eb``). ``new_id`` auto-picks a free id in the mint band."""
+    if kind not in MINT_ID_BASE:
+        raise ValueError(f"cannot mint a new {kind!r} id -- only {', '.join(MINT_ID_BASE)} are mintable")
     base = base_entries(mod_folder, kind, game=game)
     if new_id is None:
         new_id = next_free_song_id(base, kind)

@@ -144,8 +144,10 @@ def _song_entries(force: bool = False) -> list:
     -- the first-ever manifest extraction reads the install's 590 MB resources.assets, which must not tax
     an unrelated picker. ``force=False`` (a kitchen-sink browse) builds only from the already-extracted
     disk cache; ``force=True`` (the picker explicitly asked for songs) pays the one-time extraction. Ids
-    map to ResourceIDs (e.g. 9 -> Sounds01/BGM_/music009); the game data has no title table, so the
-    resource file name is the display name. Install-gated and best-effort: never raises."""
+    map to ResourceIDs (e.g. 9 -> Sounds01/BGM_/music008); the game data has no title table, so the
+    display name is the kit's own (``data/sound_names.toml`` under the user's overlay -- "Vivi's Theme"),
+    falling back to the resource file name for a track nobody has named. The ResourceID rides in the
+    summary, so a search for ``music008`` still lands. Install-gated and best-effort: never raises."""
     global _SONG_CACHE
     if _SONG_CACHE is None:
         try:
@@ -155,11 +157,27 @@ def _song_entries(force: bool = False) -> list:
                 if not _sound._cache_path(ra, _sound.MANIFESTS["music"]).exists():
                     return []
             rows = _sound.read_manifest("music")
-            _SONG_CACHE = [Entry("song", r["resource_id"].rsplit("/", 1)[-1], None,
-                                 f"song #{r['id']} — {r['resource_id']}", r["id"]) for r in rows]
+            try:
+                from . import soundcat as _soundcat
+                titles = _soundcat.load_names().get("music") or {}
+            except Exception:   # noqa: BLE001 -- an unreadable names file costs the titles, not the list
+                titles = {}
+            out = []
+            for r in rows:
+                stem = r["resource_id"].rsplit("/", 1)[-1]
+                out.append(Entry("song", (titles.get(stem.lower()) or {}).get("title") or stem, None,
+                                 f"song #{r['id']} — {r['resource_id']}", r["id"]))
+            _SONG_CACHE = out
         except Exception:   # noqa: BLE001  (no install / no UnityPy / manifest unreadable) -> empty kind
             _SONG_CACHE = []
     return _SONG_CACHE
+
+
+def forget_songs() -> None:
+    """Drop the memoized ``song`` entries so the next browse re-reads the names (the Sounds tab calls
+    this when its user renames a track -- the Music form's picker must not show the old title)."""
+    global _SONG_CACHE
+    _SONG_CACHE = None
 
 
 _REALFIELD_CACHE: Optional[list] = None
