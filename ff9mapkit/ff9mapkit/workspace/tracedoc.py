@@ -444,9 +444,13 @@ class TraceDoc(QWidget):
         from PIL import Image
         with Image.open(path) as im:
             sw, sh = im.size
+            # no transparent pixel at all (no alpha, or alpha all 255): the build ships it as an
+            # occluder that hides the actor everywhere behind the contact line (finding T21)
+            opaque = im.convert("RGBA").getchannel("A").getextrema()[0] == 255
         f = self._fg[i]
         f["image"] = str(path)
         f["size"] = (sw, sh)
+        f["opaque"] = opaque
         f["pm"] = QPixmap(str(path))
         pw, ph = self._photo_wh()
         frame = imagefield.CANVAS_W / imagefield.CANVAS_H
@@ -994,7 +998,11 @@ class TraceDoc(QWidget):
         if teach:
             note += f" · {teach}"
         self._refresh_cutouts()
-        self._refresh(f"{failed} · {note}" if failed else note, "error" if failed else "")
+        if failed:
+            self._refresh(f"{failed} · {note}", "error")
+        else:
+            self._refresh(self._opaque_note(len(self._fg) - 1) + note,
+                          "warn" if self._fg[-1].get("opaque") else "")
 
     def on_fg_attach(self):
         i = self.fg_box.currentIndex()
@@ -1014,7 +1022,17 @@ class TraceDoc(QWidget):
                           "error")
             return
         self._refresh_cutouts()
-        self._refresh(f"fg{i}: {teach}" if teach else "")
+        warn = self._opaque_note(i)
+        self._refresh((warn + (f"fg{i}: {teach}" if teach else "")).rstrip(" ·"),
+                      "warn" if warn else "")
+
+    def _opaque_note(self, i):
+        """The T21 warning for cut-out ``i``, leading the status ('' when it has transparency)."""
+        if not self._fg[i].get("opaque"):
+            return ""
+        return (f"⚠ fg{i}'s PNG has no transparent pixels — in the game it hides the actor "
+                f"everywhere behind its contact line. Erase all but the object, then attach it "
+                f"again · ")
 
     def on_fg_remove(self):
         i = self.fg_box.currentIndex()

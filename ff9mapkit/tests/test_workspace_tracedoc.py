@@ -427,6 +427,37 @@ def test_generate_composes_a_placed_snip_to_the_full_frame(app, tmp_path, monkey
     assert abs((bx1 - bx0) - 531) <= 1 and abs((by1 - by0) - 473) <= 1   # at natural photo scale
 
 
+@pytest.mark.parametrize("mode,fill", [("RGB", (90, 80, 70)), ("RGBA", (90, 80, 70, 255))])
+def test_a_cut_out_with_no_transparent_pixels_is_warned_at_attach(app, tmp_path, monkeypatch,
+                                                                  mode, fill):
+    """Finding T21: an un-erased copy of the photo (no alpha, or alpha all 255) was accepted as a
+    full-frame occluder: in the game it hides the actor everywhere behind the contact line."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    doc, _ = _traced(app, tmp_path)
+    png = tmp_path / "copy.png"
+    Image.new(mode, (800, 600), fill).save(png)
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: str(png))
+    doc.fg_btn.setChecked(True)
+    doc._on_contact(230.0, 320.0)
+    assert doc._fg[0]["image"] == str(png)             # attached (it may be meant), but said
+    said = doc.status.text()
+    assert said.startswith("⚠") and "no transparent pixels" in said
+    assert doc.status.property("state") == "warn"
+    doc.on_fg_attach()                                 # the Attach route says it too
+    assert "no transparent pixels" in doc.status.text()
+    assert doc.status.property("state") == "warn"
+
+
+def test_a_cut_out_with_transparency_is_not_warned(app, tmp_path, monkeypatch):
+    pytest.importorskip("PIL")
+    doc, _ = _traced(app, tmp_path)
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: str(_cutout(tmp_path)))
+    doc.fg_btn.setChecked(True)
+    doc._on_contact(230.0, 320.0)
+    assert "transparent" not in doc.status.text() and doc.status.property("state") != "warn"
+
+
 def test_an_unreadable_cut_out_is_said_not_swallowed(app, tmp_path, monkeypatch):
     """Finding T20: Image.open on a corrupt PNG raised inside the Qt slot, with no hook to show it
     -- the contact stayed unattached and nothing was said. Both attach routes now say what failed,
