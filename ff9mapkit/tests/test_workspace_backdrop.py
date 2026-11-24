@@ -1888,3 +1888,186 @@ def test_the_hint_names_the_keys_only_for_keyboard_focus(app):
     assert _cross_visible(c) and "Enter" in c._hint.text()
     c.set_backdrop(c._pixmap, c.camera())              # another field: the cross starts over
     assert c._kb_pt is None and not _cross_visible(c)
+
+
+# --------------------------------------------------------------- batch 5: the view, natively (V12)
+# Every fence above runs offscreen at one canvas size. The view grammar's defects (V2-V5, T24)
+# live in Qt's own integer re-centring and in the real font database, so this child runs the
+# same gestures on the NATIVE platform, hidden (WA_DontShowOnScreen), at the size it is given --
+# the test drives it at an odd and an even size. Every input goes through
+# QApplication.sendEvent(view.viewport(), ...) or a key event on the view, the way Qt delivers it.
+_NATIVE_VIEW_CHILD = r'''
+import json, sys
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QKeyEvent, QMouseEvent, QPixmap, QWheelEvent
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
+app = QApplication([])
+print("QT-PLATFORM-UP", flush=True)
+import ff9mapkit
+from ff9mapkit.editor.theme import pick_palette
+from ff9mapkit.scene import guide
+from ff9mapkit.workspace.backdrop import BackdropCanvas
+W, H = int(sys.argv[1]), int(sys.argv[2])
+bad = []
+
+
+def canvas(trace=False):
+    c = BackdropCanvas(pick_palette("mist"), on_floor=lambda pts: None)
+    c.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+    pm = QPixmap(384 * 4, 448 * 4)
+    pm.fill(Qt.GlobalColor.darkGray)
+    c.set_backdrop(pm, guide.make_camera(10.0, 3000.0, fov_x_deg=42.0))
+    c.set_trace_mode(trace)
+    c.resize(W, H)
+    c.show()
+    app.processEvents()
+    c.viewport().repaint()                     # the deferred fit runs in the first REAL paint
+    app.processEvents()
+    return c
+
+
+def wheel(c, dy, n=1):
+    vp = c.viewport()
+    pos = QPointF(vp.width() / 2, vp.height() / 2)
+    for _ in range(n):
+        QApplication.sendEvent(vp, QWheelEvent(
+            pos, QPointF(vp.mapToGlobal(pos.toPoint())), QPoint(0, 0), QPoint(0, dy),
+            Qt.MouseButton.NoButton, Qt.KeyboardModifier.ControlModifier,
+            Qt.ScrollPhase.NoScrollPhase, False))
+        app.processEvents()
+
+
+def ctrl(c, key):
+    QApplication.sendEvent(c, QKeyEvent(QEvent.Type.KeyPress, key,
+                                        Qt.KeyboardModifier.ControlModifier))
+    app.processEvents()
+
+
+def mouse(c, kind, pt, buttons=None):
+    t = {"press": QEvent.Type.MouseButtonPress, "move": QEvent.Type.MouseMove,
+         "release": QEvent.Type.MouseButtonRelease}[kind]
+    vp = c.viewport()
+    w = c.viewportTransform().map(QPointF(*pt))
+    pos = QPointF(round(w.x()), round(w.y()))
+    left = Qt.MouseButton.LeftButton
+    if buttons is None:
+        buttons = left if kind != "release" else Qt.MouseButton.NoButton
+    btn = Qt.MouseButton.NoButton if kind == "move" else left
+    QApplication.sendEvent(vp, QMouseEvent(t, pos, QPointF(vp.mapToGlobal(pos.toPoint())), btn,
+                                           buttons, Qt.KeyboardModifier.NoModifier))
+
+
+TRI = [(100.0, 300.0), (300.0, 300.0), (200.0, 430.0)]
+
+# 1. after a pan the hint pill is still in its corner
+c = canvas()
+wheel(c, 120, n=6)
+for sb in (c.verticalScrollBar(), c.horizontalScrollBar()):
+    sb.setValue(sb.maximum())
+app.processEvents()
+vp, hint = c.viewport(), c._hint
+want = (vp.width() - hint.width() - 10, vp.height() - hint.height() - 8)
+if (hint.x(), hint.y()) != want:
+    bad.append(f"pill at {(hint.x(), hint.y())} after a pan, corner is {want}")
+if hint.x() < 0:
+    bad.append(f"pill wider than the view: {hint.width()} px in {vp.width()}")
+c.close()
+
+# 2. zoom then Ctrl+0 equals the first fit
+c = canvas()
+first = c.transform().m11()
+wheel(c, 120, n=4)
+ctrl(c, Qt.Key.Key_0)
+if abs(c.transform().m11() - first) > 1e-9:
+    bad.append(f"Ctrl+0 fit {c.transform().m11():.6f}, the first fit was {first:.6f}")
+r = c.mapFromScene(c._scene.sceneRect()).boundingRect()
+if not c.viewport().rect().contains(r):
+    bad.append(f"Ctrl+0 left the art {r} outside the view {c.viewport().rect()}")
+wheel(c, 120, n=4)                             # ...and in ONE step, before the scrollbars' later
+c._fit()                                       # departure can re-fit a small fit back (T24)
+if abs(c._fit_zoom - first) > 1e-9:
+    bad.append(f"a fit from a zoomed view chose {c._fit_zoom:.6f}, the first fit {first:.6f}")
+ctrl(c, Qt.Key.Key_0)
+
+# 3. eight Ctrl+wheel steps of 15 equal one of 120
+z0 = c.transform().m11()
+wheel(c, 15, n=8)
+z8 = c.transform().m11()
+ctrl(c, Qt.Key.Key_0)
+wheel(c, 120)
+if abs(z8 / z0 - c.transform().m11() / z0) > 1e-6:
+    bad.append(f"8 x 15 zoomed x{z8 / z0:.6f}, one 120 x{c.transform().m11() / z0:.6f}")
+c.close()
+
+# 4. a mouse move with no button after a lost release moves nothing
+c = canvas(trace=True)
+c._commit_floor(TRI)
+mouse(c, "press", TRI[0])
+mouse(c, "move", (130.0, 320.0))
+mouse(c, "move", (220.0, 330.0), buttons=Qt.MouseButton.NoButton)
+a = c._trace_items[0]["anchor"]
+if c._drag is not None or c.floor() != TRI or (a.pos().x(), a.pos().y()) != TRI[0]:
+    bad.append(f"a buttonless move after a lost release moved the vertex: {c.floor()}")
+
+# 5. Esc in mid-drag restores
+mouse(c, "press", TRI[1])
+mouse(c, "move", (320.0, 340.0))
+QTest.keyClick(c, Qt.Key.Key_Escape)
+mouse(c, "release", (320.0, 340.0))
+a = c._trace_items[1]["anchor"]
+if c.floor() != TRI or (a.pos().x(), a.pos().y()) != TRI[1]:
+    bad.append(f"Esc mid-drag did not restore: {c.floor()}")
+
+# 6. the keyboard path: the arrows aim, Enter adds the vertex AT the crosshair, the zoomed view
+# follows it, and coming back by the same keys lands on the same document point
+wheel(c, 120, n=6)
+QTest.keyClick(c, Qt.Key.Key_Down)
+start = c._kb_pt
+for _ in range(20):
+    QTest.keyClick(c, Qt.Key.Key_Down)
+p = c.mapFromScene(QPointF(*c._kb_pt))
+if not c.viewport().rect().contains(p):
+    bad.append(f"the view did not follow the crosshair: {p} outside {c.viewport().rect()}")
+QTest.keyClick(c, Qt.Key.Key_Right, Qt.KeyboardModifier.ShiftModifier)
+aimed = c._kb_pt
+QTest.keyClick(c, Qt.Key.Key_Return)
+got = c.floor()[-1] if len(c.floor()) == 4 else None
+if got != (round(aimed[0], 1), round(aimed[1], 1)):
+    bad.append(f"Enter added {got}, the crosshair stood at {aimed}")
+QTest.keyClick(c, Qt.Key.Key_Left, Qt.KeyboardModifier.ShiftModifier)
+for _ in range(20):
+    QTest.keyClick(c, Qt.Key.Key_Up)
+if c._kb_pt != start:
+    bad.append(f"the crosshair drifted: {c._kb_pt} != {start}")
+c.close()
+print(json.dumps({"platform": app.platformName(), "file": ff9mapkit.__file__, "bad": bad}))
+'''
+
+
+@pytest.mark.parametrize("size", [(641, 561), (640, 560)])
+def test_the_view_grammar_holds_natively_at_an_odd_and_an_even_size(size):
+    """V12: pan -> the pill stays in its corner; zoom then Ctrl+0 -> the first fit; eight
+    Ctrl+wheel 15s -> one 120; a buttonless move after a lost release moves nothing; Esc mid-drag
+    restores; and the keyboard path -- on the native platform, hidden, at an odd and an even size."""
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    import ff9mapkit
+    pkg_root = Path(ff9mapkit.__file__).resolve().parent.parent
+    env = {k: v for k, v in os.environ.items() if k != "QT_QPA_PLATFORM"}
+    env["PYTHONIOENCODING"] = "utf-8"
+    r = subprocess.run([sys.executable, "-c", _NATIVE_VIEW_CHILD, *map(str, size)],
+                       capture_output=True, timeout=300, env=env, cwd=str(pkg_root))
+    lines = r.stdout.decode("utf-8", "replace").strip().splitlines()
+    err = r.stderr.decode("utf-8", "replace")[-600:]
+    if "QT-PLATFORM-UP" not in lines:
+        pytest.skip(f"no native Qt platform here: {err}")
+    assert r.returncode == 0, f"the native child crashed AFTER Qt came up:\n{err}"
+    out = json.loads(lines[-1])
+    if out["platform"] in ("offscreen", "minimal"):
+        pytest.skip(f"no native platform ({out['platform']})")
+    assert Path(out["file"]).resolve().is_relative_to(pkg_root)
+    assert out["bad"] == [], "\n".join(out["bad"])
