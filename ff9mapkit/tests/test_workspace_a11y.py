@@ -119,6 +119,14 @@ def test_interactive_controls_meet_target_size(app):
     lay = QVBoxLayout(host)
     controls = {"checkbox": QCheckBox("Enable"), "radio": QRadioButton("Pick"), "button": QPushButton("Deploy"),
                 "combo": QComboBox(), "lineedit": QLineEdit()}
+    # the ladders' per-row tools (C37: measured natively at 21x23 and an icon-only 34x20) -- a glyph tool
+    # and an icon-only one, the Cutscene and Behavior ladders' two shapes
+    from ff9mapkit.workspace import icons                                         # noqa: PLC0415
+    rowtools = {"rowtool glyph": QPushButton("↑"), "rowtool icon": QPushButton()}
+    rowtools["rowtool icon"].setIcon(icons.icon("pencil", "#ffffff"))
+    for wd in rowtools.values():
+        wd.setProperty("role", "rowtool")
+    controls.update(rowtools)
     for wd in controls.values():
         lay.addWidget(wd)
     host.show()
@@ -126,6 +134,8 @@ def test_interactive_controls_meet_target_size(app):
     for name, wd in controls.items():
         wd.ensurePolished()
         assert wd.sizeHint().height() >= 24, f"{name}: target height {wd.sizeHint().height()} < 24 (WCAG 2.5.8)"
+    for name, wd in rowtools.items():
+        assert wd.sizeHint().width() >= 24, f"{name}: target width {wd.sizeHint().width()} < 24"
     from ff9mapkit.workspace.forms_qt import _concept_badge                      # noqa: PLC0415
     made = _concept_badge("walkmesh", pick_palette("dark"))
     if made is not None:

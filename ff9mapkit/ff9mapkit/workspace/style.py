@@ -344,7 +344,10 @@ _QSS = Template(
        recolours without reflow, and pressed/focus/disabled are explicit for the same
        specificity-tie reason as the quiet tier's. */
     QPushButton[role="rowtool"]          { background: transparent; border: 1px solid transparent;
-                                           color: $text; padding: $rowtool_pad; }
+                                           color: $text; padding: $rowtool_pad;
+                                           min-height: 22px; min-width: 12px; }
+    /* ^ the CONTENT floor that makes the whole box (content + padding + border) clear the house's
+       24 px target in both densities: the glyph tools measured 21x23 and the icon-only pencil 34x20. */
     QPushButton[role="rowtool"]:hover    { background: $hover; }
     QPushButton[role="rowtool"]:pressed  { background: $pressed; color: $pressed_fg; }
     QPushButton[role="rowtool"]:focus    { border: 1px solid $focus; }

@@ -637,14 +637,14 @@ class StepLadder(QWidget):
         #                                            caught in the behavior ladder; same teardown,
         #                                            copied not paraphrased).
         for row in rows:
-            self._lay.addWidget(self._row(row))
+            self._lay.addWidget(self._row(row, len(rows)))
         if not rows:
             self._lay.addWidget(widgets.caption(
                 "No steps yet — a cutscene is an ordered list of beats: say a line, walk an "
                 "actor, wait, open/close windows, set a flag."))
         self._lay.addStretch(1)
 
-    def _row(self, row):
+    def _row(self, row, n):
         i = row["idx"]
         frame = _StepRow(on_click=(lambda i=i: self.on_select(i)) if self.on_select else None)
         h = QHBoxLayout(frame)
@@ -674,6 +674,8 @@ class StepLadder(QWidget):
                 btn.setProperty("role", "rowtool")
                 btn.setToolTip(tip)
                 btn.setAccessibleName(f"{tip} — step {i}")
+                # nothing to move past: the first row's up and the last row's down are no stop
+                btn.setEnabled(not (glyph == "↑" and i == 0 or glyph == "↓" and i == n - 1))
                 btn.clicked.connect(cb)
                 h.addWidget(btn)
         if row["actor"]:

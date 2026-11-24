@@ -1751,6 +1751,18 @@ def test_adding_or_duplicating_a_scene_closes_the_step_editor(doc, tmp_path):
         assert doc.editor.scene is None, f"{act.__name__} left the step editor open"
 
 
+def test_the_first_rows_up_and_the_last_rows_down_are_disabled(doc, tmp_path):
+    """C37: up on row 0 and down on the last row were enabled, did nothing, and cost a tab stop."""
+    _fed(doc, tmp_path)
+    QApplication.sendPostedEvents(None, 52)            # bury the rebuilt rows' predecessors
+    up, down = "Move this step up", "Move this step down"
+    assert not _rowtool(doc, up, 0).isEnabled() and _rowtool(doc, down, 0).isEnabled()
+    assert _rowtool(doc, up, 2).isEnabled() and not _rowtool(doc, down, 2).isEnabled()
+    _rowtool(doc, down, 1).click()                     # the boundary follows the rows
+    QApplication.sendPostedEvents(None, 52)
+    assert not _rowtool(doc, up, 0).isEnabled() and not _rowtool(doc, down, 2).isEnabled()
+
+
 def _rowtool(doc, glyph_tip, i):
     """The real ladder button (rowtools are named '<tip> — step <i>')."""
     from PySide6.QtWidgets import QPushButton
