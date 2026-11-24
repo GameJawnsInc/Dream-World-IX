@@ -165,11 +165,12 @@ def test_scene_problems_names_the_offenders():
     }])
     probs = cs.scene_problems(raw)
     # a cast scene speaks the build's own conductor sentences (one owner per rule)
-    assert any("scene #0: actors entry 'Nobody' is not a defined [[npc]]" in p for p in probs)
-    assert any("scene #0: step 0 can't have with_prev" in p for p in probs)
-    assert any("scene #0: step 1: only walk/path/animation/turn can run with_prev" in p
+    assert any("scene #0: cast member 'Nobody' is not a defined [[npc]]" in p for p in probs)
+    assert any("scene #0: step 0 can't run together with the previous step (with_prev)" in p
                for p in probs)
-    assert any("scene #0: step 2 actor 'Ghost' is not in actors" in p for p in probs)
+    assert any("scene #0: step 1 (say) can't run together with the previous step" in p
+               for p in probs)
+    assert any("scene #0: step 2: 'Ghost' is not in the cast (Cid, Nobody)" in p for p in probs)
     assert any("scene #0: step 2: movement target 'no_such_marker'" in p for p in probs)
     assert any("scene #1: step 0 (turn) needs a cast" in p for p in probs)
 
@@ -250,9 +251,17 @@ _PARITY = [
     ("C7e a tail code the build does not know (narration)",
      _raw({"steps": [{"say": "hi", "tail": "SIDEWAYS"}]}),
      _raw({"steps": [{"say": "hi", "tail": "UPR"}]})),
+    ("C16 a tail code the build does not know on a cast step that shows no window",
+     _two_cast([{"walk": [0, 300], "actor": "Cid", "tail": "SIDEWAYS"}]),
+     _two_cast([{"walk": [0, 300], "actor": "Cid", "tail": "UPR"}])),
     ("C7e a window style the build does not know",
      _raw({"steps": [{"say": "hi", "style": "fancy"}]}),
      _raw({"steps": [{"say": "hi", "style": "notail"}]})),
+    ("C9 two play-once scenes on one once-flag",
+     _raw([{"requires_scenario": 5, "flag": 8800, "steps": [{"say": "a"}]},
+           {"requires_scenario": 6, "flag": 8800, "steps": [{"say": "b"}]}]),
+     _raw([{"requires_scenario": 5, "flag": 8800, "steps": [{"say": "a"}]},
+           {"requires_scenario": 6, "flag": 8801, "steps": [{"say": "b"}]}])),
     ("C8 the player acts outside the cast (the build accepts it)",
      None,
      _raw({"actors": ["Cid"], "steps": [{"walk": [0, 300], "actor": "player"}]})),
@@ -275,15 +284,31 @@ def test_scene_problems_agrees_with_the_build_rule_by_rule(tmp_path, rule, refus
 def test_scene_problems_speaks_the_builds_own_conductor_sentences(tmp_path):
     """One owner per rule: a cast scene's structural sentences are the build's own, prefixed with
     the scene on a dispatch (the build's label rides along as the tab's 'scene #k:')."""
-    raw = _two_cast([{"say": "hi"}, {**_TURN, "with_prev": True}])
+    raw = _two_cast([{"say": "hi"}, {**_TURN, "with_prev": True},
+                     {"say": "yo", "tail": "SIDEWAYS", "style": "fancy"}])
     raw["cutscene"] = [{"steps": [{"say": "a"}], "requires_scenario": 5}, raw["cutscene"]]
     ours = cs.scene_problems(raw)
     theirs = _build_cutscene_problems(raw, tmp_path)
     assert ours and all(p.startswith("scene #1: ") for p in ours), ours
     for p in ours:
         assert "[cutscene] #1 " + p[len("scene #1: "):] in theirs, (p, theirs)
-    # a cast scene's bad tail is said once (the conductor rule owns it), not once per lane
+    # C16: the cast scene's tail and style are judged here too, in the sweep's own sentences
+    assert any("tail 'SIDEWAYS'" in p for p in ours) and any("fancy" in p for p in ours), ours
+    assert len(ours) == len(theirs), (ours, theirs)    # nothing the build says twice, or the tab misses
+    # a cast scene's bad tail is said once (the window sweep owns it), in the tab and the build
     assert len(cs.scene_problems(_two_cast([{"say": "hi", "tail": "SIDEWAYS"}]))) == 1
+    assert len(_build_cutscene_problems(_two_cast([{"say": "hi", "tail": "SIDEWAYS"}]), tmp_path)) == 1
+    # (after review) the tab picks a step's window keys the way the build's sweep does: a step
+    # that carries say/open is a text step whatever key comes first, and a cast scene's tail is
+    # judged on every step (the conductor rule it replaced did) -- each in the build's sentence
+    for steps in ([{"walk": [0, 300], "say": "hi", "actor": "Cid", "tail": "SIDEWAYS"}],
+                  [{"say": "hi"}, {"wait": 5, "tail": "SIDEWAYS"}]):
+        raw = _two_cast(steps)
+        theirs = [p for p in _build_cutscene_problems(raw, tmp_path) if "TAIL code" in p]
+        ours = [p for p in cs.scene_problems(raw) if "TAIL code" in p]
+        assert len(theirs) == 1 and ["[cutscene] " + p for p in ours] == theirs, (ours, theirs)
+    # a tail that is not text is refused too, never raised out of the render
+    assert any("tail" in p for p in cs.scene_problems(_raw({"steps": [{"say": "hi", "tail": ["x"]}]})))
     # and a half-typed cast scene never raises out of the render (a step that is not a table)
     cs.scene_problems(_two_cast([5, dict(_TURN)]))
 
@@ -495,6 +520,40 @@ def test_scene_problems_flags_two_scenes_sharing_one_once_flag():
     assert not [p for p in cs.scene_problems(raw) if "once-flag" in p]
     raw["cutscene"][0]["flag"] = raw["cutscene"][1]["flag"] = [8713]   # half-typed: never raise
     cs.scene_problems(raw)
+
+
+def test_a_shared_once_flag_is_the_builds_own_rule_and_sentence(tmp_path):
+    """C9 (build half): the tab compared the RAW flag values, the build had no rule at all. Now
+    there is one rule (build.cutscene_once_flag_problems) judging the flag each scene is compiled
+    with, and the tab says its sentence: a name and a number for the same bit are caught, and a
+    number spelled two ways is not two flags."""
+    raw = _raw([{"requires_scenario": 5, "flag": 8800, "steps": [{"say": "a"}]},
+                {"requires_scenario": 6, "flag": "met_cid", "steps": [{"say": "b"}]}])
+    raw["flag"] = [{"name": "met_cid", "index": 8800}]
+    ours = [p for p in cs.scene_problems(raw) if "once-flag" in p]
+    theirs = [p for p in _build_cutscene_problems(raw, tmp_path) if "once-flag" in p]
+    assert len(ours) == 1 and len(theirs) == 1, (ours, theirs)
+    assert ours[0].replace("scene #0 and scene #1", "[cutscene] #0 and #1") == theirs[0]
+    # a campaign-level name resolves too (the tab is handed the campaign's names)
+    camp = copy.deepcopy(raw)
+    del camp["flag"]
+    assert not [p for p in cs.scene_problems(camp) if "once-flag" in p], "unresolved: not judged"
+    assert [p for p in cs.scene_problems(camp, flag_names={"met_cid": 8800}) if "once-flag" in p]
+    # the build's auto pick skips every authored bit -- a campaign NAME too, once resolved -- so a
+    # scene pinned (by a campaign name) on the next scene's default slot is NOT a shared flag
+    from ff9mapkit import flags as _flags
+    late = _raw([{"requires_scenario": 5, "flag": "late", "steps": [{"say": "a"}]},
+                 {"requires_scenario": 6, "steps": [{"say": "b"}]}])
+    assert not [p for p in cs.scene_problems(late, flag_names={"late": _flags.AUTO_CUTSCENE_BASE + 1})
+                if "once-flag" in p]
+    # the build resolves a number written as text; the tab must not call "8800" a second flag
+    raw["cutscene"][1]["flag"] = "8801"
+    raw["cutscene"][0]["flag"] = 8801
+    assert [p for p in cs.scene_problems(raw) if "once-flag" in p]
+    raw["cutscene"][1]["flag"] = "8802"
+    assert not [p for p in cs.scene_problems(raw) if "once-flag" in p]
+    # garbage never raises out of the render
+    cs.scene_problems(_raw([{"flag": {"x": 1}, "steps": []}, {"flag": True, "once": "yes"}, 7]))
 
 
 def test_delete_scene_removes_one_and_drops_the_emptied_section():
