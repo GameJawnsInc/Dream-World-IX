@@ -123,7 +123,8 @@ def test_ladder_rows_survive_garbage_and_keep_authored_indices():
 def test_ladder_rows_list_the_extras_the_editor_should_show():
     steps = [{"say": "hi", "speaker": "Cid", "tail": "UPR", "duration": 90}]
     rows = cs.ladder_rows(_raw({"steps": steps}), 0)
-    assert rows[0]["extras"] == ["duration", "speaker", "tail"]
+    # C27: the speaker is a NAME the row shows, not one more key behind a "+"
+    assert rows[0]["extras"] == ["duration", "tail"] and rows[0]["speaker"] == "Cid"
 
 
 # --------------------------------------------------------------------------- dispatch fence
@@ -590,3 +591,17 @@ def test_every_op_returns_a_nonempty_label():
         cs.delete_scene(raw, 2),
     ]
     assert all(isinstance(x, str) and x for x in labels), labels
+
+
+def test_the_scene_settings_help_speaks_plain_words_first():
+    """C29: the Scene settings help led with engine names ('the DIRECTOR GATE: only plays when the
+    ScenarioCounter == this beat', 'pin THIS gEventGlobal bit'), and the staging summary said 'run
+    Check' beside a button titled 'Check the staging' -- a different action."""
+    for f in forms.CUTSCENE_SPEC:
+        head = f.help.split("(")[0].split(".")[0]
+        for word in ("DIRECTOR", "ScenarioCounter", "gEventGlobal", "=="):
+            assert word not in head, (f.key, f.help)
+    gate = next(f for f in forms.CUTSCENE_SPEC if f.key == "requires_scenario")
+    assert gate.help.startswith("only plays while the story is at this beat")
+    res = cs.StagingResult(scenes=1, cast_scenes=1, skipped=[("[cutscene]", "unknown marker")])
+    assert "run the toolbar Check" in res.summary()

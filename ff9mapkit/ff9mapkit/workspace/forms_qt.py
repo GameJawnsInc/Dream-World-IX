@@ -328,8 +328,15 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
         notes[f.key] = note
         editable.append((f.key, widget))
         if f.key in DIALOGUE_KEYS and hasattr(widget, "textChanged"):
-            v.addWidget(_wrap_preview_panel(widget, getters[f.key], wrap_width))
+            pv = _wrap_preview_panel(widget, getters[f.key], wrap_width)
+            for pbox in pv.findChildren(QPlainTextEdit):
+                pbox.setAccessibleName(f"{f.label} — in-game wrap preview")
+            v.addWidget(pv)
         label = widgets.role_label(f.label + ":", "label")   # weight-500 field label (the type ramp)
+        # the row is added as (label, container), so nothing tied the label to the INPUT: name the
+        # input after its label, and make the label its buddy (no form input had a name, C38)
+        widget.setAccessibleName(f.label)
+        label.setBuddy(widget)
         term = f.concept or _KIND_CONCEPT.get(f.kind)         # a jargon field -> a "?" concept badge (Phase 5)
         badge = _concept_badge(term, palette) if term else None
         target = adv_lay if (adv_lay is not None and _is_advanced(f)) else lay   # Guided: expert -> Advanced drawer

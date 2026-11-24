@@ -8797,7 +8797,7 @@ class Workspace(QMainWindow):
             # quiet, NOT accent: the always-visible crumb Deploy chip (top-right) is this surface's single
             # accent, and it is enabled+accent in exactly this state -- a second gold Deploy one row below it
             # would be two accents on one surface. The spine names the step; the chip carries the accent.
-            return ("Your fork is ready — press Deploy to put it in your game.",
+            return ("Your field is ready — press Deploy to put it in your game.",   # forked or not
                     [("Deploy", self._deploy_now, False)])
         return ("", [])                                 # READY (veteran) -- the Deploy button is already right there
 

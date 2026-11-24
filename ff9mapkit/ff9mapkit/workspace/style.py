@@ -344,7 +344,10 @@ _QSS = Template(
        recolours without reflow, and pressed/focus/disabled are explicit for the same
        specificity-tie reason as the quiet tier's. */
     QPushButton[role="rowtool"]          { background: transparent; border: 1px solid transparent;
-                                           color: $text; padding: $rowtool_pad; }
+                                           color: $text; padding: $rowtool_pad;
+                                           min-height: 22px; min-width: 12px; }
+    /* ^ the CONTENT floor that makes the whole box (content + padding + border) clear the house's
+       24 px target in both densities: the glyph tools measured 21x23 and the icon-only pencil 34x20. */
     QPushButton[role="rowtool"]:hover    { background: $hover; }
     QPushButton[role="rowtool"]:pressed  { background: $pressed; color: $pressed_fg; }
     QPushButton[role="rowtool"]:focus    { border: 1px solid $focus; }
@@ -708,6 +711,12 @@ _QSS = Template(
     QLabel[role="empty_glyph"] { font-size: $type_glyph; color: $text_subtle; }
     QLabel[role="empty_title"] { font-size: $type_head; font-weight: 600; color: $text; }
     QFrame[role="card"] { background: $surface_2; border: 1px solid $border; border-radius: $radius_lg; }
+    /* The Cutscene ladder's selected step: where "+ Step" inserts and whose target the stage hands you.
+       The rail's own idiom (the tinted fill + the lifted rail colour), as a property so the storyboard's
+       beat marks on the index chip cannot hide it; the id out-ranks the card rule above. A row is a
+       keyboard stop, so it also needs a focus ring (2.4.7), drawn in the focus colour on the border. */
+    QFrame#cutsceneStep[selected="true"] { background: $selection_bg; border: 1px solid $selection_rail; }
+    QFrame#cutsceneStep:focus { border: 1px solid $focus; }
     /* THE MONO REGISTER. This app's whole subject is machine tokens -- 4003, 30110, ff9-XXXXXXXX,
        FF9CustomMap, C:/.../FF9CustomMap. Set in the body face they read as prose and the eye slides off
        them; set in mono they read as things you copy, and it is the one real texture in the composition.
