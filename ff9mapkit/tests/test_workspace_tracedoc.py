@@ -2473,6 +2473,22 @@ def test_detect_floor_is_a_floor_tool_control(app, tmp_path):
     assert not doc.detect_btn.isVisible()
 
 
+# --------------------------------------------------------------------------- T35: the empty canvas
+def test_the_bare_tab_asks_for_a_photo_where_the_canvas_will_be(app, tmp_path):
+    """Finding T35: with nothing loaded the canvas was an empty frame over a muted one-liner. A
+    centred prompt stands in for it until a photo opens."""
+    pytest.importorskip("PIL")
+    doc, _ = _doc(app)
+    doc.resize(760, 700)
+    doc.show()
+    QApplication.processEvents()
+    assert doc.empty_msg.isVisible() and not doc.canvas.isVisible()
+    assert "Open or drop a photo" in doc.empty_msg.text()
+    assert doc.empty_msg.property("role") == "muted"         # an existing role, no new style
+    doc.load_image(_photo(tmp_path))
+    assert doc.canvas.isVisible() and not doc.empty_msg.isVisible()
+
+
 # --------------------------------------------------------------------------- T34: the floor's size
 def test_the_inspector_says_how_big_the_traced_floor_is_in_world_units(app, tmp_path):
     """Finding T34: nothing said how large the traced floor will be in the game. The Inspector's
@@ -2505,7 +2521,7 @@ def test_the_inspector_summary_follows_the_session(app, tmp_path, monkeypatch):
     folder, whether the last Generate has seen the session, and the next step."""
     pytest.importorskip("PIL")
     doc, run = _doc(app)
-    assert doc.ins_photo.fullText() == "No photo open" and "Open a photo" in doc.ins_next.text()
+    assert doc.ins_photo.fullText() == "No photo open" and "Open or drop a photo" in doc.ins_next.text()
     doc.load_image(_photo(tmp_path))
     doc.canvas._commit_floor([(100, 100), (280, 100), (280, 430), (100, 430)])
     assert doc.ins_photo.fullText() == "Photo: photo.png"

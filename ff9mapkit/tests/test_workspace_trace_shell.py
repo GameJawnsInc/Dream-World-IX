@@ -661,6 +661,49 @@ def test_a_reload_keeps_a_step_editor_whose_step_is_still_there(win, tmp_path):
     assert win._doc(_NAME).data["cutscene"]["steps"][0]["say"] == "typed, not yet applied"
 
 
+def _drop(win, path, *, enter_only=False):
+    """A real drag-enter / drop of one local file on the window, through Qt's own events."""
+    from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
+    from PySide6.QtGui import QDragEnterEvent, QDropEvent
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile(str(path))])
+    enter = QDragEnterEvent(QPoint(10, 10), Qt.DropAction.CopyAction, mime,
+                            Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    win.dragEnterEvent(enter)
+    if enter_only:
+        return enter.isAccepted()
+    drop = QDropEvent(QPointF(10, 10), Qt.DropAction.CopyAction, mime,
+                      Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    win.dropEvent(drop)
+    return drop.isAccepted()
+
+
+def test_a_dropped_photo_opens_in_trace_through_the_same_path_as_open(win, tmp_path, monkeypatch):
+    """Finding T35: dropping a photo on the window did nothing. It opens on the Trace tab, the
+    way Open does -- including the question before unwritten traced work is discarded."""
+    from PIL import Image
+    photo = tmp_path / "attic.jpg"
+    Image.new("RGB", (800, 600), (90, 80, 70)).save(photo)
+    assert _drop(win, photo, enter_only=True)
+    assert _drop(win, photo)
+    td = win.trace_doc
+    assert win.tabs.currentWidget() is td and td._image == photo
+    td.canvas._commit_floor([(100, 300), (280, 300), (190, 430)])   # unwritten work
+    other = tmp_path / "cellar.png"
+    Image.new("RGB", (800, 600), (40, 40, 40)).save(other)
+    asked = []
+    monkeypatch.setattr(td, "_ask_discard", lambda: asked.append(1) or False)
+    _drop(win, other)
+    assert asked and td._image == photo and len(td._floor) == 3     # kept: the author said no
+
+
+def test_the_other_dropped_kinds_still_open_where_they_did(win, tmp_path):
+    """The image branch is an addition: a field .toml still opens in the Editor."""
+    _photo_, toml = _project(tmp_path)
+    assert _drop(win, toml)
+    assert _NAME in win.member_paths
+
+
 def test_the_trace_summary_docks_in_the_inspector_and_leaves_with_the_tab(win):
     """Finding T41: the Inspector column was empty on Trace. The tab's summary docks there while
     Trace shows, the ordinary card hides under it, and leaving -- for the Editor, or straight for

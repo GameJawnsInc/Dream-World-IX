@@ -8131,7 +8131,8 @@ class Workspace(QMainWindow):
         return True
 
     # ---- drag-and-drop open ----
-    _DROP_SUFFIXES = (".toml", ".dat", ".json", ".glb", ".gltf")
+    _IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".bmp", ".webp")   # a photo -> Trace (T35)
+    _DROP_SUFFIXES = (".toml", ".dat", ".json", ".glb", ".gltf") + _IMAGE_SUFFIXES
 
     def dragEnterEvent(self, event):               # noqa: N802 (Qt override)
         urls = event.mimeData().urls() if event.mimeData() else []
@@ -8167,6 +8168,10 @@ class Workspace(QMainWindow):
             self.models_doc.set_glb(p)
             self.tabs.setCurrentWidget(self.models_doc)
             self.statusBar().showMessage(f"{p.name} → Models (pick a mod folder, then Import model)", 8000)
+            return True
+        if s in self._IMAGE_SUFFIXES:              # a photo: Trace's own Open path, its unsaved
+            self.tabs.setCurrentWidget(self.trace_doc)   # question included
+            self.trace_doc.open_path(str(p))
             return True
         return self.open_save(str(p))              # .dat / save JSON
 

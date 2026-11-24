@@ -378,6 +378,15 @@ class TraceDoc(QWidget):
         # (240 and 120 both did, in the snaps). The height it gains comes from fewer rows instead.
         self.canvas.setMinimumHeight(96)
         root.addWidget(self.canvas, 1)
+        # with nothing open the canvas gives way to a centred prompt (T35; Place's P19 idiom:
+        # an existing role, no new style)
+        self.empty_msg = QLabel("Open or drop a photo to trace its floor — or open a traced "
+                                "project's field.toml.")
+        self.empty_msg.setProperty("role", "muted")
+        self.empty_msg.setWordWrap(True)
+        self.empty_msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_msg.setContentsMargins(48, 0, 48, 0)
+        root.addWidget(self.empty_msg, 1)
         self._sync_region_cluster()                    # the boxes exist now: settle visibility
 
         out_row = QHBoxLayout()
@@ -661,7 +670,7 @@ class TraceDoc(QWidget):
         self.gen_btn.setToolTip(tip)
         unstamped = bool(self._project) and not self._stamped
         if self._image is None:
-            nxt = "Open a photo to begin."
+            nxt = "Open or drop a photo to begin."
         elif not ready:
             nxt = tip
         elif unstamped:
@@ -679,6 +688,8 @@ class TraceDoc(QWidget):
         for key in ("cutout", "regions"):
             self.tools.button(key).setEnabled(self._image is not None)
         self.detect_btn.setEnabled(self._has_numpy and self._image is not None)
+        self.canvas.setVisible(self._image is not None)
+        self.empty_msg.setVisible(self._image is None)
         self._refresh_fg_strip()
         if not note:
             if self._image is None:
@@ -831,7 +842,11 @@ class TraceDoc(QWidget):
 
     # ------------------------------------------------------------------ image
     def on_open(self):
-        path = self._ask_image()
+        self.open_path(self._ask_image())
+
+    def open_path(self, path):
+        """Open a photo, a project's field.toml or its .trace.json -- the Open button's path, and
+        the window's for a dropped photo (T35): unwritten traced work is asked about first."""
         if path and self.has_unsaved() and not self._ask_discard():
             return
         if path:
