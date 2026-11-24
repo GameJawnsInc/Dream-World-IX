@@ -2215,3 +2215,44 @@ def test_the_view_grammar_holds_natively_at_an_odd_and_an_even_size(size):
         pytest.skip(f"no native platform ({out['platform']})")
     assert Path(out["file"]).resolve().is_relative_to(pkg_root)
     assert out["bad"] == [], "\n".join(out["bad"])
+
+
+# --------------------------------------------------------------- batch 5 seam: locked zone rows
+def test_a_locked_zone_row_advertises_no_gesture_the_host_refuses(app, monkeypatch):
+    """Batch 5, the seam between two groups: the Trace tab now draws the project's own doors and
+    zones as context and refuses every gesture on them -- and the canvas gave those rows the grab
+    cursor, corner handles and the Delete / retarget menu (the defect markers were cured of in
+    batch 4). A zone row the host marks ``locked`` is drawn quieter, wears no grab cursor, has no
+    handles, starts no drag, opens no menu and answers Delete with nothing; its tooltip gives the
+    host's reason. An ordinary row beside it keeps everything."""
+    from PySide6.QtGui import QColor
+    c, cam, _calls = _trace_canvas(app)
+    c.set_trace_mode(False)
+    c.set_region_mode(True)
+    quad = lambda cx: [IF.click_to_world(cam, p) for p in                      # noqa: E731
+                       ((cx - 30, 330), (cx + 30, 330), (cx + 30, 370), (cx - 30, 370))]
+    why = "the project's own door — change it in the Place tab or the Editor"
+    c.set_regions([
+        {"i": 0, "kind": "gateway", "label": "door0 (project)", "quad": quad(110), "warn": None,
+         "locked": why},
+        {"i": 1, "kind": "gateway", "label": "door1", "quad": quad(270), "warn": None}])
+    QApplication.processEvents()
+    locked, free = c._region_items[0], c._region_items[1]
+    assert not locked.hasCursor() and free.hasCursor()
+    assert why in locked.toolTip() and why not in free.toolTip()
+    assert locked.pen().color().name() == QColor(c.pal["muted"]).name()
+    assert free.pen().color().name() == QColor(c.pal["accent"]).name()
+    assert not [k for k in c._region_handle_items if k[0] == 0], "a locked row has corner handles"
+    assert len([k for k in c._region_handle_items if k[0] == 1]) == 4
+    changed, deleted, opened = [], [], []
+    c.region_changed.connect(lambda i, q: changed.append(i))
+    c.region_deleted.connect(deleted.append)
+    monkeypatch.setattr(c, "_region_menu", lambda i, gp: opened.append(i))
+    inside = (110.0, 350.0)
+    wpt = c.viewportTransform().map(QPointF(*inside))
+    assert c._menu_target(QPoint(round(wpt.x()), round(wpt.y()))) is None, "a locked row has a menu"
+    assert not c._begin_region_quad_drag(0, inside), "a locked row starts a drag"
+    c._drag = None
+    wfree = c.viewportTransform().map(QPointF(270.0, 350.0))
+    assert c._menu_target(QPoint(round(wfree.x()), round(wfree.y()))) == ("region", 1)
+    assert not changed and not deleted and not opened

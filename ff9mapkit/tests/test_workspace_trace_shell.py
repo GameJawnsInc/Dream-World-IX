@@ -786,3 +786,24 @@ def test_the_trace_summary_docks_in_the_inspector_and_leaves_with_the_tab(win):
     win.tabs.setCurrentWidget(win.doc_scroll)          # Trace -> the Editor: the card is back
     QApplication.processEvents()
     assert td.instruments.parent() is None and win.insp_body.isVisible()
+
+
+# --------------------------------------------------------------- batch 5 seam: one column at a time
+def test_the_inspector_holds_one_tabs_column_whichever_way_you_switch(win):
+    """Switching straight between two tabs that each dock a column (Cutscene -> Behavior) ran the
+    new tab's mount BEFORE the old tab's unmount, and that unmount put the ordinary card back
+    under the new column. Every unmount runs before the one mount, for every pair of tabs."""
+    import itertools
+    win.show()
+    docs = [win.cutscene_doc, win.behavior_doc, win.trace_doc]
+    for a, b in itertools.permutations(docs, 2):
+        win.tabs.setCurrentWidget(a)
+        QApplication.processEvents()
+        win.tabs.setCurrentWidget(b)
+        QApplication.processEvents()
+        pair = f"{type(a).__name__} -> {type(b).__name__}"
+        assert b.instruments.isVisible() and a.instruments.parent() is None, pair
+        assert not win.insp_body.isVisible(), f"{pair}: the card is back under the column"
+    win.tabs.setCurrentWidget(win.doc_scroll)
+    QApplication.processEvents()
+    assert win.insp_body.isVisible()

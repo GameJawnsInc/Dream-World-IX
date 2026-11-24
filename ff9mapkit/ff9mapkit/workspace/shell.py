@@ -4999,9 +4999,19 @@ class Workspace(QMainWindow):
             self.tabs.setCurrentWidget(self.doc_scroll)    # re-enters this handler for the Editor
             return
         self._refresh_undo_actions()                       # Trace/Floorplan Undo is their own (_local_undo_doc)
-        self._mount_behavior_instruments(w is getattr(self, "behavior_doc", None))
-        self._mount_cutscene_instruments(w is getattr(self, "cutscene_doc", None))
-        self._mount_trace_instruments(w is getattr(self, "trace_doc", None))
+        # One tab's column in the Inspector at a time. EVERY unmount runs before the one mount:
+        # in a fixed order, going straight from Cutscene to Behavior mounted Behavior's column
+        # and then the Cutscene unmount put the ordinary card back under it.
+        beh = w is getattr(self, "behavior_doc", None)
+        cut = w is getattr(self, "cutscene_doc", None)
+        tra = w is getattr(self, "trace_doc", None)
+        for on in (False, True):                           # the unmounts, then the mount
+            if beh is on:
+                self._mount_behavior_instruments(on)
+            if cut is on:
+                self._mount_cutscene_instruments(on)
+            if tra is on:
+                self._mount_trace_instruments(on)
         if w in (self.doc_scroll, self.map):
             self.crumb.set(self._content_crumbs)
             self._set_chip(self._content_chip)
@@ -5115,9 +5125,8 @@ class Workspace(QMainWindow):
     def _mount_trace_instruments(self, on):
         """Dock the Trace doc's session summary into the INSPECTOR while that tab shows (finding
         T41) -- the Cutscene contract exactly: the SAME widget moves, the ordinary inspector card
-        hides under it and returns when the tab changes away. This runs AFTER the other two
-        mounts, so leaving Trace for Behavior or Cutscene finds their column already docked:
-        the card stays hidden under it."""
+        hides under it and returns when the tab changes away (_on_tab_changed runs every
+        unmount before the one mount, so the card never returns under another tab's column)."""
         doc = getattr(self, "trace_doc", None)
         if doc is None or getattr(self, "_insp_lay", None) is None:
             return
@@ -5131,10 +5140,7 @@ class Workspace(QMainWindow):
             w.hide()                               # hide BEFORE the reparent (phantom window)
             self._insp_lay.removeWidget(w)
             w.setParent(None)
-            if not any(getattr(getattr(self, d, None), "instruments", None) is not None
-                       and getattr(self, d).instruments.parent() is not None
-                       for d in ("behavior_doc", "cutscene_doc")):
-                self.insp_body.show()
+            self.insp_body.show()
 
     def _feed_cutscene(self):
         """Push the OPEN field's parsed dict into the Cutscene doc — BY REFERENCE (the feed

@@ -1105,6 +1105,10 @@ class TraceDoc(QWidget):
         for r, row in zip(rows, self._region_back):
             if self._is_context(row):
                 r["warn"] = None
+                # the tab refuses every gesture on it (_session_region), so the canvas must not
+                # offer one: no grab cursor, no handles, no menu
+                r["locked"] = ("the project's own — move, change or delete it in the Place tab "
+                               "or the Editor")
         self._region_rows_cache = rows
         self.canvas.set_regions(rows)
 
@@ -1461,10 +1465,13 @@ class TraceDoc(QWidget):
             # the app's own Deploy, not a terminal line (tools/ is a checkout's; an installed
             # project folder has a space in it) -- and no warp id: a Build-tab test slot
             # overrides the field's own, so the deploy verdict names it (finding T22)
+            # F9 deploys the field the Editor has OPEN, which after a regenerate need not be
+            # this one (the first Generate hands its project to the Editor; a reopen does not)
             ok_next=("It opened in the Editor — press Deploy (F9); the deploy verdict names the "
                      "warp id." if first else
-                     "Press Deploy (F9) to put the update in the game; the deploy verdict names "
-                     "the warp id."),
+                     f"To play the update, open {Path(toml).name} in the Editor (Field → Open "
+                     f"Field…) if it is not the open field, then press Deploy (F9); the deploy "
+                     f"verdict names the warp id."),
             fail_hint="See the Output panel — the usual causes are a vertex above the horizon "
                       "or a floor larger than the Int16 world bound.",
             on_finished=lambda code, _t=str(toml):

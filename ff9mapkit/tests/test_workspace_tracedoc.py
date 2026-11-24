@@ -2811,3 +2811,24 @@ def test_a_new_photo_drops_the_last_projects_own_rows(app, tmp_path):
     doc.load_image(_photo(tmp_path))
     assert doc._context == [] and doc.canvas._regions == []
     assert "of its own" not in doc.ins_zones.text()
+
+
+# --------------------------------------------------------------- batch 5 seam: context rows are locked
+def test_the_projects_own_rows_are_fed_to_the_canvas_as_locked(app, tmp_path):
+    """The other half of the seam: the tab refuses every gesture on a project row, so it must
+    tell the canvas -- a row fed without ``locked`` wore the grab cursor and the Delete menu."""
+    pytest.importorskip("PIL")
+    doc, _run = _doc(app)
+    doc.load_image(_photo(tmp_path))
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    doc._context = [{"kind": "gateway", "name": "door0", "to": 301,
+                     "zone": [[-200, 900], [200, 900], [200, 1100], [-200, 1100]]}]
+    doc._regions.append({"kind": "gateway", "to": 4005, "entrance": 0, "message": "...",
+                         "quad": [(60.0, 300.0), (100.0, 300.0), (100.0, 330.0), (60.0, 330.0)]})
+    doc._refresh_regions()
+    rows = doc.canvas._regions
+    ctx = [r for r in rows if "(project)" in str(r.get("label"))]
+    mine = [r for r in rows if "(project)" not in str(r.get("label"))]
+    assert len(ctx) == 1 and len(mine) == 1
+    assert ctx[0].get("locked") and "Place tab" in ctx[0]["locked"]
+    assert not mine[0].get("locked")

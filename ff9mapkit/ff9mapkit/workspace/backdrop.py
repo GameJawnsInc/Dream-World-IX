@@ -847,7 +847,12 @@ class BackdropCanvas(QGraphicsView):
                 continue
             i = r["i"]
             warn = r.get("warn")
-            color = QColor(pal["warn"] if warn else pal["accent"])
+            # A row the host LOCKS (``locked`` = its reason: the Trace tab's view of the
+            # project's own doors) is context: drawn quieter, never a grab handle, no corner
+            # handles, no menu -- the canvas must not advertise a gesture the host always
+            # refuses (the markers' contract, batch 4).
+            locked = r.get("locked")
+            color = QColor(pal["warn"] if warn else pal["muted"] if locked else pal["accent"])
             case, pen = self._cased_pen(color, 1.6,
                                         [5, 3] if r.get("kind") == "event" else None)
             fill = QColor(color)
@@ -862,11 +867,15 @@ class BackdropCanvas(QGraphicsView):
             tip = str(r.get("label") or f"zone {i}")
             if warn:
                 tip += f"\n⚠ {warn}"
+            if locked:
+                tip += f"\n{locked}"
             it.setToolTip(tip)
-            if self._region_mode:
+            if self._region_mode and not locked:
                 mark_grabbable(it)
-            # the fan audit, painted: what the engine tests vs what the author drew
-            audit = imagefield.zone_fan_audit(r["quad"])
+            # the fan audit, painted: what the engine tests vs what the author drew (not for a
+            # locked row: it cannot be reshaped here, and its own tab paints its law)
+            audit = ({"gap": 0.0, "spill": 0.0} if locked
+                     else imagefield.zone_fan_audit(r["quad"]))
             law_items = []
             if max(audit["gap"], audit["spill"]) > 0.02:
                 drawn = QPainterPath()
@@ -994,7 +1003,7 @@ class BackdropCanvas(QGraphicsView):
         sc = self._scene
         for r in self._regions:
             pts = self._region_pts_px(r["quad"])
-            if pts is None:
+            if pts is None or r.get("locked"):     # a locked row has no handles to grab
                 continue
             color = QColor(self.pal["warn"] if r.get("warn") else self.pal["accent"])
             for ci, (x, y) in enumerate(pts):
@@ -1034,7 +1043,7 @@ class BackdropCanvas(QGraphicsView):
 
     def _begin_region_quad_drag(self, i, grab_canvas):
         r = self._region_row(i)
-        if r is None or i not in self._region_items:
+        if r is None or i not in self._region_items or r.get("locked"):
             return False
         quad = [tuple(p) for p in r["quad"]]
         h = self._region_h_hint(quad)
@@ -1792,8 +1801,12 @@ class BackdropCanvas(QGraphicsView):
             for it in under:
                 for tag in ("regionpt", "regionquad", "regionedge", "regionlabel"):
                     pay = self._resolve_data(it, tag)
-                    if pay is not None:
-                        return ("region", pay[0] if tag == "regionpt" else int(pay))
+                    if pay is None:
+                        continue
+                    ri = pay[0] if tag == "regionpt" else int(pay)
+                    if (self._region_row(ri) or {}).get("locked"):
+                        continue                   # no menu, no Delete: look under it
+                    return ("region", ri)
         elif self._place_mode:
             for it in under:
                 mi = self._resolve_data(it, "marker")
