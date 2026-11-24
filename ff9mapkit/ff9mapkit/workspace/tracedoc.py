@@ -36,6 +36,12 @@ from . import widgets
 from .backdrop import BackdropCanvas
 
 PITCH_BAND = (6, 48)             # the tracer's slider band (vanilla room pitches)
+# what a cut-out PNG is, said the same way by the tool tip, the Attach tip and the picker (T14)
+_CUTOUT_WHAT = ("a copy of the photo (or of the 384×448 frame) with everything but the object "
+                "erased to transparent — it lines up by itself — or a crop of just the object, "
+                "which you then drag into place")
+_CUTOUT_PICKER_TITLE = ("The cut-out PNG — a copy of the photo with all but the object erased, "
+                        "or a crop of the object")
 _HISTORY_CAP = 100
 
 
@@ -220,7 +226,8 @@ class TraceDoc(QWidget):
                                 "the horizon."),
              ("cutout", "Cut-outs", "Mark a foreground occluder (a pillar, a crate): click where "
                                     "the object MEETS the floor — its base — then attach its "
-                                    "full-canvas cut-out PNG. Occlusion flips exactly there."),
+                                    f"cut-out PNG: {_CUTOUT_WHAT}. Occlusion flips exactly "
+                                    "there."),
              ("regions", "Regions", "Draw trigger zones on the photo — gateways and walk-in "
                                     "events (4 clicks = one zone; Esc cancels a half-drawn "
                                     "one).")])
@@ -294,8 +301,8 @@ class TraceDoc(QWidget):
         self.fg_box.setMinimumContentsLength(14)
         fg_row.addWidget(self.fg_box)
         self.fg_attach_btn = QPushButton("Attach PNG…")
-        self.fg_attach_btn.setToolTip("Attach the selected contact's cut-out — a full-canvas PNG "
-                                      "with alpha (only the object opaque).")
+        self.fg_attach_btn.setToolTip(f"Attach the selected contact's cut-out PNG: "
+                                      f"{_CUTOUT_WHAT}.")
         self.fg_attach_btn.clicked.connect(self.on_fg_attach)
         fg_row.addWidget(self.fg_attach_btn)
         self.fg_remove_btn = QPushButton("Remove")
@@ -432,7 +439,10 @@ class TraceDoc(QWidget):
         f["size"] = (sw, sh)
         f["pm"] = QPixmap(str(path))
         pw, ph = self._photo_wh()
-        if abs(sw / sh - pw / ph) <= 0.02 * (pw / ph):
+        frame = imagefield.CANVAS_W / imagefield.CANVAS_H
+        # the photo's aspect, OR the build's own 384:448 frame -- which the build fills 1:1 and
+        # the old wording told the author to make (finding T14)
+        if any(abs(sw / sh - a) <= 0.02 * a for a in (pw / ph, frame)):
             f["kind"], f["offset"] = "full", None
             return None
         k = self._canvas_scale()
@@ -1478,9 +1488,9 @@ class TraceDoc(QWidget):
         return out
 
     def _ask_cutout(self):
-        """The cut-out PNG picker (instance dialog behind a seam, like the others): a full-canvas
-        image with alpha — only the occluding object opaque."""
-        dlg = QFileDialog(self, "The cut-out PNG (full canvas, alpha — only the object opaque)",
+        """The cut-out PNG picker (instance dialog behind a seam, like the others): a copy of the
+        photo (or of the build's frame) with only the object left opaque, or a crop to place."""
+        dlg = QFileDialog(self, _CUTOUT_PICKER_TITLE,
                           str(self._image.parent if self._image else Path.home()))
         dlg.setFileMode(QFileDialog.FileMode.ExistingFile)
         dlg.setNameFilter("Cut-out images (*.png *.webp)")

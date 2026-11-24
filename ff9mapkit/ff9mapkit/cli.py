@@ -10124,7 +10124,8 @@ def build_parser() -> argparse.ArgumentParser:
     imf.add_argument("--distance", type=float, default=3000.0,
                      help="camera distance (default 3000; smaller = closer/larger floor)")
     imf.add_argument("--foreground", action="append", default=None,
-                     help="a near-occluder cut-out PNG (full-canvas, alpha); repeatable. Bare path = always in "
+                     help="a near-occluder cut-out PNG: a copy of the image (or of the 384x448 frame) with "
+                          "everything but the object erased to transparent; repeatable. Bare path = always in "
                           "front of the actor; 'path@cx,cy' anchors it at its floor-contact canvas pixel so "
                           "occlusion flips there (walk in front = actor on top, walk behind = occluded)")
     imf.add_argument("--gateway", action="append", default=None,

@@ -898,7 +898,7 @@ where each foreground object MEETS the floor (its base) — that anchors its occ
   <p id="warn" class="warn"></p>
   <textarea id="cmd" readonly></textarea><br><button id="copy">copy command</button>
   <p class="tip">Contact markers emit <code>--foreground "fgN.png@cx,cy"</code> placeholders — save each object's
-  cut-out (full-canvas PNG with alpha, e.g. erase everything but the object in an editor) and swap in its filename.</p>
+  cut-out (a copy of the image with everything but the object erased to transparent, in an editor) and swap in its filename.</p>
 </div></div>
 <script>
 const HORIZONS=__HORIZONS__, IMGARG=__IMGARG__, S=2, DEF={pitch:26,fov:42,distance:3000};
@@ -1271,7 +1271,8 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
 
     ``floor_px`` = [(cx, cy), ...] the floor outline in logical canvas pixels (384x448, top-left,
     Y-down). ``foreground`` = optional [path | {"image": path, "z": int}] near-occluder PNGs (each a
-    full-canvas cut-out with alpha; smaller Z = drawn in front of the actor). ``gateways`` /
+    copy of the image, or of the 384x448 frame, with alpha -- cover-cropped to the canvas like
+    the image itself; smaller Z = drawn in front of the actor). ``gateways`` /
     ``events`` = optional trigger-region specs (:func:`parse_gateway_spec` /
     :func:`parse_event_spec` forms) whose quads are CANVAS pixels un-projected through the same
     camera as the floor — a ``--pitch`` re-run moves the zones WITH it. Writes ``out_dir`` with

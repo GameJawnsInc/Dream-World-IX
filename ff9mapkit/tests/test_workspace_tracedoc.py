@@ -443,6 +443,43 @@ def test_photo_aspect_cutout_registers_full_frame(app, tmp_path, monkeypatch):
     assert argv[argv.index("--foreground") + 1].startswith(str(snip))
 
 
+@pytest.mark.parametrize("size", [(1536, 1792), (384, 448)])
+def test_a_cut_out_made_in_the_builds_frame_registers_full_frame(app, tmp_path, monkeypatch,
+                                                                 size):
+    """Finding T14: the picker, the CLI help and the old tracer all say to make the cut-out at
+    the full canvas, and the build fills the frame with it 1:1 -- but on a 4:3 photo the tab read
+    such a PNG as a snip and shrank it. The build's own 384:448 frame registers too; the photo's
+    aspect still does (the owner's rule: same aspect as the photo = aligned)."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    doc, run = _traced(app, tmp_path)                  # an 800x600 (4:3) photo
+    png = tmp_path / "frame.png"
+    Image.new("RGBA", size, (0, 0, 0, 0)).save(png)
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: str(png))
+    doc.fg_btn.setChecked(True)
+    doc._on_contact(230.0, 320.0)
+    f = doc._fg[0]
+    assert f["kind"] == "full" and f["offset"] is None
+    (cut,) = doc.canvas._cutouts
+    assert cut["rect"] is None and cut["locked"]
+    doc.id_box.setText("30777")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    argv, _kw = run.calls[0]
+    assert argv[argv.index("--foreground") + 1].startswith(str(png))   # passed through untouched
+
+
+def test_the_cut_out_wording_says_what_to_make(app):
+    """The picker and tooltips said 'full canvas' -- a frame the tab then misread. They now say
+    the two things that register (a copy of the photo, or of the 384x448 frame) and the snip."""
+    from ff9mapkit.workspace import tracedoc as TD
+    doc, _ = _doc(app)
+    for tip in (doc.tools.button("cutout").toolTip(), doc.fg_attach_btn.toolTip(),
+                TD._CUTOUT_PICKER_TITLE):
+        assert "full canvas" not in tip.replace("-", " ")
+        assert "copy of the photo" in tip and "crop" in tip
+
+
 def test_generate_is_in_place_after_the_first_run(app, tmp_path, monkeypatch):
     """Set up once, then every Generate rebuilds the SAME project with no dialog (owner-asked):
     the second run must not even CALL _ask_out, and the button says so."""
