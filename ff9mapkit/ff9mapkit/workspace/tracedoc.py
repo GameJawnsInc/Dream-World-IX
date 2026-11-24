@@ -127,7 +127,10 @@ def first_out(parent, image, name) -> Path:
 class TraceDoc(QWidget):
     """Trace a photo into a walkable field, entirely on the art. ``run`` = ``shell.run_job``."""
 
-    _TEACH = "Open an image to begin."                 # the bare tab's status
+    _TEACH = ""                 # the bare tab's status: the centred prompt already says it
+    _DETECT_TIP = ("Find the floor from the photo's colours and lay down a STARTING outline — then "
+                   "drag its vertices onto the floor's real edges (it cannot tell where a doorway "
+                   "ends). Works on an empty floor; one Undo takes it back.")
 
     def __init__(self, pal, kit_root, *, run, problems=None, scale=100, on_generated=None,
                  can_generate=None, on_regenerated=None, was_stopped=None):
@@ -196,7 +199,7 @@ class TraceDoc(QWidget):
 
         row = QHBoxLayout()
         row.setSpacing(8)
-        self.open_btn = QPushButton("Open an image…")
+        self.open_btn = QPushButton("Open a photo…")
         self.open_btn.setToolTip("Pick the photo/painting to trace. It appears as the exact "
                                  "384×448 cover-crop the build will use.")
         self.open_btn.clicked.connect(self.on_open)
@@ -207,7 +210,7 @@ class TraceDoc(QWidget):
         self.offer_btn.clicked.connect(self.on_offer)
         self.offer_btn.hide()
         row.addWidget(self.offer_btn)
-        self.img_label = QLabel("no image")
+        self.img_label = QLabel("no photo")
         self.img_label.setProperty("role", "muted")
         row.addWidget(self.img_label)
         row.addSpacing(12)
@@ -261,9 +264,7 @@ class TraceDoc(QWidget):
         self._has_numpy = importlib.util.find_spec("numpy") is not None
         self.detect_btn = QPushButton("Detect floor")
         self.detect_btn.setToolTip(
-            "Find the floor from the photo's colours and lay down a STARTING outline — then drag "
-            "its vertices onto the floor's real edges (it cannot tell where a doorway ends). "
-            "Works on an empty floor; one Undo takes it back." if self._has_numpy else
+            self._DETECT_TIP if self._has_numpy else
             "Detect floor needs the numpy package (py -m pip install numpy) — trace the floor "
             "by hand instead.")
         self.detect_btn.clicked.connect(self.on_detect_floor)
@@ -418,7 +419,7 @@ class TraceDoc(QWidget):
         out_row.addStretch(1)
         root.addLayout(out_row)
 
-        self.status = QLabel("Open an image to begin.")
+        self.status = QLabel("")
         self.status.setProperty("role", "muted")
         self.status.setWordWrap(True)                  # its text width is never the page minimum
         root.addWidget(self.status)
@@ -462,7 +463,13 @@ class TraceDoc(QWidget):
         def say(lb, parts, warn=False):
             lb.setText(" · ".join(p for p in parts if p))
             widgets.set_state(lb, "warn" if warn else "")
-        self.ins_photo.setText(f"Photo: {self._image.name}" if self._image else "No photo open")
+        own_art = (self._image is not None and self._project is not None
+                   and self._image.name == "base.png" and self._image.parent.name == "art")
+        self.ins_photo.setText("No photo open" if self._image is None else
+                               "Photo: the project's own art" if own_art else
+                               f"Photo: {self._image.name}")
+        for lb in (self.ins_pitch, self.ins_floor, self.ins_fg, self.ins_zones):
+            lb.setVisible(self._image is not None)     # nothing to count without a photo
         pose = ("" if (self._distance, self._fov) ==
                 (imagefield.DEFAULT_DISTANCE, imagefield.DEFAULT_FOV)
                 else f"distance {self._distance:g}, field of view {self._fov:g}°")
@@ -477,8 +484,8 @@ class TraceDoc(QWidget):
 
             def about(v):
                 return int(round(v, -2 if v >= 1000 else -1))
-            size = f"floor about {about(w)} × {about(d)} units"
-        say(self.ins_floor, [f"Floor: {n} {'vertex' if n == 1 else 'vertices'}", size,
+            size = f", about {about(w)} × {about(d)} units"
+        say(self.ins_floor, [f"Floor: {n} {'vertex' if n == 1 else 'vertices'}{size}",
                              f"⚠ {bad} above the horizon" if bad else "",
                              f"⚠ {crossed}" if crossed else ""], warn=bool(bad or crossed))
         say(self.ins_fg, [f"Cut-outs: {len(self._fg)}",
@@ -492,7 +499,7 @@ class TraceDoc(QWidget):
              f"⚠ {plural(rg_untargeted, 'door')} without a target" if rg_untargeted else "",
              f"⚠ {warned} with law warnings" if warned else "",
              f"⚠ {rg_bad} hidden above the horizon" if rg_bad else "",
-             f"the project has {len(self._context)} more of its own" if self._context else "",
+             f"plus {len(self._context)} of the project's own" if self._context else "",
              f"⚠ {ctx_hidden} of those cannot be drawn at this pitch" if ctx_hidden else ""],
             warn=bool(rg_untargeted or warned or rg_bad or ctx_hidden))
         if self._project:
@@ -694,7 +701,12 @@ class TraceDoc(QWidget):
         self.clear_btn.setEnabled(bool(getattr(self, attr)))
         for key in ("cutout", "regions"):
             self.tools.button(key).setEnabled(self._image is not None)
-        self.detect_btn.setEnabled(self._has_numpy and self._image is not None)
+        self.detect_btn.setEnabled(self._has_numpy and self._image is not None
+                                   and not self._floor)
+        if self._has_numpy:                            # a disabled button says why
+            self.detect_btn.setToolTip(
+                "Clear the floor first — Detect floor lays a starting outline on an empty floor."
+                if self._floor else self._DETECT_TIP)
         self.canvas.setVisible(self._image is not None)
         self.empty_msg.setVisible(self._image is None)
         self._refresh_fg_strip()
@@ -734,7 +746,8 @@ class TraceDoc(QWidget):
                 note = (self._context_note(ctx_hidden)
                         + " · ".join(warns or [note])).rstrip(" ·")
         if unstamped:                                  # edits the project on disk doesn't have
-            stamp = f"⚠ not stamped — Regenerate {self._project['name']} to update the project"
+            stamp = (f"⚠ Changed since the last Generate — Regenerate {self._project['name']} "
+                     f"to update the project")
             # an explicit error (a refusal) still leads: it is what the click just ran into
             note = (stamp if not note else
                     f"{note} · {stamp}" if state == "error" else f"{stamp} · {note}")
@@ -1066,8 +1079,11 @@ class TraceDoc(QWidget):
                 continue
             zone = [[int(round(x)), int(round(z))] for x, z in worlds]
             kind = r["kind"]
-            row = {"name": f"door{len(shim['gateway'])}" if kind == "gateway"
-                   else f"zone{len(shim['event'])}", "zone": zone}
+            # the names Generate writes them under: the Editor shows these, and a door the
+            # Place tab made is the one called door0
+            row = {"name": f"{imagefield.TRACED_GATEWAY_PREFIX}{len(shim['gateway'])}"
+                   if kind == "gateway"
+                   else f"{imagefield.TRACED_EVENT_PREFIX}{len(shim['event'])}", "zone": zone}
             if kind == "gateway":
                 row["to"] = r.get("to", 0)
                 if r.get("entrance"):
@@ -1147,10 +1163,17 @@ class TraceDoc(QWidget):
         # the session's (imagefield.merge_project_toml), so it is not drawn twice
         twins = set()
         if not imagefield._has_traced_rows(data):
-            for r in self._regions:
-                worlds = self._region_worlds(r["quad"])
-                if all(w is not None for w in worlds):
+            old_cam = imagefield._camera_of(data)       # ...at this pitch OR the file's own, as
+            for r in self._regions:                    # the merge matches (a pitch change must
+                worlds = self._region_worlds(r["quad"])    # not turn the author's own door into
+                if all(w is not None for w in worlds):     # "the project's")
                     twins.add((r["kind"], imagefield._zone_key(worlds)))
+                if old_cam is not None:
+                    try:
+                        twins.add((r["kind"], imagefield._zone_key(
+                            imagefield.unproject_floor(old_cam, r["quad"]))))
+                    except (imagefield.ImageFieldError, ValueError):
+                        pass
         ctx = []
         for kind in ("gateway", "event"):
             for e in data.get(kind) or []:
@@ -1160,8 +1183,8 @@ class TraceDoc(QWidget):
                     z = [(float(p[0]), float(p[1])) for p in e.get("zone")]
                 except (TypeError, ValueError, IndexError):
                     continue
-                if len(z) not in (4, 5):
-                    continue
+                if len(z) not in (4, 5) or imagefield._zone_key(z) is None:
+                    continue                           # not four finite corners: nothing to draw
                 if (kind, imagefield._zone_key(z)) in twins:
                     continue
                 ctx.append({"kind": kind, "name": e.get("name"), "zone": z, "to": e.get("to"),
@@ -1361,7 +1384,7 @@ class TraceDoc(QWidget):
     # ------------------------------------------------------------------ generate
     def on_generate(self):
         if self._image is None:
-            self._refresh("Open an image first.", "error")
+            self._refresh("Open a photo first.", "error")
             return
         good, bad = self._valid_count()
         if good < 3 or bad:
@@ -1832,8 +1855,8 @@ class TraceDoc(QWidget):
                 # said, quietly (muted, not an error): the author did not ask for this load, but
                 # a project that half-looked like one used to vanish with no reason (T16)
                 # after the opening teach, never instead of it (batch 4's T39 leftover)
-                self._refresh(f"{self._TEACH} · {Path(self._offer_path).name} (the open field) "
-                              f"was not loaded here: {e}")
+                self._refresh(f"{Path(self._offer_path).name} (the open field) was not loaded "
+                              f"here: {e}")
             return
         self.offer_btn.setText(f"Load {Path(self._offer_path).stem.replace('.field', '')} "
                                f"(the open field)")
@@ -1854,7 +1877,7 @@ class TraceDoc(QWidget):
     # ------------------------------------------------------------------ dialog seams
     def _ask_image(self):
         """Instance dialog behind a seam (a static execs in C++ past every test patch)."""
-        dlg = QFileDialog(self, "Open an image, a generated project's field.toml, or its "
+        dlg = QFileDialog(self, "Open a photo, a generated project's field.toml, or its "
                           ".trace.json", str(self._image.parent if self._image else Path.home()))
         dlg.setFileMode(QFileDialog.FileMode.ExistingFile)
         dlg.setNameFilter("Images or trace projects (*.png *.jpg *.jpeg *.bmp *.webp "

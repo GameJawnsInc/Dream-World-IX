@@ -2175,3 +2175,23 @@ def test_open_in_the_editor_reaches_a_never_expanded_campaign_member(app, tmp_pa
     finally:
         w.hide()
         w.deleteLater()
+
+
+# --------------------------------------------------------------- batch 5, after its final review
+def test_a_zone_only_blender_owns_is_fed_to_the_canvas_locked(app):
+    """Final review of batch 5: a door that exists only in the Blender scene.toml is refused on
+    every gesture (move, rotate, delete, retarget), yet in the Regions tool it wore the grab
+    cursor, four corner handles and the Delete menu -- and the new Delete key reached it. It is
+    fed locked; a field row whose zone the scene sets can still be retargeted, so it is not."""
+    d, calls, _data, _scene = _blender_split(app)
+    d.tools.set_current("regions")
+    QApplication.processEvents()
+    rows = {r["label"].split(" ")[0]: r for r in d.canvas._regions}
+    only, shared = rows["door1"], rows["door0"]
+    assert only.get("locked") and "Blender" in only["locked"]
+    assert not shared.get("locked")
+    c = d.canvas
+    assert not c._region_items[only["i"]].hasCursor()
+    assert not [k for k in c._region_handle_items if k[0] == only["i"]]
+    assert len([k for k in c._region_handle_items if k[0] == shared["i"]]) == 4
+    assert calls == []

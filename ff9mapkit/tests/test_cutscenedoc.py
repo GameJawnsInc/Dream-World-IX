@@ -1921,6 +1921,11 @@ _GESTURES = {
     "delete": lambda doc: _rowtool(doc, "Remove this step (Ctrl+Z undoes)", 1).click(),
     "pencil on another row": lambda doc: _rowtool(doc, "Edit this step (click again to fold)",
                                                   1).click(),
+    # the final review of batch 5: the OPEN row's own pencil, and Enter on that row (new with
+    # the keyboard ladder), folded the editor and dropped the line -- the gap batch 4 left open
+    "pencil on the open row": lambda doc: _rowtool(doc, "Edit this step (click again to fold)",
+                                                   0).click(),
+    "Enter on the open row": lambda doc: doc.ladder._on_row_key(0, "enter"),
     "add a step": lambda doc: doc.add_step_btn.click(),
     "another scene": lambda doc: doc.rail.setCurrentRow(0),
     "delete the scene": lambda doc: doc.del_scene_btn.click(),
@@ -2308,3 +2313,28 @@ def test_a_check_that_was_running_while_the_scenes_changed_paints_nothing(doc, t
     doc._finish_stage((doc._stage_gen, doc._last_stage, stale_rows, doc._wmesh))
     assert doc._verdicts == [], "rows judged against the old scene layout were painted"
     assert doc._restage_timer.isActive(), "the document must be judged again as it now is"
+
+
+# --------------------------------------------------------------- batch 5, after its final review
+def test_a_clean_open_row_still_folds_on_its_own_pencil_and_on_enter(doc, tmp_path):
+    """...and only a DIRTY editor refuses: an untouched one folds as it always did."""
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc._edit_step(0)
+    assert doc.editor.scene == 1
+    doc.ladder._on_row_key(0, "enter")
+    assert doc.editor.scene is None
+    doc._edit_step(0)
+    _rowtool(doc, "Edit this step (click again to fold)", 0).click()
+    assert doc.editor.scene is None
+
+
+def test_the_inspector_buttons_say_what_they_do_in_two_words(doc):
+    """At 150% the Inspector's buttons elided to 'Check the ...' and 'Open the ....': the words
+    that say WHAT were the ones cut. The labels are short; the tooltip and the accessible name
+    keep the sentence."""
+    assert doc.stage_btn.text() in ("Check staging", "Check staging…") or \
+        doc.stage_btn._full == "Check staging"
+    assert doc.toml_btn._full == "Open .toml"
+    assert doc.stage_btn.accessibleName() == "Check that every cutscene walk can reach its target"
+    assert "walk" in doc.stage_btn.toolTip() and ".toml" in doc.toml_btn.toolTip()

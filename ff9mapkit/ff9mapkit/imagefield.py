@@ -1078,7 +1078,7 @@ def _zone_key(zone):
     vertex dropped), or None when it is not a quad of numbers."""
     try:
         pts = [(int(round(float(p[0]))), int(round(float(p[1])))) for p in zone]
-    except (TypeError, ValueError, IndexError):
+    except (TypeError, ValueError, IndexError, OverflowError):   # OverflowError: an inf corner
         return None
     if len(pts) == 5 and pts[-1] == pts[-2]:
         pts = pts[:4]

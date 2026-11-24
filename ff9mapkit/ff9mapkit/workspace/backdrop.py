@@ -139,12 +139,7 @@ class BackdropCanvas(QGraphicsView):
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setBackgroundBrush(QColor(palette["surface"]))
         self.setAccessibleName("Field backdrop")
-        self.setAccessibleDescription(
-            "The field's background art under its camera: click the floor to get an exact "
-            "world position; the dashed line is the camera's horizon, above which no floor "
-            "exists. From the keyboard, the arrow keys aim a crosshair (Shift moves it one "
-            "pixel), Enter or Space clicks there, Shift+F10 or the Menu key opens the menu of "
-            "what is under it, and Delete deletes that thing")
+        # its accessible description is set by _sync_hint: what a click does in THIS tool
         self._hint = QLabel("", self.viewport())   # the mode's own words: _sync_hint
         self._hint.setObjectName("backdropHint")   # selector-scoped (the round-9 census law)
         self._hint.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -162,6 +157,21 @@ class BackdropCanvas(QGraphicsView):
         self._hint.setText(self._hint_text())
         self._hint.show()
         self._place_hint()
+        self.setAccessibleDescription(self._describe())
+
+    def _describe(self):
+        """What this canvas is and how to drive it in the tool it is in, for a screen reader:
+        the pill's own first words, then the keys that answer here."""
+        what = self._hint_text().split(" · ")[0]
+        if self._cam is None:
+            return "The field's background art. " + what + "."
+        more = ("" if self._contact_mode else
+                "; Shift+F10 or the Menu key opens the menu of what is under it, and Delete "
+                "deletes that thing")
+        return (f"The field's background art under its camera: {what}. The dashed line is the "
+                f"camera's horizon, above which no floor exists. From the keyboard, the arrow "
+                f"keys aim a crosshair (Shift moves it one pixel) and Enter or Space clicks "
+                f"there{more}.")
 
     def _hint_text(self):
         if self._cam is None:
@@ -175,9 +185,11 @@ class BackdropCanvas(QGraphicsView):
             what = "click the floor's outline"
         else:
             what = "click the floor"
-        keys = ("\narrows aim · Enter clicks · Shift+F10 menu · Delete deletes"
-                if self._kb_hint else "")          # only for a canvas reached from the keyboard
-        return f"{what} · Ctrl+scroll zooms{keys}"
+        if not self._kb_hint:                      # the keys: only for a canvas reached from
+            return f"{what} · Ctrl+scroll zooms"   # the keyboard
+        # nothing in the Cut-outs tool has a menu or a Delete: do not promise them there
+        more = "" if self._contact_mode else " · Shift+F10 menu · Delete deletes"
+        return f"{what} · Ctrl+0 fits\narrows aim · Enter clicks{more}"
 
     # -- text + geometry (CALIBRE) --
     def _font(self, pt, bold=False):
@@ -923,8 +935,9 @@ class BackdropCanvas(QGraphicsView):
                 edge.setData(0, "regionedge")
                 edge.setData(1, i)
                 edge.setToolTip("the walk-out edge (drawn thick, with an arrow): the exit walks "
-                                "the player across this edge into the fade — right-click the zone "
-                                "to move it to the next edge")
+                                "the player across this edge into the fade"
+                                + ("" if locked else " — right-click the zone to move it to the "
+                                                     "next edge"))
                 self._region_edge_items[i] = edge
                 mx, my = (x0 + x1) / 2, (y0 + y1) / 2
                 cx = sum(p[0] for p in pts) / len(pts)
@@ -1547,7 +1560,11 @@ class BackdropCanvas(QGraphicsView):
         if event.isAutoRepeat():                   # a mouse cannot auto-repeat a click: a held key
             return True                            # acts once (only the arrows repeat)
         self._kb_note_keyboard()
-        if self._kb_pt is None:                    # the first key shows WHERE it would act
+        # The first key shows WHERE it would act -- and so does any key pressed while the
+        # crosshair is out of view (a Ctrl+wheel zoom and a pan leave it behind): _kb_move(0, 0)
+        # brings it back into view and nothing is clicked or deleted where nobody is looking.
+        if self._kb_pt is None or not self.viewport().rect().contains(
+                self._kb_viewport_pt().toPoint()):
             self._kb_move(0, 0)
         else:
             act()

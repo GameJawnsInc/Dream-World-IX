@@ -76,7 +76,7 @@ the **Test slot**, [S1](s1-fork-and-deploy.md)'s name for this same scratch id).
 
 A scene can also drive NPCs — walk them, turn them, have them speak — by naming them under
 **Cast** in **Settings**: the stage below the ladder then shows every walk on the room's
-floor, **Check the staging** (right column) warns about any walk that would stall the scene,
+floor, **Check staging** (right column) warns about any walk that would stall the scene,
 and **▶ Storyboard** scrubs the scene moment by moment (a moment is the steps that run
 together). Gated to story beats (**Requires beat** /
 **Then set beat**) a set of scenes becomes FF9's own story-event dispatch — one `[[cutscene]]`

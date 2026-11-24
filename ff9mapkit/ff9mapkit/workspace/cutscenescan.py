@@ -611,7 +611,7 @@ def storyboard(raw, base_dir, wmesh, scene_idx: int) -> dict:
         ]
         if wmesh is None and cast:
             out["notes"].insert(1, "no walkmesh loaded -- legs shown straight "
-                                   "(Check the staging routes them)")
+                                   "(Check staging routes them)")
     except Exception as e:                     # noqa: BLE001 -- worker material must never raise
         out["error"] = f"Could not build the storyboard -- {e}"
     return out

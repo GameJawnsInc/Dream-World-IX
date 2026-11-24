@@ -1106,7 +1106,7 @@ class CutsceneDoc(QWidget):
         # took that floor wider than the Inspector at 150% ("Check the stagi", cut at the edge).
         # Their floor is set in _yield_buttons, re-derived from the text-size dial.
         self.stage_btn = widgets.ElideButton("")
-        self._stage_label("Check the staging")
+        self._stage_label("Check staging")
         self.stage_btn.setToolTip(
             "Walk every cast scene against the field's walkmesh — a blocked leg paints on "
             "the stage at the exact spot, with the build's own sentence. Walkmesh from the "
@@ -1132,7 +1132,7 @@ class CutsceneDoc(QWidget):
         self.stage_list.itemActivated.connect(self._on_stage_item)   # Enter: the keyboard's click
         self.stage_list.setVisible(False)
         v.addWidget(self.stage_list, 1)
-        self.toml_btn = widgets.ElideButton("Open the .toml")
+        self.toml_btn = widgets.ElideButton("Open .toml")
         self.toml_btn.setProperty("role", "quiet")
         self.toml_btn.setToolTip("Open this field's .toml in your editor — every key the "
                                  "forms don't reach is authorable there.")
@@ -1537,12 +1537,12 @@ class CutsceneDoc(QWidget):
         st = self._steps()
         if not 0 <= i < len(st):
             return
+        if self._editor_refuses():                 # this row's own pencil (or Enter on it)
+            return                                 # would fold it, another's would load over it
         if (self.editor.scene is not None and self.editor.insert_at is None
                 and self.editor.step_i == i):
             self._close_editor()                   # reclicking the open row's Edit FOLDS it
             self._render()
-            return
-        if self._editor_refuses():                 # another row's pencil would load over it
             return
         if self.settings_btn.isChecked():
             self.settings_btn.setChecked(False)    # the accordion holds ONE panel at a time
@@ -1999,7 +1999,7 @@ class CutsceneDoc(QWidget):
         self._last_stage = res                     # the tests'/snaps' deterministic readback
         self._stage_busy = False
         self.stage_btn.setEnabled(True)
-        self._stage_label("Check the staging")
+        self._stage_label("Check staging")
         if wmesh is not None:
             self._wmesh = wmesh
             self._stage_armed = True
@@ -2086,7 +2086,7 @@ class CutsceneDoc(QWidget):
         self._stage_armed = False
         self._stage_busy = False
         self.stage_btn.setEnabled(True)
-        self._stage_label("Check the staging")
+        self._stage_label("Check staging")
         self.stage_note.setText("")
         widgets.set_state(self.stage_note, "")
         self.stage_list.clear()

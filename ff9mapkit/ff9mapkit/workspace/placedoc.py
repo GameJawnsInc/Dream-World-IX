@@ -1029,6 +1029,10 @@ class PlaceDoc(QWidget):
                                if isinstance(e, dict) and name and e.get("name") == name), None)
             if r["scene"] is not None or r["data_index"] is None:
                 r["label"] += " (Blender)"
+            if r["data_index"] is None:
+                # no field.toml row at all: EVERY gesture is refused (_scene_refusal), so the
+                # canvas must not offer one -- no grab cursor, no handles, no menu, no Delete
+                r["locked"] = self._scene_refusal(r, None)
         self._region_rows_cache = rows
         self.canvas.set_regions(self._region_rows_cache)
 

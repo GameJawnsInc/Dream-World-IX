@@ -2256,3 +2256,103 @@ def test_a_locked_zone_row_advertises_no_gesture_the_host_refuses(app, monkeypat
     wfree = c.viewportTransform().map(QPointF(270.0, 350.0))
     assert c._menu_target(QPoint(round(wfree.x()), round(wfree.y()))) == ("region", 1)
     assert not changed and not deleted and not opened
+
+
+# --------------------------------------------------------------- batch 5, after its final review
+def _zoom_and_pan_away(c, notches=10):
+    """Ctrl+wheel in, then scroll to the top-left corner: the mouse's ordinary way to look closer."""
+    from PySide6.QtCore import QPoint, QPointF as _QPF
+    from PySide6.QtGui import QWheelEvent
+    vp = c.viewport()
+    pos = _QPF(vp.width() / 2, vp.height() / 2)
+    for _ in range(notches):
+        ev = QWheelEvent(pos, _QPF(vp.mapToGlobal(pos.toPoint())), QPoint(0, 0), QPoint(0, 120),
+                         Qt.MouseButton.NoButton, Qt.KeyboardModifier.ControlModifier,
+                         Qt.ScrollPhase.NoScrollPhase, False)
+        QApplication.sendEvent(vp, ev)
+    c.horizontalScrollBar().setValue(c.horizontalScrollBar().minimum())
+    c.verticalScrollBar().setValue(c.verticalScrollBar().minimum())
+    QApplication.processEvents()
+
+
+def _cross_in_view(c):
+    return c.viewport().rect().contains(c._kb_viewport_pt().toPoint())
+
+
+@pytest.mark.parametrize("w", [501, 500])
+def test_a_key_never_acts_at_a_crosshair_the_view_has_left(app, w):
+    """Final review of batch 5: the crosshair is a document point, and after a Ctrl+wheel zoom and
+    a pan it can lie outside what the view shows -- where Delete removed a vertex and Enter added
+    one that the author could not see. A key acts only at a crosshair that is IN VIEW; otherwise
+    the press brings it back into view (the 'first key shows where' rule) and changes nothing."""
+    c, cam, calls = _trace_canvas(app)
+    c.resize(w, 560)
+    QApplication.processEvents()
+    _focus(c)
+    for spot in ((300.0, 400.0), (340.0, 430.0), (250.0, 430.0)):
+        _aim(c, spot)
+        _key(c, Qt.Key.Key_Return)
+    assert len(c.floor()) == 3
+    _aim(c, (340.0, 430.0))                             # ON vertex 1
+    _zoom_and_pan_away(c)
+    assert not _cross_in_view(c), "the fixture must scroll the crosshair out of view"
+    before, n = list(c.floor()), len(calls)
+    _key(c, Qt.Key.Key_Delete)
+    assert c.floor() == before and len(calls) == n, "Delete acted where the author is not looking"
+    assert _cross_in_view(c), "the press must bring the crosshair back into view"
+    _zoom_and_pan_away(c, notches=0)                    # pan away again
+    assert not _cross_in_view(c)
+    _key(c, Qt.Key.Key_Return)
+    assert c.floor() == before and len(calls) == n, "Enter acted where the author is not looking"
+    assert _cross_in_view(c)
+    _key(c, Qt.Key.Key_Delete)                          # in view now: the key acts
+    assert len(c.floor()) == 2
+
+
+def test_the_keyboard_pill_promises_only_what_the_tool_answers(app):
+    """The pill said 'Shift+F10 menu · Delete deletes' in the Cut-outs tool, where both do
+    nothing (nothing there has a menu), and named Ctrl+scroll on a line for keyboard users."""
+    c, _cam, _ = _trace_canvas(app)
+    _focus(c)
+    _key(c, Qt.Key.Key_Down)
+    assert "Shift+F10" in c._hint_text() and "Delete" in c._hint_text()
+    c.set_contact_mode(True)
+    _key(c, Qt.Key.Key_Down)
+    said = c._hint_text()
+    assert "arrows aim" in said and "Enter" in said
+    assert "Shift+F10" not in said and "Delete" not in said, said
+    assert "Ctrl+0" in said
+
+
+def test_the_canvas_describes_the_tool_it_is_in_to_a_screen_reader(app):
+    """Its accessible description said a click 'gets an exact world position' on every tab and
+    in every tool. It follows the tool's own words, like the pill."""
+    c, _cam, _ = _trace_canvas(app)
+    assert "floor's outline" in c.accessibleDescription()
+    assert "world position" not in c.accessibleDescription()
+    c.set_contact_mode(True)
+    assert "object's base" in c.accessibleDescription()
+    assert "arrow" in c.accessibleDescription().lower()
+    assert "Delete" not in c.accessibleDescription()    # nothing to delete in this tool
+    c.set_contact_mode(False)
+    c.set_trace_mode(False)
+    c.set_region_mode(True)
+    assert "4 corners" in c.accessibleDescription() and "Delete" in c.accessibleDescription()
+
+
+def test_a_locked_doors_walk_out_edge_offers_no_right_click(app):
+    """A locked row opens no menu, yet its walk-out edge still said 'right-click the zone to
+    move it to the next edge'."""
+    c, cam, _calls = _trace_canvas(app)
+    c.set_trace_mode(False)
+    c.set_region_mode(True)
+    quad = lambda cx: [IF.click_to_world(cam, p) for p in                      # noqa: E731
+                       ((cx - 30, 330), (cx + 30, 330), (cx + 30, 370), (cx - 30, 370))]
+    c.set_regions([
+        {"i": 0, "kind": "gateway", "label": "door0 (project)", "quad": quad(110), "warn": None,
+         "locked": "the project's own"},
+        {"i": 1, "kind": "gateway", "label": "door1", "quad": quad(270), "warn": None}])
+    QApplication.processEvents()
+    assert "right-click" not in c._region_edge_items[0].toolTip()
+    assert "walk-out edge" in c._region_edge_items[0].toolTip()
+    assert "right-click" in c._region_edge_items[1].toolTip()
