@@ -591,3 +591,17 @@ def test_every_op_returns_a_nonempty_label():
         cs.delete_scene(raw, 2),
     ]
     assert all(isinstance(x, str) and x for x in labels), labels
+
+
+def test_the_scene_settings_help_speaks_plain_words_first():
+    """C29: the Scene settings help led with engine names ('the DIRECTOR GATE: only plays when the
+    ScenarioCounter == this beat', 'pin THIS gEventGlobal bit'), and the staging summary said 'run
+    Check' beside a button titled 'Check the staging' -- a different action."""
+    for f in forms.CUTSCENE_SPEC:
+        head = f.help.split("(")[0].split(".")[0]
+        for word in ("DIRECTOR", "ScenarioCounter", "gEventGlobal", "=="):
+            assert word not in head, (f.key, f.help)
+    gate = next(f for f in forms.CUTSCENE_SPEC if f.key == "requires_scenario")
+    assert gate.help.startswith("only plays while the story is at this beat")
+    res = cs.StagingResult(scenes=1, cast_scenes=1, skipped=[("[cutscene]", "unknown marker")])
+    assert "run the toolbar Check" in res.summary()

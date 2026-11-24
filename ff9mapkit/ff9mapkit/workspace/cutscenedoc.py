@@ -1882,7 +1882,7 @@ class CutsceneDoc(QWidget):
             widgets.set_state(self.board_say, "error")
             self.board_pos.setText("")
             self.board_note.setFullText("the storyboard needs every name to resolve — "
-                                        "fix the step above, or run Check")
+                                        "fix the step above, or run the toolbar Check")
             self.ladder.set_beat_marks(())
             self.canvas.set_storyboard(None)
             return

@@ -55,7 +55,7 @@ class StagingResult:
         # walked is the false green this panel exists to prevent.
         if self.skipped:
             bits.append(f"{len(self.skipped)} scene{'' if len(self.skipped) == 1 else 's'} "
-                        f"NOT checked (unresolved names — run Check)")
+                        f"NOT checked (unresolved names — run the toolbar Check)")
         if bits:
             return " · ".join(bits) + f" across {scope}."
         return f"✓ Every walk in {scope} reaches its target."
