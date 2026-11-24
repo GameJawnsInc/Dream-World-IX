@@ -661,6 +661,23 @@ def test_a_reload_keeps_a_step_editor_whose_step_is_still_there(win, tmp_path):
     assert win._doc(_NAME).data["cutscene"]["steps"][0]["say"] == "typed, not yet applied"
 
 
+def test_trace_a_photo_sits_beside_new_field_in_the_menu_and_the_command_list(win):
+    """Finding T37: a newcomer looks under Field for 'make a field from a picture'. The Field menu
+    and Ctrl-K have it beside New Field, and it goes to the Trace tab (which stays on its rail)."""
+    acts = [a for a in win._field_btn.menu().actions() if not a.isSeparator()]
+    texts = [a.text() for a in acts]
+    i = next(k for k, t in enumerate(texts) if t.startswith("New Field"))
+    assert texts[i + 1] == "Trace a photo…", texts
+    acts[i + 1].trigger()
+    assert win.tabs.currentWidget() is win.trace_doc
+    win.tabs.setCurrentWidget(win.doc_scroll)
+    cmds = win._command_index()
+    labels = [c[0] for c in cmds]
+    assert labels[labels.index("New Field…") + 1] == "Trace a photo…", labels
+    cmds[labels.index("Trace a photo…")][2]()
+    assert win.tabs.currentWidget() is win.trace_doc
+
+
 def _drop(win, path, *, enter_only=False):
     """A real drag-enter / drop of one local file on the window, through Qt's own events."""
     from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl

@@ -1492,6 +1492,7 @@ class Workspace(QMainWindow):
         # Open. The keyboard shortcuts (below) are independent of the menus, so the keys still work directly.
         self._field_btn = self._menu_button(tb, "Field", "Create or open a standalone field", [
             ("New Field…   (Ctrl-N)", self.on_new_field),
+            ("Trace a photo…", lambda: self.tabs.setCurrentWidget(self.trace_doc)),   # T37
             ("Open Field…", self.on_open_field)])
         self._campaign_btn = self._menu_button(tb, "Campaign", "Create or open a campaign (a chain of fields)", [
             ("New Campaign…   (Ctrl-Shift-N)", self.on_new_campaign),
@@ -5535,6 +5536,7 @@ class Workspace(QMainWindow):
         always; a field's objects once it's been expanded)."""
         cmds = [
             ("New Field…", "command", self.on_new_field),
+            ("Trace a photo…", "command", lambda: self.tabs.setCurrentWidget(self.trace_doc)),
             ("New Campaign…", "command", self.on_new_campaign),
             ("New Journey…", "command", self.on_new_journey),
             ("Open Journey…", "command", self.on_open_journey),
