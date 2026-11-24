@@ -1526,3 +1526,17 @@ def test_a_name_carrying_a_path_is_never_past_the_name_rule(tmp_path, name):
     with pytest.raises(IF.ImageFieldError, match="letters, digits and underscores"):
         IF.build_image_field(photo, floor, out, name=name, field_id=30779)
     assert {q.name: q.read_bytes() for q in out.rglob("*") if q.is_file()} == before
+
+
+# --------------------------------------------------------------- batch 5, the second review
+def test_a_hand_row_with_an_infinite_corner_survives_a_regenerate(tmp_path):
+    """The merge keys every hand row by its zone; an inf corner raised OverflowError there too.
+    The row is none of the generator's: it is kept, byte for byte."""
+    pytest.importorskip("PIL")
+    toml, floor, _man = _merge_project(tmp_path)
+    row = ('\n[[gateway]]\nname = "far"\nto = 301\n'
+           'zone = [[0, 900], [inf, 900], [inf, 1000], [0, 1000]]\n')
+    toml.write_text(toml.read_text(encoding="utf-8") + row, encoding="utf-8")
+    _regen_merge(tmp_path, floor)
+    text = toml.read_text(encoding="utf-8")
+    assert 'name = "far"' in text and "inf" in text

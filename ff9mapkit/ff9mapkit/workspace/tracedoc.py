@@ -19,6 +19,7 @@ id box validates through ``pack.check_custom_id`` (the shared band validator, no
 from __future__ import annotations
 
 import io
+import math
 import sys
 from pathlib import Path
 
@@ -463,8 +464,13 @@ class TraceDoc(QWidget):
         def say(lb, parts, warn=False):
             lb.setText(" · ".join(p for p in parts if p))
             widgets.set_state(lb, "warn" if warn else "")
-        own_art = (self._image is not None and self._project is not None
-                   and self._image.name == "base.png" and self._image.parent.name == "art")
+        own_art = False
+        if self._image is not None and self._project is not None:
+            try:
+                own_art = (self._image.resolve()
+                           == (Path(self._project["out"]) / "art" / "base.png").resolve())
+            except OSError:
+                pass
         self.ins_photo.setText("No photo open" if self._image is None else
                                "Photo: the project's own art" if own_art else
                                f"Photo: {self._image.name}")
@@ -1072,7 +1078,10 @@ class TraceDoc(QWidget):
         shim = {"gateway": [], "event": []}
         back = {}
         bad = hidden = 0
-        for r in self._regions:
+        nth = {"gateway": 0, "event": 0}               # as on_generate numbers them: every row,
+        for r in self._regions:                        # drawn at this pitch or not
+            n = nth[r["kind"]]
+            nth[r["kind"]] += 1
             worlds = self._region_worlds(r["quad"])
             if any(w is None for w in worlds):
                 bad += 1
@@ -1081,9 +1090,8 @@ class TraceDoc(QWidget):
             kind = r["kind"]
             # the names Generate writes them under: the Editor shows these, and a door the
             # Place tab made is the one called door0
-            row = {"name": f"{imagefield.TRACED_GATEWAY_PREFIX}{len(shim['gateway'])}"
-                   if kind == "gateway"
-                   else f"{imagefield.TRACED_EVENT_PREFIX}{len(shim['event'])}", "zone": zone}
+            row = {"name": f"{imagefield.TRACED_GATEWAY_PREFIX}{n}" if kind == "gateway"
+                   else f"{imagefield.TRACED_EVENT_PREFIX}{n}", "zone": zone}
             if kind == "gateway":
                 row["to"] = r.get("to", 0)
                 if r.get("entrance"):
@@ -1123,8 +1131,8 @@ class TraceDoc(QWidget):
                 r["warn"] = None
                 # the tab refuses every gesture on it (_session_region), so the canvas must not
                 # offer one: no grab cursor, no handles, no menu
-                r["locked"] = ("the project's own — move, change or delete it in the Place tab "
-                               "or the Editor")
+                r["locked"] = ("That is the project's own, not this trace's — move, change or "
+                               "delete it in the Place tab or the Editor.")
         self._region_rows_cache = rows
         self.canvas.set_regions(rows)
 
@@ -1183,9 +1191,12 @@ class TraceDoc(QWidget):
                     z = [(float(p[0]), float(p[1])) for p in e.get("zone")]
                 except (TypeError, ValueError, IndexError):
                     continue
-                if len(z) not in (4, 5) or imagefield._zone_key(z) is None:
-                    continue                           # not four finite corners: nothing to draw
-                if (kind, imagefield._zone_key(z)) in twins:
+                if len(z) not in (4, 5) or not all(math.isfinite(c) for p in z for c in p):
+                    continue                           # an inf / nan corner: nothing to draw
+                # the merge retakes a twin only while it still has its pre-prefix NAME: a door
+                # the author renamed is theirs, kept beside the session's, so it is drawn
+                if (imagefield._is_pre_prefix_name(kind, e.get("name"))
+                        and (kind, imagefield._zone_key(z)) in twins):
                     continue
                 ctx.append({"kind": kind, "name": e.get("name"), "zone": z, "to": e.get("to"),
                             "entrance": e.get("entrance")})

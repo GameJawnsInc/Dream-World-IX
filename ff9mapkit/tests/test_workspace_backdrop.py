@@ -2356,3 +2356,38 @@ def test_a_locked_doors_walk_out_edge_offers_no_right_click(app):
     assert "right-click" not in c._region_edge_items[0].toolTip()
     assert "walk-out edge" in c._region_edge_items[0].toolTip()
     assert "right-click" in c._region_edge_items[1].toolTip()
+
+
+# --------------------------------------------------------------- batch 5, the second review
+def test_a_key_on_a_locked_zone_says_why_instead_of_doing_nothing(app):
+    """A locked zone has no menu and no Delete -- but a keyboard author never sees its tooltip,
+    and Delete or Shift+F10 on it did nothing at all. The key now says the host's reason, the
+    way a locked marker's Delete does."""
+    c, cam, _calls = _trace_canvas(app)
+    c.set_trace_mode(False)
+    c.set_region_mode(True)
+    quad = [IF.click_to_world(cam, p) for p in ((160, 330), (220, 330), (220, 370), (160, 370))]
+    why = "That is the project's own door — change it in the Place tab or the Editor."
+    c.set_regions([{"i": 0, "kind": "gateway", "label": "door0 (project)", "quad": quad,
+                    "warn": None, "locked": why}])
+    QApplication.processEvents()
+    said, deleted = [], []
+    c.click_refused.connect(said.append)
+    c.region_deleted.connect(deleted.append)
+    _focus(c)
+    _aim(c, (190.0, 350.0))
+    _key(c, Qt.Key.Key_Delete)
+    assert said == [why] and not deleted
+    _key(c, Qt.Key.Key_F10, Qt.KeyboardModifier.ShiftModifier)
+    assert said == [why, why]
+    _aim(c, (60.0, 420.0))                              # off the zone: nothing to say
+    _key(c, Qt.Key.Key_Delete)
+    assert said == [why, why]
+
+
+def test_a_canvas_with_no_camera_is_not_described_by_a_mouse_gesture(app):
+    """With no camera the description read 'The field's background art. Ctrl+scroll zooms.'"""
+    c = BackdropCanvas(pick_palette("dark"))
+    said = c.accessibleDescription()
+    assert "background art" in said and "scroll" not in said, said
+    assert "Ctrl+0" in said

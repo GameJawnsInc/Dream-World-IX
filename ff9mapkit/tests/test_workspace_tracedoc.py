@@ -2499,7 +2499,8 @@ def test_a_field_that_is_not_a_trace_project_keeps_the_opening_teach_first(app, 
     plain.write_text('[field]\nid = 4003\nname = "X"\narea = 11\n', encoding="utf-8")
     doc.offer_project(plain)
     said = doc.status.text()
-    assert said.startswith(teach) and "plain.field.toml (the open field) was not loaded here" in said, said
+    assert teach == ""                                  # the centred prompt says it now
+    assert said.startswith("plain.field.toml (the open field) was not loaded here"), said
 
 
 def test_a_stopped_regenerate_says_stopped(app, tmp_path, monkeypatch):
@@ -2970,3 +2971,91 @@ def test_a_project_reopened_from_its_own_art_does_not_call_it_the_photo(app, tmp
     doc, _run = _doc(app)
     doc.load_project(Path(man["toml"]), sidecar=False)
     assert doc.ins_photo.fullText() == "Photo: the project's own art", doc.ins_photo.fullText()
+
+
+# --------------------------------------------------------------- batch 5, the second review
+def _hall_with(tmp_path, extra_toml, name="HALL", fid=30798):
+    from PIL import Image
+    from ff9mapkit import imagefield as IF
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
+    man = IF.build_image_field(photo, [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0),
+                                       (20.0, 440.0)], tmp_path / "proj", name=name,
+                               field_id=fid)
+    toml = Path(man["toml"])
+    toml.write_text(toml.read_text(encoding="utf-8") + extra_toml, encoding="utf-8")
+    return toml
+
+
+def test_a_five_corner_zone_of_the_project_is_still_drawn(app, tmp_path):
+    """The skip for a zone with an infinite corner tested the QUAD key, which is also None for
+    any honest five-corner zone -- the build accepts those, and the canvas stopped drawing them."""
+    pytest.importorskip("PIL")
+    toml = _hall_with(tmp_path, '\n[[gateway]]\nname = "five"\nto = 301\n'
+                      'zone = [[-500, 900], [-400, 900], [-350, 950], [-400, 1000], [-500, 1000]]\n')
+    doc, _run = _doc(app)
+    doc.load_project(toml)
+    assert [c.get("name") for c in doc._context] == ["five"]
+
+
+def test_a_project_whose_camera_table_cannot_make_a_camera_still_opens(app, tmp_path):
+    """The twin test reads the camera the file records; fov = 0 raised ZeroDivisionError out of
+    it and a project that used to open no longer did."""
+    pytest.importorskip("PIL")
+    from ff9mapkit import imagefield as IF
+    assert IF._camera_of({"camera": {"pitch": 26, "distance": 3000, "fov": 0}}) is None
+    toml = _old_project_with_its_own_door(tmp_path)
+    import re
+    toml.write_text(re.sub(r"fov = [0-9.]+", "fov = 0", toml.read_text(encoding="utf-8"), count=1),
+                    encoding="utf-8")
+    assert "fov = 0" in toml.read_text(encoding="utf-8")
+    doc, _run = _doc(app)
+    doc.load_trace(toml.parent / "room.trace.json")
+    assert doc._project is not None and len(doc._regions) == 1
+    assert "Could not open" not in doc.status.text()
+
+
+def test_a_door_the_author_renamed_is_not_taken_for_the_sessions_twin(app, tmp_path):
+    """The regenerate merge retakes a pre-prefix row only when it is still NAMED door0 / zone0.
+    The canvas hid ANY row with the session's quad, so a door the author had renamed in the
+    Editor vanished from the canvas and the regenerate then kept it beside a new traced one."""
+    pytest.importorskip("PIL")
+    toml = _old_project_with_its_own_door(tmp_path)
+    toml.write_text(toml.read_text(encoding="utf-8").replace('name = "door0"', 'name = "exit"'),
+                    encoding="utf-8")
+    doc, _run = _doc(app)
+    doc.load_trace(toml.parent / "room.trace.json")
+    assert [c.get("name") for c in doc._context] == ["exit"]
+
+
+def test_an_authors_own_photo_called_base_png_is_not_the_projects_art(app, tmp_path, monkeypatch):
+    pytest.importorskip("PIL")
+    from PIL import Image
+    art = tmp_path / "art"
+    art.mkdir()
+    Image.new("RGB", (800, 600), (90, 80, 70)).save(art / "base.png")
+    doc, run = _doc(app)
+    doc.load_image(art / "base.png")
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    doc.id_box.setText("30799")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path / "out"))
+    doc.on_generate()
+    assert doc._project is not None
+    assert doc.ins_photo.fullText() == "Photo: base.png", doc.ins_photo.fullText()
+
+
+def test_a_door_hidden_above_the_horizon_does_not_renumber_the_next_one(app, tmp_path):
+    """The canvas names a traced row as Generate writes it -- by its place among ALL the
+    session's rows of its kind. Counting only the rows that can be drawn gave the second door
+    the first one's name whenever the first was hidden."""
+    pytest.importorskip("PIL")
+    doc, _run = _doc(app)
+    doc.load_image(_photo(tmp_path))
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    doc._regions.append({"kind": "gateway", "to": 4001, "entrance": 0, "message": "...",
+                         "quad": [(60.0, -900.0), (100.0, -900.0), (100.0, -870.0), (60.0, -870.0)]})
+    doc._regions.append({"kind": "gateway", "to": 4002, "entrance": 0, "message": "...",
+                         "quad": [(160.0, 300.0), (200.0, 300.0), (200.0, 330.0), (160.0, 330.0)]})
+    doc._refresh_regions()
+    labels = [str(r.get("label")) for r in doc.canvas._regions]
+    assert len(labels) == 1 and labels[0].startswith("traced_door1"), labels

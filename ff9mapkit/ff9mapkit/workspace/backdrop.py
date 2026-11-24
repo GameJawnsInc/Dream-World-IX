@@ -164,7 +164,8 @@ class BackdropCanvas(QGraphicsView):
         the pill's own first words, then the keys that answer here."""
         what = self._hint_text().split(" · ")[0]
         if self._cam is None:
-            return "The field's background art. " + what + "."
+            return ("The field's background art. It has no camera yet, so nothing here can be "
+                    "clicked; Ctrl+0 fits it to the view.")
         more = ("" if self._contact_mode else
                 "; Shift+F10 or the Menu key opens the menu of what is under it, and Delete "
                 "deletes that thing")
@@ -1625,13 +1626,34 @@ class BackdropCanvas(QGraphicsView):
         """The Menu key / Shift+F10: the right-click handler at the crosshair."""
         from PySide6.QtGui import QContextMenuEvent
         p = self._kb_viewport_pt().toPoint()
+        if self._kb_says_locked(p):
+            return
         self.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Reason.Keyboard, p,
                                                 self.viewport().mapToGlobal(p)))
+
+    def _kb_says_locked(self, pos) -> bool:
+        """A locked zone has no menu and no Delete, and a keyboard author never sees the tooltip
+        that says why: when the key lands on one (and on nothing it could act on), say the
+        host's reason through the canvas's own refusal signal -- as a locked marker's Delete
+        does through its host."""
+        if not self._region_mode or self._pending_region or self._menu_target(pos) is not None:
+            return False
+        for it in self.items(pos):
+            for tag in ("regionquad", "regionedge", "regionlabel"):
+                ri = self._resolve_data(it, tag)
+                why = (self._region_row(int(ri)) or {}).get("locked") if ri is not None else None
+                if why:
+                    self.click_refused.emit(str(why))
+                    return True
+        return False
 
     def _kb_delete(self):
         """Delete: the Delete of the menu of what is under the crosshair. A marker's is always
         sent: the host owns that delete and says why when it refuses one (a locked marker)."""
-        t = self._menu_target(self._kb_viewport_pt().toPoint())
+        p = self._kb_viewport_pt().toPoint()
+        if self._kb_says_locked(p):
+            return
+        t = self._menu_target(p)
         kind, i = t or (None, None)
         if kind == "vertex":
             self._delete_vertex(i)

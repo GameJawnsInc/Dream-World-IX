@@ -1092,8 +1092,8 @@ def _camera_of(existing):
     try:
         return _guide.make_camera(float(cam["pitch"]), float(cam["distance"]),
                                   fov_x_deg=float(cam["fov"]), range_wh=(CANVAS_W, CANVAS_H))
-    except (TypeError, KeyError, ValueError):
-        return None
+    except (TypeError, KeyError, ValueError, ZeroDivisionError, OverflowError):
+        return None                                # (fov = 0 or 180 divides by zero)
 
 
 def _is_generated_layer(image) -> bool:
