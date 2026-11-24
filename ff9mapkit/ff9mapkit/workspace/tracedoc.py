@@ -325,7 +325,8 @@ class TraceDoc(QWidget):
         self.fg_show.toggled.connect(lambda _on: self._refresh_cutouts())
         fg_row.addWidget(self.fg_show)
         self.undo_btn = QPushButton("Undo")
-        self.undo_btn.setToolTip("Take back the last gesture (a vertex, cut-out or region).")
+        self.undo_btn.setToolTip("Take back the last gesture (a vertex, cut-out or region). A "
+                                 "pitch change is not undone — slide the pitch back instead.")
         self.undo_btn.clicked.connect(self.on_undo)
         fg_row.addWidget(self.undo_btn)
         # ONE fixed label: 'Clear regions' spilled Undo/Clear onto a second line in Regions mode,
@@ -906,8 +907,10 @@ class TraceDoc(QWidget):
         try:
             quad_px = [tuple(round(v, 1) for v in imagefield.world_to_click(cam, w))
                        for w in quad_world]
-        except imagefield.ImageFieldError:
-            return                                     # a corner behind the camera: keep the old quad
+        except imagefield.ImageFieldError:             # a corner behind the camera: keep the old
+            self._refresh("That reshape put a corner where the camera cannot see it — the zone "   # quad,
+                          "kept its old shape. Drag the corner lower on the photo.", "warn")      # and say so
+            return
         self._push_history()
         self._regions[self._region_back[i]]["quad"] = quad_px
         self._refresh_regions()

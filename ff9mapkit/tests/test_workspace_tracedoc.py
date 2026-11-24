@@ -166,6 +166,33 @@ def test_an_off_frame_horizon_says_where_it_is(app, tmp_path):
     assert "horizon y" in doc.pitch_label.text()
 
 
+def test_the_undo_tooltip_says_a_pitch_change_is_not_undone(app):
+    """Finding T11: Undo walks gestures, not the pitch slider -- moving the pitch and pressing
+    Undo takes back the last vertex instead. The tooltip says so."""
+    doc, _ = _doc(app)
+    tip = doc.undo_btn.toolTip()
+    assert "pitch" in tip.lower() and "not" in tip
+
+
+def test_a_refused_region_reshape_says_why(app, tmp_path):
+    """A reshape whose corner lands behind the camera keeps the old zone; it used to say nothing."""
+    pytest.importorskip("PIL")
+    from ff9mapkit import imagefield as IF
+    doc, _ = _traced_doc(app, tmp_path)
+    doc.tools.set_current("regions")
+    doc.gw_to.setValue(4005)
+    cam = doc.canvas.camera()
+    quad = [IF.click_to_world(cam, p) for p in
+            [(60.0, 300.0), (140.0, 300.0), (140.0, 330.0), (60.0, 330.0)]]
+    doc._on_region_drawn(quad)
+    before, steps = [list(r["quad"]) for r in doc._regions], len(doc._history)
+    behind = list(quad)
+    behind[2] = (0.0, -1.0e7)                         # a corner far behind the camera
+    doc._on_region_changed(0, behind)
+    assert [r["quad"] for r in doc._regions] == before and len(doc._history) == steps
+    assert "kept" in doc.status.text() and doc.status.property("state") == "warn"
+
+
 def test_undo_and_clear_are_host_history(app, tmp_path):
     pytest.importorskip("PIL")
     doc, _ = _doc(app)
