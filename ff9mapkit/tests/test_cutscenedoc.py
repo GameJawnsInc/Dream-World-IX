@@ -1430,6 +1430,40 @@ def test_a_gesture_never_throws_away_an_unapplied_line(doc, tmp_path, gesture):
     assert doc._steps()[0]["say"] == "Dusk falls, half-typed"
 
 
+def _in_view(doc, w):
+    from PySide6.QtCore import QPoint
+    vp = doc._lscroll.viewport()
+    y = w.mapTo(vp, QPoint(0, 0)).y()
+    return 0 <= y and y + min(w.height(), 30) <= vp.height()
+
+
+def test_opening_a_step_shows_the_editors_header_and_the_row_it_edits(doc, tmp_path):
+    """C18: the editor (taller than the ladder pane) was CENTRED, so Apply/Close and the row
+    being edited scrolled away. A relation, not a pixel claim: the row above the editor and the
+    Apply button must both lie inside the viewport (pixels: tools/gui_snap.py cutscene:editor)."""
+    from PySide6.QtCore import Qt as _Qt
+    toml = FIELD_TOML.replace('  { say = "Made it to the altar.", speaker = "Cid" },\n',
+                              '  { say = "Made it to the altar.", speaker = "Cid" },\n'
+                              + "".join(f'  {{ say = "line {n}" }},\n' for n in range(10)))
+    doc.setAttribute(_Qt.WidgetAttribute.WA_DontShowOnScreen)
+    doc.resize(1000, 520)
+    doc.show()
+    _fed(doc, tmp_path, toml)
+    QApplication.processEvents()
+    for i in (9, 2, 12):
+        _rowtool(doc, "Edit this step (click again to fold)", i).click()
+        QApplication.processEvents()
+        lay = doc.ladder._lay
+        row = lay.itemAt(lay.indexOf(doc.editor) - 1).widget()
+        assert _in_view(doc, row), f"step {i}: the row being edited scrolled away"
+        assert _in_view(doc, doc.editor.apply_btn), f"step {i}: Apply is off screen"
+    doc.editor.value_text.setPlainText("half-typed")   # C11's refusal brings the editor back too
+    doc._lscroll.verticalScrollBar().setValue(0)
+    _rowtool(doc, "Remove this step (Ctrl+Z undoes)", 0).click()
+    QApplication.processEvents()
+    assert "Apply" in doc.editor.note.text() and _in_view(doc, doc.editor.apply_btn)
+
+
 def test_a_clean_editor_still_closes_for_a_structural_edit(doc, tmp_path):
     _fed(doc, tmp_path)
     for i in range(3):                                 # every fixture step opens CLEAN

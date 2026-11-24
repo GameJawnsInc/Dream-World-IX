@@ -1339,7 +1339,27 @@ class CutsceneDoc(QWidget):
             self._vsplit.setSizes([total - canvas, canvas])
 
     def _reveal_editor(self):
-        self._lscroll.ensureWidgetVisible(self.editor, 0, 40)
+        """Bring the editor into view TOP FIRST, with the row above it (the line being edited, or
+        the one an add lands after): Apply/Close and the conversation. A panel taller than the
+        viewport is never centred -- that scrolled its header and its row away. Otherwise the
+        least scroll that shows the whole panel. Deferred: the rows were just rebuilt, and their
+        geometry exists only once the layout has run."""
+        QTimer.singleShot(0, self._scroll_to_editor)
+
+    def _scroll_to_editor(self):
+        lay = self.ladder._lay
+        idx = lay.indexOf(self.editor)
+        if self.editor.scene is None or idx < 0:
+            return                                 # closed (or moved off) before the layout ran
+        from PySide6.QtCore import QCoreApplication, QEvent
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.LayoutRequest)   # a first seat's rows
+        above = lay.itemAt(idx - 1).widget() if idx > 0 else None
+        top = (above if above is not None else self.editor).y() - 8
+        bottom = self.editor.geometry().bottom() + 8
+        sb = self._lscroll.verticalScrollBar()
+        vh = self._lscroll.viewport().height()
+        lo, hi = bottom - vh, max(0, top)
+        sb.setValue(hi if lo > hi else max(lo, min(sb.value(), hi)))
 
     def _close_editor(self):
         self.editor.hide()                         # hidden takes no space; the next refill lifts it
