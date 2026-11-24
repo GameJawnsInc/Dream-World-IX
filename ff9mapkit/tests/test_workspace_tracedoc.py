@@ -2455,6 +2455,22 @@ def test_detect_floor_says_why_in_the_tabs_words_when_it_finds_none(app, tmp_pat
     assert doc._floor == [] and doc._history == []
 
 
+def test_detect_floor_on_a_photo_moved_since_it_opened_says_so(app, tmp_path):
+    """Review of T33: auto_floor re-reads the photo; one moved away raised FileNotFoundError out
+    of the slot and the status stayed on 'Detecting the floor…'."""
+    pytest.importorskip("numpy")
+    doc, _run = _doc(app)
+    p = _room_photo(tmp_path)
+    doc.load_image(p)
+    p.unlink()
+    doc.detect_btn.click()
+    said = doc.status.text()
+    assert said.startswith("⚠ No floor found — could not read room-photo.png"), said
+    assert doc.status.property("state") == "warn" and doc._floor == []
+    from PySide6.QtGui import QGuiApplication
+    assert QGuiApplication.overrideCursor() is None
+
+
 def test_detect_floor_without_numpy_is_disabled_and_says_why(app, tmp_path, monkeypatch):
     import importlib.util
     real = importlib.util.find_spec
@@ -2496,6 +2512,13 @@ def test_a_stopped_regenerate_says_stopped(app, tmp_path, monkeypatch):
     said = doc.status.text()
     assert "Regenerate stopped" in said and "failed" not in said, said
     assert doc.status.property("state") == "warn" and not doc._stamped
+    doc.on_generate()                                  # stopped AFTER the toml was rewritten
+    toml.write_text(toml.read_text(encoding="utf-8") + "\n# rewritten by the job\n",
+                    encoding="utf-8")
+    run.calls[-1][1]["on_finished"](1)
+    said = doc.status.text()
+    assert "was written to" in said and "job was stopped before it finished" in said, said
+    assert "reported an error" not in said, said
 
 
 # --------------------------------------------------------------------------- T35: the empty canvas
@@ -2570,7 +2593,10 @@ def test_the_inspector_summary_follows_the_session(app, tmp_path, monkeypatch):
     assert doc.ins_proj.fullText() == "Folder: photo-field"
     assert doc.ins_proj.toolTip() == str(tmp_path / "photo-field")
     assert doc.ins_stamp.text() == "The last Generate has seen every change."
-    assert "Deploy (F9)" in doc.ins_next.text()
+    name = doc._project["name"]                          # F9 deploys the shell's open field, so
+    assert doc.ins_next.text() == (f"{name} is up to date. To play it, open {name}.field.toml "
+                                   f"in the Editor (Field → Open Field…), then press Deploy (F9)."
+                                   ), doc.ins_next.text()   # the step says how to aim it here
     doc.canvas._commit_floor([(100, 110), (280, 100), (280, 430), (100, 430)])
     assert doc.ins_stamp.text().startswith("⚠ Changed since") and "Regenerate" in doc.ins_next.text()
     said = doc.status.text()                             # the stamp IS the next step: said once
@@ -2621,6 +2647,8 @@ def test_a_traced_door_over_the_projects_own_is_judged_by_the_overlap_law(app, t
     assert all(r["warn"] is None for r in ctx)          # judged for overlap, nothing else
     doc._refresh()
     assert "1 with law warnings" in doc.status.text(), doc.status.text()
+    zones = doc.ins_zones.text()                        # the trace's row, never the project's too
+    assert "⚠ 1 with law warnings" in zones and "2 with law" not in zones, zones
 
 
 def test_the_projects_own_rows_refuse_every_gesture_and_say_where(app, tmp_path, monkeypatch):
@@ -2694,6 +2722,10 @@ def test_a_project_row_out_of_view_at_this_pitch_is_said(app, tmp_path):
     assert "1 of the project's own" in doc.status.text(), doc.status.text()
     doc._refresh()
     assert "1 of the project's own" in doc.status.text(), doc.status.text()
+    zones = doc.ins_zones.text()
+    assert "the project has 3 more of its own · ⚠ 1 of those cannot be drawn at this pitch" \
+        in zones, zones
+    assert doc.ins_zones.property("state") == "warn"
 
 
 def test_a_pre_prefix_door_the_session_reemits_is_not_drawn_twice(app, tmp_path):
@@ -2718,6 +2750,64 @@ def test_a_pre_prefix_door_the_session_reemits_is_not_drawn_twice(app, tmp_path)
         "regions": [{"kind": "gateway", "to": 4005, "entrance": 0, "message": "...",
                      "quad": [[60, 300], [140, 300], [140, 330], [60, 330]]}],
         "name": "OLD", "id": "30795"}), encoding="utf-8")
+    from ff9mapkit.editor.model import FieldDoc
+    from ff9mapkit.workspace import placedoc
+    fd = FieldDoc.load(toml)                           # and a door the Place tab added since
+    placedoc.place_gateway(fd.data, [(-500, 900), (-400, 900), (-400, 1000), (-500, 1000)], 301)
+    fd.save()
+    placed = fd.data["gateway"][-1]["name"]
     doc, _run = _doc(app)
     doc.load_project(toml)
-    assert len(doc._regions) == 1 and _ctx_rows(doc) == []
+    assert len(doc._regions) == 1                      # the twin is the session's ...
+    assert [r["label"].split(" (project)")[0] for r in _ctx_rows(doc)] == [placed]   # ... not this
+
+
+def _record_project_with_a_place_door(tmp_path):
+    """A traced project (a traced_ door) the Place tab gave one door of its own, and its
+    .trace.json record: (photo, record, the Place door's name)."""
+    import json
+    from PIL import Image
+    from ff9mapkit import imagefield as IF
+    from ff9mapkit.editor.model import FieldDoc
+    from ff9mapkit.workspace import placedoc
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
+    floor = [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)]
+    man = IF.build_image_field(photo, floor, tmp_path / "proj", name="REC", field_id=30796,
+                               gateways=["4005@60,300;140,300;140,330;60,330"])
+    fd = FieldDoc.load(man["toml"])
+    placedoc.place_gateway(fd.data, [(-500, 900), (-400, 900), (-400, 1000), (-500, 1000)], 301)
+    fd.save()
+    record = Path(man["toml"]).parent / "room.trace.json"
+    record.write_text(json.dumps({
+        "image": str(photo), "upright": True, "pitch": int(IF.DEFAULT_PITCH),
+        "floor": [list(p) for p in floor], "fg": [],
+        "regions": [{"kind": "gateway", "to": 4005, "entrance": 0, "message": "...",
+                     "quad": [[60, 300], [140, 300], [140, 330], [60, 330]]}],
+        "name": "REC", "id": "30796"}), encoding="utf-8")
+    return photo, record, fd.data["gateway"][-1]["name"]
+
+
+def test_a_project_reopened_from_its_record_draws_its_own_rows(app, tmp_path):
+    """Review of E12: reopening from the .trace.json -- the usual way back in -- must draw the
+    project's own door too, and only it (the traced_ door is the session's)."""
+    pytest.importorskip("PIL")
+    _photo_, record, placed = _record_project_with_a_place_door(tmp_path)
+    doc, _run = _doc(app)
+    doc.open_path(str(record))
+    assert len(doc._regions) == 1
+    assert [r["label"] for r in _ctx_rows(doc)] == [f"{placed} (project) → 301"], \
+        [r["label"] for r in doc._region_rows_cache]
+
+
+def test_a_new_photo_drops_the_last_projects_own_rows(app, tmp_path):
+    """Review of E12: another project's doors mean nothing on new art -- never drawn there, never
+    judged by the overlap law against what the author traces next."""
+    pytest.importorskip("PIL")
+    _photo_, record, _placed = _record_project_with_a_place_door(tmp_path)
+    doc, _run = _doc(app)
+    doc.open_path(str(record))
+    assert _ctx_rows(doc)
+    doc.load_image(_photo(tmp_path))
+    assert doc._context == [] and doc.canvas._regions == []
+    assert "of its own" not in doc.ins_zones.text()

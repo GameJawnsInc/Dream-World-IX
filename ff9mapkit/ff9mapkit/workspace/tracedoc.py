@@ -485,8 +485,8 @@ class TraceDoc(QWidget):
                           f"⚠ {fg_invalid} with an invalid contact" if fg_invalid else "",
                           f"⚠ {plural(fg_unattached, 'PNG')} missing" if fg_unattached else ""],
             warn=bool(fg_invalid or fg_unattached))
-        warned = sum(1 for r, row in zip(self._region_rows_cache, self._region_back)
-                     if r.get("warn") and not self._is_context(row))
+        # a project row never carries a verdict (_refresh_regions drops it): the status's own count
+        warned = sum(1 for r in self._region_rows_cache if r.get("warn"))
         say(self.ins_zones,
             [f"Zones: {len(self._regions)}",
              f"⚠ {plural(rg_untargeted, 'door')} without a target" if rg_untargeted else "",
@@ -680,8 +680,10 @@ class TraceDoc(QWidget):
             nxt = tip
         elif unstamped:
             nxt = f"Regenerate {self._project['name']} to update the project."
-        elif self._project:
-            nxt = "Press Deploy (F9) to put the field in the game."
+        elif self._project:                            # F9 deploys the field the EDITOR has open,
+            name = self._project["name"]               # which need not be this one: say how to aim it
+            nxt = (f"{name} is up to date. To play it, open {name}.field.toml in the Editor "
+                   f"(Field → Open Field…), then press Deploy (F9).")
         else:
             nxt = "Generate the field project."
         self._refresh_instruments(good, bad, crossed, fg_invalid, fg_unattached, rg_untargeted,
@@ -979,6 +981,9 @@ class TraceDoc(QWidget):
                                          fov=self._fov, distance=self._distance)
         except imagefield.ImageFieldError as e:
             self._refresh(f"⚠ No floor found — {self._authors_words(e)}", "warn")
+            return
+        except (OSError, ValueError) as e:            # it re-reads the photo: moved, or unreadable
+            self._refresh(f"⚠ No floor found — could not read {self._image.name}: {e}", "warn")
             return
         finally:
             QGuiApplication.restoreOverrideCursor()

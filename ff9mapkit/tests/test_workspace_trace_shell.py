@@ -750,6 +750,24 @@ def test_the_other_dropped_kinds_still_open_where_they_did(win, tmp_path):
     assert _NAME in win.member_paths
 
 
+def test_the_next_step_never_sends_f9_at_a_field_it_would_not_deploy(win, tmp_path):
+    """Review of T41: a reopened project's NEXT said 'Press Deploy (F9)', but F9 deploys the
+    field the shell has open -- here ANOTHER one. The step names how to aim F9 at this project."""
+    photo, toml = _project(tmp_path)
+    other = IF.build_image_field(photo, _FLOOR, tmp_path / "other", name="OTHER", field_id=30791)
+    win.open_field(Path(other["toml"]))
+    win.tabs.setCurrentWidget(win.trace_doc)
+    td = win.trace_doc
+    td.open_path(str(toml))                            # Trace's own Open, not the shell's
+    assert Path(win._deploy_target()) == Path(other["toml"])   # what F9 would deploy
+    nxt = td.ins_next.text()
+    td._refresh()                                      # past the reopen note: the next step alone
+    assert td.status.text() == nxt
+    for said in (nxt, td.status.text()):
+        assert not said.startswith("Press Deploy"), said
+        assert f"open {_NAME}.field.toml in the Editor" in said and "Deploy (F9)" in said, said
+
+
 def test_the_trace_summary_docks_in_the_inspector_and_leaves_with_the_tab(win):
     """Finding T41: the Inspector column was empty on Trace. The tab's summary docks there while
     Trace shows, the ordinary card hides under it, and leaving -- for the Editor, or straight for
