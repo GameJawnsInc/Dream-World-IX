@@ -827,7 +827,8 @@ def test_pick_on_the_stage_shows_it_is_armed_and_never_outlives_its_step(doc, tm
     doc.editor.pick_btn.click()
     doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("teleport"))
     assert not armed(), "a kind change left it armed"
-    doc.editor.pick_btn.click()
+    doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("walk"))   # clean again (C11:
+    doc.editor.pick_btn.click()                        # a changed step refuses Add instead)
     doc._add_step()
     assert not armed(), "Add step left it armed"
 
@@ -1337,6 +1338,75 @@ def test_adding_or_duplicating_a_scene_closes_the_step_editor(doc, tmp_path):
         assert doc.editor.scene is not None
         act()
         assert doc.editor.scene is None, f"{act.__name__} left the step editor open"
+
+
+def _rowtool(doc, glyph_tip, i):
+    """The real ladder button (rowtools are named '<tip> — step <i>')."""
+    from PySide6.QtWidgets import QPushButton
+    name = f"{glyph_tip} — step {i}"
+    hits = [b for b in doc.ladder.findChildren(QPushButton) if b.accessibleName() == name]
+    assert len(hits) == 1, name
+    return hits[0]
+
+
+_GESTURES = {
+    "move up": lambda doc: _rowtool(doc, "Move this step up", 1).click(),
+    "duplicate": lambda doc: _rowtool(doc, "Duplicate this step", 1).click(),
+    "delete": lambda doc: _rowtool(doc, "Remove this step (Ctrl+Z undoes)", 1).click(),
+    "pencil on another row": lambda doc: _rowtool(doc, "Edit this step (click again to fold)",
+                                                  1).click(),
+    "add a step": lambda doc: doc.add_step_btn.click(),
+    "another scene": lambda doc: doc.rail.setCurrentRow(0),
+    "delete the scene": lambda doc: doc.del_scene_btn.click(),
+    "add a scene": lambda doc: doc.add_scene_btn.click(),
+    "duplicate the scene": lambda doc: doc.dup_scene_btn.click(),
+}
+
+
+@pytest.mark.parametrize("gesture", list(_GESTURES))
+def test_a_gesture_never_throws_away_an_unapplied_line(doc, tmp_path, gesture):
+    """C11: the row tools, a scene switch, a scene delete and the pencil on another row closed
+    the step editor (or loaded another step over it) and the half-typed line was gone. A DIRTY
+    editor now refuses the gesture and says how to go on; nothing changes."""
+    raw, _ = _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)                          # [say "Dusk…", wait 30]
+    doc._edit_step(0)
+    doc.editor.value_text.setPlainText("Dusk falls, half-typed")
+    before = copy.deepcopy(doc._raw)
+    _GESTURES[gesture](doc)
+    assert doc._raw == before, f"{gesture} changed the document under a dirty editor"
+    assert doc._scene == 1 and doc.rail.currentRow() == 1
+    assert doc.editor.scene == 1 and doc.editor.step_i == 0, f"{gesture} closed the editor"
+    assert doc.editor.value_text.toPlainText() == "Dusk falls, half-typed"
+    assert "Apply" in doc.editor.note.text() and "Close" in doc.editor.note.text()
+    doc._apply_step()                                  # the line was kept for this
+    assert doc._steps()[0]["say"] == "Dusk falls, half-typed"
+
+
+def test_a_clean_editor_still_closes_for_a_structural_edit(doc, tmp_path):
+    _fed(doc, tmp_path)
+    for i in range(3):                                 # every fixture step opens CLEAN
+        doc._edit_step(i)
+        assert not doc._editor_dirty(), doc._steps()[i]
+    _rowtool(doc, "Move this step down", 0).click()
+    assert doc.editor.scene is None, "a clean editor closes, as before"
+    assert forms.step_key(doc._steps()[1]) == "walk"
+
+
+def test_an_add_lane_with_typing_or_an_unreadable_value_counts_as_unapplied(doc, tmp_path):
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc.add_step_btn.click()
+    assert not doc._editor_dirty(), "an empty add lane is clean"
+    doc.editor.value_text.setPlainText("a")
+    _rowtool(doc, "Move this step down", 0).click()
+    assert forms.step_key(doc._steps()[0]) == "say", "refused"
+    doc.editor.value_text.clear()
+    doc._close_editor()
+    doc._edit_step(0)
+    doc.editor.x_duration.setText("soon")               # read_step raises: still the author's typing
+    _rowtool(doc, "Move this step down", 0).click()
+    assert forms.step_key(doc._steps()[0]) == "say" and doc.editor.scene == 1
 
 
 def test_a_check_that_was_running_while_the_scenes_changed_paints_nothing(doc, tmp_path):

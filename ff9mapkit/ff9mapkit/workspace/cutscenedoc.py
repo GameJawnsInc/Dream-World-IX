@@ -28,6 +28,7 @@ this doc never composes an undo label and never touches a file.
 
 from __future__ import annotations
 
+import copy
 import threading
 
 from PySide6.QtCore import Qt, Signal, QTimer
@@ -1116,6 +1117,11 @@ class CutsceneDoc(QWidget):
     def _on_scene_select(self, row):
         if row < 0 or row == self._scene:
             return
+        if self._editor_refuses():                 # the rail must not show a scene it did not open
+            self.rail.blockSignals(True)
+            self.rail.setCurrentRow(self._scene)
+            self.rail.blockSignals(False)
+            return
         self._close_editor()                       # the editor's (scene, step) target is stale
         self._scene = row
         self._selected_step = None
@@ -1167,8 +1173,37 @@ class CutsceneDoc(QWidget):
         if self._stage_armed and self._wmesh is not None:
             self._restage_timer.start()            # the armed lane: re-judge on the warm mesh
 
+    def _editor_dirty(self):
+        """Would closing the step editor throw away the author's typing? Add mode: any typed
+        value. Edit mode: what Apply would write differs from the step it was opened on (through
+        update_step itself, so the extras it preserves count as unchanged); a value Apply would
+        refuse is typing too."""
+        ed = self.editor
+        if ed.scene is None:
+            return False
+        if ed.insert_at is not None:
+            return bool(ed.value_text.toPlainText() or ed.value_line.text())
+        old = self._ed_step if isinstance(self._ed_step, dict) else {}
+        try:
+            probe = {"cutscene": {"steps": [copy.deepcopy(old)]}}
+            cutscenescan.update_step(probe, 0, 0, ed.read_step(), managed=STEP_EDITOR_KEYS)
+        except Exception:                          # noqa: BLE001 -- unreadable == unapplied
+            return True
+        return probe["cutscene"]["steps"][0] != old
+
+    def _editor_refuses(self):
+        """Refuse a gesture that would close (or reload) a DIRTY step editor, and say how to go
+        on. A clean editor closes as before; nothing is ever applied on the author's behalf."""
+        if not self._editor_dirty():
+            return False
+        self.editor.note.setText("This step has changes that are not applied. Apply them, or "
+                                 "Close to drop them, then try again.")
+        widgets.set_state(self.editor.note, "error")
+        self._reveal_editor()
+        return True
+
     def _add_scene(self):
-        if self._raw is None:
+        if self._raw is None or self._editor_refuses():
             return
         self._close_editor()                       # the selection moves to the new scene
         label = cutscenescan.add_scene(self._raw)
@@ -1177,7 +1212,7 @@ class CutsceneDoc(QWidget):
         self._after_edit(label)
 
     def _dup_scene(self):
-        if self._raw is None:
+        if self._raw is None or self._editor_refuses():
             return
         self._close_editor()                       # the selection moves to the copy
         label = cutscenescan.duplicate_scene(self._raw, self._scene)
@@ -1185,7 +1220,7 @@ class CutsceneDoc(QWidget):
         self._after_edit(label)
 
     def _del_scene(self):
-        if self._raw is None:
+        if self._raw is None or self._editor_refuses():
             return
         self._close_editor()
         label = cutscenescan.delete_scene(self._raw, self._scene)
@@ -1270,6 +1305,8 @@ class CutsceneDoc(QWidget):
             self._close_editor()                   # reclicking the open row's Edit FOLDS it
             self._render()
             return
+        if self._editor_refuses():                 # another row's pencil would load over it
+            return
         if self.settings_btn.isChecked():
             self.settings_btn.setChecked(False)    # the accordion holds ONE panel at a time
         self._selected_step = i
@@ -1280,7 +1317,7 @@ class CutsceneDoc(QWidget):
         self._reveal_editor()
 
     def _add_step(self):
-        if self._raw is None:
+        if self._raw is None or self._editor_refuses():
             return
         if self.settings_btn.isChecked():
             self.settings_btn.setChecked(False)
@@ -1398,6 +1435,8 @@ class CutsceneDoc(QWidget):
         j = i + (1 if delta > 0 else -1)
         if not (0 <= i < len(st)) or not (0 <= j < len(st)):
             return                                 # the boundary: nothing to move past
+        if self._editor_refuses():
+            return
         self._close_editor()                       # indices shift under a structural edit
         label = cutscenescan.move_step(self._raw, self._scene, i, delta)
         if self._selected_step == i:
@@ -1405,7 +1444,7 @@ class CutsceneDoc(QWidget):
         self._after_edit(label)
 
     def _dup_step(self, i):
-        if not 0 <= i < len(self._steps()):
+        if not 0 <= i < len(self._steps()) or self._editor_refuses():
             return
         self._close_editor()
         label = cutscenescan.duplicate_step(self._raw, self._scene, i)
@@ -1413,7 +1452,7 @@ class CutsceneDoc(QWidget):
         self._after_edit(label)
 
     def _del_step(self, i):
-        if not 0 <= i < len(self._steps()):
+        if not 0 <= i < len(self._steps()) or self._editor_refuses():
             return
         self._close_editor()
         label = cutscenescan.remove_step(self._raw, self._scene, i)
