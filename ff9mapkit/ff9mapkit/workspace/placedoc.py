@@ -1431,7 +1431,7 @@ class PlaceDoc(QWidget):
 
     # ---------------------------------------------------------------- shell plumbing
     def crumb_label(self):
-        return self._member or "Place"
+        return f"Place — {self._member}" if self._member else "Place"
 
     def retheme(self, pal):
         self.pal = pal

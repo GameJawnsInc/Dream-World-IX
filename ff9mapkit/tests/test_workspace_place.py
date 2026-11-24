@@ -1615,6 +1615,16 @@ def test_the_place_regions_tool_says_zone_and_how_to_cancel(app):
     assert "zones" in tip and "quad" not in tip and "Esc" in tip, tip
 
 
+# --------------------------------------------------------------- batch 4: the crumb (P31)
+def test_the_crumb_names_the_surface_like_its_siblings(app):
+    """P31: Behavior and Cutscene read 'Behavior — X' / 'Cutscene — X'; Place read the bare
+    member name, like the Editor's field crumb."""
+    d, _ = _doc(app)
+    assert d.crumb_label() == "Place"
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    assert d.crumb_label() == "Place — FORK"
+
+
 # --------------------------------------------------------------- batch 4: ask at the draw (P27)
 _Q = [(-200.0, 800.0), (200.0, 800.0), (200.0, 1200.0), (-200.0, 1200.0)]
 
