@@ -1459,6 +1459,37 @@ def test_escape_and_a_lost_release_put_a_marker_back(app):
 
 
 @pytest.mark.parametrize("w", [501, 500])
+def test_a_vertex_dragged_above_the_horizon_is_refused_like_a_click_there(app, w):
+    """V7: a click above the horizon was refused, but a vertex DRAGGED there was committed -- a
+    vertex the build refuses. The release now refuses with the click's own words and puts the
+    vertex back. (A pitch change can still leave old vertices above it: drawn hollow, V13.)"""
+    c, cam, calls = _trace_canvas(app)
+    c.resize(w, 560)
+    QApplication.processEvents()
+    c._fit()
+    refused = []
+    c.click_refused.connect(refused.append)
+    c._commit_floor(_TRI)
+    n0 = len(calls)
+    up = (192.0, C.horizon_canvas_y(cam) - 8)
+    _mouse(c, "press", _TRI[2])
+    _mouse(c, "move", up)
+    _mouse(c, "release", up)
+    assert c.floor() == _TRI and len(calls) == n0, c.floor()
+    a = c._trace_items[2]["anchor"]                          # the RETAINED wrapper of the redraw
+    assert (a.pos().x(), a.pos().y()) == _TRI[2]
+    assert len(refused) == 1
+    _click(c, up)                                            # a click on the very same pixel
+    assert len(refused) == 2 and refused[0] == refused[1], refused
+    calls.clear()                                            # no camera: nothing to judge against,
+    c.set_backdrop(None, None)                               # and a drag still lands as before
+    assert c._begin_vertex_drag(0)
+    c._drag_canvas(110.0, 310.0)
+    c._end_vertex_drag()
+    assert len(calls) == 1 and c.floor()[0] == (110.0, 310.0)
+
+
+@pytest.mark.parametrize("w", [501, 500])
 @pytest.mark.parametrize("grab", ["corner", "body"])
 def test_a_region_drag_the_host_refuses_is_not_left_drawn(app, w, grab):
     """V10: after a corner or whole-zone drag the canvas emitted region_changed and kept the

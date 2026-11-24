@@ -1255,6 +1255,13 @@ class BackdropCanvas(QGraphicsView):
             self._rebuild()                        # document truth: a host that took the change
             return                                 # re-fed it; one that refused it did not (V10)
         if d["pt"] != tuple(self._trace[d["i"]]):
+            if self._cam is not None:              # the click's own refusal, for a drag (V7)
+                try:
+                    imagefield.click_to_world(self._cam, d["pt"])
+                except imagefield.ImageFieldError as e:
+                    self._rebuild()                # the vertex goes back where it was
+                    self.click_refused.emit(str(e))
+                    return
             pts = list(self._trace)
             pts[d["i"]] = (round(d["pt"][0], 1), round(d["pt"][1], 1))
             self._commit_floor(pts)
