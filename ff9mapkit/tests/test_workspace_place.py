@@ -1607,6 +1607,50 @@ def test_the_place_regions_tool_says_zone_and_how_to_cancel(app):
     assert "zones" in tip and "quad" not in tip and "Esc" in tip, tip
 
 
+# --------------------------------------------------------------- batch 4: stacked floors (P7)
+def test_the_stacked_floor_chooser_lists_each_floor_once_and_says_what_it_records(app, monkeypatch):
+    """P7: a click on a triangle edge listed the same floor twice, and the menu read 'floor 1 ·
+    height -300' as if the floor were recorded. Only the plan spot (x, z) is stored -- where the
+    click meets that floor -- and the game finds the height there."""
+    import types
+    data = {"field": {"source_field": 351}}
+    d, calls = _placed(app, data)
+    up = {"xz": (0.0, 1500.0), "pos": (0.0, -300.0, 1500.0), "floor": 1, "tri": 2, "s": 1.0}
+    low = {"xz": (0.0, 721.0), "pos": (0.0, 0.0, 721.0), "floor": 0, "tri": 0, "s": 2.0}
+    low2 = dict(low, tri=1)                             # the same floor, through the shared edge
+    seen = []
+
+    class _FakeMenu:
+        def __init__(self, parent=None):
+            self.acts = []
+
+        def addAction(self, text):
+            tok = types.SimpleNamespace(text=text, setEnabled=lambda on: None)
+            self.acts.append(tok)
+            return tok
+
+        def addSeparator(self):
+            pass
+
+        def exec(self, pos):
+            seen.extend(a.text for a in self.acts)
+            return self.acts[-1]                        # the floor behind
+
+    monkeypatch.setattr(P, "QMenu", _FakeMenu)
+    d._on_surface_clicked(dict(low, stacked=[low, low2]))   # one floor twice: no question at all
+    assert seen == [] and len(calls) == 1
+    d._on_surface_clicked(dict(up, stacked=[up, low, low2]))
+    picks = [t for t in seen if "floor" in t]
+    assert len(picks) == 2, seen                        # floor 1, floor 0 -- each once
+    assert any("height" in t and "game" in t for t in seen), seen
+    assert data["npc"][-1]["pos"] == [0, 721] and len(calls) == 2
+    assert "only the spot" in d.status.text(), d.status.text()
+    seen.clear()                                        # a mesh with no floor ids: two crossings
+    a, b = dict(up, floor=None), dict(low, floor=None)  # are two surfaces, never merged into one
+    d._on_surface_clicked(dict(a, stacked=[a, b]))
+    assert len([t for t in seen if "floor" in t]) == 2, seen
+
+
 # --------------------------------------------------------------- batch 4: the refused state (P19)
 def test_a_refused_field_shows_why_in_place_of_an_empty_canvas(app):
     """P19: on a bundled example the tab kept a large empty canvas frame with its zoom pill, and

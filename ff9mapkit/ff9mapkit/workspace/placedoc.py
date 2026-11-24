@@ -1158,32 +1158,51 @@ class PlaceDoc(QWidget):
         if self._blocked is not None or self._data is None:
             self._refresh()
             return
-        row = payload
-        stacked = payload.get("stacked") or []
-        if len(stacked) > 1:
-            row = self._choose_hit(stacked)
-            if row is None:
-                return
-        self._apply_hit(row)
+        row, picked = self._pick_hit(payload)
+        if row is None:
+            return
+        self._apply_hit(row, picked=picked)
+
+    def _pick_hit(self, payload):
+        """``(hit, asked)``: the hit to write, after asking only when the pixel lies over MORE
+        THAN ONE floor. A ray through a shared triangle edge meets one floor twice; each floor is
+        offered once (the nearest crossing). ``(None, True)`` = the author cancelled."""
+        rows, seen = [], set()
+        for r in payload.get("stacked") or []:
+            key = r.get("floor") if r.get("floor") is not None else ("tri", r.get("tri"))
+            if key not in seen:
+                seen.add(key)
+                rows.append(r)
+        if len(rows) <= 1:
+            return payload, False
+        return self._choose_hit(rows), True
 
     def _choose_hit(self, rows):
-        """A stacked walkmesh under the pixel (a bridge over a floor): the author picks the
-        floor, nearest-first with the VISIBLE one marked — never a silent guess. Behind a seam
-        so tests drive the choice without a popup."""
+        """A stacked walkmesh under the pixel (a bridge over a floor): the author picks which
+        floor the click means, nearest-first with the VISIBLE one marked — never a silent guess.
+        What that records is the SPOT where the click meets that floor; only (x, z) is stored,
+        and the game finds the height there (review finding P7). Behind a seam so tests drive the
+        choice without a popup."""
         menu = QMenu(self)
+        note = menu.addAction("Only the spot is stored — the game finds the height there")
+        note.setEnabled(False)
+        menu.addSeparator()
         acts = []
         for i, r in enumerate(rows):
-            y = -r["pos"][1]                        # render frame -> world height (the y-flip)
-            tag = "visible" if i == 0 else "behind"
-            acts.append(menu.addAction(f"floor {r['floor']} · height {y:.0f} ({tag})"))
+            tag = "the visible floor" if i == 0 else "the floor behind"
+            x, z = r["xz"]
+            which = f" (floor {r['floor']})" if r.get("floor") is not None else ""
+            acts.append(menu.addAction(f"Where the click meets {tag}{which}: "
+                                       f"x {x:.0f}, z {z:.0f}"))
         chosen = menu.exec(QCursor.pos())
         if chosen is None:
             return None
         return rows[acts.index(chosen)]
 
-    def _apply_hit(self, row):
+    def _apply_hit(self, row, picked=False):
         """ONE pure op per drop into the OPEN doc, then the one host callback (the shell
-        records the undo step + re-feeds; the marker appears through that round-trip)."""
+        records the undo step + re-feeds; the marker appears through that round-trip).
+        ``picked``: the author chose among stacked floors -- the note says what that recorded."""
         x, z = row["xz"]
         mode = self._mode()
         if mode in ("spawn", "arrival") and self._scene_player(mode):
@@ -1198,8 +1217,9 @@ class PlaceDoc(QWidget):
         else:
             label = set_arrival(self._data, self.ent_box.value(), x, z)
         note = f"{label} at ({int(round(x))}, {int(round(z))})"
-        if row.get("floor") is not None:
-            note += f" · floor {row['floor']}"
+        if picked:
+            note += (f" · where the click met floor {row['floor']}; only the spot is stored, and "
+                     "the game finds the height there")
         if mode == "npc":
             note += " — give it a model and words in the Editor (NPCs)"
         elif mode == "prop":
@@ -1306,11 +1326,9 @@ class PlaceDoc(QWidget):
         e = self._marker_target(i, "pos")
         if e is None:
             return
-        row = payload
-        if len(payload.get("stacked") or []) > 1:
-            row = self._choose_hit(payload["stacked"])
-            if row is None:
-                return
+        row, _picked = self._pick_hit(payload)
+        if row is None:
+            return
         x, z = row["xz"]
         label = move_placed(e["row"], "spawn" if e["kind"] == "spawn" else "pos", x, z,
                             self._marker_words(e))
