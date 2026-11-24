@@ -74,43 +74,34 @@ def _mv4(m, v):
             m[2][0] * x + m[2][1] * y + m[2][2] * z + m[2][3]]
 
 
-def _stand_pose(geo_id: int, bones: list, game=None, env5=None) -> list:
-    """Bones re-posed from frame 0 of the model's most stand-like on-disc clip (falls back to the
-    rest hierarchy if the model has no clips). Some rigs' REST pose is a collapsed authoring pose the
-    player never sees (the GEO_SUB_W0_* overworld actors) -- the engine always drives them with a
-    clip, so a faithful still is 'first frame of stand', not 'rest'."""
+def _stand_pick(geo_id: int, game=None, env5=None):
+    """``(env, anim_key, folder_id)`` -- the on-disc clip a still is posed from, per
+    :func:`ff9mapkit.catalog.stand_clip` (which owns the ranking and why it is exact-match). Returns
+    ``(env, None, None)`` when the model has no clip to stand in, ``(None, None, None)`` when p0data5
+    itself is unreachable."""
     from . import anim as _anim
     from . import _gltf_io
     from .. import catalog
 
     try:
         env = env5 if env5 is not None else _anim._load_env5(game)
-        keys = _anim.list_clip_keys(env, geo_id)
+        pick = catalog.stand_clip(geo_id, _gltf_io.anim_disc_map(env))
     except Exception:
-        return bones
+        return None, None, None
+    return (env, pick[0], pick[1]) if pick else (env, None, None)
 
-    def rank(k):
-        nm = (catalog.animation_name(k) or "").lower()
-        for i, tokn in enumerate(("stand", "idle", "wait", "walk")):
-            if tokn in nm:
-                return (i, k)
-        return (9, k)
-    best, folder = (min(keys, key=rank), geo_id) if keys else (None, None)
-    if best is None or rank(best)[0] == 9:
-        # The own folder has no stand-like clip (or no clips at all) -- follow the engine's AnimationDB
-        # name-token redirect to the DONOR folder holding the model's named idle/stand (an F1+ NPC variant
-        # like GEO_NPC_F1_BBA keeps only niche gestures natively), so the thumbnail poses from a real rest
-        # clip instead of a random gesture / the collapsed rest hierarchy.
-        try:
-            acts = catalog.animations_for_model(geo_id) or {}
-            disc = _gltf_io.anim_disc_map(env)
-            for act in ("stand", "idle", "idle1", "wait", "walk"):
-                loc = catalog.locate_animation(acts[act], geo_id, disc) if act in acts else None
-                if loc:
-                    best, folder = loc
-                    break
-        except Exception:
-            pass
+
+def _stand_pose(geo_id: int, bones: list, game=None, env5=None, pick=None) -> list:
+    """Bones re-posed from frame 0 of the model's most stand-like on-disc clip (falls back to the
+    rest hierarchy if the model has no clips). Some rigs' REST pose is a collapsed authoring pose the
+    player never sees (the GEO_SUB_W0_* overworld actors) -- the engine always drives them with a
+    clip, so a faithful still is 'first frame of stand', not 'rest'.
+
+    ``pick`` is an already-resolved :func:`_stand_pick` result, for a caller that also wants to SAY
+    which clip it used (the still's sidecar)."""
+    from . import _gltf_io
+
+    env, best, folder = pick if pick is not None else _stand_pick(geo_id, game, env5)
     if best is None:
         return bones
     clip = _gltf_io.read_clip(env, folder, best)
@@ -188,10 +179,16 @@ def _skinned_struct(token: str, game=None, bundle=None, *, pose: bool = True, en
     if clip is None and anim_key is not None and env5 is not None:
         from . import _gltf_io
         clip = _gltf_io.read_clip(env5, c["geo_id"] if folder_id is None else folder_id, anim_key)
+    posed_from = None                       # the still's provenance: (anim_key, folder_id), or None = rest
     if clip is not None:
         bones = _pose_bones_at(c["bones"], clip, t)
+    elif pose:
+        pick = _stand_pick(c["geo_id"], game, env5)
+        bones = _stand_pose(c["geo_id"], c["bones"], pick=pick)
+        if bones is not c["bones"]:
+            posed_from = (pick[1], pick[2])
     else:
-        bones = _stand_pose(c["geo_id"], c["bones"], game=game, env5=env5) if pose else c["bones"]
+        bones = c["bones"]
     # bone world transforms (bones[] is pre-order, so parents resolve before children)
     world: dict = {}
     for bn in bones:
@@ -250,7 +247,8 @@ def _skinned_struct(token: str, game=None, bundle=None, *, pose: bool = True, en
         textures = extract._read_textures(c["bundle"], c["prefab_id"], texture_stems)
         extract._swap_alt_outfit_textures(c["geo"], c["geo_id"], c["bundle"], textures)
     return {"geo": c["geo"], "geo_id": c["geo_id"], "type_int": c["type_int"],
-            "bones": c["bones"], "meshes": meshes, "materials": materials, "textures": textures}
+            "bones": c["bones"], "meshes": meshes, "materials": materials, "textures": textures,
+            "posed_from": posed_from}
 
 
 def _gather_triangles(model: dict):

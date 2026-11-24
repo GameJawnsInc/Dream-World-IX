@@ -1348,7 +1348,7 @@ def snap_map(ctx: _Ctx, state: str) -> None:
 
 
 # ------------------------------------------------------------------------------------- model states
-MODEL_STATES = ("cliplist", "player")
+MODEL_STATES = ("cliplist", "player", "filling", "filtered", "restpose", "cachemenu")
 
 _SNAP_MODEL = "GEO_MAIN_F0_VIV"                  # id 8 -- the catalog anchor, on every machine
 _SNAP_FRAMES = 16                                # rendered frames the pin seeds for the clip
@@ -1373,8 +1373,9 @@ class _pin_anim_cache:
     is also the point: the grab proves the warm-clip contract on a fresh session.
     """
 
-    def __init__(self, geo: str = _SNAP_MODEL):
+    def __init__(self, geo: str = _SNAP_MODEL, *, pose: "str | None" = "idle"):
         self.geo = geo
+        self.pose = pose                         # the still's pose fact: an action label, or None = REST
         self.anim = None
         self.geo_id = None
         self.label = None                        # the pinned clip's ROW LABEL (what a picker field holds)
@@ -1406,9 +1407,14 @@ class _pin_anim_cache:
         still, sidecar = thumbcache.model_thumb_paths(m.id)
         still.parent.mkdir(parents=True, exist_ok=True)
         self._figure(still, 0, _SNAP_FRAMES, still=True)
-        sidecar.write_text(json.dumps({"geo": m.name, "id": m.id, "bones": 48, "meshes": 3,
-                                       "verts": 1284, "textures": ["viv_body", "viv_face"]}),
-                           encoding="utf-8")
+        # the sidecar in its REAL shape (thumbcache.build_model_thumb): the counts plus what the still
+        # was posed from -- the detail pane says so, and a rest-posed rig must be photographable
+        pose_name = f"ANH_{m.name[4:]}_{self.pose.upper()}" if self.pose else None
+        sidecar.write_text(json.dumps({
+            "geo": m.name, "id": m.id, "bones": 48, "meshes": 3, "verts": 1284,
+            "textures": ["viv_body", "viv_face"], "pose": pose_name, "pose_action": self.pose,
+            "pose_rank": catalog.stand_action_rank(self.pose) if self.pose else None}),
+            encoding="utf-8")
         frames = list(range(_SNAP_FRAMES))
         thumbcache.anim_frame_path(m.id, self.anim, 0).parent.mkdir(parents=True, exist_ok=True)
         for f in frames:
@@ -1454,7 +1460,7 @@ def snap_models(ctx: _Ctx, state: str) -> None:
     if state not in MODEL_STATES:
         raise ValueError(f"unknown model state {state!r} (know: {', '.join(MODEL_STATES)})")
     from PySide6.QtWidgets import QScrollArea
-    with _pin_anim_cache() as pin:
+    with _pin_anim_cache(pose=None if state == "restpose" else "idle") as pin:
         win = _make_win(ctx)
         # HOLD the still-render worker for the whole surface: the tab enqueues its top-of-list batch
         # (_THUMB_BATCH == 96) at construction, and on this cold scratch cache that fill would race
@@ -1473,6 +1479,39 @@ def snap_models(ctx: _Ctx, state: str) -> None:
             if state == "cliplist":
                 _grab(ctx, "models-cliplist", win)
                 _grab(ctx, "models-cliplist-detail", right)
+            elif state == "restpose":
+                # the still's pose line in its cautionary form: a rig no clip on disc can stand
+                assert "REST pose" in md.d_pose.text(), "the rest-pose fact did not render -- snap void"
+                _grab(ctx, "models-restpose-detail", right)
+            elif state == "filtered":
+                # the clip filter narrowing a 200-row inventory to what was typed
+                md.clip_filter.setText("walk")
+                _settle()
+                assert 0 < md.clip_list.count() < len(md._clip_rows), "the filter did not narrow -- void"
+                _grab(ctx, "models-filtered-detail", right)
+            elif state == "cachemenu":
+                # the Previews menu, status lines filled from the pinned scratch cache
+                md._refresh_cache_menu()
+                md.cache_menu.adjustSize()
+                _grab_strip(ctx, "models-cachemenu", md.cache_menu, factor=2)
+            elif state == "filling":
+                # MID-FILL: a COLD clip armed, the total announced, 5 of 16 frames landed. Driven
+                # through the service's own signals (what a worker would queue), so no render runs.
+                rows = [md.clip_list.item(i).data(Qt.ItemDataRole.UserRole)
+                        for i in range(md.clip_list.count())]
+                cold = next(a for a in rows if a != pin.anim)
+                md.clip_list.setCurrentRow(rows.index(cold))
+                _settle()
+                win.anim_frames.supersede()      # the real worker must not render a frame for the snap
+                assert md._armed == (pin.geo, cold) and md._filling, "the cold arm did not start a fill"
+                from ff9mapkit.models import thumbcache
+                win.anim_frames.clipPlanned.emit(pin.geo, cold, _SNAP_FRAMES)
+                for f in range(5):
+                    win.anim_frames.frameReady.emit(
+                        pin.geo, cold, f, str(thumbcache.anim_frame_path(pin.geo_id, pin.anim, f)))
+                _settle()
+                assert "5 of 16" in md.anim_note.text(), f"no progress line: {md.anim_note.text()!r}"
+                _grab(ctx, "models-filling-detail", right)
             else:
                 rows = [md.clip_list.item(i).data(Qt.ItemDataRole.UserRole)
                         for i in range(md.clip_list.count())]
@@ -1486,6 +1525,7 @@ def snap_models(ctx: _Ctx, state: str) -> None:
                 _grab(ctx, "models-player", win)
                 _grab(ctx, "models-player-detail", right)
                 _grab_strip(ctx, "models-player-transport", md.anim_strip)
+                _grab_strip(ctx, "models-player-foot", md.anim_foot)
         finally:
             win.model_thumbs.release()
         _close(win)

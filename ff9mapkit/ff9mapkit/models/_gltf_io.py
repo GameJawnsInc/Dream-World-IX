@@ -143,20 +143,32 @@ def _kf(k, ncomp):
 
 
 _ANIM_PATH_RE = re.compile(r"/animations/(\d+)/(\d+)\.anim$")
+_DISC_MAP_ATTR = "_ff9mapkit_disc_map"
 
 
 def anim_disc_map(bundle) -> dict:
     """``{folder_id: set(anim_key)}`` for every AnimationClip in a loaded p0data5 -- ONE container pass over
     the whole bundle (~9.3k clips / ~700 folders), so callers can answer "which folder holds clip K" without
     rescanning per folder. The folder id is a MODEL id, but not necessarily the id of the model that plays a
-    clip -- the engine's name-token redirect decides that (see ``catalog.animation_folder``)."""
-    disc: dict = {}
+    clip -- the engine's name-token redirect decides that (see ``catalog.animation_folder``).
+
+    Cached ON the bundle instance (the :func:`_clip_index` idiom -- a loaded p0data5 is never mutated):
+    the preview still asks this once PER MODEL, and an uncached pass made every one of ~700 renders
+    re-walk the whole container. Callers only read the result."""
+    disc = getattr(bundle, _DISC_MAP_ATTR, None)
+    if disc is not None:
+        return disc
+    disc = {}
     for k, p in bundle.container.items():
         if p.type.name != "AnimationClip":
             continue
         m = _ANIM_PATH_RE.search(k.lower())
         if m:
             disc.setdefault(int(m.group(1)), set()).add(int(m.group(2)))
+    try:
+        setattr(bundle, _DISC_MAP_ATTR, disc)
+    except AttributeError:
+        pass                              # a read-only bundle stand-in -- rebuild next call, still correct
     return disc
 
 

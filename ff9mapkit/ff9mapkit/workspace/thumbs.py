@@ -24,6 +24,7 @@ Disable with ``FF9MAPKIT_NO_THUMBS=1`` (the smoke does -- no worker threads in h
 
 from __future__ import annotations
 
+import collections
 import hashlib
 import os
 import queue
@@ -279,9 +280,17 @@ class ModelThumbService(QObject):
     missed = Signal(str)                         # (geo name) -- a build landed as a MISS (queued); the
                                                  # Models tab checks the sidecar for the no-geometry filter
 
+    _WAKE = object()                             # a queue sentinel: "the bulk lane has work, stop waiting"
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._q = queue.Queue()
+        # THE BULK LANE ("render every preview"): names the worker takes ONLY when the interactive
+        # queue is empty, so a 400-model warm-up never sits in front of the model somebody just
+        # clicked. _bulk_set is the truth (a promoted or cancelled name leaves the set and its stale
+        # deque entry is skipped on pop).
+        self._bulk = collections.deque()
+        self._bulk_set = set()
         self._done = {}                          # geo name -> png path (str)
         self._miss = set()
         self._pending = set()
@@ -342,7 +351,9 @@ class ModelThumbService(QObject):
         if png:
             return png
         with self._lock:
-            if name in self._miss or name in self._pending:
+            if name in self._bulk_set:           # waiting in the bulk lane -> somebody wants it NOW
+                self._bulk_set.discard(name)
+            elif name in self._miss or name in self._pending:
                 return None
             self._pending.add(name)
             self._q.put(name)
@@ -350,6 +361,45 @@ class ModelThumbService(QObject):
                 self._worker = threading.Thread(target=self._drain, name="ff9-model-thumbs", daemon=True)
                 self._worker.start()
         return None
+
+    def request_many(self, names) -> int:
+        """Queue background renders for MANY models behind every interactive :meth:`request` -> how
+        many were actually queued (already-cached, known-miss and already-pending names are skipped).
+        The warm-the-whole-catalog lane: ~0.2s a model, a few minutes for all of them, once."""
+        if not enabled():
+            return 0
+        fresh = [n for n in names if self.cached(n) is None]
+        added = 0
+        with self._lock:
+            for name in fresh:
+                if name in self._miss or name in self._pending:
+                    continue
+                self._pending.add(name)
+                self._bulk_set.add(name)
+                self._bulk.append(name)
+                added += 1
+            if added:
+                self._q.put(self._WAKE)          # a worker parked in get(timeout) must not sit it out
+                if self._worker is None and self._holds == 0:
+                    self._worker = threading.Thread(target=self._drain, name="ff9-model-thumbs",
+                                                    daemon=True)
+                    self._worker.start()
+        return added
+
+    def bulk_pending(self) -> int:
+        """How many bulk-lane renders are still waiting (0 = the warm-up is finished or was never run)."""
+        with self._lock:
+            return len(self._bulk_set)
+
+    def cancel_bulk(self) -> int:
+        """Drop everything still waiting in the bulk lane -> how many were dropped. The render in
+        flight finishes (bounded: one); interactive requests are untouched."""
+        with self._lock:
+            n = len(self._bulk_set)
+            self._pending -= self._bulk_set
+            self._bulk_set.clear()
+            self._bulk.clear()
+        return n
 
     def invalidate(self, name=None):
         with self._lock:
@@ -359,6 +409,8 @@ class ModelThumbService(QObject):
                 self._miss.clear()
                 self._pending.clear()
                 self._disk_miss.clear()
+                self._bulk_set.clear()
+                self._bulk.clear()
             else:
                 self._done.pop(name, None)
                 self._miss.discard(name)
@@ -366,19 +418,45 @@ class ModelThumbService(QObject):
                 self._disk_miss.discard(name)
 
     # ---- worker ----
-    def _drain(self):
+    def _next_job(self):
+        """The next name to render, or None to retire. INTERACTIVE FIRST: the bulk lane is only read
+        when the queue is empty, and only blocked on when both are."""
         while True:
             try:
-                name = self._q.get(timeout=2.0)
+                name = self._q.get_nowait()
             except queue.Empty:
+                name = None
+            if name is None:
                 with self._lock:
-                    if self._q.empty():
-                        self._worker = None
-                        return
+                    while self._bulk:
+                        cand = self._bulk.popleft()
+                        if cand in self._bulk_set:        # not promoted, not cancelled
+                            self._bulk_set.discard(cand)
+                            name = cand
+                            break
+            if name is None:
+                try:
+                    name = self._q.get(timeout=2.0)
+                except queue.Empty:
+                    with self._lock:
+                        if self._q.empty() and not self._bulk_set:
+                            self._worker = None
+                            return None
+                    continue
+            if name is self._WAKE:
                 continue
+            return name
+
+    def _drain(self):
+        while True:
+            name = self._next_job()
+            if name is None:
+                return
             self._gate.wait()                     # held (a project open in progress) -> pause between
             with self._lock:                      # renders; gen snapshots AFTER the wait (see ThumbService)
                 gen = self._gen
+                if name not in self._pending:     # cancelled (or invalidated) while it waited its turn
+                    continue
             try:
                 png = build_model_thumb(name, self._ctx)
             except Exception:   # noqa: BLE001  (no install / no prefab on disc / anything) -> a miss

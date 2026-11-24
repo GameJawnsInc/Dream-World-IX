@@ -5,6 +5,31 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — Models tab: clearer previews, a managed cache, a better clip player
+- **A model's preview now shows it standing.** 222 of the 710 previews were posed from the wrong clip: Zidane
+  lay flat on the floor, the party's battle forms stood in a T-pose or mid-attack, and most monsters were caught
+  mid-motion. A field model is now posed from its `idle` clip, an overworld actor from `stand`, a battle form
+  from its battle idle. Existing previews re-render the first time they scroll into view.
+- **The detail pane says what the picture shows** (`Posed from its 'idle' clip`), and says so plainly when a rig
+  has no idle clip and is shown in its rest or bind pose. The bone and vertex counts now appear as soon as the
+  preview lands, not only after you re-select the model.
+- **Previews render as you scroll.** Rows past the first 96 used to stay blank until selected.
+- **A `Previews` menu under the list:** how much is rendered, `Render all previews` (in the background, behind
+  whatever you click; a few minutes, once) and `Clear the preview cache`.
+- **Rendered animation clips are capped at 256 MB**, least recently played first (`FF9MAPKIT_ANIM_CACHE_MB`
+  changes the cap; 0 removes it). The cache used to grow with every clip ever clicked.
+- **The clip player says how far a render is** (`Rendering 12 of 45 frames`), plays the clip as it is drawn and
+  loops it once whole, and has a speed button (1x, 1/2x, 1/4x, 2x). With motion on in Preferences a picked clip
+  plays without a second click. The animation pickers in the field editor get the same player.
+- **A filter box over the clip list** for models with more clips than the list shows (Zidane has 416).
+
+### Fixed — Models tab
+- Minting onto an id the mod folder already uses replaced that model without a word. It now asks first and names
+  the next free id; Refresh and a finished deploy move the id box off a taken id.
+- The deployed list was stale after an import, mint or reskin until Refresh was clicked.
+- The mint id box clipped its digits at the larger text sizes.
+- A version bump of the preview renderer left the whole previous generation of preview files on disk.
+
 ### Changed — World tab: faster, and the window no longer freezes while it works
 - **Undo, Redo and every Accept no longer reload the whole 3D map.** Only the blocks whose files changed are drawn
   again: Undo and Redo come back in under a second (8-11 s before), a forest Accept in about 5 s (22-25 s).
