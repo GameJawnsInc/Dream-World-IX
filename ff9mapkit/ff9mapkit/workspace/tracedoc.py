@@ -40,6 +40,14 @@ PITCH_BAND = (6, 48)             # the tracer's slider band (vanilla room pitche
 _CUTOUT_WHAT = ("a copy of the photo (or of the 384×448 frame) with everything but the object "
                 "erased to transparent — it lines up by itself — or a crop of just the object, "
                 "which you then drag into place")
+
+
+def _image_errors():
+    """What reading or writing a cut-out PNG raises on a bad file or a folder it cannot write."""
+    from PIL import UnidentifiedImageError
+    return (OSError, UnidentifiedImageError)
+
+
 _CUTOUT_PICKER_TITLE = ("The cut-out PNG — a copy of the photo with all but the object erased, "
                         "or a crop of the object")
 _HISTORY_CAP = 100
@@ -430,7 +438,9 @@ class TraceDoc(QWidget):
         pixel-for-pixel where the artist painted it, inert). Anything else -> a positionable
         SNIP: shown at its natural photo scale with its base parked on the contact, draggable —
         the first playtest's 531x473 object crop is a feature now, not a giant dog. Returns a
-        short teach note for snips (None for registered)."""
+        short teach note for snips (None for registered). The file is READ before anything is
+        set, so an unreadable one raises one of :func:`_image_errors` with the session as it was
+        -- each caller says so on the status (finding T20; a Qt slot shows no traceback)."""
         from PIL import Image
         with Image.open(path) as im:
             sw, sh = im.size
@@ -973,15 +983,18 @@ class TraceDoc(QWidget):
         self.tools.set_current("floor")                # one contact per arm -> back to tracing
         self.fg_box.setCurrentIndex(len(self._fg) - 1)
         path = self._ask_cutout()
-        teach = None
+        teach = failed = None
         if path:
-            teach = self._attach_cutout(len(self._fg) - 1, path)
+            try:
+                teach = self._attach_cutout(len(self._fg) - 1, path)
+            except _image_errors() as e:               # the contact stands; its PNG is still owed
+                failed = f"Could not read {Path(path).name} ({e}) — attach a PNG before Generate"
         note = (f"cut-out fg{len(self._fg) - 1} anchored at ({contact[0]:g},{contact[1]:g})"
                 f" → z {z}" + ("" if path else " — attach its PNG before Generate"))
         if teach:
             note += f" · {teach}"
         self._refresh_cutouts()
-        self._refresh(note)
+        self._refresh(f"{failed} · {note}" if failed else note, "error" if failed else "")
 
     def on_fg_attach(self):
         i = self.fg_box.currentIndex()
@@ -990,8 +1003,16 @@ class TraceDoc(QWidget):
         path = self._ask_cutout()
         if not path:
             return
+        stamped = self._stamped
         self._push_history()
-        teach = self._attach_cutout(i, path)
+        try:
+            teach = self._attach_cutout(i, path)
+        except _image_errors() as e:                   # nothing changed: no Undo step for it
+            self._history.pop()
+            self._stamped = stamped
+            self._refresh(f"Could not read {Path(path).name} ({e}) — fg{i} still needs its PNG.",
+                          "error")
+            return
         self._refresh_cutouts()
         self._refresh(f"fg{i}: {teach}" if teach else "")
 
@@ -1076,7 +1097,13 @@ class TraceDoc(QWidget):
             cx, cy = f["contact"]                      # the occluder at its floor-contact pixel
             img = f["image"]
             if f.get("kind") == "snip":                # a placed snip ships as a composed full frame
-                img = str(self._composed_fg_path(i, f))
+                try:
+                    img = str(self._composed_fg_path(i, f))
+                except _image_errors() as e:           # a folder it cannot write (T20): said,
+                    self._refresh(f"Could not write cut-out fg{i}'s placed image beside the "   # and
+                                  f"photo ({e}). Put the photo in a folder you can write to, "  # nothing
+                                  f"then Generate again.", "error")                            # starts
+                    return
             argv += ["--foreground", f"{img}@{cx:g},{cy:g}"]
         for r in self._regions:                        # zones ride in canvas px, the same frame as
             pts = ";".join(f"{cx:g},{cy:g}" for cx, cy in r["quad"])   # --floor (pitch-coupled)

@@ -427,6 +427,48 @@ def test_generate_composes_a_placed_snip_to_the_full_frame(app, tmp_path, monkey
     assert abs((bx1 - bx0) - 531) <= 1 and abs((by1 - by0) - 473) <= 1   # at natural photo scale
 
 
+def test_an_unreadable_cut_out_is_said_not_swallowed(app, tmp_path, monkeypatch):
+    """Finding T20: Image.open on a corrupt PNG raised inside the Qt slot, with no hook to show it
+    -- the contact stayed unattached and nothing was said. Both attach routes now say what failed,
+    and Attach leaves no Undo step behind for a gesture that did nothing."""
+    pytest.importorskip("PIL")
+    doc, _ = _traced(app, tmp_path)
+    bad = tmp_path / "broken.png"
+    bad.write_bytes(b"not a png at all")
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: str(bad))
+    doc.fg_btn.setChecked(True)
+    doc._on_contact(230.0, 320.0)                      # the contact itself is good: it stays
+    assert len(doc._fg) == 1 and not doc._fg[0].get("image")
+    assert "Could not read broken.png" in doc.status.text()
+    assert doc.status.property("state") == "error"
+    steps = len(doc._history)
+    doc._project, doc._stamped = {"out": str(tmp_path), "name": "P", "fid": 30777}, True
+    doc.on_fg_attach()                                 # (as if a Generate had just stamped it)
+    assert len(doc._history) == steps and not doc._fg[0].get("image")
+    assert "Could not read broken.png" in doc.status.text()
+    assert doc.status.property("state") == "error"
+    assert "not stamped" not in doc.status.text()      # a gesture that did nothing changed nothing
+
+
+def test_a_placed_cut_out_that_cannot_be_written_beside_the_photo_is_said(app, tmp_path,
+                                                                         monkeypatch):
+    """Finding T20: Generate writes a placed snip's composed frame beside the photo. A folder it
+    cannot write to (a mounted share) raised inside the slot: nothing started and nothing said."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    doc, run, _ = _snip_doc(app, tmp_path, monkeypatch)
+    doc.id_box.setText("30777")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+
+    def refuse(self, fp, *a, **k):
+        raise PermissionError(13, "Access is denied", str(fp))
+    monkeypatch.setattr(Image.Image, "save", refuse)
+    doc.on_generate()
+    assert run.calls == [] and doc._project is None
+    assert "fg0" in doc.status.text() and "Access is denied" in doc.status.text()
+    assert doc.status.property("state") == "error"
+
+
 def test_photo_aspect_cutout_registers_full_frame(app, tmp_path, monkeypatch):
     """Same frame at half resolution shares the aspect — registered (locked, fills the frame),
     and Generate passes the ORIGINAL path untouched."""
