@@ -613,6 +613,78 @@ def test_a_long_staging_row_wraps_whole_natively():
     assert out["cut"] == [], "\n".join(out["cut"])
 
 
+# C31: the docked column is laid out at whatever width the Inspector has. Measured natively
+# before the fix, its floor was the staging button's whole label (198 px at 150%, 171 at 125%),
+# wider than the Inspector's 169 px viewport in the default window at 150%, so the column was
+# cut at the window edge ("Check the stagi", "No structural proble").
+_NATIVE_COLUMN_CHILD = r'''
+import json
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication
+app = QApplication([])
+print("QT-PLATFORM-UP", flush=True)
+import ff9mapkit
+from ff9mapkit.editor import theme
+from ff9mapkit.workspace import style
+from ff9mapkit.workspace.shell import _apply_app_theme
+from ff9mapkit.workspace.cutscenedoc import CutsceneDoc
+pal = theme.pick_palette("mist")
+_apply_app_theme(app, pal)
+cut = []
+W = 150                                      # under the 169 px Inspector of 1280 px at 150%
+for scale in (100, 125, 150):
+    d = CutsceneDoc(pal, scale=scale)
+    host = d.instruments
+    host.setStyleSheet(style.qss(pal, "comfortable", scale))
+    host.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+    host.resize(W, 600)
+    host.show()
+    app.processEvents()
+    if host.minimumSizeHint().width() > W:
+        cut.append(f"{scale}%: the column asks {host.minimumSizeHint().width()} px")
+    for b in (d.stage_btn, d.toml_btn):
+        if b.geometry().right() >= host.width():
+            cut.append(f"{scale}%: {b.accessibleName()!r} ends at {b.geometry().right()}")
+        if b.isVisible() and b.text() == "":
+            cut.append(f"{scale}%: a button lost its label")
+    if d.stage_btn.accessibleName() != "Check that every cutscene walk can reach its target":
+        cut.append(f"{scale}%: the staging button's name is {d.stage_btn.accessibleName()!r}")
+    host.hide()
+print(json.dumps({"platform": app.platformName(), "file": ff9mapkit.__file__, "cut": cut}))
+'''
+
+
+def _run_native_child(code):
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    import ff9mapkit
+    pkg_root = Path(ff9mapkit.__file__).resolve().parent.parent
+    env = {k: v for k, v in os.environ.items() if k != "QT_QPA_PLATFORM"}
+    env["PYTHONIOENCODING"] = "utf-8"
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                       timeout=300, env=env, cwd=str(pkg_root))
+    lines = r.stdout.decode("utf-8", "replace").strip().splitlines()
+    err = r.stderr.decode("utf-8", "replace")[-600:]
+    if "QT-PLATFORM-UP" not in lines:
+        pytest.skip(f"no native Qt platform here: {err}")
+    assert r.returncode == 0, f"the measuring child crashed AFTER Qt came up:\n{err}"
+    out = json.loads(lines[-1])
+    if out["platform"] in ("offscreen", "minimal"):
+        pytest.skip(f"no native font database ({out['platform']})")
+    assert Path(out["file"]).resolve().is_relative_to(pkg_root)
+    return out
+
+
+def test_the_docked_column_fits_a_narrow_inspector_natively():
+    """C31: the Problems/Staging column yields to the Inspector's width at every text size --
+    its buttons elide instead of setting the column's floor at their whole label."""
+    out = _run_native_child(_NATIVE_COLUMN_CHILD)
+    assert out["cut"] == [], "\n".join(out["cut"])
+
+
 def test_a_clean_staging_says_so_and_paints_nothing(doc, tmp_path):
     _fed(doc, tmp_path)
     doc.stage_now(sync=True)

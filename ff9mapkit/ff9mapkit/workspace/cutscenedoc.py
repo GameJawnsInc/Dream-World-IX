@@ -993,8 +993,11 @@ class CutsceneDoc(QWidget):
         v.addWidget(widgets.role_label("STAGING", "subtle"))
         srow = QHBoxLayout()
         srow.setSpacing(8)
-        self.stage_btn = QPushButton("Check the staging")
-        self.stage_btn.setAccessibleName("Check that every cutscene walk can reach its target")
+        # The two buttons ELIDE: a QPushButton's floor is its whole label, and the docked column
+        # took that floor wider than the Inspector at 150% ("Check the stagi", cut at the edge).
+        # Their floor is set in _yield_buttons, re-derived from the text-size dial.
+        self.stage_btn = widgets.ElideButton("")
+        self._stage_label("Check the staging")
         self.stage_btn.setToolTip(
             "Walk every cast scene against the field's walkmesh — a blocked leg paints on "
             "the stage at the exact spot, with the build's own sentence. Walkmesh from the "
@@ -1020,14 +1023,27 @@ class CutsceneDoc(QWidget):
         self.stage_list.itemActivated.connect(self._on_stage_item)   # Enter: the keyboard's click
         self.stage_list.setVisible(False)
         v.addWidget(self.stage_list, 1)
-        self.toml_btn = QPushButton("Open the .toml")
+        self.toml_btn = widgets.ElideButton("Open the .toml")
         self.toml_btn.setProperty("role", "quiet")
         self.toml_btn.setToolTip("Open this field's .toml in your editor — every key the "
                                  "forms don't reach is authorable there.")
         self.toml_btn.clicked.connect(self._open_toml)
         v.addWidget(self.toml_btn)
         v.addStretch(0)
+        self._yield_buttons()
         return col
+
+    def _yield_buttons(self):
+        """The instruments' buttons may shrink (eliding) to a floor that scales with the dial;
+        the column then fits whatever width the Inspector gives it."""
+        for b in (self.stage_btn, self.toml_btn):
+            b.setMinimumWidth(int(72 * self._scale / 100))
+
+    def _stage_label(self, text):
+        """Relabel the staging button. ElideButton names itself after its label; this button's
+        name says what it checks."""
+        self.stage_btn.setText(text)
+        self.stage_btn.setAccessibleName("Check that every cutscene walk can reach its target")
 
     def _open_toml(self):
         if self.open_toml and self._member:
@@ -1042,6 +1058,7 @@ class CutsceneDoc(QWidget):
         if hasattr(self, "canvas"):
             self.canvas.set_scale(pct)
             self.board_slider.setMinimumWidth(int(120 * pct / 100))
+        self._yield_buttons()
 
     def retheme(self, pal):
         self.pal = pal
@@ -1765,7 +1782,7 @@ class CutsceneDoc(QWidget):
         self._stage_busy = True
         self._stage_moved = False
         self.stage_btn.setEnabled(False)
-        self.stage_btn.setText("Checking…")
+        self._stage_label("Checking…")
         import copy as _copy
         snap = _copy.deepcopy(raw)                 # the worker must never race the GUI's dict
         gen, path = self._stage_gen, self._path
@@ -1810,7 +1827,7 @@ class CutsceneDoc(QWidget):
         self._last_stage = res                     # the tests'/snaps' deterministic readback
         self._stage_busy = False
         self.stage_btn.setEnabled(True)
-        self.stage_btn.setText("Check the staging")
+        self._stage_label("Check the staging")
         if wmesh is not None:
             self._wmesh = wmesh
             self._stage_armed = True
@@ -1897,7 +1914,7 @@ class CutsceneDoc(QWidget):
         self._stage_armed = False
         self._stage_busy = False
         self.stage_btn.setEnabled(True)
-        self.stage_btn.setText("Check the staging")
+        self._stage_label("Check the staging")
         self.stage_note.setText("")
         widgets.set_state(self.stage_note, "")
         self.stage_list.clear()
