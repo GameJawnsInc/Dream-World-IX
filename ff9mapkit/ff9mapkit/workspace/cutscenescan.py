@@ -294,7 +294,8 @@ def scene_problems(raw, flag_names=None) -> list:
                 out.append(f'{tag}step {i} ({kk}) needs a cast -- add actors = ["<npc name>"]')
             if s.get("with_prev"):
                 if i == 0:
-                    out.append(f"{tag}step 0 can't run with a previous beat (there isn't one)")
+                    out.append(f"{tag}step 0 can't run together with a previous step "
+                               "(there isn't one)")
                 elif kk not in _forms.PARALLEL_STEPS:
                     out.append(f"{tag}step {i} ({kk}) can't run in parallel -- only "
                                f"{', '.join(_forms.PARALLEL_STEPS)} can ride with_prev")
@@ -602,7 +603,7 @@ def storyboard(raw, base_dir, wmesh, scene_idx: int) -> dict:
                                  "positions": dict(pos), "legs": legs})
         # THE HONESTY LEDGER -- on the strip's face, not in a docstring.
         out["notes"] = [
-            "beat axis, no clock -- a say waits for the player, so seconds would be fiction",
+            "one moment at a time, no clock -- a say waits for the player, so seconds would be fiction",
             "walks are the compiler's routed polylines, not the engine's smooth path",
             "@player resolves to [player] spawn; the real player stands wherever they walked",
         ]

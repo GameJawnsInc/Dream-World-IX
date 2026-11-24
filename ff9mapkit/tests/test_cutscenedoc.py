@@ -289,7 +289,7 @@ def test_the_storyboard_scrubs_beats_and_wraps_the_say_line(doc, tmp_path):
     assert len(beats) == 2                              # [walk + turn] then [say]
     assert doc.board_slider.maximum() == 1
     doc._show_beat(1)
-    assert "beat 2 of 2" in doc.board_pos.text()
+    assert doc.board_pos.text() == "moment 2 of 2"
     # E1: the strip shows the line the BUILD emits (name line, quotes, the build's wrap) --
     # not an invented "Cid:" prefix
     assert doc.board_say.text() == _as_built("Cid", "Made it to the altar.")
@@ -298,6 +298,30 @@ def test_the_storyboard_scrubs_beats_and_wraps_the_say_line(doc, tmp_path):
     assert t["beatpos"] >= 1                            # storyboard mode draws positions
     doc.board_btn.setChecked(False)
     assert doc.ladder._beat_marks == set()
+
+
+def test_beat_means_the_story_and_moment_means_steps_that_run_together(doc, tmp_path):
+    """C20: 'beat' meant the story position ('plays at beat 100') AND the storyboard's group of
+    steps ('beat 1 of 2', 'Runs with the previous beat') on one screen. The story keeps 'beat';
+    the storyboard's unit is a 'moment' wherever the tab shows it."""
+    from PySide6.QtWidgets import QAbstractButton, QLabel
+    _fed(doc, tmp_path)
+    doc.board_btn.setChecked(True)
+    doc._show_beat(0)
+    doc._edit_step(1)
+    assert "plays at beat 100" in doc.scene_gate.fullText() if hasattr(doc.scene_gate, "fullText") \
+        else "plays at beat 100" in doc.scene_gate.text()
+    said = []
+    for w in doc.findChildren(QLabel) + doc.findChildren(QAbstractButton) + [doc.board_slider]:
+        said += [w.text() if hasattr(w, "text") else "", w.toolTip(), w.accessibleName()]
+    said += [doc.board_note.toolTip()] + [r.accessibleName() for r in doc.ladder._rows]
+    said += cutscenescan.scene_problems(
+        {"cutscene": [{"steps": [{"say": "a", "with_prev": True}]}]})
+    story = [t for t in said if "beat" in t.lower() and "plays at beat" not in t
+             and "story beat" not in t]
+    assert story == [], story
+    assert doc.board_pos.text() == "moment 1 of 2"
+    assert doc.editor.with_prev.text() == "Runs together with the previous step"
 
 
 def test_a_beat_with_no_line_says_so_quietly(doc, tmp_path):
@@ -1662,7 +1686,7 @@ def test_a11y_names_on_every_interactive_control(doc, tmp_path):
     _fed(doc, tmp_path)
     assert doc.rail.accessibleName() == "Cutscene scenes"
     assert doc.canvas.accessibleName() == "Cutscene stage"
-    assert doc.board_slider.accessibleName() == "Storyboard beat"
+    assert doc.board_slider.accessibleName() == "Storyboard moment"
     assert doc.stage_btn.accessibleName()
     assert doc.stage_list.accessibleName() == "Cutscene staging problems"
     assert doc.ladder.accessibleName() == "Cutscene steps"

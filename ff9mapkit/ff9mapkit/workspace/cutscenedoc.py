@@ -343,8 +343,8 @@ class StepEditor(QFrame):
         self.actor.setAccessibleName("Cutscene step actor")
         self.actor.lineEdit().setPlaceholderText("blank = sole cast member / narration voice")
         v.addWidget(self.actor)
-        self.with_prev = QCheckBox("Runs with the previous beat")
-        self.with_prev.setAccessibleName("Cutscene step runs in parallel with the previous beat")
+        self.with_prev = QCheckBox("Runs together with the previous step")
+        self.with_prev.setAccessibleName("Cutscene step runs together with the previous step")
         v.addWidget(self.with_prev)
         # the kind-aware extras drawer -- text steps get the whole window/pacing family,
         # movement steps just the walk speed; everything blank = absent = byte-identical output
@@ -454,7 +454,7 @@ class StepEditor(QFrame):
         if not ok:
             self.with_prev.setChecked(False)
         self.with_prev.setToolTip(
-            "Fork this beat alongside the one above it (both finish before the next)."
+            "Run this step alongside the one above it (both finish before the next)."
             if ok else
             ("Step 0 has nothing to run with." if (row or 0) == 0 else
              f"Only {', '.join(forms.PARALLEL_STEPS)} can run in parallel."))
@@ -709,7 +709,7 @@ class StepLadder(QWidget):
         self._follow = None
         if not rows:
             self._lay.addWidget(widgets.caption(
-                "No steps yet — a cutscene is an ordered list of beats: say a line, walk an "
+                "No steps yet — a cutscene is an ordered list of steps: say a line, walk an "
                 "actor, wait, open/close windows, set a flag."))
         self._lay.addStretch(1)
 
@@ -773,7 +773,7 @@ class StepLadder(QWidget):
             h.addWidget(ex)
         frame.setAccessibleName(
             f"step {i}: " + (f"{row['actor']} " if row["actor"] else "") + row["verb"]
-            + (" runs with the previous beat" if row["with_prev"] else ""))
+            + (" runs together with the previous step" if row["with_prev"] else ""))
         return frame
 
 
@@ -866,7 +866,7 @@ class CutsceneDoc(QWidget):
         return widgets.empty_state(                # "nofield" -- the front door
             "", "Cutscene stages a field's [[cutscene]] scenes",
             teach="Open a campaign or a loose field and select a field in the tree — its "
-                  "scenes, steps, staging, and the beat storyboard render here.",
+                  "scenes, steps, staging, and the storyboard render here.",
             icon_pixmap=glyph)
 
     def _show_guide(self, state):
@@ -965,7 +965,8 @@ class CutsceneDoc(QWidget):
         self.board_btn.setProperty("role", "quiet")
         self.board_btn.setCheckable(True)
         self.board_btn.setToolTip(
-            "Scrub the scene BEAT by BEAT — positions chain the way the compiler chains "
+            "Step through the scene one MOMENT at a time (the steps that run together) — "
+            "positions chain the way the compiler chains "
             "them, the say line shows with its final in-game wrapping.\n"
             "No clock, on purpose: a say waits for the player, so seconds would be fiction.")
         self.board_btn.toggled.connect(self._toggle_board)
@@ -1008,7 +1009,7 @@ class CutsceneDoc(QWidget):
         sv.setSpacing(2)
         srow = QHBoxLayout()
         srow.setSpacing(8)
-        for glyph, d, name in (("◀", -1, "Previous beat"), ("▶", +1, "Next beat")):
+        for glyph, d, name in (("◀", -1, "Previous moment"), ("▶", +1, "Next moment")):
             b = QPushButton(glyph)                 # text glyphs, the rowtool family's idiom --
             b.setProperty("role", "quiet")         # NOT U+23xx media glyphs (the emoji-face law)
             b.setToolTip(name)
@@ -1016,8 +1017,8 @@ class CutsceneDoc(QWidget):
             b.clicked.connect(lambda _=False, k=d: self._show_beat(self._beat_pos() + k))
             srow.addWidget(b)
         self.board_slider = QSlider(Qt.Orientation.Horizontal)
-        self.board_slider.setAccessibleName("Storyboard beat")   # a slider is a real Tab stop
-        self.board_slider.setToolTip("Scrub the scene's beats")
+        self.board_slider.setAccessibleName("Storyboard moment")   # a slider is a real Tab stop
+        self.board_slider.setToolTip("Scrub the scene's moments")
         self.board_slider.valueChanged.connect(self._on_board_scrub)
         self.board_slider.setMinimumWidth(int(120 * self._scale / 100))   # never a sliver
         srow.addWidget(self.board_slider, 1)
@@ -1027,7 +1028,7 @@ class CutsceneDoc(QWidget):
         sv.addLayout(srow)
         self.board_say = QLabel("")                # the beat's line, PRE-wrapped by the build's
         self.board_say.setProperty("mono", True)   # own wrapper -- what the FF9 window shows
-        self.board_say.setAccessibleName("The say line at this beat")
+        self.board_say.setAccessibleName("The say line at this moment")
         self.board_say.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         sv.addWidget(self.board_say)
         self.board_note = widgets.ElideLabel("")   # the honesty ledger's one-line face
@@ -1872,7 +1873,7 @@ class CutsceneDoc(QWidget):
             return
         widgets.set_state(self.board_say, "")
         notes = self._board.get("notes") or []
-        self.board_note.setFullText("offline storyboard — beats, not seconds (hover for why)")
+        self.board_note.setFullText("offline storyboard — moments, not seconds (hover for why)")
         self.board_note.setToolTip("\n".join(notes))
         if not beats:                              # every step deleted: nothing of the old board
             self._board_text("No steps yet — add one to storyboard this scene.", placeholder=True)
@@ -1895,13 +1896,13 @@ class CutsceneDoc(QWidget):
         self.board_slider.setValue(k)
         self.board_slider.blockSignals(False)
         b = beats[k]
-        self.board_pos.setText(f"beat {k + 1} of {len(beats)}")
+        self.board_pos.setText(f"moment {k + 1} of {len(beats)}")
         if b["say"] is not None:
             ww = cutscenescan.wrap_width(self._merged())
             line = cutscenescan.say_as_built(b["say_speaker"], b["say"])   # the build's line
             self._board_text(_dlg.wrap_preview(line, ww) if ww is not None else line)
         else:
-            self._board_text("(no line this beat)", placeholder=True)
+            self._board_text("(no line at this moment)", placeholder=True)
         self.ladder.set_beat_marks(set(b["step_idxs"]))
         self.canvas.set_storyboard(self._board, k)
 
