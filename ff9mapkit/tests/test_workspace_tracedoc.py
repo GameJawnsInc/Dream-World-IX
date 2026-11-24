@@ -1168,18 +1168,41 @@ def test_first_generate_hands_the_project_to_the_shell_once(app, tmp_path, monke
     doc.name_box.setText("PICTURE")          # (a new photo names itself; T13)
     monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
     doc.on_generate()
-    _argv, kw = run.calls[0]
     toml = tmp_path / "photo-field" / "PICTURE.field.toml"   # the session's name (the box default)
+    run.calls[0][1]["on_finished"](1)                  # a FAILED first job opens nothing
+    assert opened == []
+    # Finding E16: this used to call the SAME launch's callback a second time, a path no user
+    # takes -- the real retry is a second Generate, which must still count as the first one
+    doc.on_generate()
     toml.parent.mkdir(parents=True, exist_ok=True)
     toml.write_text('[field]\nid = 30785\nname = "PICTURE"\narea = 11\n', encoding="utf-8")
-    kw["on_finished"](1)                               # a FAILED first job opens nothing
-    assert opened == []
-    kw["on_finished"](0)
+    run.calls[1][1]["on_finished"](0)
     assert opened == [str(toml)]
     doc.on_generate()                                  # in place now
-    _argv2, kw2 = run.calls[1]
-    kw2["on_finished"](0)                              # a clean REGENERATE stays put
+    run.calls[2][1]["on_finished"](0)                  # a clean REGENERATE stays put
     assert opened == [str(toml)]
+
+
+@pytest.mark.parametrize("code", [0, 1, 2, 62097])     # done, failed, refused, killed by Stop
+def test_the_status_never_stays_on_generating(app, tmp_path, monkeypatch, code):
+    """Finding E14: the tab's status kept saying 'Generating ...' after the job had ended, until
+    the next gesture. Every ending -- a first Generate or a regenerate, clean, failed or stopped
+    (the tab sees a Stop as the kill's exit code) -- settles it."""
+    pytest.importorskip("PIL")
+    doc, run, toml = _armed(app, tmp_path, monkeypatch)
+    doc.canvas._commit_floor([(120, 210), (254, 200), (364, 440), (20, 440)])
+    doc.on_generate()
+    assert "Generating" in doc.status.text()
+    run.calls[-1][1]["on_finished"](code)
+    assert "Generating" not in doc.status.text() and doc.status.text()
+    fresh, run2 = _doc(app)                            # and a FIRST Generate that writes nothing
+    fresh.load_image(_photo(tmp_path))
+    fresh.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    fresh.id_box.setText("30786")
+    monkeypatch.setattr(fresh, "_ask_out", lambda: str(tmp_path / "other"))
+    fresh.on_generate()
+    run2.calls[0][1]["on_finished"](code)
+    assert "Generating" not in fresh.status.text() and fresh.status.text()
 
 
 def test_a_failed_first_generate_leaves_the_tab_unarmed_and_the_retry_opens(app, tmp_path,
