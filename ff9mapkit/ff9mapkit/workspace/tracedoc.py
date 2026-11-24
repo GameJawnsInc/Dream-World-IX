@@ -454,7 +454,17 @@ class TraceDoc(QWidget):
                 else f"distance {self._distance:g}, field of view {self._fov:g}°")
         say(self.ins_pitch, [f"Pitch {self.pitch.value()}°", pose])
         n = good + bad
-        say(self.ins_floor, [f"Floor: {n} {'vertex' if n == 1 else 'vertices'}",
+        size = ""
+        if good >= 3 and not bad:                      # how big it is in the game (T34)
+            cam = self.canvas.camera()
+            world = [imagefield.click_to_world(cam, p) for p in self._floor]
+            w = max(x for x, _ in world) - min(x for x, _ in world)
+            d = max(z for _, z in world) - min(z for _, z in world)
+
+            def about(v):
+                return int(round(v, -2 if v >= 1000 else -1))
+            size = f"floor about {about(w)} × {about(d)} units"
+        say(self.ins_floor, [f"Floor: {n} {'vertex' if n == 1 else 'vertices'}", size,
                              f"⚠ {bad} above the horizon" if bad else "",
                              f"⚠ {crossed}" if crossed else ""], warn=bool(bad or crossed))
         say(self.ins_fg, [f"Cut-outs: {len(self._fg)}",

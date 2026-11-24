@@ -2473,6 +2473,31 @@ def test_detect_floor_is_a_floor_tool_control(app, tmp_path):
     assert not doc.detect_btn.isVisible()
 
 
+# --------------------------------------------------------------------------- T34: the floor's size
+def test_the_inspector_says_how_big_the_traced_floor_is_in_world_units(app, tmp_path):
+    """Finding T34: nothing said how large the traced floor will be in the game. The Inspector's
+    floor line gives its world extent, re-judged with the pitch; with a vertex above the horizon
+    there is no size to give."""
+    pytest.importorskip("PIL")
+    from ff9mapkit import imagefield as IF
+    doc, _ = _doc(app)
+    doc.load_image(_photo(tmp_path))
+    pts = [(100, 300), (280, 300), (280, 430), (100, 430)]
+    doc.canvas._commit_floor(pts)
+    world = [IF.click_to_world(doc.canvas.camera(), p) for p in pts]
+    w = max(x for x, _ in world) - min(x for x, _ in world)
+    d = max(z for _, z in world) - min(z for _, z in world)
+
+    def about(v):
+        return int(round(v, -2 if v >= 1000 else -1))
+    assert f"floor about {about(w)} × {about(d)} units" in doc.ins_floor.text(), doc.ins_floor.text()
+    doc.pitch.setValue(40)                               # a steeper camera: a smaller floor
+    assert f"about {about(w)} × {about(d)}" not in doc.ins_floor.text()
+    doc.canvas._commit_floor([(100, 50)] + pts[1:])      # above the horizon: no honest size
+    doc.pitch.setValue(6)
+    assert "units" not in doc.ins_floor.text()
+
+
 # --------------------------------------------------------------------------- T41: the Inspector summary
 def test_the_inspector_summary_follows_the_session(app, tmp_path, monkeypatch):
     """Finding T41: the Inspector was empty on Trace while one status line carried every count.
