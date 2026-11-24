@@ -566,6 +566,42 @@ def test_upgrade_asks_about_the_trace_once_and_starts_nothing_on_no(win, tmp_pat
     assert (len(started), len(quits)) == ((1, 1) if answer else (0, 0))
 
 
+def _two_member_campaign(root):
+    from ff9mapkit import campaign as C
+    root.mkdir(parents=True, exist_ok=True)
+    mem = [C.Member(100, 30100, "GLADE", "borrow", 11, "", "GLADE/GLADE.field.toml", False),
+           C.Member(101, 30101, "TRAIL", "borrow", 11, "", "TRAIL/TRAIL.field.toml", False)]
+    plan = C.CampaignPlan(name="Demo", mod_folder="M", id_base=30100, flag_base=C.FIRST_SAFE_FLAG,
+                          flags_per_field=64, entry_name="GLADE", entry_entrance=0,
+                          members=mem, edges=[], seams=[])
+    (root / "campaign.toml").write_text(C.render_campaign_toml(plan), encoding="utf-8")
+    for nm, fid in (("GLADE", 30100), ("TRAIL", 30101)):
+        (root / nm).mkdir(exist_ok=True)
+        (root / nm / f"{nm}.field.toml").write_text(
+            f'[field]\nid = {fid}\nname = "{nm}"\narea = 11\n', encoding="utf-8")
+    return root / "campaign.toml"
+
+
+def test_the_load_offer_follows_the_tree_selection_while_trace_shows(win, app, tmp_path):
+    """Finding T39: Behavior, Cutscene and Place follow a tree selection live; Trace did not, so
+    with Trace showing its "Load <field>" offer kept naming -- and on click loaded -- the field
+    selected before."""
+    from PIL import Image
+    assert win.open_campaign(_two_member_campaign(tmp_path / "demo"))
+    win.tree.setCurrentItem(win._member_items["GLADE"])
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (800, 600), (90, 80, 70)).save(photo)
+    win.trace_doc.load_image(photo)                    # mid-session: an offer, not an auto-load
+    win.trace_doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    win.tabs.setCurrentWidget(win.trace_doc)
+    app.processEvents()
+    assert "GLADE" in win.trace_doc.offer_btn.text()
+    win.tree.setCurrentItem(win._member_items["TRAIL"])
+    app.processEvents()
+    assert "TRAIL" in win.trace_doc.offer_btn.text()
+    assert win.trace_doc._offer_path == str(win.member_paths["TRAIL"])
+
+
 def _run_real_job(win, app, code):
     """A REAL run_job: a Python child through the shell's own QProcess, waited out."""
     import sys
