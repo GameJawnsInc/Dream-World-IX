@@ -6,7 +6,10 @@ a machine without the install degrades to text rows). Detail (right): the previe
 facts + the render's counts sidecar, the model->animation join as a CLIP LIST that arms a little
 frame player (workspace/animframes.py streams the rendered frames; they paint into the still's own
 box and Reset puts the still back), appearance caveats (story-evolved forms / the Garnet hair-swap),
-overworld actor identity, and ready snippets. Actions: the whole
+overworld actor identity, and ready snippets. The still says WHAT IT SHOWS (the clip it was posed
+from -- models/thumbcache writes that into the sidecar, catalog.stand_clip chooses it). Renders
+follow the viewport (whatever scrolls into view), and the ``Previews`` menu under the list is the
+cache's one control: its status, a background render-everything lane, and a clear. Actions: the whole
 DLL-free round-trip in ONE place -- export a Blender-editable .glb, import the edited .glb back,
 mint a new id (>=6000), dump editable .anim clips -- each streaming ``py -m ff9mapkit model-*``
 through the shell's job runner. (Moved here from the Import tab, which now points at this tab.)
@@ -19,19 +22,27 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import QPoint, Qt, QSize, QTimer
 from PySide6.QtGui import QGuiApplication, QIcon, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
-                               QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
-                               QScrollArea, QSplitter, QVBoxLayout, QWidget)
+                               QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
+                               QPushButton, QScrollArea, QSizePolicy, QSplitter, QVBoxLayout, QWidget)
 
 from .. import catalog
+from ..models import thumbcache
 from ..models.appearance import appearance_notes
 from . import clipplayer, modelcards, thumbs as thumbs_mod, widgets
 
 _ICON = 56                                       # list-row icon size (px)
 _DETAIL_IMG = 224                                # detail-pane preview size (px)
 _THUMB_BATCH = 96                                # thumbnails auto-requested per filter result (top of list)
+_VISIBLE_BATCH = 48                              # max cold renders enqueued per scroll settle
+_VISIBLE_PAD = 4                                 # rows either side of the viewport rendered with it
+_SCROLL_MS = 150                                 # scroll-settle debounce before requesting renders
+_MINT_FLOOR = 6000                               # first id clear of every real GEO id (mint.MINT_BAND_START)
+_RIG_BONES = 8                                   # fewer bones than this is a PROP (a barrel has 2, a weapon
+#                                                  1): "this may be a bind pose" is a caution about a
+#                                                  character's T-pose, and noise under a treasure chest
 _CLIP_LIST_H = 150                               # clip-list cap (px) BEFORE a fill: a QListWidget's
 #                                                  sizeHint is 256x192 whatever its row count (the
 #                                                  dep_list idiom). A filled list re-caps on whole
@@ -39,6 +50,38 @@ _CLIP_ROWS = 5                                   # rows measured in the list's O
 _CLIP_LIST_CHROME = 5                            # + the QSS well's border(1) + padding(4) per side
 
 _GROUPS = modelcards.GROUPS                      # one list, one order (the card picker shares it)
+
+
+def _size(nbytes) -> str:
+    """A byte count for a status line: whole MB, with a floor that never reads '0 MB' for real files."""
+    mb = float(nbytes) / (1024.0 * 1024.0)
+    if nbytes <= 0:
+        return "0 MB"
+    return "under 1 MB" if mb < 1.0 else f"{mb:.0f} MB"
+
+
+class _IdEdit(QLineEdit):
+    """A short numeric-id box sized in CHARACTERS of its OWN font, so it hears the text-size dial.
+
+    It replaces ``setFixedWidth(70)``. A px constant is deaf to CALIBRE by construction: at the 150%
+    rung the box showed ';000' for 6000 (snap-caught) -- the one field on this pane whose whole job is
+    to be read before a destructive click. The hint is derived at CALL time, so a restyle re-measures
+    it: QLineEdit's own hint is 17 'x' wide plus chrome, and the chrome is whatever is left over."""
+
+    def __init__(self, text="", *, ch=6, parent=None):
+        super().__init__(text, parent)
+        self._ch = int(ch)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+    def sizeHint(self):
+        hint = super().sizeHint()
+        fm = self.fontMetrics()
+        chrome = hint.width() - fm.horizontalAdvance("x") * 17
+        hint.setWidth(fm.horizontalAdvance("0" * self._ch) + max(0, chrome))
+        return hint
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
 
 
 class ModelsDoc(clipplayer.ClipPlayer, QWidget):
@@ -68,7 +111,15 @@ class ModelsDoc(clipplayer.ClipPlayer, QWidget):
         self._blank = QPixmap(_ICON, _ICON)      # constant-size placeholder so rows never shift
         self._blank.fill(Qt.GlobalColor.transparent)
         self._blank_icon = QIcon(self._blank)
+        self._clip_rows = []                     # the selected model's WHOLE clip inventory (pre-filter)
+        # scroll-driven renders: a row past the first _THUMB_BATCH used to stay blank until it was
+        # SELECTED -- two thirds of the catalog was a text list. Now whatever scrolls into view renders.
+        self._scroll_timer = QTimer(self)
+        self._scroll_timer.setSingleShot(True)
+        self._scroll_timer.setInterval(_SCROLL_MS)
+        self._scroll_timer.timeout.connect(self._request_visible)
         self._build()
+        self.listw.verticalScrollBar().valueChanged.connect(self._on_list_scrolled)
         self._refill()
 
     # ------------------------------------------------------------------ layout
@@ -127,9 +178,33 @@ class ModelsDoc(clipplayer.ClipPlayer, QWidget):
         self.listw.setUniformItemSizes(True)
         self.listw.currentItemChanged.connect(self._on_select)
         lv.addWidget(self.listw, 1)
+        crow = QHBoxLayout()
         self.count_lbl = QLabel("")
         self.count_lbl.setProperty("role", "muted")
-        lv.addWidget(self.count_lbl)
+        crow.addWidget(self.count_lbl, 1)
+        # the preview cache's ONE control: a menu, because its three verbs are rare and its status
+        # costs a directory scan (paid in aboutToShow, never at startup). A QPushButton with a menu
+        # draws its own arrow -- do not type a caret into the label.
+        self.cache_btn = QPushButton("Previews")
+        self.cache_btn.setProperty("role", "quiet")
+        self.cache_btn.setAccessibleName("Preview cache")
+        self.cache_btn.setToolTip("The rendered-preview cache: render every model's preview in the "
+                                  "background, or clear the cache.")
+        self.cache_menu = QMenu(self.cache_btn)
+        self.cache_status_act = self.cache_menu.addAction("")
+        self.cache_status_act.setEnabled(False)
+        self.cache_clips_act = self.cache_menu.addAction("")
+        self.cache_clips_act.setEnabled(False)
+        self.cache_menu.addSeparator()
+        self.cache_render_act = self.cache_menu.addAction("Render all previews")
+        self.cache_render_act.triggered.connect(self.on_render_all)
+        self.cache_clear_act = self.cache_menu.addAction("Clear the preview cache…")
+        self.cache_clear_act.triggered.connect(self.on_clear_cache)
+        self.cache_menu.aboutToShow.connect(self._refresh_cache_menu)
+        self.cache_btn.setMenu(self.cache_menu)
+        self.cache_btn.setVisible(thumbs_mod.enabled())      # previews off -> there is no cache to manage
+        crow.addWidget(self.cache_btn)
+        lv.addLayout(crow)
         split.addWidget(left)
 
         # ---- right: detail + actions (scrolled) ----
@@ -164,6 +239,9 @@ class ModelsDoc(clipplayer.ClipPlayer, QWidget):
         self.d_facts = QLabel("")
         self.d_facts.setWordWrap(True)
         facts_col.addWidget(self.d_facts)
+        self.d_pose = widgets.caption("")    # what the still SHOWS (its clip, or "rest pose") -- its own
+        facts_col.addWidget(self.d_pose)     # line: the picture is unreadable without it on a T-pose
+        self.d_pose.hide()
         self.d_notes = widgets.caption("")   # appearance caveats -> a small cautionary note
         self.d_notes.setProperty("state", "warn")
         facts_col.addWidget(self.d_notes)
@@ -220,14 +298,22 @@ class ModelsDoc(clipplayer.ClipPlayer, QWidget):
         """
         box = widgets.section("Preview an animation")
         v = box.content_layout
+        # A FILTER, because the list is five rows tall and Zidane has 416 clips. Shown only when the
+        # model has more clips than the list has rows.
+        self.clip_filter = QLineEdit()
+        self.clip_filter.setAccessibleName("Filter animation clips")
+        self.clip_filter.setClearButtonEnabled(True)
+        self.clip_filter.textChanged.connect(self._fill_clip_rows)
+        self.clip_filter.hide()
+        v.addWidget(self.clip_filter)
         self.clip_list = QListWidget()
         self.clip_list.setAccessibleName("Animation clips for this model")
         self.clip_list.setMaximumHeight(_CLIP_LIST_H)     # see _CLIP_LIST_H (the dep_list idiom)
         self.clip_list.currentItemChanged.connect(self._on_clip)
         v.addWidget(self.clip_list)
         v.addWidget(self._build_transport())     # ClipPlayer's transport row (shared with the picker)
-        v.addWidget(self.anim_note)              # ...its prose line stays OUTSIDE the strip: NO_THUMBS
-        return box                               # hides the strip and the sentence must survive that
+        v.addWidget(self.anim_foot)              # ...its prose line (+ speed) stays OUTSIDE the strip:
+        return box                               # NO_THUMBS hides the strip and the sentence must survive
 
     # ------------------------------------------------------------------ the clip player
     def _still_png(self):
@@ -238,17 +324,14 @@ class ModelsDoc(clipplayer.ClipPlayer, QWidget):
     def _refill_clips(self, m):
         """The model's clip inventory -> rows 'label · id N' (+ 'other form' where the clip's ANH
         names a DIFFERENT form code: a different form is a different skeleton). Install-free."""
-        self.clip_list.blockSignals(True)         # a refill must not arm the first row by itself
-        self.clip_list.clear()
         rows = catalog.clip_inventory(m.id) if m is not None else []
-        for r in rows:
-            label = f"{r['label']}  ·  id {r['anim_id']}"
-            if not r["own_form"]:
-                label += "  ·  other form"
-            it = QListWidgetItem(label)
-            it.setData(Qt.ItemDataRole.UserRole, r["anim_id"])
-            self.clip_list.addItem(it)
-        self.clip_list.blockSignals(False)
+        self._clip_rows = rows
+        self.clip_filter.blockSignals(True)       # a new model starts unfiltered
+        self.clip_filter.clear()
+        self.clip_filter.blockSignals(False)
+        self.clip_filter.setPlaceholderText(f"Filter {len(rows)} clips — walk, talk, attack…")
+        self.clip_filter.setVisible(len(rows) > _CLIP_ROWS)
+        self._fill_clip_rows()
         if not rows:
             self.anim_note.setText("No clips catalogued for this model (a numbered battle-only "
                                    "token or a static prop).")
@@ -261,6 +344,27 @@ class ModelsDoc(clipplayer.ClipPlayer, QWidget):
         if thumbs_mod.enabled():                 # NO_THUMBS keeps its own "previews off" line
             self.anim_note.setText(f"{len(rows)} clip(s) — pick one to render and play it.")
 
+    def _fill_clip_rows(self, *_a):
+        """(Re)build the clip rows from the inventory through the filter box. Signals are blocked: a
+        refill must not arm a row by itself, and a filter keystroke must not re-arm the playing clip
+        (its row is re-selected silently when it survives the filter)."""
+        q = self.clip_filter.text().strip().lower()
+        armed = self._armed[1] if self._armed else None
+        self.clip_list.blockSignals(True)
+        self.clip_list.clear()
+        for r in self._clip_rows:
+            label = f"{r['label']}  ·  id {r['anim_id']}"
+            if not r["own_form"]:
+                label += "  ·  other form"
+            if q and q not in label.lower():
+                continue
+            it = QListWidgetItem(label)
+            it.setData(Qt.ItemDataRole.UserRole, r["anim_id"])
+            self.clip_list.addItem(it)
+            if armed is not None and r["anim_id"] == armed and self.clip_list.currentItem() is None:
+                self.clip_list.setCurrentItem(it)
+        self.clip_list.blockSignals(False)
+
     def _on_clip(self, item, _prev=None):
         if item is None or self._current is None:
             return
@@ -271,6 +375,7 @@ class ModelsDoc(clipplayer.ClipPlayer, QWidget):
         outlive the surface that asked for it."""
         self.stop_playback()
         self.anims.supersede()
+        self._scroll_timer.stop()                # a parked widget's single-shot fires in a LATER test
         super().hideEvent(ev)
 
     def _actions_box(self):
@@ -356,10 +461,10 @@ class ModelsDoc(clipplayer.ClipPlayer, QWidget):
         mint = QHBoxLayout()
         _l_mint = QLabel("Mint new id:")
         mint.addWidget(_l_mint)
-        self.mdl_mint_id = QLineEdit("6000")
+        self.mdl_mint_id = _IdEdit(str(_MINT_FLOOR))        # 6 digits wide: the band tops out at 65535
         _l_mint.setBuddy(self.mdl_mint_id)
-        self.mdl_mint_id.setFixedWidth(70)
-        self.mdl_mint_id.setToolTip("The new model id — ≥ 6000 (clear of every real id).")
+        self.mdl_mint_id.setToolTip("The new model id — ≥ 6000 (clear of every real id). It moves "
+                                    "off an id the Deploy-into folder is already using.")
         mint.addWidget(self.mdl_mint_id)
         self.mdl_mint_btn = QPushButton("Mint from model")
         self.mdl_mint_btn.setToolTip("Re-export the selected model to a brand-new id + register it in "
@@ -506,6 +611,21 @@ class ModelsDoc(clipplayer.ClipPlayer, QWidget):
             self.dep_list.addItem(it)
         self.dep_hint.setText(f"{len(entries)} deployed entr{'y' if len(entries) == 1 else 'ies'}."
                               if entries else "No loose model overrides in this folder.")
+        self._suggest_mint_id(mod)
+
+    # ------------------------------------------------------------------ the mint id
+    def _suggest_mint_id(self, mod):
+        """If the id in the box is one ``mod`` already uses, advance it to the next free id AT OR ABOVE
+        it (so a hand-typed 6100 becomes 6101, not 6000). A free id is never touched. The old constant
+        6000 meant the SECOND mint into a folder silently replaced the first."""
+        from ..models import deployed
+        if not mod or not Path(mod).is_dir():
+            return
+        cur = self.mdl_mint_id.text().strip()
+        base = int(cur) if cur.isdigit() and int(cur) >= _MINT_FLOOR else _MINT_FLOOR
+        free = str(deployed.next_mint_id(mod, floor=base))
+        if free != cur:
+            self.mdl_mint_id.setText(free)
 
     def on_deployed_revert(self):
         from ..models import deployed
@@ -547,6 +667,8 @@ class ModelsDoc(clipplayer.ClipPlayer, QWidget):
         entries, hidden = modelcards.filter_models(q, grp, field_only=self.field_only.isChecked(),
                                                    hide_absent=hide,
                                                    absent=self._absent_ids() if hide else frozenset())
+        self._count_base = f"{len(entries)} model(s)" + (f"  ·  {hidden} with no geometry hidden"
+                                                         if hidden else "")
         self.listw.clear()
         self._items = {}
         for m in entries:
@@ -558,9 +680,7 @@ class ModelsDoc(clipplayer.ClipPlayer, QWidget):
             self._items[m.name] = it
         if keep is not None and keep in self._items:     # a live filter update must not steal the pick
             self.listw.setCurrentItem(self._items[keep])
-        note = f"  ·  {hidden} with no geometry hidden" if hidden else ""
-        self.count_lbl.setText(f"{len(entries)} model(s){note}"
-                               + ("" if thumbs_mod.enabled() else "  ·  previews off"))
+        self._update_count()
         # warm the visible top of the list (the rest render on selection; all cache forever). Known
         # no-geometry ids are skipped -- a render attempt on them is a guaranteed miss. cached() is
         # probed FIRST: on a warm cache nothing needs the absent set, so startup skips its sidecar scan.
@@ -568,6 +688,117 @@ class ModelsDoc(clipplayer.ClipPlayer, QWidget):
             for m in entries[:_THUMB_BATCH]:
                 if self.thumbs.cached(m.name) is None and m.id not in self._absent_ids():
                     self.thumbs.request(m.name)
+
+    def _warming(self) -> bool:
+        """Is (or was, one arrival ago) the background warm-up running? The second half clears the
+        'N to go' text when the LAST render lands and the lane reads empty."""
+        return bool(self.thumbs.bulk_pending()) or "rendering previews" in self.count_lbl.text()
+
+    def _update_count(self):
+        """The count line: the filter result, plus the background warm-up's progress while it runs."""
+        left = self.thumbs.bulk_pending()
+        self.count_lbl.setText(getattr(self, "_count_base", "")
+                               + (f"  ·  rendering previews, {left} to go" if left else "")
+                               + ("" if thumbs_mod.enabled() else "  ·  previews off"))
+
+    # ------------------------------------------------------------------ renders follow the viewport
+    def _on_list_scrolled(self, _value=0):
+        if self.isVisible():                     # a hidden tab's refill must not arm a timer (a parked
+            self._scroll_timer.start()           # widget's single-shot fires in somebody else's test)
+
+    def _visible_rows(self) -> range:
+        """The row span in (or a few rows shy of) the viewport. Rows are uniform, so two hit-tests
+        bound it; an empty/short list answers with what it has."""
+        n = self.listw.count()
+        if n == 0:
+            return range(0)
+        vp = self.listw.viewport()
+        top = self.listw.indexAt(QPoint(4, 2)).row()
+        bot = self.listw.indexAt(QPoint(4, max(2, vp.height() - 2))).row()
+        top = 0 if top < 0 else top
+        bot = n - 1 if bot < 0 else bot
+        return range(max(0, top - _VISIBLE_PAD), min(n, bot + _VISIBLE_PAD + 1))
+
+    def _request_visible(self):
+        """Enqueue cold renders for the rows in view -- never the whole list (the Cards picker's
+        discipline; 'Render all previews' is the explicit way to ask for everything)."""
+        if not thumbs_mod.enabled():
+            return
+        asked = 0
+        for row in self._visible_rows():
+            name = self.listw.item(row).data(Qt.ItemDataRole.UserRole)
+            if self.thumbs.cached(name) is not None:
+                continue
+            gid = thumbs_mod._geo_id(name)
+            if gid is not None and gid in self._absent_ids():
+                continue                          # a known no-geometry id is a guaranteed miss
+            self.thumbs.request(name)
+            asked += 1
+            if asked >= _VISIBLE_BATCH:
+                break
+
+    def showEvent(self, ev):
+        super().showEvent(ev)
+        self._scroll_timer.start()               # the list has real geometry now -> render what shows
+        # NOT the deployed scan. It was here, and the first snap painted THIS MACHINE's mod folder
+        # (a real minted model) into the picture: any harness that shows the tab would report on its
+        # developer. The list refreshes when it actually goes stale -- after a deploy -- and on Refresh.
+
+    # ------------------------------------------------------------------ the preview cache menu
+    def _refresh_cache_menu(self):
+        """Fill the menu's status lines (one directory scan each, paid only when the menu opens)."""
+        stills = thumbcache.still_cache_stats()
+        clips = thumbcache.anim_cache_stats()
+        total = len(catalog.all_models())
+        self.cache_status_act.setText(
+            f"{stills['rendered']} of {total} previews rendered"
+            + (f", {stills['absent']} have no geometry" if stills["absent"] else "")
+            + f"  ·  {_size(stills['bytes'])}")
+        budget = thumbcache.anim_cache_budget()
+        self.cache_clips_act.setText(
+            f"{clips['clips']} animation clip(s) rendered  ·  {_size(clips['bytes'])}"
+            + (f" of a {_size(budget)} budget" if budget > 0 else ""))
+        left = self.thumbs.bulk_pending()
+        self.cache_render_act.setText(f"Stop rendering ({left} to go)" if left
+                                      else "Render all previews")
+
+    def _unrendered_names(self) -> list:
+        absent = self._absent_ids()
+        return [m.name for m in catalog.all_models()
+                if m.id not in absent and self.thumbs.cached(m.name) is None]
+
+    def on_render_all(self):
+        """Toggle the background warm-up: queue every un-rendered model behind the interactive
+        requests (or stop it). After it, browsing is instant and 'Hide no-geometry' is complete --
+        that filter only knows the ids a render has actually probed."""
+        if self.thumbs.bulk_pending():
+            self.thumbs.cancel_bulk()
+        else:
+            self.thumbs.request_many(self._unrendered_names())
+        self._update_count()
+
+    def on_clear_cache(self):
+        if QMessageBox.question(
+                self, "Clear the preview cache?",
+                "Delete every rendered model preview and animation frame?\n\n"
+                "Nothing of yours is lost — they are re-rendered from your FF9 install as you "
+                "browse (a preview takes a fraction of a second, a clip a few seconds).") \
+                != QMessageBox.StandardButton.Yes:
+            return
+        self.thumbs.cancel_bulk()
+        self.disarm()                            # the playing clip's frames are about to vanish
+        freed = thumbcache.clear_preview_cache()
+        self.thumbs.invalidate()
+        self._icons.clear()
+        self._absent = None
+        self._refill()
+        if self._current is not None:            # the detail still was one of the files that just went
+            it = self._items.get(self._current.name)
+            if it is not None:
+                self._on_select(it)
+        self._count_base += f"  ·  cleared {_size(freed)}"
+        self._update_count()
+        self._scroll_timer.start()
 
     def _icon_for(self, name):
         """The row icon, resolved ONCE per session: a refill used to re-load every cached PNG from disk
@@ -590,12 +821,18 @@ class ModelsDoc(clipplayer.ClipPlayer, QWidget):
         it = self._items.get(name)
         if it is not None:
             it.setIcon(self._icons[name])
-        if self._current is not None and self._current.name == name and self._armed is None:
-            self._set_detail_image(png)          # never over a playing clip's frame
+        if self._current is not None and self._current.name == name:
+            self._refresh_facts(self._current, clips=False)   # the sidecar landed WITH the still
+            if self._armed is None:
+                self._set_detail_image(png)      # never over a playing clip's frame
+        if self._warming():
+            self._update_count()
 
     def _thumb_missed(self, name):
         """A render landed as a miss: when the sidecar says UNSHIPPED, grow the absent set (and, with
         the hide toggle on, drop the row live). A plain miss (no install) writes no sidecar."""
+        if self._warming():
+            self._update_count()
         m = catalog.model(name)
         meta = thumbs_mod.model_thumb_meta(m.id) if m else None
         if not (meta and meta.get("absent")) or m.id in self._absent_ids():
@@ -643,8 +880,27 @@ class ModelsDoc(clipplayer.ClipPlayer, QWidget):
             self.d_img.setText("no geometry" if absent else
                                ("rendering…" if thumbs_mod.enabled() else "previews off"))
 
-    def _refresh_facts(self, m) -> bool:
-        """Fill the facts/notes labels; True if the model is a known UNSHIPPED id (no geometry on disc)."""
+    @staticmethod
+    def _pose_fact(meta) -> str:
+        """One short line saying what the still SHOWS, from the sidecar the render wrote. The two
+        cautionary forms (rest pose / "may be a bind pose") are for RIGS only; a prop gets a line only
+        when a real stand-like clip posed it. Empty for a sidecar that predates the field."""
+        if not meta or "pose" not in meta:
+            return ""
+        action = meta.get("pose_action")
+        rigged = int(meta.get("bones") or 0) >= _RIG_BONES
+        if not meta.get("pose"):
+            return "Shown in its REST pose — no clip on disc poses this rig." if rigged else ""
+        if (meta.get("pose_rank") or 0) >= catalog.STAND_RANK_NONE:
+            return (f"Posed from its ‘{action}’ clip — this rig has no idle or stand clip on disc, "
+                    "so this may be a bind pose.") if rigged else ""
+        if action == "000":
+            return "Posed from its battle idle (clip 000)."
+        return f"Posed from its ‘{action}’ clip."
+
+    def _refresh_facts(self, m, *, clips=True) -> bool:
+        """Fill the facts/notes labels; True if the model is a known UNSHIPPED id (no geometry on disc).
+        ``clips=False`` leaves the clip list alone (a late-landing still must not reset the filter)."""
         meta = thumbs_mod.model_thumb_meta(m.id)
         acts = catalog.animations_for_model(m.id)
         facts = []
@@ -658,10 +914,14 @@ class ModelsDoc(clipplayer.ClipPlayer, QWidget):
                          f"{meta.get('verts', '?')} verts · {len(meta.get('textures') or [])} texture(s)")
         facts.append(f"{len(acts)} animation action(s)")
         self.d_facts.setText("\n".join(facts))
+        pose = self._pose_fact(meta)
+        self.d_pose.setText(pose)
+        self.d_pose.setVisible(bool(pose))
         notes = appearance_notes(m.name, minted=False)
         self.d_notes.setText("\n".join(notes))
         self.d_notes.setVisible(bool(notes))
-        self._refill_clips(m)                    # the comma-blob of action names is a LIST now, and
+        if clips:
+            self._refill_clips(m)                # the comma-blob of action names is a LIST now, and
         return absent                            # every row arms the player (Stage B)
 
     def _set_detail_image(self, png):
@@ -720,8 +980,10 @@ class ModelsDoc(clipplayer.ClipPlayer, QWidget):
     def _kit(self, args, *, subject, ok_next=""):
         self._busy(True)
 
-        def _done(_code):
+        def _done(code):
             self._busy(False)
+            if code == 0 and "--deploy" in args:      # the folder just changed under the list (and
+                self.on_deployed_refresh()            # the id that was just minted is taken now)
 
         started = self._run([sys.executable, "-m", "ff9mapkit", *args], cwd=self.kit, subject=subject,
                             ok_headline=f"{subject} — done", ok_next=ok_next,
@@ -795,8 +1057,19 @@ class ModelsDoc(clipplayer.ClipPlayer, QWidget):
         if mod is None:
             return
         mid = self.mdl_mint_id.text().strip()
-        if not mid.isdigit() or int(mid) < 6000:
+        if not mid.isdigit() or int(mid) < _MINT_FLOOR:
             return self._warn("Bad id", "The mint id must be a number ≥ 6000 (below is the real-model band).")
+        from ..models import deployed
+        try:
+            taken = int(mid) in deployed.mint_ids_in_use(mod)
+        except OSError:
+            taken = False
+        if taken and QMessageBox.question(
+                self, "That id is already minted",
+                f"{mod} already has a minted model at id {mid}.\n\nMinting {token} there REPLACES "
+                f"it. The next free id is {deployed.next_mint_id(mod, floor=_MINT_FLOOR)}.\n\n"
+                f"Replace id {mid}?") != QMessageBox.StandardButton.Yes:
+            return
         self._kit(["model-mint", token, "--id", mid, "--deploy", mod], subject="Mint model",
                   ok_next=f"Minted id {mid} + registered it in DictionaryPatch.txt. RELAUNCH FF9, then "
                           f"place it with [[npc]] model = {mid} (its animations came along from the source).")

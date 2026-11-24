@@ -63,6 +63,7 @@ def thumbs_on(monkeypatch):
 class _StubAnimFrames(QObject):
     """The service surface with no worker and no install reach (the shape test_anim_preview owns)."""
 
+    clipPlanned = Signal(str, int, int)
     frameReady = Signal(str, int, int, str)
     clipDone = Signal(str, int)
     clipMissed = Signal(str, int, str)
@@ -369,3 +370,15 @@ def test_the_cutscene_browse_writes_the_picked_name_into_the_step(win, tmp_path,
     assert got["kinds"] == ["anim"]
     assert got["hint"].model == catalog.resolve_model("GEO_SUB_F0_CID"), \
         "blank actor + a cast of one scopes to that cast member's rig"
+
+
+def test_the_dialog_places_the_foot_row_and_the_speed_button_stays_compact(app):
+    """The picker spends the SAME player. Snap-caught: its speed button stretched across half the
+    dialog, because a caption is width-capped and a growable button took the surplus."""
+    from PySide6.QtWidgets import QSizePolicy
+    dlg = _dlg(app)
+    assert dlg.anim_foot.parentWidget() is dlg, "the dialog must place the foot row, or it floats"
+    assert dlg.anim_speed.parentWidget() is dlg.anim_foot
+    assert dlg.anim_speed.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Fixed
+    assert dlg.anim_speed.accessibleName()
+    dlg.done(0)

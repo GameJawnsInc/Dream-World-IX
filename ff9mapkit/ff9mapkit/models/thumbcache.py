@@ -1,8 +1,10 @@
 """The 3D-model preview disk cache -- pure worker logic, importable Qt-free.
 
 The renders come from :mod:`.preview` (software rasterizer); this module owns WHERE they live and
-the counts sidecar. Game art is static, so a cache key is just ``{geoId}_v{RENDER_V}`` -- bump
-:data:`_MODEL_RENDER_V` whenever the renderer's output changes. Consumers: the Workspace's
+the counts sidecar. Game art is static, so a cache key is just ``{geoId}_v{RENDER_V}``. The version
+has TWO independent parts, because the two caches go stale for different reasons: :data:`_RASTER_V`
+(the rasterizer's pixels -- stills AND clip frames) and :data:`_STILL_POSE_V` (which clip a still is
+posed from -- stills only; a clip frame is posed by its own clip and cannot care). Consumers: the Workspace's
 ``ModelThumbService`` (async renders through :func:`build_model_thumb`), the Models tab's facts
 line (:func:`model_thumb_meta`), and the Info Hub / catalog pickers (:func:`cached_png` -- CACHE
 READS ONLY, so a tk-free/GUI-thread caller never pays a render).
@@ -18,14 +20,20 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from pathlib import Path
 
 from .. import provision
 
 MODEL_THUMB = 256                               # cached model-preview size (px, square)
-_MODEL_RENDER_V = 1                             # bump when the renderer's output changes -> new cache keys
-_ANIM_RENDER_V = f"{_MODEL_RENDER_V}a1"         # DERIVED: a renderer bump must invalidate frames too
+_RASTER_V = 1                                   # bump when render_model's PIXELS change -> both caches
+_STILL_POSE_V = 2                               # bump when catalog.stand_clip picks differently -> stills
+#                                                 only. 2 = exact-label ranking (idle / stand / battle 000)
+_MODEL_RENDER_V = f"{_RASTER_V}p{_STILL_POSE_V}"   # the still's key
+_ANIM_RENDER_V = f"{_RASTER_V}a1"               # DERIVED from the rasterizer alone: a pose-pick change
+#                                                 must NOT throw away every rendered clip
 MAX_ANIM_FRAMES = 60                            # rendered-frame cap per clip; longer clips STRIDE (below)
+ANIM_CACHE_MB = 256                             # clip-frame budget; least-recently-PLAYED clips go first
 
 
 def model_thumb_paths(geo_id) -> tuple:
@@ -51,6 +59,25 @@ def model_thumb_meta(geo_id) -> "dict | None":
         return json.loads(meta.read_text(encoding="utf-8")) if meta.is_file() else None
     except (OSError, ValueError):
         return None
+
+
+def _prune_other_still_versions(geo_id) -> None:
+    """Drop this model's still + sidecar from EVERY other version. A version bump used to leave the
+    whole previous generation behind forever (nothing globbed for it again); now a model's stale pair
+    goes the moment its fresh one lands."""
+    d = provision.cache_dir() / "model_thumbs"
+    try:
+        stale = list(d.glob(f"{int(geo_id)}_v*.png")) + list(d.glob(f"{int(geo_id)}_v*.json"))
+    except (OSError, TypeError, ValueError):
+        return
+    keep = (f"_v{_MODEL_RENDER_V}.png", f"_v{_MODEL_RENDER_V}.json")
+    for old in stale:
+        if old.name.endswith(keep):
+            continue
+        try:
+            old.unlink()
+        except OSError:
+            pass
 
 
 def absent_ids() -> set:
@@ -137,8 +164,142 @@ def _prune_other_versions(geo_id, anim_id) -> None:
             pass
 
 
+def touch_anim_clip(geo_id, anim_id) -> None:
+    """Stamp a clip as JUST PLAYED (its sidecar's mtime is the LRU clock :func:`prune_anim_cache`
+    reads). One utime, no read -- cheap enough for the GUI thread's warm path."""
+    try:
+        os.utime(anim_meta_path(geo_id, anim_id), None)
+    except (OSError, TypeError, ValueError):
+        pass
+
+
+def anim_cache_budget() -> int:
+    """The clip-frame budget in BYTES (:data:`ANIM_CACHE_MB`, or ``$FF9MAPKIT_ANIM_CACHE_MB``; 0 or a
+    negative value means unlimited)."""
+    raw = os.environ.get("FF9MAPKIT_ANIM_CACHE_MB", "")
+    try:
+        mb = float(raw) if raw.strip() else float(ANIM_CACHE_MB)
+    except ValueError:
+        mb = float(ANIM_CACHE_MB)
+    return int(mb * 1024 * 1024)
+
+
+def _anim_clips_on_disk() -> dict:
+    """``{(geo, anim): {"files": [Path], "bytes": int, "used": mtime}}`` for every clip with frames or
+    a sidecar in the cache, ANY version. ``used`` is the sidecar's mtime when it has one (the stamp
+    :func:`touch_anim_clip` moves), else its newest frame's -- an aborted fill has frames and no
+    sidecar, and is still a clip worth reusing or evicting."""
+    clips: dict = {}
+    try:
+        entries = list(os.scandir(_anim_dir()))
+    except OSError:
+        return clips
+    for e in entries:
+        parts = e.name.split("_")
+        if len(parts) < 3 or not (parts[0].isdigit() and parts[1].isdigit()):
+            continue
+        try:
+            st = e.stat()
+        except OSError:
+            continue
+        c = clips.setdefault((int(parts[0]), int(parts[1])),
+                             {"files": [], "bytes": 0, "used": 0.0, "stamped": False})
+        c["files"].append(Path(e.path))
+        c["bytes"] += st.st_size
+        if e.name.endswith(".json"):
+            c["used"], c["stamped"] = st.st_mtime, True
+        elif not c["stamped"]:
+            c["used"] = max(c["used"], st.st_mtime)
+    return clips
+
+
+def anim_cache_stats() -> dict:
+    """``{"clips", "files", "bytes"}`` for the clip-frame cache -- one directory scan, no reads."""
+    clips = _anim_clips_on_disk()
+    return {"clips": len(clips), "files": sum(len(c["files"]) for c in clips.values()),
+            "bytes": sum(c["bytes"] for c in clips.values())}
+
+
+def prune_anim_cache(budget: "int | None" = None, *, keep=()) -> int:
+    """Evict whole clips, least-recently-PLAYED first, until the cache fits ``budget`` bytes (default
+    :func:`anim_cache_budget`). Returns the bytes freed.
+
+    A clip is ~1.6 MB of frames and the catalog names thousands of them, so an uncapped cache grows
+    with every clip anyone ever clicks. Whole clips only -- a half-evicted clip is neither warm nor
+    absent. ``keep`` is one ``(geo_id, anim_id)`` that must survive (the clip that was just built)."""
+    budget = anim_cache_budget() if budget is None else int(budget)
+    if budget <= 0:
+        return 0
+    clips = _anim_clips_on_disk()
+    total = sum(c["bytes"] for c in clips.values())
+    if total <= budget:
+        return 0
+    try:
+        spared = (int(keep[0]), int(keep[1])) if keep else None
+    except (TypeError, ValueError, IndexError):
+        spared = None
+    freed = 0
+    for key, c in sorted(clips.items(), key=lambda kv: kv[1]["used"]):
+        if total - freed <= budget:
+            break
+        if key == spared:
+            continue
+        for f in c["files"]:
+            try:
+                f.unlink()
+            except OSError:
+                continue
+        freed += c["bytes"]
+    return freed
+
+
+def still_cache_stats() -> dict:
+    """``{"rendered", "absent", "stale", "bytes"}`` for the model stills -- one directory scan. ``stale``
+    counts files from OTHER versions (dead weight a re-render or a clear removes)."""
+    out = {"rendered": 0, "absent": 0, "stale": 0, "bytes": 0}
+    try:
+        entries = list(os.scandir(provision.cache_dir() / "model_thumbs"))
+    except OSError:
+        return out
+    live_png, live_json = f"_v{_MODEL_RENDER_V}.png", f"_v{_MODEL_RENDER_V}.json"
+    for e in entries:
+        try:
+            out["bytes"] += e.stat().st_size
+        except OSError:
+            continue
+        if e.name.endswith(live_png):
+            out["rendered"] += 1
+        elif not e.name.endswith(live_json):
+            out["stale"] += 1
+    out["absent"] = len(absent_ids())
+    return out
+
+
+def clear_preview_cache(*, stills: bool = True, clips: bool = True) -> int:
+    """Delete the rendered stills and/or clip frames -> the bytes freed. Everything here is DERIVED
+    from the install and re-renders on demand, so this can never lose work; the ``absent`` sidecars go
+    too (a re-probe is one cheap miss each)."""
+    freed = 0
+    dirs = ([provision.cache_dir() / "model_thumbs"] if stills else []) + ([_anim_dir()] if clips else [])
+    for d in dirs:
+        try:
+            entries = list(os.scandir(d))
+        except OSError:
+            continue
+        for e in entries:
+            if not e.name.endswith((".png", ".json")):
+                continue
+            try:
+                size = e.stat().st_size
+                os.unlink(e.path)
+                freed += size
+            except OSError:
+                continue
+    return freed
+
+
 def build_anim_clip(token, anim_id, ctx: "dict | None" = None, *, on_frame=None,
-                    should_abort=None) -> "dict | None":
+                    should_abort=None, on_total=None) -> "dict | None":
     """Render (or reuse) every cached frame of one model's BUNDLED clip -> its meta dict, or None when
     the clip can't be resolved/rendered. Pure worker logic -- no Qt.
 
@@ -151,6 +312,9 @@ def build_anim_clip(token, anim_id, ctx: "dict | None" = None, *, on_frame=None,
     scale (measured 7.6%) and drifts it (8%) across a real walk. ``on_frame(frame_idx, png_path)`` is
     called as each frame lands (a strip can play the contiguous prefix long before the fill ends) and
     ``should_abort()`` is polled between frames (the cancel seam: an armed clip supersedes the last).
+    ``on_total(n)`` is called ONCE, before the first frame, with how many frames will be rendered -- a
+    fill is 5-10s of rasterizing (measured: ~100-140ms a frame against ~10ms of skinning), and a
+    strip that knows the total can say "12 of 45" instead of an open-ended "rendering...".
 
     STRIDE CAP: past :data:`MAX_ANIM_FRAMES` rendered frames every ``ceil(n/60)``-th frame is rendered
     instead (the clip census tops out at 200 frames -- ~18-29s unstrided, ~5-9s strided) and the meta
@@ -166,6 +330,9 @@ def build_anim_clip(token, anim_id, ctx: "dict | None" = None, *, on_frame=None,
 
     warm = anim_clip_meta(m.id, aid)
     if warm and all(cached_anim_frame(m.id, aid, f) for f in (warm.get("rendered_frames") or [])):
+        touch_anim_clip(m.id, aid)                    # played again -> to the back of the eviction line
+        if on_total:
+            on_total(len(warm["rendered_frames"]))
         if on_frame:                                  # warm disk: answer from stats alone, no install
             for f in warm["rendered_frames"]:
                 on_frame(f, str(anim_frame_path(m.id, aid, f)))
@@ -225,6 +392,8 @@ def build_anim_clip(token, anim_id, ctx: "dict | None" = None, *, on_frame=None,
 
     d = _anim_dir()
     d.mkdir(parents=True, exist_ok=True)
+    if on_total:
+        on_total(len(posed))
     landed = []
     for f, struct in posed:
         if should_abort is not None and should_abort():
@@ -244,6 +413,7 @@ def build_anim_clip(token, anim_id, ctx: "dict | None" = None, *, on_frame=None,
             "fps": rate / stride,                 # the HONEST playback rate: a strided clip is slower
             "fit": list(fit) if fit else None, "rendered_frames": landed}
     anim_meta_path(m.id, aid).write_text(json.dumps(meta), encoding="utf-8")
+    prune_anim_cache(keep=(m.id, aid))            # one scan per BUILT clip (never on the warm path)
     return meta
 
 
@@ -281,6 +451,7 @@ def build_model_thumb(token, ctx: "dict | None" = None) -> "str | None":
         # an UNSHIPPED catalog id (no geometry on disc anywhere -- the GEO_MAIN_B2_* band etc.):
         # remember WHY in the sidecar so the Models tab can say so instead of a bare un-thumbnailed miss
         meta.parent.mkdir(parents=True, exist_ok=True)
+        _prune_other_still_versions(m.id)
         meta.write_text(json.dumps({"geo": m.name, "id": m.id, "absent": True, "error": str(e)}),
                         encoding="utf-8")
         return None
@@ -289,10 +460,19 @@ def build_model_thumb(token, ctx: "dict | None" = None) -> "str | None":
     tmp = png.with_suffix(".tmp.png")
     img.save(tmp, "PNG", optimize=True)
     tmp.replace(png)
+    _prune_other_still_versions(m.id)
+    # WHAT THE PICTURE SHOWS: the clip the still was posed from (None on a rigged model = the rest/bind
+    # hierarchy -- a T-pose or a collapsed authoring pose, which a reader should be told is not a stance
+    # the game ever shows)
+    posed = struct.get("posed_from")
+    pose_name = catalog.animation_name(posed[0]) if posed else None
+    pose_split = catalog.split_anh(pose_name) if pose_name else None
     info = {"geo": struct.get("geo"), "id": struct.get("geo_id"),
             "bones": len(struct.get("bones") or []),
             "meshes": len(struct.get("meshes") or []),
             "verts": sum(len(me.get("verts") or []) for me in (struct.get("meshes") or [])),
-            "textures": sorted(struct.get("textures") or {})}
+            "textures": sorted(struct.get("textures") or {}),
+            "pose": pose_name, "pose_action": pose_split[3] if pose_split else None,
+            "pose_rank": catalog.stand_action_rank(pose_split[3]) if pose_split else None}
     meta.write_text(json.dumps(info), encoding="utf-8")
     return str(png)
