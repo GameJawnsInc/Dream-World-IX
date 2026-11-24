@@ -1801,6 +1801,115 @@ def _in_view(doc, w):
     return 0 <= y and y + min(w.height(), 30) <= vp.height()
 
 
+def _shown(doc, tmp_path, w=1000, h=700, toml=FIELD_TOML):
+    from PySide6.QtCore import Qt as _Qt
+    doc.setAttribute(_Qt.WidgetAttribute.WA_DontShowOnScreen)
+    doc.resize(w, h)
+    doc.show()
+    _fed(doc, tmp_path, toml)
+    QApplication.processEvents()
+    QApplication.processEvents()
+
+
+def _ladder_content(doc):
+    return doc.ladder.sizeHint().height() + 2 * doc._lscroll.frameWidth()
+
+
+def test_the_ladder_pane_takes_its_content_up_to_half_and_the_stage_the_rest(doc, tmp_path):
+    """C15: the split was set once to 340:280, so a three-step scene left a third of the ladder
+    pane empty while the stage was a strip. Until the author drags the handle, the ladder takes
+    its content's height, never more than half; the stage gets the rest -- also after a resize."""
+    _shown(doc, tmp_path)
+    for h in (700, 900, 560):
+        doc.resize(1000, h)
+        QApplication.processEvents()
+        QApplication.processEvents()
+        lad, stage = doc._vsplit.sizes()
+        total = lad + stage
+        assert lad == min(_ladder_content(doc), total // 2), (h, lad, stage)
+        assert stage >= total // 2
+    # a long scene: the ladder stops at half and scrolls
+    long = FIELD_TOML.replace('  { wait = 30 },\n', "".join(
+        f'  {{ say = "line {n}" }},\n' for n in range(12)) + '  { wait = 30 },\n')
+    _fed(doc, tmp_path, long)
+    doc.rail.setCurrentRow(1)
+    QApplication.processEvents()
+    lad, stage = doc._vsplit.sizes()
+    assert _ladder_content(doc) > (lad + stage) // 2 and lad == (lad + stage) // 2
+
+
+def test_a_dragged_split_is_the_authors_and_the_storyboard_keeps_a_stage(doc, tmp_path):
+    """C15: a split the author dragged is a choice -- renders and resizes keep it. Turning the
+    storyboard on (its strip takes height from this split) still keeps the stage at least 200 px
+    at 100% text (or half the split), so the stage it narrates is never a sliver."""
+    _shown(doc, tmp_path)
+    total = sum(doc._vsplit.sizes())
+    doc._vsplit.setSizes([total - 60, 60])
+    doc._vsplit.splitterMoved.emit(total - 60, 1)      # what a drag of the handle sends
+    doc._render()
+    doc.resize(1000, 720)
+    QApplication.processEvents()
+    QApplication.processEvents()
+    assert doc._vsplit.sizes()[1] < 100, "a render or a resize undid the author's split"
+    doc.board_btn.setChecked(True)
+    QApplication.processEvents()
+    lad, stage = doc._vsplit.sizes()
+    assert stage >= min(200, (lad + stage) // 2), (lad, stage)
+
+
+def test_an_open_panel_still_gets_a_usable_ladder(doc, tmp_path):
+    """The old guard, now inside the one owner: the step editor opens with up to 300 px of
+    ladder (at 100%), the stage keeping 140."""
+    _shown(doc, tmp_path, h=760)
+    doc._edit_step(2)
+    QApplication.processEvents()
+    lad, stage = doc._vsplit.sizes()
+    assert lad >= min(300, lad + stage - 140) and stage >= 140, (lad, stage)
+
+
+def test_the_stage_refits_to_its_pane_until_the_author_zooms(doc, tmp_path):
+    """C15/C23: the storyboard strip and the split change the stage's height; the stage re-fits
+    while it is still fitted, and never resets a zoom the author chose."""
+    from PySide6.QtCore import QPoint, QPointF
+    from PySide6.QtGui import QWheelEvent
+    _shown(doc, tmp_path, h=600)                       # a stage short enough to fit under the cap
+    doc.canvas.repaint()                               # the first paint runs the pending fit
+    QApplication.processEvents()
+    z0 = doc.canvas._zoom
+    doc.board_btn.setChecked(True)
+    QApplication.processEvents()
+    QApplication.processEvents()
+    assert doc.canvas._zoom != z0, "the stage kept the zoom of a taller pane"
+    r = doc.canvas.mapFromScene(doc.canvas.sceneRect()).boundingRect()
+    vp = doc.canvas.viewport().rect()
+    assert vp.adjusted(-2, -2, 2, 2).contains(r), "an edge marker is clipped after the toggle"
+    ev = QWheelEvent(QPointF(20, 20), QPointF(20, 20), QPoint(0, 0), QPoint(0, 120),
+                     Qt.MouseButton.NoButton, Qt.KeyboardModifier.ControlModifier,
+                     Qt.ScrollPhase.NoScrollPhase, False)
+    fitted = doc.canvas._zoom
+    QApplication.sendEvent(doc.canvas.viewport(), ev)
+    zoomed = doc.canvas._zoom
+    assert zoomed != fitted, "the wheel did not zoom (the fence would prove nothing)"
+    doc.board_btn.setChecked(False)
+    QApplication.processEvents()
+    QApplication.processEvents()
+    assert doc.canvas._zoom == zoomed, "a pane change reset the author's zoom"
+
+
+def test_the_zoom_pill_gives_way_in_a_short_stage(doc, tmp_path):
+    """C15: in a stage a few lines tall the 'Ctrl+scroll zooms' pill covered the routed leg and
+    a name; it shows only when the stage is at least six pill-heights tall."""
+    _shown(doc, tmp_path)
+    c = doc.canvas
+    assert c._hint.isVisible(), "a roomy stage teaches its zoom"
+    c.resize(c.width(), 5 * c._hint.height())
+    QApplication.processEvents()
+    assert not c._hint.isVisible(), "the pill sits on the stage it should leave visible"
+    c.resize(c.width(), 10 * c._hint.height())
+    QApplication.processEvents()
+    assert c._hint.isVisible()
+
+
 def test_opening_a_step_shows_the_editors_header_and_the_row_it_edits(doc, tmp_path):
     """C18: the editor (taller than the ladder pane) was CENTRED, so Apply/Close and the row
     being edited scrolled away. A relation, not a pixel claim: the row above the editor and the

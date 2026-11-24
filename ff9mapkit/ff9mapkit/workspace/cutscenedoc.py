@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import threading
 
-from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtCore import QEvent, Qt, Signal, QTimer
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPen
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
@@ -64,6 +64,22 @@ class CutsceneStage(StageCanvas):
         self._beat = 0
         self._verdict_rows = []                    # cutscenescan.stage_verdicts rows
         self._selected_step = None                 # ladder selection -> the accented leg
+        self._fit_zoom = None                      # the zoom the last fit chose
+
+    # -- the re-fit on a pane change (backdrop.BackdropCanvas's rule: only until the author zooms)
+    def _fit(self):
+        super()._fit()
+        self._fit_zoom = self._zoom
+
+    def resizeEvent(self, ev):                     # noqa: N802 (Qt override)
+        """The split or the storyboard strip changed the stage's size: re-fit while the stage
+        still shows the zoom a fit chose. A zoom the author chose (any other) is never reset."""
+        super().resizeEvent(ev)
+        # the zoom pill sat on the routed leg and a name in a short stage: there it gives way
+        self._hint.setVisible(self.viewport().height() >= 6 * self._hint.height())
+        if (self._zoom == self._fit_zoom and not self._fit_pending
+                and not self._scene.sceneRect().isEmpty()):
+            self._fit()
 
     # -- model setters (each ends in one _draw; the host renders, never the reverse) --
     def set_scene(self, model, *, refit=False, handles=None):
@@ -968,6 +984,15 @@ class CutsceneDoc(QWidget):
         self._vsplit.addWidget(self.canvas)
         k = self._scale / 100
         self._vsplit.setSizes([int(340 * k), int(280 * k)])
+        # _balance_split owns this split from here: the ladder pane takes its content up to half
+        # while the author has not dragged the handle (splitterMoved fires only on a drag).
+        self._split_chosen = False
+        self._vsplit.splitterMoved.connect(self._split_dragged)
+        self._balance_timer = QTimer(self)         # a resize re-balances AFTER the splitter laid
+        self._balance_timer.setSingleShot(True)    # itself out (a filter runs before it does)
+        self._balance_timer.setInterval(0)
+        self._balance_timer.timeout.connect(self._balance_split)
+        self._vsplit.installEventFilter(self)
         cl.addWidget(self._vsplit, 1)
         split.addWidget(center)
         split.setStretchFactor(1, 1)
@@ -1058,6 +1083,7 @@ class CutsceneDoc(QWidget):
         if hasattr(self, "canvas"):
             self.canvas.set_scale(pct)
             self.board_slider.setMinimumWidth(int(120 * pct / 100))
+            self._balance_split()                  # the floors are in dial units
         self._yield_buttons()
 
     def retheme(self, pal):
@@ -1201,6 +1227,8 @@ class CutsceneDoc(QWidget):
         #                                            window lies). Only when what the form shows
         #                                            really changed: a rebuild throws away typing.
         self._sync_insets()
+        self._balance_timer.start()                # the ladder's content just changed; its
+        #                                            new rows count once they are shown (queued)
         problems = cutscenescan.dispatch_problems(raw) + cutscenescan.scene_problems(
             raw, self.flag_names_fn() if self.flag_names_fn else None)
         if problems:
@@ -1412,7 +1440,7 @@ class CutsceneDoc(QWidget):
         self._ed_block, self._ed_step = self._block_now(), st[i]
         self._ed_typed = self.editor.typed_state()
         self._render()                             # seats the editor under its row
-        self._ladder_guard()
+        self._balance_split(opened=True)
         self._reveal_editor()
 
     def _add_step(self):
@@ -1424,18 +1452,46 @@ class CutsceneDoc(QWidget):
         self.editor.open_step(self._scene, None, {"say": ""}, self._cast(), insert_at=at)
         self._ed_block, self._ed_step = self._block_now(), None
         self._sync_insets()                        # no data changed -- just seat the panel
-        self._ladder_guard()
+        self._balance_split(opened=True)
         self._reveal_editor()
 
-    def _ladder_guard(self):
-        """Opening a panel must leave the ladder pane USABLE: grow it from the canvas if the
-        split has been dragged to a sliver (canvas floor 140 -- the behavior guard's shape)."""
+    def _split_dragged(self, *_):
+        self._split_chosen = True                  # the author's split is a choice: keep it
+
+    def eventFilter(self, obj, ev):                # noqa: N802 (Qt override)
+        if obj is self._vsplit and ev.type() == QEvent.Type.Resize and not self._split_chosen:
+            self._balance_timer.start()
+        return super().eventFilter(obj, ev)
+
+    def _balance_split(self, *, board=False, opened=False):
+        """THE one owner of the ladder / stage split. Until the author drags the handle, the
+        ladder pane takes its content's height, up to half -- a short scene leaves no dead pane
+        and the stage gets the rest. While a panel is open the split is left alone, except that
+        opening the step editor still gets a usable ladder (the old guard: up to 300 px at 100%,
+        the stage keeps 140). The storyboard's
+        toggle keeps the stage at least 200 px at 100% (or half), even under a dragged split."""
         s = self._vsplit.sizes()
-        need = int(300 * self._scale / 100)
-        if s and s[0] < need:
-            total = sum(s)
-            canvas = max(140, total - need)
-            self._vsplit.setSizes([total - canvas, canvas])
+        total = sum(s)
+        if len(s) != 2 or total <= 0:
+            return                                 # not laid out yet: the resize will come back
+        k = self._scale / 100
+        if self.settings_btn.isChecked() or self.editor.scene is not None:
+            if not opened:
+                return                             # a panel's split is set when it opens, only
+            need = int(300 * k)                    # the panel's guard, as it always was
+            ladder = s[0] if s[0] >= need else total - max(140, total - need)
+        else:
+            floor = min(int(200 * k), total // 2)
+            if self._split_chosen:
+                ladder = s[0]
+                if not board:
+                    floor = 0                      # a dragged stage keeps its size
+            else:
+                content = self.ladder.sizeHint().height() + 2 * self._lscroll.frameWidth()
+                ladder = min(content, total // 2)
+            ladder = max(0, min(ladder, total - floor))
+        if ladder != s[0]:
+            self._vsplit.setSizes([ladder, total - ladder])
 
     def _reveal_editor(self):
         """Bring the editor into view TOP FIRST, with the row above it (the line being edited, or
@@ -1680,6 +1736,9 @@ class CutsceneDoc(QWidget):
     # -- the storyboard strip --
     def _toggle_board(self, on):
         self.board_bar.setVisible(on)
+        if on:                                     # the strip takes its height from this split:
+            self._vsplit.parentWidget().layout().activate()   # lay it out now, then keep the
+            self._balance_split(board=True)        # stage its floor (the stage re-fits itself)
         if on:
             self._refresh_board()
         else:
