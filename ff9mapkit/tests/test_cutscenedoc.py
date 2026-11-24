@@ -1763,6 +1763,103 @@ def test_the_first_rows_up_and_the_last_rows_down_are_disabled(doc, tmp_path):
     assert not _rowtool(doc, up, 0).isEnabled() and not _rowtool(doc, down, 2).isEnabled()
 
 
+def _focused_doc(doc, tmp_path):
+    _shown(doc, tmp_path)
+    import warnings
+    with warnings.catch_warnings():                    # focusWidget() needs the active window, and
+        warnings.simplefilter("ignore", DeprecationWarning)   # offscreen activates no window itself
+        QApplication.setActiveWindow(doc)
+    QApplication.processEvents()
+
+
+def _focus_name():
+    w = QApplication.focusWidget()
+    return (w.accessibleName() or type(w).__name__) if w is not None else None
+
+
+def _rows_now(doc):
+    QApplication.sendPostedEvents(None, 52)
+    return list(doc.ladder._rows)
+
+
+def test_the_selected_row_wears_a_state_the_storyboard_cannot_hide(doc, tmp_path):
+    """C24: selection decides where '+ Step' inserts, yet it showed only as a glyph on the index
+    chip that the storyboard's beat mark replaced. The row itself carries the state."""
+    _fed(doc, tmp_path)
+    doc._on_step_select(1)
+    assert [r.property("selected") for r in _rows_now(doc)] == [False, True, False]
+    doc.board_btn.setChecked(True)
+    doc._show_beat(0)                                  # beat 0 marks rows 0 and 1, not 2
+    assert [r.property("selected") for r in _rows_now(doc)] == [False, True, False]
+    assert all(r.objectName() == "cutsceneStep" for r in _rows_now(doc))
+
+
+def test_a_row_tool_keeps_the_keyboard_on_its_step_after_the_rebuild(doc, tmp_path):
+    """C36: rows are rebuilt on every edit, so the focused tool died and the focus fell to an
+    unrelated button. It comes back to the same tool on the step's new row."""
+    from PySide6.QtTest import QTest
+    _focused_doc(doc, tmp_path)
+    down = _rowtool(doc, "Move this step down", 0)
+    down.setFocus()
+    QTest.keyClick(down, Qt.Key.Key_Space)
+    assert [forms.step_key(s) for s in doc._steps()][:2] == ["turn", "walk"]
+    assert _focus_name() == "Move this step down — step 1", _focus_name()
+    dup = _rowtool(doc, "Duplicate this step", 1)
+    dup.setFocus()
+    QTest.keyClick(dup, Qt.Key.Key_Space)
+    assert _focus_name() == "Duplicate this step — step 2", _focus_name()
+    rm = _rowtool(doc, "Remove this step (Ctrl+Z undoes)", 3)
+    rm.setFocus()
+    QTest.keyClick(rm, Qt.Key.Key_Space)               # the last row: the focus stays at the end
+    assert _focus_name() == "Remove this step (Ctrl+Z undoes) — step 2", _focus_name()
+    # moving the first row's step down into the last place: down is disabled there, the row holds it
+    last = _rowtool(doc, "Move this step down", 1)
+    last.setFocus()
+    QTest.keyClick(last, Qt.Key.Key_Space)
+    assert isinstance(QApplication.focusWidget(), type(_rows_now(doc)[0]))
+    assert QApplication.focusWidget() is _rows_now(doc)[2]
+
+
+def test_a_row_is_a_keyboard_stop_up_down_select_and_enter_edits(doc, tmp_path):
+    """C36 / C24: selection was mouse-only, so a keyboard author could insert only at the end."""
+    from PySide6.QtTest import QTest
+    _focused_doc(doc, tmp_path)
+    row0 = _rows_now(doc)[0]
+    assert row0.focusPolicy() & Qt.FocusPolicy.TabFocus
+    row0.setFocus()
+    QTest.keyClick(row0, Qt.Key.Key_Down)
+    assert doc._selected_step == 1 and QApplication.focusWidget() is _rows_now(doc)[1]
+    QTest.keyClick(QApplication.focusWidget(), Qt.Key.Key_Down)
+    QTest.keyClick(QApplication.focusWidget(), Qt.Key.Key_Up)
+    assert doc._selected_step == 1 and QApplication.focusWidget() is _rows_now(doc)[1]
+    QTest.keyClick(QApplication.focusWidget(), Qt.Key.Key_Return)
+    assert doc.editor.scene == 0 and doc.editor.step_i == 1
+
+
+def test_the_tab_order_reads_rows_then_the_editor_then_the_stage(doc, tmp_path):
+    """E5: rebuilt rows joined the focus chain last, after the toolbar and the Inspector; inside
+    the editor Apply and Close came before the fields; the read-only wrap preview was a stop."""
+    _focused_doc(doc, tmp_path)
+    doc._edit_step(2)
+    QApplication.processEvents()
+    chain, w = [], doc.board_btn
+    for _ in range(80):
+        w = w.nextInFocusChain()
+        if w is doc.canvas:
+            break
+        if w.isVisible() and w.isEnabled() and w.focusPolicy() & Qt.FocusPolicy.TabFocus:
+            chain.append(w)
+    assert w is doc.canvas, "the stage does not follow the ladder"
+    rows = _rows_now(doc)
+    assert chain[0] is rows[0], "the first stop after the scene bar is not the first row"
+    ed = doc.editor
+    i_row2, i_kind = chain.index(rows[2]), chain.index(ed.kind)
+    assert i_row2 < i_kind < chain.index(ed.value_text) < chain.index(ed.apply_btn) \
+        < chain.index(ed.close_btn)
+    previews = [b for b in ed.say_preview.findChildren(type(ed.value_text))]
+    assert previews and all(p not in chain and p.accessibleName() for p in previews)
+
+
 def _rowtool(doc, glyph_tip, i):
     """The real ladder button (rowtools are named '<tip> — step <i>')."""
     from PySide6.QtWidgets import QPushButton

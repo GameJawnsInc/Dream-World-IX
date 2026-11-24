@@ -397,3 +397,58 @@ def test_a_disabled_radio_or_checkbox_in_a_tool_row_looks_disabled(app, theme, k
     assert label_ink(off) < label_ink(on) - 1.0, (theme, kind, label_ink(on), label_ink(off))
     assert label_ink(plain) > label_ink(off) + 1.0, (theme, kind, label_ink(plain), label_ink(off))
     host.hide()
+
+
+# --------------------------------------------------------------- batch 5, the Cutscene ladder
+@pytest.mark.parametrize("theme", ["light", "dark", "mist", "dracula"])
+def test_the_selected_cutscene_step_and_a_disabled_row_tool_read_from_pixels(app, theme, tmp_path):
+    """C24: the selected step row showed only a glyph the storyboard replaced. Its card is now the
+    rail's selected idiom (an id + property rule that must OUT-RANK the generic card rule) -- the
+    same card, selected vs not, must render a different ground, also while the storyboard marks a
+    beat. C37: a disabled row tool (up on row 0) must read fainter than the same enabled tool."""
+    import tomllib
+
+    from PySide6.QtCore import QPoint, QRect
+    from PySide6.QtWidgets import QPushButton
+
+    from ff9mapkit.editor.theme import _contrast as contrast
+    from ff9mapkit.workspace.cutscenedoc import CutsceneDoc
+    from ff9mapkit.workspace.shell import _apply_app_theme
+    from ff9mapkit.workspace.style import qss
+
+    pal = pick_palette(theme)
+    _apply_app_theme(app, pal)
+    doc = CutsceneDoc(pal)
+    doc.setStyleSheet(qss(pal))
+    doc.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+    doc.resize(1000, 700)
+    doc.show()
+    toml = ('[field]\nname = "S"\n\n[[cutscene]]\nsteps = [ { say = "a" }, { say = "b" }, '
+            '{ say = "c" } ]\n')
+    doc.show_field("S", tomllib.loads(toml), tmp_path / "S.field.toml")
+    doc._on_step_select(1)
+    app.processEvents()
+
+    def ground(row):                                   # a pixel of the card's own fill, inside
+        img = doc.grab(QRect(row.mapTo(doc, QPoint(0, 0)), row.size())).toImage()   # its border
+        return img.pixelColor(img.width() - 6, img.height() // 2).name()
+
+    for board in (False, True):
+        doc.board_btn.setChecked(board)
+        app.processEvents()
+        rows = doc.ladder._rows
+        assert ground(rows[1]) != ground(rows[0]), (theme, board, "the selection is invisible")
+        assert ground(rows[0]) == ground(rows[2])
+
+    def ink(btn):
+        img = doc.grab(QRect(btn.mapTo(doc, QPoint(0, 0)), btn.size())).toImage()
+        g = img.pixelColor(1, img.height() // 2).name()
+        return max(contrast(img.pixelColor(x, y).name(), g)
+                   for y in range(img.height()) for x in range(img.width()))
+
+    ups = [next(b for b in r.findChildren(QPushButton) if b.property("tool") == "↑")
+           for r in (doc.ladder._rows[0], doc.ladder._rows[2])]
+    assert not ups[0].isEnabled() and ups[1].isEnabled()
+    assert ink(ups[0]) < ink(ups[1]) - 1.0, (theme, ink(ups[0]), ink(ups[1]))
+    doc.hide()
+    doc.instruments.setParent(None)

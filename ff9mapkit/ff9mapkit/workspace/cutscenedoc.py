@@ -278,7 +278,7 @@ class StepEditor(QFrame):
         self.apply_btn.setToolTip("Write this step into the open document (Ctrl+Z undoes).")
         self.apply_btn.clicked.connect(lambda: self.on_apply())
         head.addWidget(self.apply_btn)
-        close_btn = QPushButton("Close")
+        self.close_btn = close_btn = QPushButton("Close")
         close_btn.setProperty("role", "quiet")
         close_btn.clicked.connect(lambda: self.on_close())
         head.addWidget(close_btn)
@@ -331,6 +331,9 @@ class StepEditor(QFrame):
         v.addWidget(self.value_text)
         self.say_preview = forms_qt._wrap_preview_panel(   # what the BUILD emits, not the raw text
             self.value_text, self._preview_text, wrap_width_fn or (lambda: None))
+        for box in self.say_preview.findChildren(QPlainTextEdit):   # read-only: a name, no tab stop
+            box.setAccessibleName("In-game wrap preview")
+            box.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         v.addWidget(self.say_preview)
         self.hint = widgets.caption("")
         v.addWidget(self.hint)
@@ -382,6 +385,13 @@ class StepEditor(QFrame):
                               "to it, a number sets it, blank sends none — pair with "
                               "'Wait for text signal'")
         v.addWidget(self.extras)
+
+    def tab_chain(self):
+        """The editor's keyboard order: what the step IS first, then Apply and Close (built first,
+        in the header, they used to come before every field). Hidden ones are skipped by Qt."""
+        return [self.kind, self.value_line, self.anim_browse, self.pick_btn, self.value_text,
+                self.actor, self.with_prev, self.extras.toggle_button,
+                *(w for _lab, w in self._extra_rows.values()), self.apply_btn, self.close_btn]
 
     def say(self, text=""):
         """The editor's one line of words: shown while it has any, gone (no gap) when it has not."""
@@ -554,17 +564,30 @@ class StepEditor(QFrame):
 
 class _StepRow(QFrame):
     """One ladder card. A QFrame with the card role (widgets.card's shape) plus a click-to-
-    select seam — selection drives the stage's accented leg (and, at the flip, the editor)."""
+    select seam — selection drives the stage's accented leg (and, at the flip, the editor).
+    A row is a keyboard stop too: Up / Down select the row above / below, Enter edits it."""
 
-    def __init__(self, on_click=None):
+    def __init__(self, on_click=None, on_key=None):
         super().__init__()
+        self.setObjectName("cutsceneStep")         # the selected / focused rules are scoped to it
         self.setProperty("role", "card")
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._on_click = on_click
+        self._on_key = on_key
 
     def mousePressEvent(self, event):              # noqa: N802 (Qt override)
         if self._on_click:
             self._on_click()
         super().mousePressEvent(event)
+
+    def keyPressEvent(self, event):                # noqa: N802 (Qt override)
+        key = {Qt.Key.Key_Up: "up", Qt.Key.Key_Down: "down", Qt.Key.Key_Return: "enter",
+               Qt.Key.Key_Enter: "enter"}.get(event.key())
+        if key and self._on_key and not event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier:
+            self._on_key(key)
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
 
 class StepLadder(QWidget):
@@ -584,6 +607,8 @@ class StepLadder(QWidget):
         self._idx_chips = []                       # the storyboard's ▶ beat sweep writes these
         self._selected = None
         self._beat_marks = set()
+        self._rows = []                            # the row frames, in step order
+        self._follow = None                        # the row a rebuild hands the keyboard focus to
         self._inset = None                         # THE ACCORDION: one foreign panel unfolded
         #                                            inside the ladder (the step editor under its
         #                                            row / the settings above row 0). The ladder
@@ -623,9 +648,48 @@ class StepLadder(QWidget):
             return f"▸ {i}"
         return str(i)
 
+    def _focused(self):
+        """``(tool, step)`` of the row tool or row that holds the keyboard focus, or None."""
+        fw = QApplication.focusWidget()
+        for i, row in enumerate(self._rows):
+            if fw is row:
+                return ("row", i)
+            if fw is not None and row.isAncestorOf(fw) and fw.property("tool"):
+                return (fw.property("tool"), i)
+        return None
+
+    def _on_row_key(self, i, key):
+        if key == "enter":
+            if self.actions:
+                self.actions["edit"](i)
+            return
+        j = i + (1 if key == "down" else -1)
+        if 0 <= j < len(self._rows) and self.on_select:
+            self._follow = j                       # the rebuild puts the focus on the new row
+            if j != self._selected:
+                self.on_select(j)
+            else:
+                self._refocus(("row", j))
+
+    def _refocus(self, had):
+        """Give the focus back after a rebuild: the same tool on the step's row (the host may have
+        named another row in ``_follow``), or the row itself when that tool is disabled there."""
+        tool, i = had
+        if self._follow is not None:
+            i, self._follow = self._follow, None
+        if not self._rows:
+            return
+        row = self._rows[max(0, min(i, len(self._rows) - 1))]
+        row.show()                                 # added rows show on a queued call: now
+        target = next((b for b in row.findChildren(QPushButton)
+                       if b.property("tool") == tool and b.isEnabled()), row)
+        target.setFocus(Qt.FocusReason.OtherFocusReason)
+
     def set_rows(self, rows, selected=None):
+        had = self._focused()                      # a rebuild destroys the focused tool: find it first
         self._selected = selected
         self._idx_chips = []
+        self._rows = []
         self._lift_inset()                         # the accordion panel is LIFTED, never deleted
         while self._lay.count():
             w = self._lay.takeAt(0).widget()
@@ -637,7 +701,12 @@ class StepLadder(QWidget):
         #                                            caught in the behavior ladder; same teardown,
         #                                            copied not paraphrased).
         for row in rows:
-            self._lay.addWidget(self._row(row, len(rows)))
+            frame = self._row(row, len(rows))
+            self._rows.append(frame)
+            self._lay.addWidget(frame)
+        if had is not None:
+            self._refocus(had)
+        self._follow = None
         if not rows:
             self._lay.addWidget(widgets.caption(
                 "No steps yet — a cutscene is an ordered list of beats: say a line, walk an "
@@ -646,7 +715,11 @@ class StepLadder(QWidget):
 
     def _row(self, row, n):
         i = row["idx"]
-        frame = _StepRow(on_click=(lambda i=i: self.on_select(i)) if self.on_select else None)
+        frame = _StepRow(on_click=(lambda i=i: self.on_select(i)) if self.on_select else None,
+                         on_key=lambda key, i=i: self._on_row_key(i, key))
+        frame.setProperty("selected", i == self._selected)   # the visible selection (C24): a
+        #                                                       rule, so the storyboard's beat
+        #                                                       marks on the chip cannot hide it
         h = QHBoxLayout(frame)
         h.setContentsMargins(10, 6, 10, 6)
         h.setSpacing(7)
@@ -672,6 +745,7 @@ class StepLadder(QWidget):
                 else:
                     btn = QPushButton(glyph)
                 btn.setProperty("role", "rowtool")
+                btn.setProperty("tool", glyph)     # a rebuild gives the focus back by this
                 btn.setToolTip(tip)
                 btn.setAccessibleName(f"{tip} — step {i}")
                 # nothing to move past: the first row's up and the last row's down are no stop
@@ -1282,6 +1356,23 @@ class CutsceneDoc(QWidget):
             at = ((self.editor.step_i + 1) if self.editor.insert_at is None
                   else self.editor.insert_at)
             self.ladder.set_inset(self.editor, at=at)
+        self._chain_tabs()
+
+    def _chain_tabs(self):
+        """Rebuilt rows join the window's focus chain LAST (after the toolbar, Deploy and the
+        Inspector). Put them back in reading order: the scene bar, each row and its tools (the open
+        step editor under its row), then the stage."""
+        seq = [self.board_btn]
+        lay = self.ladder._lay
+        for n in range(lay.count()):
+            w = lay.itemAt(n).widget()
+            if isinstance(w, _StepRow):
+                seq += [w] + [b for b in w.findChildren(QPushButton) if b.property("tool")]
+            elif w is self.editor:
+                seq += self.editor.tab_chain()
+        seq.append(self.canvas)
+        for a, b in zip(seq, seq[1:]):
+            QWidget.setTabOrder(a, b)
 
     # -- edits (all through cutscenescan's pure ops; the shell checkpoints via on_edit) --
     def _after_edit(self, label):
@@ -1625,6 +1716,7 @@ class CutsceneDoc(QWidget):
         label = cutscenescan.move_step(self._raw, self._scene, i, delta)
         if self._selected_step == i:
             self._selected_step = j
+        self.ladder._follow = j                    # the keyboard stays on the moved step
         self._after_edit(label)
 
     def _dup_step(self, i):
@@ -1633,6 +1725,7 @@ class CutsceneDoc(QWidget):
         self._close_editor()
         label = cutscenescan.duplicate_step(self._raw, self._scene, i)
         self._selected_step = i + 1
+        self.ladder._follow = i + 1                # ...on the copy
         self._after_edit(label)
 
     def _del_step(self, i):
