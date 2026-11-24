@@ -1911,6 +1911,44 @@ def test_a_marker_blender_or_a_verbatim_fork_owns_refuses_to_move(app):
     assert vdata["player"] == {"spawn": [0, 1500], "arrival": [{"entrance": 1, "pos": [0, 1200]}]}
 
 
+@pytest.mark.parametrize("case", ["verbatim", "blender"])
+def test_a_marker_place_always_refuses_offers_no_drag_or_delete(app, case):
+    """Review of P16: a verbatim fork's spawn (`import --verbatim` writes one) and a Blender NPC
+    wore the grab cursor, said 'drag to move it', and offered Delete -- each refused in turn.
+    The feed now carries the refusal: no grab cursor, the tooltip and a click say why."""
+    if case == "verbatim":
+        data, scene, word = ({"verbatim_eb": {"donor": 351}, "field": {"id": 30500},
+                              "player": {"spawn": [0, 1500]}}, None, "verbatim")
+    else:
+        data, scene, word = ({"field": {"source_field": 351},
+                              "npc": [{"name": "guard", "preset": "vivi"}]},
+                             {"npc": [{"name": "guard", "pos": [0, 1500]}]}, "Blender")
+    d, calls = _placed(app, data, scene=scene)
+    assert len(d.canvas._markers) == 1 and d.canvas._markers[0]["locked"]
+    glyphs = [k for k in d.canvas._kids if k.data(2) == "marker"]
+    assert glyphs and not any(k.hasCursor() for k in glyphs)
+    tips = " ".join(k.toolTip() for k in glyphs)
+    assert word in tips and "drag" not in tips, tips
+    p = _px(d, 0, 1500)
+    _send(d.canvas, "press", p)
+    _send(d.canvas, "release", p)
+    text = d.status.text()
+    assert word in text and "drag it" not in text and "Nothing was added" in text, text
+    assert calls == [] and d.status.property("state") == "warn"
+    d._on_marker_clicked(5)                              # (a stale index says nothing)
+
+
+def test_a_movable_spawn_says_drag_and_never_offers_delete(app):
+    data = {"field": {"source_field": 351}, "player": {"spawn": [0, 1500]}}
+    d, calls = _placed(app, data)
+    m = d.canvas._markers[0]
+    assert not m["locked"] and m["keep"]
+    p = _px(d, 0, 1500)
+    _send(d.canvas, "press", p)
+    _send(d.canvas, "release", p)
+    assert "drag it to move it." in d.status.text() and "delete" not in d.status.text()
+
+
 def test_a_marker_dropped_off_the_floor_says_so_and_a_stack_asks(app, monkeypatch):
     data = {"field": {"source_field": 351}, "npc": [{"name": "A", "pos": [0, 1500]}]}
     d, calls = _placed(app, data)

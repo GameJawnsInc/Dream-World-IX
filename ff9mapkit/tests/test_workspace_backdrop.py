@@ -1563,3 +1563,60 @@ def test_markers_stay_inert_outside_the_place_tool(app, monkeypatch):
     assert opened == [] and not clicked and not moved and not deleted
     glyphs = [k for k in c._kids if k.data(2) == "marker"]
     assert glyphs and not any(k.hasCursor() or k.toolTip() for k in glyphs)
+
+
+def _top_at(c, p):
+    """The topmost item under a canvas point -- the one whose cursor the pointer shows."""
+    wpt = c.viewportTransform().map(QPointF(*_px(c, p)))
+    return c.itemAt(QPoint(round(wpt.x()), round(wpt.y())))
+
+
+def _ctx_at(c, p):
+    from PySide6.QtGui import QContextMenuEvent
+    wpt = c.viewportTransform().map(QPointF(*_px(c, p)))
+    pos = QPoint(round(wpt.x()), round(wpt.y()))
+    c.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Reason.Mouse, pos, c.mapToGlobal(pos)))
+
+
+def test_the_glyph_under_the_pointer_wears_the_grab_cursor_only_in_the_place_tool(app):
+    """Review of P16: the move cursor is the one cue that a marker drags. The glyph itself (the
+    topmost item at the marker's pixel), not only its halo beneath, must wear it."""
+    c, *_ = _marker_canvas(app)
+    top = _top_at(c, _MIRA)
+    assert top is not None and top.data(2) == "marker" and top.hasCursor()
+    assert top.cursor().shape() == Qt.CursorShape.SizeAllCursor
+    c.set_region_mode(True)
+    top = _top_at(c, _MIRA)
+    assert top is None or not top.hasCursor()
+
+
+def test_a_locked_marker_advertises_no_gesture_the_host_refuses(app, monkeypatch):
+    """Review of P16: a marker the host always refuses (a verbatim fork's spawn, a Blender NPC)
+    wore the grab cursor, said 'drag to move it' and offered Delete -- each refused in turn. It
+    now wears no grab cursor, its tooltip gives the host's reason, a press neither drags it nor
+    places on it (a click still reports it), and it opens no menu. A ``keep`` marker (movable,
+    never deleted) drags but opens no Delete either."""
+    c, hits, refused, moved, clicked, deleted = _marker_canvas(app)
+    c.set_markers([{"pos": _MIRA, "label": "Mira", "kind": "npc", "locked": "Placed in Blender."},
+                   {"pos": _SPAWN, "label": "spawn", "kind": "spawn", "keep": True}])
+    glyphs = [k for k in c._kids if k.data(2) == "marker" and k.data(3) == 0]
+    assert glyphs and not any(k.hasCursor() for k in glyphs)
+    tips = {k.toolTip() for k in glyphs if k.toolTip()}
+    assert tips == {"Mira: Placed in Blender."}, tips
+    _mouse(c, "press", _px(c, _MIRA))
+    assert c._drag is None
+    _mouse(c, "release", _px(c, _MIRA))
+    assert clicked == [0] and not hits and not moved
+    _mouse(c, "press", _px(c, _MIRA))                        # a press there pans, never drags it
+    _mouse(c, "move", _px(c, (-300.0, 0.0, 1200.0)))
+    _mouse(c, "release", _px(c, (-300.0, 0.0, 1200.0)))
+    assert clicked == [0] and not hits and not moved and _anchor_at_home(c, 0, _MIRA)
+    opened = []
+    monkeypatch.setattr(c, "_marker_menu", lambda i, gp: opened.append(i))
+    _ctx_at(c, _MIRA)
+    _ctx_at(c, _SPAWN)
+    assert opened == [] and not deleted
+    spawn = _top_at(c, _SPAWN)
+    assert spawn.hasCursor() and "right-click" not in spawn.toolTip(), spawn.toolTip()
+    _mouse(c, "press", _px(c, _SPAWN))
+    assert c._drag and c._drag["kind"] == "marker"

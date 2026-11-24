@@ -1279,8 +1279,11 @@ class PlaceDoc(QWidget):
             if ((m["kind"] == "npc" and label in blender_npcs)
                     or (m["kind"] in ("spawn", "arrival") and self._scene_player(m["kind"]))):
                 label += " (Blender)"
-            marks.append({"pos": (x, y, z), "label": label, "kind": m["kind"]})
-            owners.append(self._marker_owner(m))
+            e = self._marker_owner(m)
+            locked = self._marker_why(e, "pos")     # a move refused = every gesture refused
+            marks.append({"pos": (x, y, z), "label": label, "kind": m["kind"], "locked": locked,
+                          "keep": locked is None and self._marker_why(e, None) is not None})
+            owners.append(e)
         self._marker_rows_cache = owners
         self.canvas.set_markers(marks)
 
@@ -1326,6 +1329,16 @@ class PlaceDoc(QWidget):
         if not 0 <= i < len(self._marker_rows_cache):
             return None
         e = self._marker_rows_cache[i]
+        why = self._marker_why(e, key)
+        if why is not None:                         # (the canvas already redrew it where it is)
+            self._refresh(why, "warn")
+            return None
+        return e
+
+    def _marker_why(self, e, key):
+        """Why a gesture on cache entry ``e`` must not write (``key`` as in _marker_target), else
+        None. Judged once: the feed asks it too, so a marker Place always refuses is never drawn
+        as a grab handle (review of P16)."""
         why = None
         if e["kind"] in ("spawn", "arrival"):
             if self._verbatim:
@@ -1343,10 +1356,7 @@ class PlaceDoc(QWidget):
                     else any(r is e["row"] for r in rows))
             if e["row"] is None or not here:
                 why = f"{e['label']} is no longer in this field — nothing changed."
-        if why is not None:                         # (the canvas already redrew it where it is)
-            self._refresh(why, "warn")
-            return None
-        return e
+        return why
 
     @staticmethod
     def _marker_words(e):
@@ -1382,7 +1392,11 @@ class PlaceDoc(QWidget):
         if not 0 <= i < len(self._marker_rows_cache):
             return
         e = self._marker_rows_cache[i]
-        how = ("drag it to move it" if e["kind"] == "spawn"
+        locked = self._marker_why(e, "pos")
+        if locked is not None:                      # never advertise a drag it will refuse
+            self._refresh(f"That is {e['label']}. {locked} Nothing was added.", "warn")
+            return
+        how = ("drag it to move it" if self._marker_why(e, None) is not None
                else "drag it to move it, or right-click it to delete it")
         self._refresh(f"That is {e['label']}, already placed — {how}. Nothing was added.")
 
@@ -1420,7 +1434,7 @@ class PlaceDoc(QWidget):
             n = len(content_markers(self._view()))
             note = (f"Click the walkable footprint to place · {n} placed thing"
                     f"{'' if n == 1 else 's'} shown")
-            if n:
+            if any(self._marker_why(e, "pos") is None for e in self._marker_rows_cache):
                 note += " · drag one to move it, right-click it to delete it"
             if self._verbatim:
                 note += " · verbatim fork: new content seats below the donor's party band"

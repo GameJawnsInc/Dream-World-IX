@@ -450,7 +450,10 @@ class BackdropCanvas(QGraphicsView):
         Screen-fixed furniture at each point's projected pixel; points behind the camera are
         skipped (they are not on this canvas). In place mode a marker is a grab handle: a drag
         emits ``marker_moved``, a press that does not travel ``marker_clicked`` (never a second
-        placement on top of it), its menu ``marker_deleted`` -- each by its index in this list."""
+        placement on top of it), its menu ``marker_deleted`` -- each by its index in this list.
+        ``locked`` (the host's reason it refuses every gesture): no grab cursor, no drag, no menu;
+        the tooltip gives the reason and a click still only emits ``marker_clicked``. ``keep``:
+        movable but never deleted -- no menu."""
         self._markers = list(markers or [])
         self._rebuild()
 
@@ -629,11 +632,16 @@ class BackdropCanvas(QGraphicsView):
             anchor.setData(0, "marker")
             anchor.setData(1, i)
             path = self._marker_path(m.get("kind"))
-            halo = self._halo(anchor, path, grab)
+            free = grab and not m.get("locked")    # the host refuses every gesture on a locked one
+            halo = self._halo(anchor, path, free)
             gl = self._child(self._scene.addPath(path, self._ring_pen(), QBrush(color)), anchor)
             if grab:
-                mark_grabbable(gl)
-                tip = f"{m.get('label') or m.get('kind')}: drag to move it, right-click for its menu"
+                name = m.get("label") or m.get("kind")
+                if free:
+                    mark_grabbable(gl)
+                tip = (f"{name}: {m['locked']}" if not free
+                       else f"{name}: drag to move it" if m.get("keep")
+                       else f"{name}: drag to move it, right-click for its menu")
                 halo.setToolTip(tip)
                 gl.setToolTip(tip)
             if m.get("label"):
@@ -1426,7 +1434,8 @@ class BackdropCanvas(QGraphicsView):
             if self._place_mode:                   # a placed marker out-ranks the floor (P16)
                 for it in under:
                     mi = self._resolve_data(it, "marker")
-                    if mi is not None and self._begin_marker_drag(int(mi)):
+                    if (mi is not None and not self._markers[int(mi)].get("locked")
+                            and self._begin_marker_drag(int(mi))):
                         self._drag["press"] = event.position()   # no travel = a click on it
                         event.accept()
                         return
@@ -1529,6 +1538,11 @@ class BackdropCanvas(QGraphicsView):
             self._rebuild()
             return
         if self._place_mode:                       # Rung 3: the click raycasts the walkmesh
+            for it in self.items(event.position().toPoint()):
+                mi = self._resolve_data(it, "marker")
+                if mi is not None:                 # a locked marker: it pans, but a click on it
+                    self.marker_clicked.emit(int(mi))   # places nothing -- the host says why
+                    return
             c = self._widget_to_canvas(event.position())
             try:
                 hit = imagefield.click_to_surface(self._cam, self._surface_tris,
@@ -1569,7 +1583,9 @@ class BackdropCanvas(QGraphicsView):
             for it in self.items(event.pos()):
                 mi = self._resolve_data(it, "marker")
                 if mi is not None:
-                    self._marker_menu(int(mi), event.globalPos())
+                    m = self._markers[int(mi)]
+                    if not (m.get("locked") or m.get("keep")):   # no Delete the host refuses
+                        self._marker_menu(int(mi), event.globalPos())
                     event.accept()
                     return
             return super().contextMenuEvent(event)
