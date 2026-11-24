@@ -1165,6 +1165,31 @@ def test_cutscene_unknown_actor_is_rejected(tmp_path):
     assert any("not a defined [[npc]] name" in s for s in validate(FieldProject.load(p)))
 
 
+def test_cutscene_step_window_keys_are_said_once_and_name_the_scene(tmp_path):
+    """C16: a cast scene's bad tail was reported twice -- by the window-attribute sweep and again by
+    the conductor validator -- and the sweep's label never said WHICH scene of a dispatch it meant
+    ('[cutscene] step 0' for every block). The sweep owns tail/style/window on every text step, and
+    labels a dispatch block '[cutscene] #k' exactly as the per-scene validation does."""
+    def probs(body):
+        p = tmp_path / "w.field.toml"
+        p.write_text(_LINT_BASE + '[[npc]]\nname = "Cid"\npreset = "vivi"\npos = [0, -300]\n\n' + body,
+                     encoding="utf-8")
+        return [s for s in validate(FieldProject.load(p)) if "cutscene" in s]
+    got = probs('[[cutscene]]\nrequires_scenario = 5\nsteps = [ {say = "a", tail = "NOPE"} ]\n\n'
+                '[[cutscene]]\nrequires_scenario = 6\nactors = ["Cid"]\n'
+                'steps = [ {say = "b", tail = "XYZ", style = "fancy"} ]\n')
+    tails = [s for s in got if "TAIL code" in s]
+    assert len(tails) == 2, got
+    assert tails[0].startswith("[cutscene] #0 step 0 tail 'NOPE' is not a valid TAIL code ("), tails
+    assert tails[1].startswith("[cutscene] #1 step 0 tail 'XYZ' is not a valid TAIL code ("), tails
+    styles = [s for s in got if "fancy" in s]
+    assert len(styles) == 1 and styles[0].startswith("[cutscene] #1 step 0 "), styles
+    # a field with ONE scene keeps the plain label, as the per-scene rules do
+    one = probs('[cutscene]\nactors = ["Cid"]\nsteps = [ {say = "b", tail = "XYZ"} ]\n')
+    tails = [s for s in one if "TAIL code" in s]
+    assert len(tails) == 1 and tails[0].startswith("[cutscene] step 0 tail 'XYZ' is not a valid"), one
+
+
 def test_cutscene_migration_errors(tmp_path):
     """#13 v3 breaking changes: the old block key `actor` (string OR list), the step key `anim`, and
     `exit_warp` all fail validation with a migration hint (never silently misbuild)."""

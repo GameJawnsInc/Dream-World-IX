@@ -3227,16 +3227,19 @@ def validate(project: FieldProject) -> list[str]:
         _check_window_attrs(f"[[chest]] #{k}", ch, opcode_side=False, text_side=False)
     for k, sp in enumerate(project.raw.get("savepoint", [])):
         _check_window_attrs(f"[[savepoint]] #{k}", sp, opcode_side=False, text_side=False)
-    for _ci, cs in enumerate(_cutscene.blocks(project.raw.get("cutscene"))):
+    _cs_blocks = _cutscene.blocks(project.raw.get("cutscene"))
+    for _ci, cs in enumerate(_cs_blocks):
+        # the ONE owner of a cutscene step's tail/style/window keys, cast or narration; labelled like
+        # the per-scene rules below (plain "[cutscene]" for one scene, "[cutscene] #k" in a dispatch)
+        _cs_lbl = "[cutscene]" if len(_cs_blocks) == 1 else f"[cutscene] #{_ci}"
         for _sk, s in enumerate(cs.get("steps") or []):
             if _cutscene.step_text(s) is not None:
                 # a `say` step is a BLOCKING message (content/cutscene.py:365 -> event.message);
                 # an `open` step is the ASYNC lane the multi-window verbs drive (:374), where a
                 # hold is load-bearing and the window ledger already owns the missing-close case
-                _check_window_attrs(f"[cutscene] step {_sk}", s,
+                _check_window_attrs(f"{_cs_lbl} step {_sk}", s,
                                     actor=("cast" if cs.get("actors") else "no"),
                                     window_close=("async" if "open" in s else "sync"))
-    _cs_blocks = _cutscene.blocks(project.raw.get("cutscene"))
     for _ci, cs in enumerate(_cs_blocks):
         # the [[cutscene]] DISPATCH (#13 v2): several scenes per field, each validated alone. A singleton
         # keeps the plain "[cutscene]" label (identical messages); plural blocks are labelled by index.
@@ -9051,9 +9054,7 @@ def _validate_conductor(project, cs, problems, lbl="[cutscene]"):
                             _resolve_point(elem, move_reg)
                         except ValueError as e:
                             problems.append(f"{lbl} step {k}: {e}")
-        t = s.get("tail")
-        if t is not None and t not in _text.TAIL_CODES:
-            problems.append(f"{lbl} step {k} tail {t!r} is not a valid TAIL code")
+        # (a step's tail/style/window are validate()'s window-attribute sweep's -- one owner)
     # parallel beats (with_prev): a step marked with_prev runs together with the preceding beat. Only
     # walk/path/animation/turn can run in parallel (say/wait/set_flag/teleport/face_player are sequential),
     # the group leader must be one of those too, and no actor may act twice in a group (one execution context).

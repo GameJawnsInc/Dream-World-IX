@@ -279,7 +279,7 @@ def scene_problems(raw, flag_names=None) -> list:
         tag = f"scene #{k}: " if len(blocks) > 1 else ""
         cast = ([str(a) for a in b["actors"]] if isinstance(b.get("actors"), list) else [])
         steps = b.get("steps") if isinstance(b.get("steps"), list) else []
-        out += _text_window_problems(steps, tag, cast)
+        out += _text_window_problems(steps, tag)
         if cast:
             # A CAST scene is the build's conductor: its rules (cast names, per-step actors --
             # "player" included --, with_prev groups, move targets, animation names, empty steps)
@@ -365,18 +365,18 @@ def _conductor_problems(raw, block, tag) -> list:
     return [tag + p.strip() for p in probs]
 
 
-def _text_window_problems(steps, tag, cast) -> list:
+def _text_window_problems(steps, tag) -> list:
     """The two window keys of a say/open line the build's window-attribute sweep refuses: an
-    unknown ``tail`` code and an unknown ``style``. Each verdict comes from the rule's owner
-    (``text.TAIL_CODES`` / ``text.resolve_style``); a cast scene's tail is already the conductor
-    validator's, so it is judged only on narration here."""
+    unknown ``tail`` code and an unknown ``style``, on a cast scene and a narration scene alike
+    (the sweep is their one owner in the build too). Each verdict comes from the rule's owner
+    (``text.TAIL_CODES`` / ``text.resolve_style``), in the sweep's own sentence."""
     from ..content import text as _text
     out = []
     for i, s in enumerate(steps):
         if not isinstance(s, dict) or _forms.step_key(s) not in _forms.TEXT_STEPS:
             continue
         t = s.get("tail")
-        if not cast and t is not None and t not in _text.TAIL_CODES:
+        if t is not None and (not isinstance(t, str) or t not in _text.TAIL_CODES):
             out.append(f"{tag}step {i} tail {t!r} is not a valid TAIL code "
                        f"({', '.join(sorted(_text.TAIL_CODES))})")
         try:

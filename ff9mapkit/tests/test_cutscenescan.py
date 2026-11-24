@@ -275,15 +275,22 @@ def test_scene_problems_agrees_with_the_build_rule_by_rule(tmp_path, rule, refus
 def test_scene_problems_speaks_the_builds_own_conductor_sentences(tmp_path):
     """One owner per rule: a cast scene's structural sentences are the build's own, prefixed with
     the scene on a dispatch (the build's label rides along as the tab's 'scene #k:')."""
-    raw = _two_cast([{"say": "hi"}, {**_TURN, "with_prev": True}])
+    raw = _two_cast([{"say": "hi"}, {**_TURN, "with_prev": True},
+                     {"say": "yo", "tail": "SIDEWAYS", "style": "fancy"}])
     raw["cutscene"] = [{"steps": [{"say": "a"}], "requires_scenario": 5}, raw["cutscene"]]
     ours = cs.scene_problems(raw)
     theirs = _build_cutscene_problems(raw, tmp_path)
     assert ours and all(p.startswith("scene #1: ") for p in ours), ours
     for p in ours:
         assert "[cutscene] #1 " + p[len("scene #1: "):] in theirs, (p, theirs)
-    # a cast scene's bad tail is said once (the conductor rule owns it), not once per lane
+    # C16: the cast scene's tail and style are judged here too, in the sweep's own sentences
+    assert any("tail 'SIDEWAYS'" in p for p in ours) and any("fancy" in p for p in ours), ours
+    assert len(ours) == len(theirs), (ours, theirs)    # nothing the build says twice, or the tab misses
+    # a cast scene's bad tail is said once (the window sweep owns it), in the tab and the build
     assert len(cs.scene_problems(_two_cast([{"say": "hi", "tail": "SIDEWAYS"}]))) == 1
+    assert len(_build_cutscene_problems(_two_cast([{"say": "hi", "tail": "SIDEWAYS"}]), tmp_path)) == 1
+    # a tail that is not text is refused too, never raised out of the render
+    assert any("tail" in p for p in cs.scene_problems(_raw({"steps": [{"say": "hi", "tail": ["x"]}]})))
     # and a half-typed cast scene never raises out of the render (a step that is not a table)
     cs.scene_problems(_two_cast([5, dict(_TURN)]))
 
