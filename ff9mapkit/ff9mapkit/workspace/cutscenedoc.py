@@ -1087,6 +1087,25 @@ class CutsceneDoc(QWidget):
         if same_field and self._stage_armed and self._wmesh is not None:
             self._restage_timer.start()            # undo / redo / another tab's edit re-judge too
 
+    def follow_history(self, member, path, data):
+        """Undo / Redo is about to feed ``data`` in place of the buffer this doc shows: select
+        the scene the history step touched -- the one it put back (an undone delete, a redone
+        add or copy), the one before the one it took away (an undone add or copy, a redone
+        delete), or the one whose content it changed. Found from the two buffers themselves, and
+        only when they are the same field (member AND file); a field the doc is not showing keeps
+        its own selection rules."""
+        if self._raw is None or member != self._member or path != self._path:
+            return
+        old, new = cutscenescan._blocks(self._raw), cutscenescan._blocks(data)
+        n = min(len(old), len(new))
+        first = next((i for i in range(n) if old[i] != new[i]), n)
+        if len(new) == len(old) and first == n:
+            return                                 # no scene changed: keep the selection
+        k = first if len(new) >= len(old) else first - 1
+        k = max(0, min(k, len(new) - 1))
+        if k != self._scene:
+            self._scene, self._selected_step = k, None
+
     def _merged(self) -> dict:
         return self._merged_fn() if self._merged_fn else (self._raw or {})
 

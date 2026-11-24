@@ -820,6 +820,20 @@ def test_ladder_rowtools_reorder_duplicate_and_delete(doc, tmp_path):
     assert says() == ["wait", "say"]
 
 
+def test_follow_history_moves_only_for_the_same_field(doc, tmp_path):
+    """E6's doc half (the shell half: test_workspace_cutscene_shell). A restored buffer of a
+    same-NAMED field at another path, or of another member, never moves this doc's selection."""
+    raw, p = _fed(doc, tmp_path)
+    restored = copy.deepcopy(raw)
+    restored["cutscene"].insert(1, {"steps": [{"say": "back"}]})   # an undone delete of #1
+    doc.follow_history("GLEN", tmp_path / "elsewhere" / "GLEN.field.toml", restored)
+    assert doc._scene == 0, "a same-named field at another path"
+    doc.follow_history("OTHER", p, restored)
+    assert doc._scene == 0, "another member"
+    doc.follow_history("GLEN", p, restored)
+    assert doc._scene == 1
+
+
 def test_scene_ops_add_duplicate_delete(doc, tmp_path):
     _fed(doc, tmp_path)
     doc._add_scene()
