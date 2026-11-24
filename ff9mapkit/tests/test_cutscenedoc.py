@@ -481,6 +481,99 @@ def test_a_staging_row_wraps_and_takes_you_to_its_step_and_stall(doc, tmp_path):
     assert _stall_in_view(c) and c.transform().m11() == 2.0
 
 
+def test_a_staging_row_of_another_scene_does_nothing_under_a_dirty_editor(doc, tmp_path):
+    """C22 (after review): a dirty editor refuses the scene switch a staging row asks for; the
+    row must then stop there -- not select its step number in THIS scene and scroll the stage to
+    another scene's stall (the cross-scene mispaint _paint_verdicts exists to prevent)."""
+    from PySide6.QtTest import QTest
+    c = _shown_stall(doc, tmp_path)
+    doc.rail.setCurrentRow(1)                          # [say "Dusk…", wait 30]
+    doc.stage_now(sync=True)
+    QApplication.processEvents()
+    doc._edit_step(1)
+    doc.editor.value_line.setText("45")                # half-typed
+    sl = doc.stage_list
+    assert sl.count() == 1 and sl.item(0).data(Qt.ItemDataRole.UserRole)["scene"] == 0
+    view = (c.horizontalScrollBar().value(), c.verticalScrollBar().value())
+    QTest.mouseClick(sl.viewport(), Qt.MouseButton.LeftButton,
+                     pos=sl.visualItemRect(sl.item(0)).center())
+    QApplication.processEvents()
+    assert doc._scene == 1 and doc.rail.currentRow() == 1
+    assert doc._selected_step == 1, "the row selected its step number in the wrong scene"
+    assert (c.horizontalScrollBar().value(), c.verticalScrollBar().value()) == view, \
+        "the stage scrolled to another scene's stall"
+    assert doc.editor.value_line.text() == "45" and doc.editor.step_i == 1
+
+
+# The child that measures the staging list on the NATIVE platform (offscreen stubs the font
+# DB, so every width it reports is fiction): a long verdict row must lie inside the list's
+# viewport. Measured natively without the delegate, the stock hint (wrapped at the unpadded
+# width) laid the row out 20-30 px WIDER than the list, so its text ran past the right edge.
+_NATIVE_WRAP_CHILD = r'''
+import json, sys
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QListWidgetItem
+app = QApplication([])
+print("QT-PLATFORM-UP", flush=True)
+import ff9mapkit
+from ff9mapkit.editor import theme
+from ff9mapkit.workspace import style
+from ff9mapkit.workspace.shell import _apply_app_theme
+from ff9mapkit.workspace.cutscenedoc import CutsceneDoc
+pal = theme.pick_palette("mist")
+_apply_app_theme(app, pal)
+cut = []
+text = ("[cutscene] #0 step 0: Cid's walk to (2000, 2000) leaves the walkmesh at (640, 400) "
+        "-- the engine stalls the actor there and the scene never reaches its next beat")
+for scale in (100, 125, 150):
+    d = CutsceneDoc(pal, scale=scale)
+    host = d.instruments
+    host.setStyleSheet(style.qss(pal, "comfortable", scale))
+    host.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+    sl = d.stage_list
+    sl.setVisible(True)
+    for w in (230, 300, 420):
+        host.resize(w, 700)
+        host.show()
+        sl.clear()
+        sl.addItem(QListWidgetItem("⚠ " + text))
+        app.processEvents()
+        r = sl.visualItemRect(sl.item(0))
+        if r.right() >= sl.viewport().width():
+            cut.append(f"{scale}% w{w}: row {r.width()} px wide in a {sl.viewport().width()} px list")
+    host.hide()
+print(json.dumps({"platform": app.platformName(), "file": ff9mapkit.__file__, "cut": cut}))
+'''
+
+
+def test_a_long_staging_row_wraps_whole_natively():
+    """C22 (after review; mutation M6 survived): the stock row hint wraps at the whole row
+    width while the sheet's item padding narrows the painted text, so a long row came out wider
+    than the list and its sentence ran past the edge. The delegate measures at the painted
+    width. Native platform only."""
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    import ff9mapkit
+    pkg_root = Path(ff9mapkit.__file__).resolve().parent.parent
+    env = {k: v for k, v in os.environ.items() if k != "QT_QPA_PLATFORM"}
+    env["PYTHONIOENCODING"] = "utf-8"
+    r = subprocess.run([sys.executable, "-c", _NATIVE_WRAP_CHILD], capture_output=True,
+                       timeout=300, env=env, cwd=str(pkg_root))
+    lines = r.stdout.decode("utf-8", "replace").strip().splitlines()
+    err = r.stderr.decode("utf-8", "replace")[-600:]
+    if "QT-PLATFORM-UP" not in lines:
+        pytest.skip(f"no native Qt platform here: {err}")
+    assert r.returncode == 0, f"the measuring child crashed AFTER Qt came up:\n{err}"
+    out = json.loads(lines[-1])
+    if out["platform"] in ("offscreen", "minimal"):
+        pytest.skip(f"no native font database ({out['platform']})")
+    assert Path(out["file"]).resolve().is_relative_to(pkg_root)
+    assert out["cut"] == [], "\n".join(out["cut"])
+
+
 def test_a_clean_staging_says_so_and_paints_nothing(doc, tmp_path):
     _fed(doc, tmp_path)
     doc.stage_now(sync=True)
@@ -1622,6 +1715,69 @@ def test_an_add_lane_with_typing_or_an_unreadable_value_counts_as_unapplied(doc,
     doc.editor.x_duration.setText("soon")               # read_step raises: still the author's typing
     _rowtool(doc, "Move this step down", 0).click()
     assert forms.step_key(doc._steps()[0]) == "say" and doc.editor.scene == 1
+
+
+_NORMALISED = ['{ say = "hi", instant = false }', '{ say = "hi", hold = false }',
+               '{ say = "hi", with_prev = false }', '{ say = "hi", window = "2" }',
+               '{ say = "hi", style = "128" }', '{ say = "hi", with_prev = true }',
+               '{ say = "hi", signal = false }']
+
+
+@pytest.mark.parametrize("step", _NORMALISED)
+def test_a_step_opened_and_left_untouched_is_clean(doc, tmp_path, step):
+    """C11 (after review): a step holding a key the editor normalises (a false flag, a number
+    as a string, with_prev where it cannot run) opened DIRTY with nothing typed, and every row
+    tool refused until Close. Dirty is judged from what the author can see."""
+    head = FIELD_TOML.split("[[cutscene]]")[0]
+    _fed(doc, tmp_path, head + f"[[cutscene]]\nsteps = [\n  {{ wait = 5 }},\n  {step},\n"
+                               "  { wait = 9 },\n]\n")
+    doc._edit_step(1)
+    assert not doc._editor_dirty(), step
+    _rowtool(doc, "Move this step up", 2).click()
+    assert doc._steps()[1] == {"wait": 9}, f"{step}: the row tool refused over nothing typed"
+    assert doc.editor.scene is None, "a clean editor closes, as before"
+
+
+def test_an_add_lane_that_switched_kind_is_clean_after_apply(doc, tmp_path):
+    """C11 (after review): type a say line, switch the type to wait, type 30, Apply. The row
+    landed and the box looked empty, but the say text lingered in the HIDDEN box, so every
+    row tool refused 'changes that are not applied' with nothing to apply."""
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc.add_step_btn.click()
+    ed = doc.editor
+    ed.value_text.setPlainText("hello")
+    ed.kind.setCurrentIndex(list(forms.STEP_KIND).index("wait"))
+    ed.value_line.setText("30")
+    doc._apply_step()
+    assert len(doc._steps()) == 3 and doc._steps()[2] == {"wait": 30}
+    assert not doc._editor_dirty(), "nothing visible is left to apply"
+    _rowtool(doc, "Move this step up", 2).click()
+    assert doc._steps()[1] == {"wait": 30}, "the row tool refused after a clean Apply"
+
+
+def test_an_edit_lane_is_clean_once_applied(doc, tmp_path):
+    """What Apply wrote is no longer unapplied: the row tools work again without a Close."""
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc._edit_step(1)                                  # wait 30
+    doc.editor.value_line.setText("45")
+    assert doc._editor_dirty()
+    doc._apply_step()
+    assert doc._steps()[1] == {"wait": 45} and not doc._editor_dirty()
+    _rowtool(doc, "Move this step up", 1).click()
+    assert doc._steps()[0] == {"wait": 45}
+
+
+def test_a_stage_drag_of_the_open_step_is_not_unapplied_typing(doc, tmp_path):
+    """The drag is written to the document as it happens: the editor showing it is not the
+    author's typing (C11's dirty test re-takes the value), but typing after it still is."""
+    _fed(doc, tmp_path)
+    doc._edit_step(0)
+    doc._on_stage_move(("target", 0, 0), 120, 300)
+    assert not doc._editor_dirty()
+    doc.editor.x_speed.setText("12")
+    assert doc._editor_dirty()
 
 
 def test_a_check_that_was_running_while_the_scenes_changed_paints_nothing(doc, tmp_path):

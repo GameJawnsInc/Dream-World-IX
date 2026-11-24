@@ -28,7 +28,6 @@ this doc never composes an undo label and never touches a file.
 
 from __future__ import annotations
 
-import copy
 import threading
 
 from PySide6.QtCore import Qt, Signal, QTimer
@@ -471,6 +470,18 @@ class StepEditor(QFrame):
         # reparents it (playtest-caught flicker -- the phantom-window law, entry side). Only
         # set_inset shows, AFTER seating.
 
+    def typed_state(self) -> dict:
+        """What the author can SEE and type, as one comparable value: the kind, the visible
+        value box, the actor, and the extras. The dirty test compares two of these, so a step
+        opens clean whatever keys it holds that the editor cannot write back."""
+        return {"kind": self.kind.currentIndex(),
+                "value": (self.value_text.toPlainText() if self._is_text()
+                          else self.value_line.text()),
+                "actor": self.actor.currentText(), "with_prev": self.with_prev.isChecked(),
+                "instant": self.x_instant.isChecked(), "hold": self.x_hold.isChecked(),
+                **{k: getattr(self, f"x_{k}").text() for k in
+                   ("speaker", "tail", "style", "window", "speed", "duration", "signal")}}
+
     def read_step(self) -> dict:
         """The step the widgets describe. Raises ValueError with the field named."""
         k = self.current_kind()
@@ -711,6 +722,7 @@ class CutsceneDoc(QWidget):
         self._selected_step = None
         self._ed_block = None                      # the open editor's scene dict and step dict:
         self._ed_step = None                       # found by IDENTITY at Apply, never by index
+        self._ed_typed = None                      # the editor's widgets as loaded (the dirty test)
         self._board = None                         # the storyboard model (when the strip is on)
         self._guide_state = "nofield"
         self._wmesh = None                         # the staging lane's cached walkmesh (per field)
@@ -1230,22 +1242,17 @@ class CutsceneDoc(QWidget):
             self._restage_timer.start()            # the armed lane: re-judge on the warm mesh
 
     def _editor_dirty(self):
-        """Would closing the step editor throw away the author's typing? Add mode: any typed
-        value. Edit mode: what Apply would write differs from the step it was opened on (through
-        update_step itself, so the extras it preserves count as unchanged); a value Apply would
-        refuse is typing too."""
+        """Would closing the step editor throw away the author's typing? Judged only from what
+        the author can see. Add mode: a value in the visible value box. Edit mode: the editor's
+        widgets differ from what they showed when the step was loaded (``_ed_typed``, re-taken
+        at Apply and when a stage drag rewrites the value) -- so a step opens clean whatever
+        keys it holds that the editor normalises, and an unreadable value typed in is typing."""
         ed = self.editor
         if ed.scene is None:
             return False
         if ed.insert_at is not None:
-            return bool(ed.value_text.toPlainText() or ed.value_line.text())
-        old = self._ed_step if isinstance(self._ed_step, dict) else {}
-        try:
-            probe = {"cutscene": {"steps": [copy.deepcopy(old)]}}
-            cutscenescan.update_step(probe, 0, 0, ed.read_step(), managed=STEP_EDITOR_KEYS)
-        except Exception:                          # noqa: BLE001 -- unreadable == unapplied
-            return True
-        return probe["cutscene"]["steps"][0] != old
+            return bool(ed.typed_state()["value"])
+        return ed.typed_state() != self._ed_typed
 
     def _editor_refuses(self):
         """Refuse a gesture that would close (or reload) a DIRTY step editor, and say how to go
@@ -1368,6 +1375,7 @@ class CutsceneDoc(QWidget):
         self._selected_step = i
         self.editor.open_step(self._scene, i, st[i], self._cast())
         self._ed_block, self._ed_step = self._block_now(), st[i]
+        self._ed_typed = self.editor.typed_state()
         self._render()                             # seats the editor under its row
         self._ladder_guard()
         self._reveal_editor()
@@ -1495,8 +1503,8 @@ class CutsceneDoc(QWidget):
             self.editor._sync_with_prev()          # a new row: with_prev is judged by row too
             self.editor.title.setText(f"New step — lands at row {self.editor.insert_at}")
             self._selected_step = at
-            (self.editor.value_text.clear() if self.editor._is_text()
-             else self.editor.value_line.clear())
+            self.editor.value_text.clear()         # both: a value carried across a kind
+            self.editor.value_line.clear()         # switch must not linger in the hidden box
             self._after_edit(label)
             self._reveal_editor()                  # the panel just advanced a row -- keep it in view
         else:
@@ -1504,6 +1512,7 @@ class CutsceneDoc(QWidget):
             label = cutscenescan.update_step(self._raw, k, i, step,
                                              managed=STEP_EDITOR_KEYS)
             self._ed_step = self._ed_block["steps"][i]     # update_step wrote a NEW dict there
+            self._ed_typed = self.editor.typed_state()     # what is shown is now applied
             self._selected_step = i
             self._after_edit(label)
 
@@ -1605,6 +1614,8 @@ class CutsceneDoc(QWidget):
         if (self.editor.scene is not None and self._editor_locate(self._raw) == (k, i)
                 and self.editor.current_kind() == forms.step_key(self._ed_step)):
             self.editor.value_line.setText(forms.step_value_text(self._ed_step))
+            if self._ed_typed is not None:         # the drag is applied: not the author's typing
+                self._ed_typed["value"] = self.editor.value_line.text()
 
     def _on_stage_insert(self, lid):
         _kind, k, i, j = lid
