@@ -1915,6 +1915,42 @@ def test_set_scale_and_retheme_reach_every_painted_label(app):
     assert bad["text"].brush().color() == QColor(derive(light)["error_text"])
 
 
+def test_grab_targets_grow_with_the_text_size_dial(app):
+    """V15: the labels follow the dial, the handles beside them did not -- at 150% an 8 px vertex
+    dot sat under a 12 pt name. Every glyph (and so its hit area: a press resolves by the item's
+    own shape), its halo and its label offset now scale with the dial."""
+    def sizes(c):
+        out = {}
+        for k in c._kids:
+            tag = k.data(2)
+            if tag in ("tracept", "cutoutpt", "marker", "regionchevron", "kbcross") \
+                    and not hasattr(k, "text"):
+                br = k.boundingRect()
+                out.setdefault(tag, []).append(round(max(br.width(), br.height()), 3))
+        return {t: max(v) for t, v in out.items()}
+
+    c = _furnished(app, "dark", "#808080")
+    c.set_region_mode(True)
+    c.set_trace_mode(True)
+    _focus(c)
+    _key(c, Qt.Key.Key_Down)                       # the crosshair too
+    small = sizes(c)
+    lab = next(lb for lb in c._labels if lb["text"].text() == "Mira")
+    dx0 = lab["dx"]
+    c.set_scale(150)
+    big = sizes(c)
+    assert set(small) == {"tracept", "cutoutpt", "marker", "regionchevron", "kbcross"}, small
+    for tag, s in small.items():
+        assert big[tag] == pytest.approx(1.5 * s, rel=0.02), (tag, s, big[tag])
+    lab = next(lb for lb in c._labels if lb["text"].text() == "Mira")
+    assert lab["dx"] == pytest.approx(1.5 * dx0)
+    c.set_region_mode(True)                        # the zone corner handles
+    corner = [k.boundingRect().width() for k in c._kids if k.data(2) == "regionpt"]
+    c.set_scale(100)
+    assert max(corner) == pytest.approx(1.5 * max(k.boundingRect().width() for k in c._kids
+                                                  if k.data(2) == "regionpt"), rel=0.02)
+
+
 # --------------------------------------------------------------- batch 5: the view, natively (V12)
 # Every fence above runs offscreen at one canvas size. The view grammar's defects (V2-V5, T24)
 # live in Qt's own integer re-centring and in the real font database, so this child runs the

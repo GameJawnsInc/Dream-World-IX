@@ -52,7 +52,8 @@ def _contrast(a: QColor, b: QColor) -> float:
 
 _ZOOM_MIN, _ZOOM_MAX = 0.1, 8.0
 _CLICK_SLOP_PX = 4          # press->release travel at/under this = a click, past it = a pan
-_HANDLE_R = 4               # a trace vertex handle's screen radius (px, zoom-immune)
+_HANDLE_R = 4               # a trace vertex handle's screen radius at 100% (px, zoom-immune;
+                            # every glyph dimension scales with the text-size dial: _k)
 _LABEL_TIERS = 3            # how far a label may be pushed from home, in plate heights
 _KEY_STEP = 8               # an arrow key moves the keyboard crosshair this many canvas px
                             # (Shift: one canvas px)
@@ -182,6 +183,12 @@ class BackdropCanvas(QGraphicsView):
         weight = QFont.Weight.DemiBold if bold else QFont.Weight.Normal
         return QFont("Segoe UI", max(1, round(pt * self._scale / 100)), weight)
 
+    def _k(self, v):
+        """A glyph dimension at the text-size dial (V15): handles, glyphs, halos and label
+        offsets grow with the labels beside them, and a press resolves by the item's own shape,
+        so the hit area grows with them."""
+        return v * self._scale / 100
+
     def set_scale(self, pct):
         pct = pct if pct in range(50, 301) else 100
         if pct == self._scale:
@@ -253,18 +260,18 @@ class BackdropCanvas(QGraphicsView):
         the glyph's own pen is the white inner ring. A tagged child, so a press on the rim
         resolves like a press on the glyph."""
         k = QColor(0, 0, 0)
-        pen = QPen(k, 4.4)
+        pen = QPen(k, self._k(4.4))
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         under = self._child(self._scene.addPath(
             path, pen, QBrush(Qt.BrushStyle.NoBrush) if hollow else QBrush(k)), anchor)
-        self._glyphs.append((anchor, path.boundingRect().adjusted(-2.2, -2.2, 2.2, 2.2)))
+        self._glyphs.append((anchor, path.boundingRect().adjusted(-self._k(2.2), -self._k(2.2),
+                                                                  self._k(2.2), self._k(2.2))))
         if grab:
             mark_grabbable(under)
         return under
 
-    @staticmethod
-    def _ring_pen():
-        return QPen(QColor(255, 255, 255), 1.4)
+    def _ring_pen(self):
+        return QPen(QColor(255, 255, 255), self._k(1.4))
 
     def _label(self, anchor, text, ink, dx=6, dy=None, tip=None):
         """On-art text: an opaque surface plate + an ink fenced on that surface, both children
@@ -288,8 +295,11 @@ class BackdropCanvas(QGraphicsView):
         t.setBrush(QBrush(QColor(ink)))
         br = t.boundingRect()
         w, h = br.width() + 6, br.height() + 2
+        dx = self._k(dx)                           # offsets in glyph units (the dial, V15)
         if dy is None:
-            dy = -h - 8                            # plate bottom at -9: clear of a r<=8 glyph
+            dy = -h - self._k(8)                   # plate bottom at -9: clear of a r<=8 glyph
+        else:
+            dy = self._k(dy)
         rr = QPainterPath()
         rr.addRoundedRect(QRectF(0, 0, w, h), 3, 3)
         plate.setPath(rr)
@@ -336,7 +346,7 @@ class BackdropCanvas(QGraphicsView):
                 cands.append((-lab["dx"] - w, lab["dy"]))
             cands += [(dx, lab["dy"] - step * k) for k in range(1, _LABEL_TIERS + 1)]
             cands += [(dx, lab["dy"] + step * k) for k in range(1, _LABEL_TIERS + 1)
-                      if lab["dy"] + step * k >= 8]   # a DOWN tier clears the anchor's own glyph
+                      if lab["dy"] + step * k >= self._k(8)]   # a DOWN tier clears the anchor's own glyph
 
             def rect(c):
                 return QRectF(base.x() + c[0] - 3, base.y() + c[1] - 1, w, h)
@@ -584,10 +594,10 @@ class BackdropCanvas(QGraphicsView):
         a.setZValue(3)
         path = QPainterPath()
         for sx, sy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            path.moveTo(3 * sx, 3 * sy)
-            path.lineTo(10 * sx, 10 * sy)
+            path.moveTo(self._k(3) * sx, self._k(3) * sy)
+            path.lineTo(self._k(10) * sx, self._k(10) * sy)
         for color, width in ((QColor(0, 0, 0), 4.4), (QColor(255, 255, 255), 1.6)):
-            pen = QPen(color, width)
+            pen = QPen(color, self._k(width))
             pen.setCapStyle(Qt.PenCapStyle.SquareCap)
             arm = self._child(sc.addPath(path, pen), a)
             arm.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
@@ -654,8 +664,7 @@ class BackdropCanvas(QGraphicsView):
             it = self._scene.addPolygon(poly, pen, QBrush(fill))
             it.setData(0, "meshtri")
 
-    @staticmethod
-    def _marker_path(kind):
+    def _marker_path(self, kind):
         """Placed content speaks its KIND by shape (P25), not only through its label: npc a
         circle, prop a square, chest a lidded box, spawn a triangle, arrival a diamond."""
         p = QPainterPath()
@@ -674,7 +683,7 @@ class BackdropCanvas(QGraphicsView):
             p.closeSubpath()
         else:                                      # npc and anything unknown
             p.addEllipse(QPointF(0, 0), 5, 5)
-        return p
+        return QTransform.fromScale(self._k(1), self._k(1)).map(p)   # at the dial (V15)
 
     def _draw_markers(self):
         if not self._markers or self._cam is None:
@@ -752,7 +761,8 @@ class BackdropCanvas(QGraphicsView):
             anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
             anchor.setData(0, "cutoutpt")
             anchor.setData(1, c["i"])
-            dia = QPolygonF([QPointF(0, -5), QPointF(5, 0), QPointF(0, 5), QPointF(-5, 0)])
+            r = self._k(5)
+            dia = QPolygonF([QPointF(0, -r), QPointF(r, 0), QPointF(0, r), QPointF(-r, 0)])
             grab = self._trace_mode or self._contact_mode   # the press gate's modes only (V6)
             halo = QPainterPath()
             halo.addPolygon(dia)
@@ -761,7 +771,7 @@ class BackdropCanvas(QGraphicsView):
             gl = self._child(self._scene.addPolygon(dia), anchor)
             gl.setPen(self._ring_pen())
             if c.get("bad"):                       # INVALID speaks by shape too: hollow (V13)
-                gl.setPen(QPen(color, 2.2))
+                gl.setPen(QPen(color, self._k(2.2)))
                 gl.setBrush(QBrush(Qt.BrushStyle.NoBrush))
             else:
                 gl.setBrush(QBrush(color))
@@ -916,6 +926,7 @@ class BackdropCanvas(QGraphicsView):
                 anchor.setData(0, "regionchevron")
                 anchor.setData(1, i)
                 ux, uy = ex / el, ey / el
+                ux, uy = self._k(ux), self._k(uy)  # the chevron at the dial (V15)
                 tipx, tipy = 7 * ux, 7 * uy
                 px, py = -uy, ux
                 chev = QPolygonF([QPointF(tipx, tipy),
@@ -961,7 +972,8 @@ class BackdropCanvas(QGraphicsView):
             anchor.setPos(x, y)
             anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
             anchor.setData(0, "regionpending")
-            box = QRectF(-_HANDLE_R, -_HANDLE_R, 2 * _HANDLE_R, 2 * _HANDLE_R)
+            hr = self._k(_HANDLE_R)
+            box = QRectF(-hr, -hr, 2 * hr, 2 * hr)
             halo = QPainterPath()
             halo.addEllipse(box)
             self._halo(anchor, halo)
@@ -989,7 +1001,8 @@ class BackdropCanvas(QGraphicsView):
                 anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
                 anchor.setData(0, "regionpt")
                 anchor.setData(1, (r["i"], ci))
-                box = QRectF(-_HANDLE_R, -_HANDLE_R, 2 * _HANDLE_R, 2 * _HANDLE_R)
+                hr = self._k(_HANDLE_R)
+                box = QRectF(-hr, -hr, 2 * hr, 2 * hr)
                 halo = QPainterPath()
                 halo.addRect(box)
                 self._halo(anchor, halo, grab=True)
@@ -1166,13 +1179,14 @@ class BackdropCanvas(QGraphicsView):
             anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
             anchor.setData(0, "tracept")
             anchor.setData(1, i)
-            box = QRectF(-_HANDLE_R, -_HANDLE_R, 2 * _HANDLE_R, 2 * _HANDLE_R)
+            hr = self._k(_HANDLE_R)
+            box = QRectF(-hr, -hr, 2 * hr, 2 * hr)
             halo = QPainterPath()
             halo.addEllipse(box)
             self._halo(anchor, halo, grab=self._trace_mode, hollow=bad)
             dot = self._child(self._scene.addEllipse(box), anchor)
             if bad:                                # INVALID speaks by SHAPE as well as colour:
-                dot.setPen(QPen(color, 2.2))       # a hollow ring and a ✕ (V13)
+                dot.setPen(QPen(color, self._k(2.2)))   # a hollow ring and a ✕ (V13)
                 dot.setBrush(QBrush(Qt.BrushStyle.NoBrush))
             else:
                 dot.setPen(self._ring_pen())
