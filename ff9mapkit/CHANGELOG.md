@@ -327,6 +327,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - Switching straight from the Cutscene tab to Behavior no longer leaves the ordinary Inspector card showing under
   Behavior's column.
 
+### Fixed — build checks for cutscenes: a shared once-flag is refused, one message per problem, plainer words
+- **Two play-once scenes that would use the same once-flag are refused by the build**, and flagged in the Cutscene
+  tab, naming both scenes and the flag. Before, whichever played first set the flag and the other never played, with
+  no warning. The check judges the flag each scene is really compiled with: a pinned number, a flag name, or the one
+  the build picks.
+- **A bad `tail` on a cutscene step is reported once**, and in a field with several scenes the message says which
+  scene ("[cutscene] #1 step 0 ..."). The same label is on a bad window style or window id.
+- **Problems in a scene with a cast are written in plain words**, the same in the build's output and in the Cutscene
+  tab. They name the step, the offending name and the cast, and say what to do: "step 2: 'Mira' is not in the cast
+  (Cid, Vivi) -- add 'Mira' to the cast (actors), or give the step to a cast member or "player"".
+- Cutscene tab: PROBLEMS judges a cast scene's tail the way the build does, on every step.
+
 ### Changed — World tab: faster, and the window no longer freezes while it works
 - **Undo, Redo and every Accept no longer reload the whole 3D map.** Only the blocks whose files changed are drawn
   again: Undo and Redo come back in under a second (8-11 s before), a forest Accept in about 5 s (22-25 s).

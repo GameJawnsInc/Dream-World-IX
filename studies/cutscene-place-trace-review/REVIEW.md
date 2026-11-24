@@ -346,6 +346,45 @@ and lint files (4 skips), the shell's `--smoke`, native renders of every `cutsce
 `trace:*` surface read before and after (mist 100 and 150, light 100, dracula 150), and mutation runs
 by each reviewer and on the last commit (11 of 11 caught). Not played in the game or driven by hand.
 
+## Fixed since, the build.py items (2026-11-24)
+
+Batches 1 to 5 are on `master` (the last is `d1de3fc4`). This change is on the branch, commits
+`c6332938..8c9792df`, and touches the validation half of `build.py` only. One agent implemented it in
+its own worktree; two reviewers attacked it (one on meaning and on parity with the Cutscene tab, one on
+bytes and blast radius: 9 findings, one of them a blocker); a fixer answered them.
+
+| Item | Now |
+|---|---|
+| **C16** a bad cutscene tail reported twice | One owner: the window-attribute sweep. It labels a cutscene step like the per-scene rules do ("[cutscene]" for one scene, "[cutscene] #k" in a dispatch), for every message it raises on a cutscene step. The conductor's own tail check is gone. |
+| **C9**, the build half | `build.validate` refuses two play-once scenes compiled on the same once-flag. One rule, `build.cutscene_once_flag_problems`, judges the flag each block is compiled with (a pin, a name, or the build's own pick), and the tab calls the same rule. Scenes that replay have no once-flag and are never counted. |
+| The words PROBLEMS shows for a cast scene (left open in batch 4) | `_validate_conductor`'s sentences are plain: they name the step, the offending name and the cast, say what to do, and keep the TOML key in parentheses. The command line and the tab say the same thing. |
+
+**What the review changed:** the conductor's tail check was not only a duplicate. On a cast step that
+shows no window (walk, wait, close) it was the ONLY tail check, so dropping it made the build accept a
+bad tail there that it used to refuse. The sweep now judges a cast scene's tail on every step. The tab
+picked "text steps" by a different test from the build's and missed a tail on a step with two actions;
+it uses the build's test. A campaign member was told to remove a pinned flag, which there leads to a
+build error. An untagged step in a cast of two read "None already acts".
+
+**Nothing that emits bytes changed.** Builds of 45 projects (39 examples and test projects, 814 files,
+plus 6 hand-made dispatches) are byte-identical before and after; the verdicts of 327 projects differ
+only by the reworded sentences, the "#k" label, the removed duplicate and the new once-flag line on
+fixtures written to collide. The full suite ran on `8c9792df` in the gate worktree before any merge: 17,211 passed, 31 skipped, 2 failed. Both failures are co-op timing tests (in `test_coop_world_battle.py` and `test_coop_peer.py`) that pass when re-run alone on the same commit; the last nightly run failed three other tests of those families the same way.
+
+**Left open:**
+
+- A narration scene's sentences ("needs exactly one action (say / wait / ...)") keep the older voice;
+  only the cast-scene validator was reworded.
+- The tab does not mirror the sweep's refusals of a window id or other window keys on a cutscene step
+  (older than this change; the build refuses them, now with the scene named).
+- The tab cannot know a campaign member's flag base, so a pin that collides with that member's own
+  first scene is caught by the build only.
+- The sweep still raises a TypeError on a tail that is not text (`tail = ["x"]`) on a say or open step
+  (older than this change; the tab flags it).
+
+With this change 133 of the 139 findings are answered. The 6 that remain are the three documentation
+pages (C30, P26, T36) and the three that need a playtest to settle (C33, C34, P8).
+
 ## 1. The numbers
 
 139 findings stand: **4 data-loss bugs, 23 major, 88 minor, 24 nits.**
