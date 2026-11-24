@@ -279,6 +279,22 @@ def test_the_storyboard_scrubs_beats_and_wraps_the_say_line(doc, tmp_path):
     assert doc.ladder._beat_marks == set()
 
 
+def test_the_storyboard_never_names_an_actor_the_game_leaves_unattributed(doc, tmp_path):
+    """C14 (already fixed by E1, proven here): the strip wrote 'Mira:' over a line tagged only
+    with actor = "Mira". The build attributes a line through `speaker` alone, so the game shows
+    the bare line -- and so must the strip."""
+    from ff9mapkit import build as _build
+    toml = FIELD_TOML.replace('{ say = "Made it to the altar.", speaker = "Cid" }',
+                              '{ say = "Quiet now.", actor = "Mira" }')
+    _fed(doc, tmp_path, toml)
+    doc.board_btn.setChecked(True)
+    doc._show_beat(1)
+    assert doc.board_say.text() == _as_built(None, "Quiet now.", tomllib.loads(toml))
+    assert "Mira" not in doc.board_say.text()
+    assert not [p for p in _build.validate(_build.FieldProject(tomllib.loads(toml), tmp_path))
+                if "[cutscene]" in p], "the fixture builds"
+
+
 def test_the_storyboard_clears_when_the_scene_loses_its_last_step(doc, tmp_path):
     """C12: deleting every step left the old beat on the strip, the ladder and the stage."""
     _fed(doc, tmp_path)
