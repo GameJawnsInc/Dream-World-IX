@@ -133,7 +133,11 @@ def place_event(data: dict, quad, taken=()) -> str:
 
 def set_event_message(data: dict, index, text) -> str:
     """Reword a drawn event zone in place (the quad menu's Set message — the drawn-zone
-    placeholder '...' otherwise ships as a literal popup)."""
+    placeholder '...' otherwise ships as a literal popup). Raises ValueError on a blank line: it
+    builds clean and shows nothing in-game (finding P10) -- the one owner of that rule, for the
+    menu and for the ask right after a draw."""
+    if not str(text).strip():
+        raise ValueError("an empty line shows nothing when the player walks in")
     ev = data.get("event", [])[index]
     ev["message"] = str(text)
     return f"reword event {ev.get('name') or index}"
@@ -1024,17 +1028,40 @@ class PlaceDoc(QWidget):
         if self._blocked is not None or self._data is None:
             self._refresh()
             return
-        if self.rkind_btns["gateway"].isChecked():
-            to = self.gw_to.value()
+        # A door with no target, and every event, ask right away (P27): the answer and the zone
+        # land as ONE undo step; Cancel keeps the flagged placeholder. Asked BEFORE any write,
+        # and the answer goes only to the field it was asked for (the dialog is modal, and the
+        # shell can re-feed under it).
+        data = self._data
+        gateway = self.rkind_btns["gateway"].isChecked()
+        to = self.gw_to.value() if gateway else None
+        if gateway and not to:
+            asked = self._ask_field_id(0)
+        elif not gateway:
+            asked = self._ask_message("")
+        else:
+            asked = None
+        if self._data is not data:
+            self._refresh()
+            return
+        state = ""
+        if gateway:
+            to = to or asked or 0
             label = place_gateway(self._data, quad, to, self.gw_ent.value(),
                                   taken=self._scene_names("gateway"))
             note = label + ("" if to else " — set its target ('to field', or the Editor form)")
         else:
             note = label = place_event(self._data, quad, taken=self._scene_names("event"))
+            if asked is not None:
+                try:
+                    set_event_message(self._data, len(self._data["event"]) - 1, asked)
+                except ValueError as e:             # the blank-line rule, from its one owner
+                    note += (f" — kept the placeholder: {e}. Right-click it → Set message.")
+                    state = "warn"
         if self.on_edit:
             self.on_edit(self._member, label)
         self._refresh_regions()
-        self._refresh(note)
+        self._refresh(note, state)
 
     def _on_region_changed(self, i, quad):
         if self._data is None or not 0 <= i < len(self._region_rows_cache):
@@ -1090,11 +1117,11 @@ class PlaceDoc(QWidget):
         text = self._ask_message("" if cur == "..." else cur)
         if text is None:
             return
-        if not text.strip():                        # '' builds clean and shows nothing in-game
-            self._refresh(f"Kept {r['label']}'s message — an empty line shows nothing when the "
-                          "player walks in. Type the words, or Cancel.", "warn")
+        try:
+            label = set_event_message(self._data, r["data_index"], text)
+        except ValueError as e:                     # '' builds clean and shows nothing in-game
+            self._refresh(f"Kept {r['label']}'s message — {e}. Type the words, or Cancel.", "warn")
             return
-        label = set_event_message(self._data, r["data_index"], text)
         if self.on_edit:
             self.on_edit(self._member, label)
         self._refresh_regions()

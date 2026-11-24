@@ -1996,6 +1996,8 @@ def _snap_place_body(ctx: _Ctx, state: str) -> None:
         pd._apply_bundle(pd._bundles[key], refit=True)
         if state == "regions":
             pd.tools.set_current("regions")            # the rung-4 tool, through its own strip
+            pd._ask_message = lambda cur: None         # a drawn event asks for its words (P27):
+            pd._ask_field_id = lambda cur: None        # Cancel, so the placeholder warns on the art
             pd.gw_to.setValue(4005)
             pd._on_region_drawn([(-800.0, 1600.0), (-100.0, 1600.0),  # a CLEAN convex gateway:
                                  (-100.0, 2400.0), (-800.0, 2400.0)])  # accent, edge + chevron

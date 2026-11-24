@@ -519,6 +519,14 @@ def _private_cache(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_dialogs(monkeypatch):
+    """A drawn door with no target, and every drawn event, now ask at once (P27): no test may
+    ever open a real modal. Unless a test answers them itself, both dialogs are Cancelled."""
+    monkeypatch.setattr(P.PlaceDoc, "_ask_field_id", lambda self, cur: None)
+    monkeypatch.setattr(P.PlaceDoc, "_ask_message", lambda self, cur: None)
+
+
+@pytest.fixture(autouse=True)
 def _deterministic_qt_teardown(qt_drain):
     """Widgets die HERE, not in a forced GC pass (THE GC-CHILD LAW's teardown half)."""
     yield
@@ -1605,6 +1613,63 @@ def test_the_place_regions_tool_says_zone_and_how_to_cancel(app):
     d, _ = _doc(app)
     tip = d.tools.button("regions").toolTip()
     assert "zones" in tip and "quad" not in tip and "Esc" in tip, tip
+
+
+# --------------------------------------------------------------- batch 4: ask at the draw (P27)
+_Q = [(-200.0, 800.0), (200.0, 800.0), (200.0, 1200.0), (-200.0, 1200.0)]
+
+
+def test_a_door_drawn_without_a_target_asks_for_it_in_the_same_step(app, monkeypatch):
+    """P27: a door drawn while 'to field' showed '?' was written to=0 and had to be repaired by a
+    right-click. The draw asks now; the answer and the zone are ONE undo step, and a reserved
+    world-map id still warns on the art (region_rows judges every route)."""
+    d, calls = _regions_on(app, {"field": {"source_field": 351}})
+    asked = []
+    monkeypatch.setattr(d, "_ask_field_id", lambda cur: asked.append(cur) or 9005)
+    d._on_region_drawn(_Q)
+    assert asked == [0] and calls == [("FORK", "draw gateway door0 -> 9005")], calls
+    assert d._data["gateway"][0]["to"] == 9005
+    assert "world-map hole" in d.canvas._regions[0]["warn"]
+    asked.clear()
+    d.gw_to.setValue(4005)                              # a target in the box: nothing to ask
+    d._on_region_drawn([(x + 500, z) for x, z in _Q])
+    assert asked == [] and d._data["gateway"][1]["to"] == 4005
+
+
+def test_a_cancelled_door_target_keeps_todays_flagged_placeholder(app):
+    d, calls = _regions_on(app, {"field": {"source_field": 351}})
+    d._on_region_drawn(_Q)                              # (the fixture's dialogs Cancel)
+    assert len(calls) == 1 and d._data["gateway"][0]["to"] == 0
+    assert "NO TARGET" in d.canvas._regions[0]["warn"]
+
+
+@pytest.mark.parametrize("typed, kept", [("Mind the gap.", "Mind the gap."), ("  ", "..."),
+                                         (None, "...")])
+def test_a_drawn_event_asks_for_its_words_and_a_blank_line_is_still_refused(app, monkeypatch,
+                                                                             typed, kept):
+    d, calls = _regions_on(app, {"field": {"source_field": 351}})
+    d.rkind_btns["event"].setChecked(True)
+    asked = []
+    monkeypatch.setattr(d, "_ask_message", lambda cur: asked.append(cur) or typed)
+    d._on_region_drawn(_Q)
+    assert asked == [""] and len(calls) == 1, calls
+    assert d._data["event"][0]["message"] == kept
+    if typed is not None and not typed.strip():         # the blank-line rule holds on this route
+        assert "empty" in d.status.text() and d.status.property("state") == "warn"
+
+
+def test_a_field_swapped_while_the_draw_asks_gets_nothing(app, monkeypatch):
+    """The dialog is modal and the shell can re-feed under it: the answer belongs to the field it
+    was asked for, never to the one that is open when it comes back."""
+    d, calls = _regions_on(app, {"field": {"source_field": 351}})
+    other = {"field": {"source_field": 351}}
+
+    def swap(cur):
+        d.show_field("OTHER", other, Path("C:/somewhere/OTHER.field.toml"))
+        return 4005
+    monkeypatch.setattr(d, "_ask_field_id", swap)
+    d._on_region_drawn(_Q)
+    assert calls == [] and "gateway" not in other
 
 
 # --------------------------------------------------------------- batch 4: stacked floors (P7)
