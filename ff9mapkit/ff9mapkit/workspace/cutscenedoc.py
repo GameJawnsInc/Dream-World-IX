@@ -1467,6 +1467,8 @@ class CutsceneDoc(QWidget):
             self.settings_card.hide()              # the phantom-window flicker's other half)
         if self._raw is not None and self._stack.currentWidget() is self._content:
             self._render()                         # seat / clear the inset
+            if on:
+                self._balance_split(opened=True)   # the card opens inside a pane sized to rows
 
     def _settings_key(self):
         """What the settings form is built FROM: the scene and the values the form shows (not
@@ -1576,7 +1578,7 @@ class CutsceneDoc(QWidget):
         """THE one owner of the ladder / stage split. Until the author drags the handle, the
         ladder pane takes its content's height, up to half -- a short scene leaves no dead pane
         and the stage gets the rest. While a panel is open the split is left alone, except that
-        opening the step editor still gets a usable ladder (the old guard: up to 300 px at 100%,
+        opening a panel (the step editor or Scene settings) still gets a usable ladder (the old guard: up to 300 px at 100%,
         the stage keeps 140). The storyboard's
         toggle keeps the stage at least 200 px at 100% (or half), even under a dragged split."""
         s = self._vsplit.sizes()

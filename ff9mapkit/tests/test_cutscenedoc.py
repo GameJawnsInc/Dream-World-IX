@@ -2022,6 +2022,20 @@ def test_an_open_panel_still_gets_a_usable_ladder(doc, tmp_path):
     assert lad >= min(300, lad + stage - 140) and stage >= 140, (lad, stage)
 
 
+def test_scene_settings_opens_with_a_usable_ladder(doc, tmp_path):
+    """C15 after review: the ladder pane shrinks to a short scene's rows, and Scene settings
+    opens INSIDE that pane -- it must get the same guard as the step editor, or the card shows
+    only its first field."""
+    _shown(doc, tmp_path, h=760)
+    QApplication.processEvents()
+    before = doc._vsplit.sizes()[0]
+    doc.settings_btn.setChecked(True)
+    QApplication.processEvents()
+    lad, stage = doc._vsplit.sizes()
+    assert before < min(300, lad + stage - 140), "the fence needs a ladder shrunk to its rows"
+    assert lad >= min(300, lad + stage - 140) and stage >= 140, (lad, stage)
+
+
 def test_the_stage_refits_to_its_pane_until_the_author_zooms(doc, tmp_path):
     """C15/C23: the storyboard strip and the split change the stage's height; the stage re-fits
     while it is still fitted, and never resets a zoom the author chose."""
