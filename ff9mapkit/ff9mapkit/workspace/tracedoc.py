@@ -1069,7 +1069,9 @@ class TraceDoc(QWidget):
                 return
         argv = [sys.executable, "-m", "ff9mapkit", "image-field", str(self._image),
                 "--floor", " ".join(f"{x:g},{y:g}" for x, y in self._floor),
-                "--out", str(out), "--name", name, "--id", str(fid)]
+                # a value the author TYPED rides as --flag=value: '-Stop!' as its own argv item
+                # is read by argparse as an option and the job fails (finding T17)
+                "--out", str(out), f"--name={name}", "--id", str(fid)]
         for i, f in enumerate(self._fg):               # the tracer's own form: path@cx,cy anchors
             cx, cy = f["contact"]                      # the occluder at its floor-contact pixel
             img = f["image"]
@@ -1082,7 +1084,7 @@ class TraceDoc(QWidget):
                 head = f"{r.get('to', 0)},{r['entrance']}" if r.get("entrance") else str(r.get("to", 0))
                 argv += ["--gateway", f"{head}@{pts}"]
             else:
-                argv += ["--event-zone", f"{r.get('message') or '...'}@{pts}"]
+                argv += [f"--event-zone={r.get('message') or '...'}@{pts}"]
         if float(self.pitch.value()) != imagefield.DEFAULT_PITCH:
             argv += ["--pitch", f"{self.pitch.value():g}"]
         if float(self._fov) != imagefield.DEFAULT_FOV:        # a reopened project regenerates

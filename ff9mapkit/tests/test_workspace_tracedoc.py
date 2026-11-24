@@ -173,7 +173,7 @@ def test_generate_emits_the_tracer_command(app, tmp_path, monkeypatch):
     assert argv == [sys.executable, "-m", "ff9mapkit", "image-field", str(img),
                     "--floor", "130,200 254,200 364,440 20,440",
                     "--out", str(tmp_path / "photo-field"),
-                    "--name", "HALLWAY", "--id", "30777"]
+                    "--name=HALLWAY", "--id", "30777"]
     assert kw["cwd"] == str(KIT)
     # finding T22: the next step is the app's own Deploy, not an unquoted terminal line (tools/
     # exists only in a checkout; the installed project folder has a space in it). The warp id is
@@ -693,8 +693,7 @@ def test_a_drawn_region_is_stored_in_canvas_px_and_reaches_the_argv(app, tmp_pat
     argv, _kw = run.calls[0]
     gi = argv.index("--gateway")
     assert argv[gi + 1] == "4005,2@60,300;140,300;140,330;60,330"
-    ei = argv.index("--event-zone")
-    assert argv[ei + 1] == "Watch the ledge@200,340;300,340;300,380;200,380"
+    assert "--event-zone=Watch the ledge@200,340;300,340;300,380;200,380" in argv
     # the sidecar round-trips the whole region session
     doc2, _ = _doc(app)
     doc2.load_trace(tmp_path / "photo-field" / "photo.trace.json")
@@ -740,6 +739,30 @@ def test_open_field_toml_backfills_regions(app, tmp_path, monkeypatch):
     assert doc._regions[1]["message"] == "hi"
     gx, gy = doc._regions[0]["quad"][0]
     assert abs(gx - 60.0) < 1.0 and abs(gy - 300.0) < 1.0  # world ints -> sub-px inversion
+
+
+def test_an_event_message_that_starts_with_a_dash_reaches_the_cli_intact(app, tmp_path,
+                                                                         monkeypatch):
+    """Finding T17: '--event-zone' '-Stop!@...' as two argv items made argparse read the message
+    as an option ('expected one argument') and the Generate failed. The values the author types
+    ride in the '--flag=value' form, which argparse never mistakes for an option."""
+    pytest.importorskip("PIL")
+    from ff9mapkit import cli
+    from ff9mapkit import imagefield as IF
+    doc, run = _traced_doc(app, tmp_path)
+    doc.tools.set_current("regions")
+    doc.rkind_btns["event"].setChecked(True)
+    doc.ev_msg.setText("-Stop!")
+    cam = doc.canvas.camera()
+    doc._on_region_drawn([IF.click_to_world(cam, p) for p in
+                          [(200.0, 340.0), (300.0, 340.0), (300.0, 380.0), (200.0, 380.0)]])
+    doc.id_box.setText("30777")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    argv = run.calls[0][0]
+    args = cli.build_parser().parse_args(argv[3:])     # past `python -m ff9mapkit`
+    assert args.event_zone[0].startswith("-Stop!@")
+    assert args.name == doc.name_box.text()
 
 
 def test_a_targetless_door_gates_generate_until_retargeted(app, tmp_path, monkeypatch):
@@ -1238,7 +1261,7 @@ def test_renaming_an_armed_project_is_refused_not_written_beside_it(app, tmp_pat
     assert "PICTURE.field.toml" in doc.status.text() and "one field per folder" in doc.status.text()
     doc.name_box.setText("PICTURE")
     doc.on_generate()
-    assert len(run.calls) == 2 and run.calls[1][0][run.calls[1][0].index("--name") + 1] == "PICTURE"
+    assert len(run.calls) == 2 and "--name=PICTURE" in run.calls[1][0]
 
 
 def test_a_field_renamed_in_the_editor_cannot_regenerate_into_a_second_file(app, tmp_path):
@@ -2010,7 +2033,7 @@ def test_a_project_named_before_the_name_rule_still_regenerates(app, tmp_path):
     doc.on_generate()
     assert len(run.calls) == 1, doc.status.text()
     argv = run.calls[0][0]
-    assert argv[argv.index("--name") + 1] == "attic-room"
+    assert "--name=attic-room" in argv
     doc.name_box.setText("attic room")                 # a NEW bad name is still refused
     doc.on_generate()
     assert len(run.calls) == 1 and doc.status.property("state") == "error"
