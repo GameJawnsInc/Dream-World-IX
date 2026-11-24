@@ -19,6 +19,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("FF9MAPKIT_NO_THUMBS", "1")
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import Qt                        # noqa: E402
 from PySide6.QtWidgets import QApplication          # noqa: E402
 
 from ff9mapkit.editor import forms                   # noqa: E402
@@ -195,9 +196,29 @@ def test_the_rail_renders_the_whole_dispatch(doc, tmp_path):
     raw, _ = _fed(doc, tmp_path)
     rows = cutscenescan.scene_rows(raw)
     assert doc.rail.count() == len(rows) == 2
-    assert "scene #0" in doc.rail.item(0).text() and "cast 2" in doc.rail.item(0).text()
+    assert "#0" in doc.rail.item(0).text() and "cast 2" in doc.rail.item(0).text()
     assert "narration" in doc.rail.item(1).text()
-    assert "plays at beat 100" in doc.rail.item(0).text()
+    assert "beat 100" in doc.rail.item(0).text()
+    assert "scene #0" in doc.rail.item(0).toolTip()
+    assert "plays at beat 100" in doc.rail.item(0).toolTip()
+
+
+def test_the_rail_leads_with_what_tells_scenes_apart_and_elides_instead_of_scrolling(doc,
+                                                                                      tmp_path):
+    """C21: rows were cut mid-glyph over a permanent horizontal scrollbar (a list that scrolls
+    sideways never elides), and the step count and cast -- what tells scenes apart -- sat at
+    the far end. Pixels: tools/gui_snap.py cutscene:doc at 100 and 150."""
+    _fed(doc, tmp_path)
+    assert doc.rail.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    assert doc.rail.textElideMode() == Qt.TextElideMode.ElideRight
+    t0, t1 = doc.rail.item(0).text(), doc.rail.item(1).text()
+    # what tells two scenes apart comes FIRST and short: at 125% the rail has room for about
+    # 13 characters a line, and "scene #0 · 3 steps / cast 2 · plays at beat 100" lost the beat
+    assert t0 == "#0 · beat 100\n3 steps · cast 2", t0   # two lines, each elides
+    assert t1 == "#1 · beat 300\n2 steps · narration", t1
+    tip = doc.rail.item(0).toolTip()                   # the tooltip keeps the whole sentence
+    assert tip.startswith("scene #0 · 3 steps\ncast 2 · plays at beat 100"), tip
+    assert "cast: Cid, Mira" in tip
 
 
 def test_scene_select_switches_the_ladder_and_the_stage(doc, tmp_path):
@@ -279,6 +300,52 @@ def test_the_storyboard_scrubs_beats_and_wraps_the_say_line(doc, tmp_path):
     assert doc.ladder._beat_marks == set()
 
 
+def test_a_beat_with_no_line_says_so_quietly(doc, tmp_path):
+    """C28: '(no line this beat)' was the loudest text in the strip -- full-size heavy mono over
+    the scene title. A placeholder is a caption; a real line keeps the mono of the game's window.
+    Pixels: tools/gui_snap.py cutscene:storyboard (beat 1 is a walk)."""
+    _fed(doc, tmp_path)
+    doc.board_btn.setChecked(True)
+    doc._show_beat(0)                                  # [walk + turn]: no line
+    assert doc.board_say.property("role") == "caption" and not doc.board_say.property("mono")
+    doc._show_beat(1)                                  # the say
+    assert doc.board_say.property("role") != "caption" and doc.board_say.property("mono")
+    doc._show_beat(0)
+    for _ in range(3):
+        _rowtool(doc, "Remove this step (Ctrl+Z undoes)", 0).click()
+    assert doc.board_say.property("role") == "caption", "'No steps yet' is a placeholder too"
+
+
+def test_the_storyboard_never_names_an_actor_the_game_leaves_unattributed(doc, tmp_path):
+    """C14 (already fixed by E1, proven here): the strip wrote 'Mira:' over a line tagged only
+    with actor = "Mira". The build attributes a line through `speaker` alone, so the game shows
+    the bare line -- and so must the strip."""
+    from ff9mapkit import build as _build
+    toml = FIELD_TOML.replace('{ say = "Made it to the altar.", speaker = "Cid" }',
+                              '{ say = "Quiet now.", actor = "Mira" }')
+    _fed(doc, tmp_path, toml)
+    doc.board_btn.setChecked(True)
+    doc._show_beat(1)
+    assert doc.board_say.text() == _as_built(None, "Quiet now.", tomllib.loads(toml))
+    assert "Mira" not in doc.board_say.text()
+    assert not [p for p in _build.validate(_build.FieldProject(tomllib.loads(toml), tmp_path))
+                if "[cutscene]" in p], "the fixture builds"
+
+
+def test_the_storyboard_clears_when_the_scene_loses_its_last_step(doc, tmp_path):
+    """C12: deleting every step left the old beat on the strip, the ladder and the stage."""
+    _fed(doc, tmp_path)
+    doc.board_btn.setChecked(True)
+    doc._show_beat(1)
+    for _ in range(3):
+        _rowtool(doc, "Remove this step (Ctrl+Z undoes)", 0).click()
+    assert doc._steps() == []
+    assert "Made it" not in doc.board_say.text() and "no steps" in doc.board_say.text().lower()
+    assert doc.board_pos.text() == ""
+    assert doc.ladder._beat_marks == set()
+    assert doc.canvas._board is None and _tags(doc.canvas)["beatpos"] == 0
+
+
 def _preview(doc):
     from PySide6.QtWidgets import QPlainTextEdit
     return doc.editor.say_preview.findChild(QPlainTextEdit).toPlainText()
@@ -354,6 +421,198 @@ def test_a_stall_paints_only_on_its_own_scene(doc, tmp_path):
     assert _tags(doc.canvas)["verdict"] == 0, "switching back re-filters"
 
 
+def _shown_stall(doc, tmp_path):
+    """The stalling field, the doc and its instruments shown (hidden on screen), and the
+    author zoomed in 2x on Cid's start post -- the stall at (2000, 2000) is out of view."""
+    from PySide6.QtCore import QPointF
+    doc.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+    doc.instruments.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+    doc.resize(1000, 700)
+    doc.instruments.resize(260, 600)
+    doc.show()
+    doc.instruments.show()
+    _fed(doc, tmp_path, FIELD_TOML.replace('walk = "altar"', "walk = [2000, 2000]"))
+    QApplication.processEvents()
+    c = doc.canvas
+    c._fit_pending = False
+    c.resetTransform()
+    c.scale(2.0, 2.0)
+    c._zoom = 2.0
+    c.centerOn(QPointF(*c._pt(0, 400)))
+    QApplication.processEvents()
+    return c
+
+
+def _stall_in_view(c):
+    from PySide6.QtCore import QPointF
+    v = c._verdict_rows[0]
+    p = c.mapFromScene(QPointF(*c._pt(*v["b"])))
+    return c.viewport().rect().adjusted(20, 20, -20, -20).contains(p)
+
+
+def test_an_explicit_check_brings_its_stall_into_view_and_keeps_the_zoom(doc, tmp_path):
+    """C35: a stall outside the fitted bounds painted off screen (the same-scene re-render keeps
+    the author's zoom, rightly) and the stage showed no marker until Ctrl+0."""
+    c = _shown_stall(doc, tmp_path)
+    doc.stage_now(sync=True)
+    QApplication.processEvents()
+    assert c._verdict_rows, "the fixture stalls"
+    assert _stall_in_view(c), "the stall painted outside the view"
+    assert c.transform().m11() == 2.0, "the author's zoom must survive"
+    # an automatic re-judge never moves the view the author has panned
+    c.centerOn(*c._pt(0, 400))
+    QApplication.processEvents()
+    doc.stage_now(sync=True, warm=True)
+    assert not _stall_in_view(c)
+
+
+def test_a_staging_row_wraps_and_takes_you_to_its_step_and_stall(doc, tmp_path):
+    """C22: the docked list showed a stub of the build's sentence ('walk ta') and a row did
+    nothing when clicked. It wraps now, and a click selects the scene and step and shows the
+    stall on the stage."""
+    from PySide6.QtTest import QTest
+    sl = doc.stage_list
+    assert sl.wordWrap() and \
+        sl.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    c = _shown_stall(doc, tmp_path)
+    doc.rail.setCurrentRow(1)                          # another scene is showing
+    doc.stage_now(sync=True)
+    QApplication.processEvents()
+    assert sl.count() == 1 and "step 0" in sl.item(0).text()
+    # the same scene has ONE name in this column: PROBLEMS and the rail say "scene #0"
+    assert "scene #0 step 0" in sl.item(0).text() and "[cutscene]" not in sl.item(0).text()
+    QTest.mouseClick(sl.viewport(), Qt.MouseButton.LeftButton,
+                     pos=sl.visualItemRect(sl.item(0)).center())
+    QApplication.processEvents()
+    assert doc._scene == 0 and doc.rail.currentRow() == 0
+    assert doc._selected_step == 0
+    assert _stall_in_view(c) and c.transform().m11() == 2.0
+
+
+@pytest.mark.parametrize("label,want", [
+    ("[cutscene] #2 step 0: walk target", "scene #2 step 0: walk target"),
+    ("[cutscene] step 0: walk target", "scene #0 step 0: walk target"),   # a ONE-scene field
+    ("[cutscene]", "scene #0"),                                          # its skipped row
+    ("[cutscene] #1", "scene #1"),
+    ("the walkmesh could not be read", "the walkmesh could not be read"),
+])
+def test_a_staging_row_names_the_scene_the_way_the_tab_does(label, want):
+    """The build labels the only scene of a field plain '[cutscene]' (no number), so on the
+    commonest field the row still read '[cutscene] step 0' beside a rail that says '#0'."""
+    from ff9mapkit.workspace.cutscenedoc import CutsceneDoc
+    assert CutsceneDoc._scene_words(label) == want
+
+
+def test_a_staging_row_opens_from_the_keyboard_too(doc, tmp_path):
+    """Final review of C22: the row acted only on a mouse click; Enter on the focused row did
+    nothing, so a keyboard user could read the problem and not go to it."""
+    from PySide6.QtTest import QTest
+    _shown_stall(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc.stage_now(sync=True)
+    QApplication.processEvents()
+    sl = doc.stage_list
+    assert sl.count() == 1 and doc._scene == 1
+    sl.setFocus()
+    sl.setCurrentRow(0)
+    QTest.keyClick(sl, Qt.Key.Key_Return)
+    QApplication.processEvents()
+    assert doc._scene == 0 and doc._selected_step == 0
+
+
+def test_a_staging_row_of_another_scene_does_nothing_under_a_dirty_editor(doc, tmp_path):
+    """C22 (after review): a dirty editor refuses the scene switch a staging row asks for; the
+    row must then stop there -- not select its step number in THIS scene and scroll the stage to
+    another scene's stall (the cross-scene mispaint _paint_verdicts exists to prevent)."""
+    from PySide6.QtTest import QTest
+    c = _shown_stall(doc, tmp_path)
+    doc.rail.setCurrentRow(1)                          # [say "Dusk…", wait 30]
+    doc.stage_now(sync=True)
+    QApplication.processEvents()
+    doc._edit_step(1)
+    doc.editor.value_line.setText("45")                # half-typed
+    sl = doc.stage_list
+    assert sl.count() == 1 and sl.item(0).data(Qt.ItemDataRole.UserRole)["scene"] == 0
+    view = (c.horizontalScrollBar().value(), c.verticalScrollBar().value())
+    QTest.mouseClick(sl.viewport(), Qt.MouseButton.LeftButton,
+                     pos=sl.visualItemRect(sl.item(0)).center())
+    QApplication.processEvents()
+    assert doc._scene == 1 and doc.rail.currentRow() == 1
+    assert doc._selected_step == 1, "the row selected its step number in the wrong scene"
+    assert (c.horizontalScrollBar().value(), c.verticalScrollBar().value()) == view, \
+        "the stage scrolled to another scene's stall"
+    assert doc.editor.value_line.text() == "45" and doc.editor.step_i == 1
+
+
+# The child that measures the staging list on the NATIVE platform (offscreen stubs the font
+# DB, so every width it reports is fiction): a long verdict row must lie inside the list's
+# viewport. Measured natively without the delegate, the stock hint (wrapped at the unpadded
+# width) laid the row out 20-30 px WIDER than the list, so its text ran past the right edge.
+_NATIVE_WRAP_CHILD = r'''
+import json, sys
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QListWidgetItem
+app = QApplication([])
+print("QT-PLATFORM-UP", flush=True)
+import ff9mapkit
+from ff9mapkit.editor import theme
+from ff9mapkit.workspace import style
+from ff9mapkit.workspace.shell import _apply_app_theme
+from ff9mapkit.workspace.cutscenedoc import CutsceneDoc
+pal = theme.pick_palette("mist")
+_apply_app_theme(app, pal)
+cut = []
+text = ("[cutscene] #0 step 0: Cid's walk to (2000, 2000) leaves the walkmesh at (640, 400) "
+        "-- the engine stalls the actor there and the scene never reaches its next beat")
+for scale in (100, 125, 150):
+    d = CutsceneDoc(pal, scale=scale)
+    host = d.instruments
+    host.setStyleSheet(style.qss(pal, "comfortable", scale))
+    host.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+    sl = d.stage_list
+    sl.setVisible(True)
+    for w in (230, 300, 420):
+        host.resize(w, 700)
+        host.show()
+        sl.clear()
+        sl.addItem(QListWidgetItem("⚠ " + text))
+        app.processEvents()
+        r = sl.visualItemRect(sl.item(0))
+        if r.right() >= sl.viewport().width():
+            cut.append(f"{scale}% w{w}: row {r.width()} px wide in a {sl.viewport().width()} px list")
+    host.hide()
+print(json.dumps({"platform": app.platformName(), "file": ff9mapkit.__file__, "cut": cut}))
+'''
+
+
+def test_a_long_staging_row_wraps_whole_natively():
+    """C22 (after review; mutation M6 survived): the stock row hint wraps at the whole row
+    width while the sheet's item padding narrows the painted text, so a long row came out wider
+    than the list and its sentence ran past the edge. The delegate measures at the painted
+    width. Native platform only."""
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    import ff9mapkit
+    pkg_root = Path(ff9mapkit.__file__).resolve().parent.parent
+    env = {k: v for k, v in os.environ.items() if k != "QT_QPA_PLATFORM"}
+    env["PYTHONIOENCODING"] = "utf-8"
+    r = subprocess.run([sys.executable, "-c", _NATIVE_WRAP_CHILD], capture_output=True,
+                       timeout=300, env=env, cwd=str(pkg_root))
+    lines = r.stdout.decode("utf-8", "replace").strip().splitlines()
+    err = r.stderr.decode("utf-8", "replace")[-600:]
+    if "QT-PLATFORM-UP" not in lines:
+        pytest.skip(f"no native Qt platform here: {err}")
+    assert r.returncode == 0, f"the measuring child crashed AFTER Qt came up:\n{err}"
+    out = json.loads(lines[-1])
+    if out["platform"] in ("offscreen", "minimal"):
+        pytest.skip(f"no native font database ({out['platform']})")
+    assert Path(out["file"]).resolve().is_relative_to(pkg_root)
+    assert out["cut"] == [], "\n".join(out["cut"])
+
+
 def test_a_clean_staging_says_so_and_paints_nothing(doc, tmp_path):
     _fed(doc, tmp_path)
     doc.stage_now(sync=True)
@@ -408,7 +667,7 @@ def test_live_problems_show_a_dispatch_collision_and_a_bad_target(doc, tmp_path)
     assert "the same gate" in doc.problems_lbl.text()
     bad2 = FIELD_TOML.replace('walk = "altar"', 'walk = "ghost"')
     _fed(doc, tmp_path, bad2)
-    assert 'walk target "ghost"' in doc.problems_lbl.text()
+    assert "step 0: movement target 'ghost'" in doc.problems_lbl.text()   # the build's sentence
     _fed(doc, tmp_path)
     assert doc.problems_lbl.text() == "No structural problems."
 
@@ -558,6 +817,49 @@ def test_a_raw_window_style_byte_round_trips_as_an_int(doc, tmp_path):
     assert doc._steps()[0]["style"] == "notail", "a style NAME stays a name"
 
 
+@pytest.mark.parametrize("stored, shown, back", [
+    ("+", "+", "+"),           # the form the build's own wait_signal lint recommends
+    (True, "+", True),         # the build reads true exactly like "+": shown "+", kept true
+    (3, "3", 3),
+    (-1, "-1", -1),
+])
+def test_a_say_signal_opens_and_applies_in_every_form_the_build_accepts(doc, tmp_path,
+                                                                        stored, shown, back):
+    """C6: the editor read signal with int(), so a line carrying signal = "+" (or true) could not
+    be applied at all -- not even to fix a typo in the line."""
+    import copy as _copy
+    from ff9mapkit import build as _build
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc._steps()[0]["signal"] = stored
+    doc._edit_step(0)
+    assert doc.editor.x_signal.text() == shown
+    doc.editor.value_text.setPlainText("Dusk falls over the glen!")   # a typo fix, nothing else
+    doc._apply_step()
+    assert doc.editor.note.text() == "", doc.editor.note.text()
+    s = doc._steps()[0]
+    assert s["say"] == "Dusk falls over the glen!" and s["signal"] == back
+    assert type(s["signal"]) is type(back)
+    problems = _build.validate(_build.FieldProject(_copy.deepcopy(doc._raw), tmp_path))
+    assert not [p for p in problems if "signal" in p], problems
+
+
+def test_a_signal_the_build_refuses_is_refused_with_its_forms_named(doc, tmp_path):
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc._edit_step(0)
+    assert "+" in doc.editor._extra_rows["signal"][0].text(), "the label must say + is allowed"
+    assert '"+"' in doc.editor.x_signal.toolTip()
+    assert "a number" in doc.editor._extra_rows["signal"][0].text(), "'n' for 'a number'"
+    doc.editor.x_signal.setText("soon")
+    doc._apply_step()
+    assert "signal" in doc.editor.note.text() and "+" in doc.editor.note.text()
+    assert "signal" not in doc._steps()[0], "no op fired"
+    doc.editor.x_signal.setText("")
+    doc._apply_step()
+    assert "signal" not in doc._steps()[0], "blank clears"
+
+
 def test_a_window_step_round_trips_and_the_valueless_kind_hides_its_value(doc, tmp_path):
     _fed(doc, tmp_path)
     doc.rail.setCurrentRow(1)
@@ -617,6 +919,23 @@ def test_with_prev_is_gated_by_the_compilers_rule_and_row_position(doc, tmp_path
     assert not doc.editor.with_prev.isEnabled()
 
 
+def test_an_add_lane_started_at_row_0_re_enables_with_prev_after_apply(doc, tmp_path):
+    """C13: the checkbox was judged only on a kind change, so after the first Apply advanced the
+    lane to row 1 it stayed disabled for a turn until the author toggled the type."""
+    _fed(doc, tmp_path)
+    for _ in range(3):
+        _rowtool(doc, "Remove this step (Ctrl+Z undoes)", 0).click()
+    doc.add_step_btn.click()
+    assert doc.editor.insert_at == 0
+    doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("turn"))
+    assert not doc.editor.with_prev.isEnabled(), "row 0 has nothing to run with"
+    doc.editor.value_line.setText("128")
+    doc.editor.actor.setEditText("Cid")
+    doc.editor.apply_btn.click()
+    assert doc.editor.insert_at == 1 and forms.step_key(doc._steps()[0]) == "turn"
+    assert doc.editor.with_prev.isEnabled(), "row 1 may run with row 0"
+
+
 def test_ladder_rowtools_reorder_duplicate_and_delete(doc, tmp_path):
     _fed(doc, tmp_path)
     doc.rail.setCurrentRow(1)
@@ -632,6 +951,20 @@ def test_ladder_rowtools_reorder_duplicate_and_delete(doc, tmp_path):
     assert doc._steps()[0]["wait"] == 30, "the duplicate is a DEEP copy"
     doc._del_step(1)
     assert says() == ["wait", "say"]
+
+
+def test_follow_history_moves_only_for_the_same_field(doc, tmp_path):
+    """E6's doc half (the shell half: test_workspace_cutscene_shell). A restored buffer of a
+    same-NAMED field at another path, or of another member, never moves this doc's selection."""
+    raw, p = _fed(doc, tmp_path)
+    restored = copy.deepcopy(raw)
+    restored["cutscene"].insert(1, {"steps": [{"say": "back"}]})   # an undone delete of #1
+    doc.follow_history("GLEN", tmp_path / "elsewhere" / "GLEN.field.toml", restored)
+    assert doc._scene == 0, "a same-named field at another path"
+    doc.follow_history("OTHER", p, restored)
+    assert doc._scene == 0, "another member"
+    doc.follow_history("GLEN", p, restored)
+    assert doc._scene == 1
 
 
 def test_scene_ops_add_duplicate_delete(doc, tmp_path):
@@ -667,7 +1000,73 @@ def test_scene_settings_apply_writes_the_gate_and_keeps_the_steps(doc, tmp_path)
     b = doc._raw["cutscene"][0]
     assert b["requires_scenario"] == 777
     assert b["steps"] == steps_before, "settings must never touch the steps"
-    assert "plays at beat 777" in doc.rail.item(0).text(), "the rail follows the applied gate"
+    assert "beat 777" in doc.rail.item(0).text(), "the rail follows the applied gate"
+
+
+def _gate_box(doc):
+    return doc._settings_getters["requires_scenario"].__self__
+
+
+def test_a_kept_settings_form_never_lands_on_a_neighbour_scene(doc, tmp_path):
+    """Final review of C10: the form was kept while (scene index, its values) were unchanged,
+    and Apply writes by index. Duplicate Scene makes twins with equal values, so after an
+    earlier scene was deleted elsewhere (the Editor tab) the typed gate survived at the same
+    index -- now a DIFFERENT scene -- and Apply wrote it there. The scene count is part of what
+    the form was built from: a scene added or removed anywhere rebuilds it."""
+    raw, p = _fed(doc, tmp_path)
+    doc._dup_scene()
+    doc._dup_scene()
+    blocks = doc._raw["cutscene"]
+    n = len(blocks)
+    doc.rail.setCurrentRow(1)
+    doc.settings_btn.setChecked(True)
+    _gate_box(doc).setText("555")
+    typed_for, neighbour = blocks[1], blocks[2]
+    before = neighbour.get("requires_scenario")
+    del blocks[0]                                      # the Editor tab deleted an earlier scene
+    doc.show_field("GLEN", doc._raw, p)
+    assert len(doc._raw["cutscene"]) == n - 1
+    assert _gate_box(doc).text() != "555", "typing for one scene was carried to its neighbour"
+    doc._apply_settings()
+    assert neighbour.get("requires_scenario") == before
+    assert typed_for.get("requires_scenario") != 555
+
+
+def test_unapplied_scene_settings_survive_every_re_render(doc, tmp_path):
+    """C10: with Scene settings open, every re-render rebuilt the form from the document and
+    threw away what was typed but not applied -- a tab show, a tree select, a stage drag, an
+    undo of something else, a retheme."""
+    raw, p = _fed(doc, tmp_path)
+    doc.settings_btn.setChecked(True)
+    _gate_box(doc).setText("150")
+    doc.show_field("GLEN", raw, p)                     # the tab show / tree select re-feed
+    assert _gate_box(doc).text() == "150", "a same-field re-feed wiped the typed gate"
+    doc.show_field("GLEN", copy.deepcopy(raw), p)      # undo/redo of another edit: an equal buffer
+    assert _gate_box(doc).text() == "150"
+    doc._selected_step = 0                             # a stage drag of the selected walk
+    doc._on_stage_move(("target", 0, 0), 100, 100)
+    assert doc._raw["cutscene"][0]["steps"][0]["walk"] == [100, 100]
+    assert _gate_box(doc).text() == "150", "a stage drag wiped the typed gate"
+    doc.retheme(pick_palette("light"))
+    assert _gate_box(doc).text() == "150"
+    assert doc._raw["cutscene"][0]["requires_scenario"] == 100, "nothing was applied"
+    # ...but what the form was built from really changing DOES rebuild it
+    doc._raw["cutscene"][0]["requires_scenario"] = 120    # the Editor tree, in place
+    doc.show_field("GLEN", doc._raw, p)
+    assert _gate_box(doc).text() == "120"
+    doc.rail.setCurrentRow(1)                          # another scene
+    assert _gate_box(doc).text() == "300"
+    doc.rail.setCurrentRow(0)
+    doc._dup_scene()                                   # scene #1 is now a look-alike of #0
+    _gate_box(doc).setText("555")
+    doc.rail.setCurrentRow(0)                          # typing on #1 must not follow to #0
+    assert _gate_box(doc).text() == "120"
+    other = tmp_path / "other"
+    other.mkdir()
+    q = make_cutscene_field(other)                     # the same name, another file
+    doc.show_field("GLEN", tomllib.loads(q.read_text(encoding="utf-8")), q)
+    doc.settings_btn.setChecked(True)
+    assert _gate_box(doc).text() == "100"
 
 
 def test_the_stage_drop_rewrites_the_selected_target(doc, tmp_path):
@@ -744,9 +1143,33 @@ def test_pick_on_the_stage_shows_it_is_armed_and_never_outlives_its_step(doc, tm
     doc.editor.pick_btn.click()
     doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("teleport"))
     assert not armed(), "a kind change left it armed"
-    doc.editor.pick_btn.click()
+    doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("walk"))   # clean again (C11:
+    doc.editor.pick_btn.click()                        # a changed step refuses Add instead)
     doc._add_step()
     assert not armed(), "Add step left it armed"
+
+
+def test_a_stage_press_after_the_type_left_walk_writes_nothing(doc, tmp_path):
+    """C26 (already fixed by E2's disarm in the kind change, proven here on the finding's own
+    path): Pick on the stage, change Type to Say without clicking, then press the stage. The
+    press used to land "x, z" in the hidden value line, which Wait then showed."""
+    from PySide6.QtTest import QTest
+    doc.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+    doc.resize(1000, 700)
+    doc.show()
+    _fed(doc, tmp_path)
+    doc._edit_step(0)                                  # the walk
+    doc.editor.pick_btn.click()
+    assert doc.canvas.on_sim_click is not None
+    doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("say"))
+    before = doc.editor.value_line.text()
+    QApplication.processEvents()
+    QTest.mouseClick(doc.canvas.viewport(), Qt.MouseButton.LeftButton,
+                     pos=doc.canvas.viewport().rect().center())
+    assert doc.canvas.on_sim_click is None and not doc.editor.pick_btn.isChecked()
+    assert doc.editor.value_line.text() == before
+    doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("wait"))
+    assert "," not in doc.editor.value_line.text()
 
 
 def test_a_warm_mesh_rejudges_without_touching_disk(doc, tmp_path, monkeypatch):
@@ -1254,6 +1677,233 @@ def test_adding_or_duplicating_a_scene_closes_the_step_editor(doc, tmp_path):
         assert doc.editor.scene is not None
         act()
         assert doc.editor.scene is None, f"{act.__name__} left the step editor open"
+
+
+def _rowtool(doc, glyph_tip, i):
+    """The real ladder button (rowtools are named '<tip> — step <i>')."""
+    from PySide6.QtWidgets import QPushButton
+    name = f"{glyph_tip} — step {i}"
+    hits = [b for b in doc.ladder.findChildren(QPushButton) if b.accessibleName() == name]
+    assert len(hits) == 1, name
+    return hits[0]
+
+
+_GESTURES = {
+    "move up": lambda doc: _rowtool(doc, "Move this step up", 1).click(),
+    "duplicate": lambda doc: _rowtool(doc, "Duplicate this step", 1).click(),
+    "delete": lambda doc: _rowtool(doc, "Remove this step (Ctrl+Z undoes)", 1).click(),
+    "pencil on another row": lambda doc: _rowtool(doc, "Edit this step (click again to fold)",
+                                                  1).click(),
+    "add a step": lambda doc: doc.add_step_btn.click(),
+    "another scene": lambda doc: doc.rail.setCurrentRow(0),
+    "delete the scene": lambda doc: doc.del_scene_btn.click(),
+    "add a scene": lambda doc: doc.add_scene_btn.click(),
+    "duplicate the scene": lambda doc: doc.dup_scene_btn.click(),
+}
+
+
+@pytest.mark.parametrize("gesture", list(_GESTURES))
+def test_a_gesture_never_throws_away_an_unapplied_line(doc, tmp_path, gesture):
+    """C11: the row tools, a scene switch, a scene delete and the pencil on another row closed
+    the step editor (or loaded another step over it) and the half-typed line was gone. A DIRTY
+    editor now refuses the gesture and says how to go on; nothing changes."""
+    raw, _ = _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)                          # [say "Dusk…", wait 30]
+    doc._edit_step(0)
+    doc.editor.value_text.setPlainText("Dusk falls, half-typed")
+    before = copy.deepcopy(doc._raw)
+    _GESTURES[gesture](doc)
+    assert doc._raw == before, f"{gesture} changed the document under a dirty editor"
+    assert doc._scene == 1 and doc.rail.currentRow() == 1
+    assert doc.editor.scene == 1 and doc.editor.step_i == 0, f"{gesture} closed the editor"
+    assert doc.editor.value_text.toPlainText() == "Dusk falls, half-typed"
+    assert "Apply" in doc.editor.note.text() and "Close" in doc.editor.note.text()
+    doc._apply_step()                                  # the line was kept for this
+    assert doc._steps()[0]["say"] == "Dusk falls, half-typed"
+
+
+def _in_view(doc, w):
+    from PySide6.QtCore import QPoint
+    vp = doc._lscroll.viewport()
+    y = w.mapTo(vp, QPoint(0, 0)).y()
+    return 0 <= y and y + min(w.height(), 30) <= vp.height()
+
+
+def test_opening_a_step_shows_the_editors_header_and_the_row_it_edits(doc, tmp_path):
+    """C18: the editor (taller than the ladder pane) was CENTRED, so Apply/Close and the row
+    being edited scrolled away. A relation, not a pixel claim: the row above the editor and the
+    Apply button must both lie inside the viewport (pixels: tools/gui_snap.py cutscene:editor)."""
+    from PySide6.QtCore import Qt as _Qt
+    toml = FIELD_TOML.replace('  { say = "Made it to the altar.", speaker = "Cid" },\n',
+                              '  { say = "Made it to the altar.", speaker = "Cid" },\n'
+                              + "".join(f'  {{ say = "line {n}" }},\n' for n in range(10)))
+    doc.setAttribute(_Qt.WidgetAttribute.WA_DontShowOnScreen)
+    doc.resize(1000, 520)
+    doc.show()
+    _fed(doc, tmp_path, toml)
+    QApplication.processEvents()
+    for i in (9, 2, 12):
+        _rowtool(doc, "Edit this step (click again to fold)", i).click()
+        QApplication.processEvents()
+        lay = doc.ladder._lay
+        row = lay.itemAt(lay.indexOf(doc.editor) - 1).widget()
+        assert _in_view(doc, row), f"step {i}: the row being edited scrolled away"
+        assert _in_view(doc, doc.editor.apply_btn), f"step {i}: Apply is off screen"
+    doc.editor.value_text.setPlainText("half-typed")   # C11's refusal brings the editor back too
+    doc._lscroll.verticalScrollBar().setValue(0)
+    _rowtool(doc, "Remove this step (Ctrl+Z undoes)", 0).click()
+    QApplication.processEvents()
+    assert "Apply" in doc.editor.note.text() and _in_view(doc, doc.editor.apply_btn)
+    # final review: the note was the editor's LAST widget, below the fold of a panel taller than
+    # the pane, so every refused gesture looked dead. It sits under the header, in view.
+    assert doc.editor.note.isVisible() and _in_view(doc, doc.editor.note), \
+        "the refusal is written where nobody can see it"
+    # ...also in a pane too short for the row above, the header AND the note (126 px is the
+    # ladder pane of a 1024x720 window at 125% text): the words win, with Apply right above them
+    seen = []
+    for h in (400, 340, 300):
+        doc.resize(1000, h)
+        QApplication.processEvents()
+        doc._lscroll.verticalScrollBar().setValue(0)
+        _rowtool(doc, "Remove this step (Ctrl+Z undoes)", 0).click()
+        QApplication.processEvents()
+        vh = doc._lscroll.viewport().height()
+        seen.append(vh)
+        assert _in_view(doc, doc.editor.note), f"pane {vh}px: the refusal is below the fold"
+        assert _in_view(doc, doc.editor.apply_btn), f"pane {vh}px: Apply is off screen"
+    assert min(seen) <= 130, f"the fixture no longer reaches a short pane: {seen}"
+    doc._close_editor()
+    doc._edit_step(2)
+    QApplication.processEvents()
+    assert not doc.editor.note.isVisible(), "an empty note must take no room under the header"
+
+
+def test_an_apply_error_is_brought_into_view_and_a_good_apply_clears_it(doc, tmp_path):
+    """The editor's words sit under its header. An Apply that fails while the author is scrolled
+    down the panel (the pacing drawer is two panes tall) must bring them into view; the Apply
+    that succeeds must take them away -- a stale red line is its own lie."""
+    from PySide6.QtCore import Qt as _Qt
+    toml = FIELD_TOML.replace('  { say = "Made it to the altar.", speaker = "Cid" },\n',
+                              '  { say = "Made it to the altar.", speaker = "Cid" },\n'
+                              + "".join(f'  {{ say = "line {n}" }},\n' for n in range(10)))
+    doc.setAttribute(_Qt.WidgetAttribute.WA_DontShowOnScreen)
+    doc.resize(1000, 520)
+    doc.show()
+    _fed(doc, tmp_path, toml)
+    QApplication.processEvents()
+    doc._edit_step(9)
+    QApplication.processEvents()
+    sb = doc._lscroll.verticalScrollBar()
+    doc.editor.x_signal.setText("soon")                # not a form the build reads
+    sb.setValue(sb.maximum())                          # scrolled down the tall panel
+    QApplication.processEvents()
+    assert not _in_view(doc, doc.editor.apply_btn), "the fixture must start scrolled away"
+    doc._apply_step()
+    QApplication.processEvents()
+    assert doc.editor.note.isVisible() and "signal" in doc.editor.note.text()
+    assert _in_view(doc, doc.editor.note), "the Apply error is written out of view"
+    doc.editor.x_signal.setText("")
+    doc._apply_step()
+    QApplication.processEvents()
+    assert not doc.editor.note.isVisible() and doc.editor.note.text() == ""
+    # a step that was removed elsewhere (the editor is still open on it): said, and in view
+    assert doc.editor.scene is not None and doc.editor.step_i == 9
+    del doc._steps()[9]
+    sb.setValue(sb.maximum())
+    QApplication.processEvents()
+    doc._apply_step()
+    QApplication.processEvents()
+    assert "no longer in the scene" in doc.editor.note.text()
+    assert _in_view(doc, doc.editor.note), "'no longer in the scene' is written out of view"
+
+
+def test_a_clean_editor_still_closes_for_a_structural_edit(doc, tmp_path):
+    _fed(doc, tmp_path)
+    for i in range(3):                                 # every fixture step opens CLEAN
+        doc._edit_step(i)
+        assert not doc._editor_dirty(), doc._steps()[i]
+    _rowtool(doc, "Move this step down", 0).click()
+    assert doc.editor.scene is None, "a clean editor closes, as before"
+    assert forms.step_key(doc._steps()[1]) == "walk"
+
+
+def test_an_add_lane_with_typing_or_an_unreadable_value_counts_as_unapplied(doc, tmp_path):
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc.add_step_btn.click()
+    assert not doc._editor_dirty(), "an empty add lane is clean"
+    doc.editor.value_text.setPlainText("a")
+    _rowtool(doc, "Move this step down", 0).click()
+    assert forms.step_key(doc._steps()[0]) == "say", "refused"
+    doc.editor.value_text.clear()
+    doc._close_editor()
+    doc._edit_step(0)
+    doc.editor.x_duration.setText("soon")               # read_step raises: still the author's typing
+    _rowtool(doc, "Move this step down", 0).click()
+    assert forms.step_key(doc._steps()[0]) == "say" and doc.editor.scene == 1
+
+
+_NORMALISED = ['{ say = "hi", instant = false }', '{ say = "hi", hold = false }',
+               '{ say = "hi", with_prev = false }', '{ say = "hi", window = "2" }',
+               '{ say = "hi", style = "128" }', '{ say = "hi", with_prev = true }',
+               '{ say = "hi", signal = false }']
+
+
+@pytest.mark.parametrize("step", _NORMALISED)
+def test_a_step_opened_and_left_untouched_is_clean(doc, tmp_path, step):
+    """C11 (after review): a step holding a key the editor normalises (a false flag, a number
+    as a string, with_prev where it cannot run) opened DIRTY with nothing typed, and every row
+    tool refused until Close. Dirty is judged from what the author can see."""
+    head = FIELD_TOML.split("[[cutscene]]")[0]
+    _fed(doc, tmp_path, head + f"[[cutscene]]\nsteps = [\n  {{ wait = 5 }},\n  {step},\n"
+                               "  { wait = 9 },\n]\n")
+    doc._edit_step(1)
+    assert not doc._editor_dirty(), step
+    _rowtool(doc, "Move this step up", 2).click()
+    assert doc._steps()[1] == {"wait": 9}, f"{step}: the row tool refused over nothing typed"
+    assert doc.editor.scene is None, "a clean editor closes, as before"
+
+
+def test_an_add_lane_that_switched_kind_is_clean_after_apply(doc, tmp_path):
+    """C11 (after review): type a say line, switch the type to wait, type 30, Apply. The row
+    landed and the box looked empty, but the say text lingered in the HIDDEN box, so every
+    row tool refused 'changes that are not applied' with nothing to apply."""
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc.add_step_btn.click()
+    ed = doc.editor
+    ed.value_text.setPlainText("hello")
+    ed.kind.setCurrentIndex(list(forms.STEP_KIND).index("wait"))
+    ed.value_line.setText("30")
+    doc._apply_step()
+    assert len(doc._steps()) == 3 and doc._steps()[2] == {"wait": 30}
+    assert not doc._editor_dirty(), "nothing visible is left to apply"
+    _rowtool(doc, "Move this step up", 2).click()
+    assert doc._steps()[1] == {"wait": 30}, "the row tool refused after a clean Apply"
+
+
+def test_an_edit_lane_is_clean_once_applied(doc, tmp_path):
+    """What Apply wrote is no longer unapplied: the row tools work again without a Close."""
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc._edit_step(1)                                  # wait 30
+    doc.editor.value_line.setText("45")
+    assert doc._editor_dirty()
+    doc._apply_step()
+    assert doc._steps()[1] == {"wait": 45} and not doc._editor_dirty()
+    _rowtool(doc, "Move this step up", 1).click()
+    assert doc._steps()[0] == {"wait": 45}
+
+
+def test_a_stage_drag_of_the_open_step_is_not_unapplied_typing(doc, tmp_path):
+    """The drag is written to the document as it happens: the editor showing it is not the
+    author's typing (C11's dirty test re-takes the value), but typing after it still is."""
+    _fed(doc, tmp_path)
+    doc._edit_step(0)
+    doc._on_stage_move(("target", 0, 0), 120, 300)
+    assert not doc._editor_dirty()
+    doc.editor.x_speed.setText("12")
+    assert doc._editor_dirty()
 
 
 def test_a_check_that_was_running_while_the_scenes_changed_paints_nothing(doc, tmp_path):

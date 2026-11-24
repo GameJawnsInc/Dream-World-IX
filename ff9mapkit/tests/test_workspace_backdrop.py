@@ -211,6 +211,24 @@ def test_outset_preview_rings_the_polygon(app):
     assert min(xs) < 20 and max(xs) > 364 and max(ys) > 440
 
 
+def test_outset_preview_is_the_ring_the_build_emits(app):
+    """The dashed walk-edge preview and the build share ONE owner (``imagefield._grow_floor``).
+    At a tip sharper than the miter limit the build bevels (finding T4); a preview that still
+    called the bare ``outset_polygon`` drew the unlimited spike the build no longer ships."""
+    c, cam, _ = _trace_canvas(app)
+    tip = [(192, 250), (230, 430), (154, 430)]
+    c.set_floor(tip)
+    world = [IF.click_to_world(cam, p) for p in tip]
+    built = [IF.world_to_click(cam, v) for v in IF._grow_floor(world)[0]]
+    spike = IF.outset_polygon(world, IF.COLLISION_OUTSET)
+    assert len(built) != len(spike), "the fixture must be a floor the build bevels"
+    rings = [it for it in c._scene.items() if it.data(0) == "outset"]
+    assert len(rings) == 1
+    got = [(p.x(), p.y()) for p in rings[0].polygon()]
+    assert len(got) == len(built), "the preview is not the ring the build emits"
+    assert all(math.hypot(g[0] - b[0], g[1] - b[1]) < 1e-3 for g, b in zip(got, built))
+
+
 def test_pitch_change_marks_bad_vertices_and_suspends_outset(app):
     """Canvas px stay the truth: a camera swap re-judges every vertex. The two back vertices
     land above the shallower camera's horizon -> error-marked with the refusal tooltip, and
@@ -1160,7 +1178,8 @@ def test_markers_speak_their_kind_by_shape(app):
                 k.pen().color().name() == "#ffffff":     # the glyph itself, not its halo
             p = k.path()
             br = p.boundingRect()
-            shapes[k.data(3)] = (round(br.width(), 1), round(br.height(), 1), p.elementCount())
+            kind = c._markers[k.data(3)]["kind"]          # the payload is the marker's index (P16)
+            shapes[kind] = (round(br.width(), 1), round(br.height(), 1), p.elementCount())
     assert sorted(shapes) == sorted(kinds)
     assert len(set(shapes.values())) == len(kinds), shapes
 
@@ -1373,3 +1392,258 @@ def test_zone_words_on_the_canvas_say_zone_and_name_what_is_drawn(app, monkeypat
     _mouse(c, "release", (cx + 6, cy + 2))
     assert readout.startswith("zone 0") and "region" not in readout, readout
     assert "corner 0" not in readout, readout          # corners are not numbered on the art
+
+
+# --------------------------------------------------------------- batch 4: placed markers grab (P16)
+_MIRA = (0.0, 0.0, 1500.0)
+_SPAWN = (300.0, 0.0, 1800.0)
+
+
+def _marker_canvas(app, w=500):
+    """Place mode over a big flat floor, two markers fed, every marker signal recorded."""
+    c, hits, refused = _place_canvas(app, [_LOWER], [0])
+    c.resize(w, 560)
+    QApplication.processEvents()
+    c._fit()
+    moved, clicked, deleted = [], [], []
+    c.marker_moved.connect(lambda i, p: moved.append((i, p)))
+    c.marker_clicked.connect(clicked.append)
+    c.marker_deleted.connect(deleted.append)
+    c.set_markers([{"pos": _MIRA, "label": "Mira", "kind": "npc"},
+                   {"pos": _SPAWN, "label": "spawn", "kind": "spawn"}])
+    return c, hits, refused, moved, clicked, deleted
+
+
+def _px(c, p):
+    return IF.world_point_to_click(c.camera(), p)
+
+
+def _anchor_at_home(c, i, p):
+    a = c._marker_items[i]                                   # the RETAINED wrapper
+    hx, hy = _px(c, p)
+    return math.hypot(a.pos().x() - hx, a.pos().y() - hy) < 1e-6
+
+
+@pytest.mark.parametrize("w", [501, 500])
+def test_a_marker_dragged_in_the_place_tool_moves_it_and_places_nothing(app, w):
+    """P16: a press on a placed marker was an ordinary floor click -- a SECOND NPC landed on top
+    of the first, and nothing could move it. A press there now grabs it; a release that travelled
+    emits ONE marker_moved with the walkmesh hit under the release, and the canvas redraws from
+    what it was fed (the host's re-feed is what moves it for good)."""
+    c, hits, refused, moved, clicked, _ = _marker_canvas(app, w)
+    _mouse(c, "press", _px(c, _MIRA))
+    assert c._drag and c._drag["kind"] == "marker"
+    to = (-300.0, 0.0, 1200.0)
+    _mouse(c, "move", _px(c, to))
+    a = c._marker_items[0]
+    assert math.hypot(a.pos().x() - _px(c, to)[0], a.pos().y() - _px(c, to)[1]) < 1.5   # follows
+    _mouse(c, "release", _px(c, to))
+    assert not hits and not refused and not clicked
+    assert len(moved) == 1 and moved[0][0] == 0
+    x, z = moved[0][1]["xz"]
+    assert math.hypot(x - to[0], z - to[2]) < 8.0            # integer widget-px quantization only
+    assert _anchor_at_home(c, 0, _MIRA)                      # document truth until a re-feed
+
+
+def test_a_press_on_a_marker_that_does_not_travel_places_nothing(app):
+    c, hits, refused, moved, clicked, _ = _marker_canvas(app)
+    _click(c, _px(c, _SPAWN))
+    assert clicked == [1] and not hits and not moved and not refused
+    assert c._drag is None
+
+
+def test_a_marker_dropped_off_the_walkmesh_goes_back_and_says_why(app):
+    c, hits, refused, moved, clicked, _ = _marker_canvas(app)
+    _mouse(c, "press", _px(c, _MIRA))
+    _mouse(c, "move", (4.0, 4.0))                            # the frame's top-left: no floor there
+    _mouse(c, "release", (4.0, 4.0))
+    assert not moved and not hits and not clicked
+    assert len(refused) == 1 and "Mira" in refused[0] and "back" in refused[0], refused
+    assert _anchor_at_home(c, 0, _MIRA)
+
+
+def test_escape_and_a_lost_release_put_a_marker_back(app):
+    c, hits, refused, moved, clicked, _ = _marker_canvas(app)
+    _mouse(c, "press", _px(c, _MIRA))
+    _mouse(c, "move", _px(c, (-300.0, 0.0, 1200.0)))
+    QTest.keyClick(c, Qt.Key.Key_Escape)
+    _mouse(c, "release", _px(c, (-300.0, 0.0, 1200.0)))
+    assert c._drag is None and _anchor_at_home(c, 0, _MIRA)
+    _mouse(c, "press", _px(c, _MIRA))
+    _mouse(c, "move", _px(c, (-300.0, 0.0, 1200.0)))
+    _mouse(c, "move", _px(c, (-200.0, 0.0, 1100.0)), buttons=Qt.MouseButton.NoButton)
+    assert c._drag is None and _anchor_at_home(c, 0, _MIRA)
+    assert not moved and not hits and not clicked
+
+
+@pytest.mark.parametrize("w", [501, 500])
+def test_a_vertex_dragged_above_the_horizon_is_refused_like_a_click_there(app, w):
+    """V7: a click above the horizon was refused, but a vertex DRAGGED there was committed -- a
+    vertex the build refuses. The release now refuses with the click's own words and puts the
+    vertex back. (A pitch change can still leave old vertices above it: drawn hollow, V13.)"""
+    c, cam, calls = _trace_canvas(app)
+    c.resize(w, 560)
+    QApplication.processEvents()
+    c._fit()
+    refused = []
+    c.click_refused.connect(refused.append)
+    c._commit_floor(_TRI)
+    n0 = len(calls)
+    up = (192.0, C.horizon_canvas_y(cam) - 8)
+    _mouse(c, "press", _TRI[2])
+    _mouse(c, "move", up)
+    _mouse(c, "release", up)
+    assert c.floor() == _TRI and len(calls) == n0, c.floor()
+    a = c._trace_items[2]["anchor"]                          # the RETAINED wrapper of the redraw
+    assert (a.pos().x(), a.pos().y()) == _TRI[2]
+    assert len(refused) == 1
+    _click(c, up)                                            # a click on the very same pixel
+    assert len(refused) == 2 and refused[0] == refused[1], refused
+    calls.clear()                                            # no camera: nothing to judge against,
+    c.set_backdrop(None, None)                               # and a drag still lands as before
+    assert c._begin_vertex_drag(0)
+    c._drag_canvas(110.0, 310.0)
+    c._end_vertex_drag()
+    assert len(calls) == 1 and c.floor()[0] == (110.0, 310.0)
+
+
+@pytest.mark.parametrize("w", [501, 500])
+@pytest.mark.parametrize("grab", ["corner", "body"])
+def test_a_region_drag_the_host_refuses_is_not_left_drawn(app, w, grab):
+    """V10: after a corner or whole-zone drag the canvas emitted region_changed and kept the
+    dragged shape, trusting the host to re-feed. Trace refuses a zone whose corner would go
+    behind the camera with a bare return, so the art showed a zone the document did not hold.
+    The canvas now redraws from what it was fed once the gesture ends."""
+    c, drawn, changed, _, refused = _region_canvas(app)
+    c.resize(w, 560)
+    QApplication.processEvents()
+    c._fit()
+    c.set_regions([{"i": 0, "quad": list(_GW_QUAD), "label": "door0", "kind": "gateway",
+                    "warn": None}])
+    home = c._region_items[0].polygon()
+    start = (_GW_QUAD[2] if grab == "corner" else (0.0, 1200.0))
+    sx, sy = IF.world_to_click(c.camera(), start)
+    _mouse(c, "press", (sx, sy))
+    _mouse(c, "move", (sx + 30, sy + 25))
+    _mouse(c, "release", (sx + 30, sy + 25))
+    assert len(changed) == 1                                 # the host was told (and did nothing)
+    assert c._region_items[0].polygon() == home              # the RETAINED wrapper of the redraw
+
+
+def test_a_right_click_on_a_marker_offers_delete(app, monkeypatch):
+    import types
+    from PySide6.QtGui import QContextMenuEvent
+
+    class _FakeMenu:
+        def __init__(self, parent=None):
+            self.acts = []
+
+        def addAction(self, text):
+            tok = types.SimpleNamespace(text=text)
+            self.acts.append(tok)
+            return tok
+
+        def exec(self, pos):
+            return next(a for a in self.acts if a.text.startswith("Delete"))
+
+    c, *_, deleted = _marker_canvas(app)
+    monkeypatch.setattr("PySide6.QtWidgets.QMenu", _FakeMenu)
+    wpt = c.viewportTransform().map(QPointF(*_px(c, _MIRA)))
+    pos = QPoint(round(wpt.x()), round(wpt.y()))
+    c.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Reason.Mouse, pos, c.mapToGlobal(pos)))
+    assert deleted == [0]
+
+
+def test_markers_stay_inert_outside_the_place_tool(app, monkeypatch):
+    """The Regions tool draws corners over markers, and the Trace tab never places: neither may
+    grab one, show it as grabbable, or open its menu."""
+    from PySide6.QtGui import QContextMenuEvent
+    c, hits, refused, moved, clicked, deleted = _marker_canvas(app)
+    glyphs = [k for k in c._kids if k.data(2) == "marker"]
+    assert glyphs and any(k.hasCursor() for k in glyphs)
+    assert "drag" in " ".join(k.toolTip() for k in glyphs)
+    c.set_region_mode(True)
+    glyphs = [k for k in c._kids if k.data(2) == "marker"]
+    assert glyphs and not any(k.hasCursor() for k in glyphs)
+    _click(c, _px(c, _MIRA))
+    assert len(c._pending_region) == 1 and not clicked and not moved
+    opened = []
+    monkeypatch.setattr(c, "_marker_menu", lambda i, gp: opened.append(i))
+    wpt = c.viewportTransform().map(QPointF(*_px(c, _SPAWN)))
+    pos = QPoint(round(wpt.x()), round(wpt.y()))
+    c.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Reason.Mouse, pos, c.mapToGlobal(pos)))
+    assert opened == []
+    c.set_trace_mode(True)
+    _mouse(c, "press", _px(c, _MIRA))
+    assert c._drag is None or c._drag.get("kind") != "marker"
+    _mouse(c, "release", _px(c, _MIRA))
+    c.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Reason.Mouse, pos, c.mapToGlobal(pos)))
+    assert opened == [] and not clicked and not moved and not deleted
+    glyphs = [k for k in c._kids if k.data(2) == "marker"]
+    assert glyphs and not any(k.hasCursor() or k.toolTip() for k in glyphs)
+
+
+def _top_at(c, p):
+    """The topmost item under a canvas point -- the one whose cursor the pointer shows."""
+    wpt = c.viewportTransform().map(QPointF(*_px(c, p)))
+    return c.itemAt(QPoint(round(wpt.x()), round(wpt.y())))
+
+
+def _ctx_at(c, p):
+    from PySide6.QtGui import QContextMenuEvent
+    wpt = c.viewportTransform().map(QPointF(*_px(c, p)))
+    pos = QPoint(round(wpt.x()), round(wpt.y()))
+    c.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Reason.Mouse, pos, c.mapToGlobal(pos)))
+
+
+def test_the_glyph_under_the_pointer_wears_the_grab_cursor_only_in_the_place_tool(app):
+    """Review of P16: the move cursor is the one cue that a marker drags. The glyph itself (the
+    topmost item at the marker's pixel), not only its halo beneath, must wear it."""
+    c, *_ = _marker_canvas(app)
+    top = _top_at(c, _MIRA)
+    assert top is not None and top.data(2) == "marker" and top.hasCursor()
+    assert top.cursor().shape() == Qt.CursorShape.SizeAllCursor
+    c.set_region_mode(True)
+    top = _top_at(c, _MIRA)
+    assert top is None or not top.hasCursor()
+
+
+def test_a_locked_marker_advertises_no_gesture_the_host_refuses(app, monkeypatch):
+    """Review of P16: a marker the host always refuses (a verbatim fork's spawn, a Blender NPC)
+    wore the grab cursor, said 'drag to move it' and offered Delete -- each refused in turn. It
+    now wears no grab cursor, its tooltip gives the host's reason, a press neither drags it nor
+    places on it (a click still reports it), and it opens no menu. A ``keep`` marker (movable,
+    never deleted) drags but opens no Delete either."""
+    c, hits, refused, moved, clicked, deleted = _marker_canvas(app)
+    c.set_markers([{"pos": _MIRA, "label": "Mira", "kind": "npc", "locked": "Placed in Blender."},
+                   {"pos": _SPAWN, "label": "spawn", "kind": "spawn", "keep": True}])
+    glyphs = [k for k in c._kids if k.data(2) == "marker" and k.data(3) == 0]
+    assert glyphs and not any(k.hasCursor() for k in glyphs)
+    # ...and it LOOKS fixed in a still image too: its glyph is drawn in the muted ink, never the
+    # kind's own colour (final review: only the cursor and the tooltip differed)
+    from PySide6.QtGui import QColor
+    inks = {k.brush().color().name() for k in glyphs if hasattr(k, "brush")
+            and k.brush().style() != Qt.BrushStyle.NoBrush}
+    free = {k.brush().color().name() for k in c._kids if k.data(2) == "marker" and k.data(3) == 1
+            and hasattr(k, "brush") and k.brush().style() != Qt.BrushStyle.NoBrush}
+    assert QColor(c.pal["muted"]).name() in inks, inks
+    assert QColor(c.pal["muted"]).name() not in free, free
+    tips = {k.toolTip() for k in glyphs if k.toolTip()}
+    assert tips == {"Mira: Placed in Blender."}, tips
+    _mouse(c, "press", _px(c, _MIRA))
+    assert c._drag is None
+    _mouse(c, "release", _px(c, _MIRA))
+    assert clicked == [0] and not hits and not moved
+    _mouse(c, "press", _px(c, _MIRA))                        # a press there pans, never drags it
+    _mouse(c, "move", _px(c, (-300.0, 0.0, 1200.0)))
+    _mouse(c, "release", _px(c, (-300.0, 0.0, 1200.0)))
+    assert clicked == [0] and not hits and not moved and _anchor_at_home(c, 0, _MIRA)
+    opened = []
+    monkeypatch.setattr(c, "_marker_menu", lambda i, gp: opened.append(i))
+    _ctx_at(c, _MIRA)
+    _ctx_at(c, _SPAWN)
+    assert opened == [] and not deleted
+    spawn = _top_at(c, _SPAWN)
+    assert spawn.hasCursor() and "right-click" not in spawn.toolTip(), spawn.toolTip()
+    _mouse(c, "press", _px(c, _SPAWN))
+    assert c._drag and c._drag["kind"] == "marker"

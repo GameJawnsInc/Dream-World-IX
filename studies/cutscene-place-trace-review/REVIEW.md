@@ -176,6 +176,90 @@ files (4 skips), the shell's `--smoke`, native renders of every `place:*` and `t
 before and after (mist 100 and 150, light 125, dracula 125 at 1024x720), and mutation runs by each
 reviewer: every new test fails when its fix is reverted. Not played in the game or driven by hand.
 
+## Fixed since, batch 4 (2026-11-23)
+
+Batches 1 to 3 are on `master` (`dab0a05c`, `15c48e2c`, `e08c4680`). Batch 4 is on the branch, commits
+`7a624f65..8dd781c9`: 40 more findings (1 major, 29 minor, 10 nits) in three groups that touch different
+files. The method is batch 3's. Each group was implemented by one agent in its own worktree, attacked by
+a reviewer (11 findings, 7 of them major) and answered by a fixer. The integrated batch was then attacked
+by three reviewers, each followed by a skeptic who tried to refute them: 13 findings, none refuted
+outright, 11 answered in `cf6ab17f`. That answer was attacked by two more reviewers with probes and
+mutation runs (1 major, 7 minor); 6 are answered in `8dd781c9`. That last commit was not itself reviewed.
+
+With this batch 108 of the 139 findings are fixed. 31 remain, none of them major: Cutscene 17, Trace 8,
+Place 3, the shared canvas 3.
+
+| Group | Findings fixed |
+|---|---|
+| **Cutscene tab** | C6 (a `signal` of "+" or true opens and applies) · C7, C8 (PROBLEMS runs a cast scene through the build's own validator; a `player` step outside the cast is accepted) · C9 (Duplicate Scene drops a pinned once-flag; PROBLEMS flags a shared one) · C10 (typed Scene settings survive a re-render) · C11 (a step editor with unapplied typing refuses the gestures that would discard it, and says so under its header) · C12, C28 (the storyboard clears with the last step; its placeholder is quiet) · C13 (the with-previous box on an add lane started at row 0) · C14, C26 (already fixed by E1 and E2 in batch 2; now fenced) · C18 (opening a step keeps its header and its row in view) · C21 (the scene list elides short rows; no sideways scrollbar) · C22, C35 (the staging list wraps; a row is a door, by click or Enter; a stall is scrolled into view at the author's zoom) · E6 (Undo and Redo select the scene that changed) |
+| **Place tab and shared canvas** | P16 (drag a placed marker to move it, right-click to delete; a click on one places nothing; a marker Place cannot change is greyed and says why) · V10, V7 (a zone drag the tab refuses, and a vertex dragged above the horizon, snap back) · P14 (the loading status) · P19 (the refused state is a message, not an empty frame) · P7 (the stacked-floor chooser lists each floor once and says what it records) · P27 (a new door or event asks for its target or message at once, as one Undo step) · P31 (breadcrumb) · P11 (a zone with no area warns) · P28 (the review fixtures sit on the painted floor) |
+| **Trace and backend** | T5, T4, T3 (a crossed outline or a floor too narrow to walk is refused before any write and at the Generate button; a sharp tip is trimmed; the spawn lies on the floor) · E13 (a regenerate keeps a spawn the author placed; the status names what a regenerate took) · E14, E16 (already fixed by T8 in batch 2; now fenced with a real retry) · T14 (a cut-out at the build's frame size registers) · T17 (a message starting with a dash) · T20, T21, V1 (unreadable, opaque and "@2x" cut-outs) · T27 (an off-frame horizon is marked and measured) · T39 (the Load offer follows the tree) · T11 (the Undo tooltip names its scope) |
+
+**What the later reviews changed** (each was a first fix that was wrong in a new way):
+
+- C11 judged "unapplied typing" against the raw step, so a step holding certain keys opened as changed,
+  and an Apply in add mode left text in a hidden box: every gesture was then refused with nothing visible
+  to apply. It is judged from what the author can see. Its refusal was also written at the bottom of a
+  panel taller than its pane, so every refused gesture looked dead; the note sits under the header.
+- C7 swallowed any exception from the build's validator and reported "No structural problems", and it
+  resolved every animation name on every click (about fifteen times slower). A scene that cannot be
+  checked says so, and animation names are left to Check the staging.
+- P16 made every marker a grab handle, including the ones Place always refuses (the spawn on a verbatim
+  fork, an NPC placed in Blender).
+- T4's trimmed tips created crossings the old outline growth did not have, refusing about 1% of outlines
+  that used to build. A tip is trimmed only when that does not cross.
+- E13 first kept ANY spawn that lay on the floor, which froze the generator's own. The build now records
+  the spawn it chose (a comment line in `walkmesh.obj`) so it can tell its own from the author's. A
+  failed write then left that record ahead of the file; the first fix for that cost a spawn the author
+  had placed; the record is now put back to what it was.
+- E13's status named the wrong door as removed, because traced rows are renumbered by position.
+- T14 registered a cut-out as the full frame by its shape, so a 60x70 crop was stretched over the room
+  and an old record lost its dragged position. The frame is judged by size, and a record that carries a
+  position stays a snip.
+- The groups left one seam between them. The build learned to trim and to refuse; the canvas preview,
+  owned by the other group, kept drawing the old ring; and the tab's Generate gate did not ask the new
+  rule. One function (`imagefield.walk_edge`) now feeds the ring, the gate and the status.
+
+**Left open in batch 4** (known, not fixed):
+
+- C7: for cast scenes PROBLEMS shows the build's own sentences ("actors entry", "with_prev = true",
+  "TAIL code"). Rewording belongs in `build._validate_conductor`, which is part of the byte-level core
+  and needs the full suite; C16 and the build half of C9 (the build does not refuse two play-once scenes
+  that share a pinned once-flag) belong in the same change.
+- C7: a bad animation name is no longer in the always-on PROBLEMS list; Check the staging and the build
+  report it. The tab still flags a with-previous step in a narration scene, which the build ignores.
+- C8: a `player` step outside the cast is not drawn or walk-checked on the stage.
+- C10: a kept settings form follows its scene by position, by the number of scenes and by the values it
+  shows. A change that keeps the number of scenes (a hand-edited `.toml` reloaded with one scene removed
+  and another added) can still put a twin under the typed form. Removing a scene after the edited one
+  rebuilds the form and drops the typing without a word.
+- C11: a field switch or Close project from the shell still closes a step editor with unapplied typing
+  without asking. Folding the open row with its own pencil discards, like Close.
+- C21: at 125% in the default window a five-digit beat is still cut ("#0 · beat 11…"); the scene list is
+  narrower at 125% than at 100% or 150%, which is the layout matter of C15 and C31. Flag gates have no
+  short form.
+- C22: at 1024x720 and 125%, and at 150%, the Inspector column itself is cut at the window edge (C31),
+  so the wrapped staging list is cut there too. The sentence still says "walkmesh" and uses "--".
+- P16: the marker menu has no "Open in the Editor" entry (it needs a callback from the shell). A marker
+  Place cannot change differs from a movable one by greyer ink, the cursor and the tooltip only.
+- T39: with nothing loaded in Trace, each tree selection re-reads the selected field's `.toml` and
+  replaces the opening hint with "... was not loaded here".
+- T4: a project reopened without its `.trace.json` gains one vertex near each trimmed tip (harmless).
+- E13: a project generated before this batch has no record of the generator's spawn, so a spawn placed
+  in Place is taken back once more, named in the status. A key added in Place to a traced row whose zone
+  was also moved in Trace is named only in the Output console.
+- E14: a stopped job still reads "Generate failed".
+- T27: at 150% in a 1024x720 window the pitch readout is clipped (the window is under the page's own
+  minimum, the open T23 and P17 state).
+- A regenerate that fails partway still leaves the new walkmesh and art under the old `field.toml` (T8,
+  batch 2).
+
+Verified by: 1,629 tests across the Workspace, GUI, cutscene, behavior, image-field, floorplan, forms
+and lint files (4 skips), the shell's `--smoke`, native renders of every `cutscene:*`, `place:*` and
+`trace:*` surface read before and after (mist 100 and 150, light 100, plus probes for the refusal note,
+the locked marker and a sharp-tipped floor), and mutation runs by each reviewer and on the last commit
+(11 of 11 caught). Not played in the game or driven by hand.
+
 ## 1. The numbers
 
 139 findings stand: **4 data-loss bugs, 23 major, 88 minor, 24 nits.**

@@ -133,7 +133,11 @@ def place_event(data: dict, quad, taken=()) -> str:
 
 def set_event_message(data: dict, index, text) -> str:
     """Reword a drawn event zone in place (the quad menu's Set message — the drawn-zone
-    placeholder '...' otherwise ships as a literal popup)."""
+    placeholder '...' otherwise ships as a literal popup). Raises ValueError on a blank line: it
+    builds clean and shows nothing in-game (finding P10) -- the one owner of that rule, for the
+    menu and for the ask right after a draw."""
+    if not str(text).strip():
+        raise ValueError("an empty line shows nothing when the player walks in")
     ev = data.get("event", [])[index]
     ev["message"] = str(text)
     return f"reword event {ev.get('name') or index}"
@@ -225,6 +229,9 @@ def region_rows(data: dict) -> list:
                   f"later-armed one silently starves" for other in
                   overlaps.get((r["kind"], r["index"]), [])]
         audit = imagefield.zone_fan_audit(r["quad"])
+        if not imagefield.fan_triangles(r["quad"]):   # the audit has no interior to judge (P11)
+            warns.append("no area — its corners lie in a line or on one spot, so it can never "
+                         "fire; drag a corner out")
         if audit["gap"] > 0.02:
             warns.append(f"dead zone ~{audit['gap']:.0%} — part of the drawn area never fires")
         if audit["spill"] > 0.02:
@@ -235,15 +242,17 @@ def region_rows(data: dict) -> list:
 
 # --------------------------------------------------------------------- pure marker derivation
 def content_markers(data: dict) -> list:
-    """Every placed thing with a floor position -> ``[{"xz", "label", "kind"}]`` (world (x, z);
-    the doc resolves height against the loaded walkmesh — :func:`floor_y_at`)."""
+    """Every placed thing with a floor position -> ``[{"xz", "label", "kind", "index"}]``
+    (world (x, z); the doc resolves height against the loaded walkmesh — :func:`floor_y_at`).
+    ``index``: the row's place in ``data``'s own list (None for the spawn), read once, when the
+    doc resolves the ROW a marker gesture will write."""
     out = []
 
     def rows(section, kind, label_of):
         for i, e in enumerate(data.get(section, []) or []):
             if isinstance(e, dict) and isinstance(e.get("pos"), (list, tuple)) and len(e["pos"]) >= 2:
                 out.append({"xz": (float(e["pos"][0]), float(e["pos"][1])),
-                            "label": label_of(e, i), "kind": kind})
+                            "label": label_of(e, i), "kind": kind, "index": i})
 
     rows("npc", "npc", lambda e, i: e.get("name") or f"npc {i}")
     rows("prop", "prop", lambda e, i: e.get("name") or e.get("prop") or f"prop {i}")
@@ -251,13 +260,28 @@ def content_markers(data: dict) -> list:
     player = data.get("player") or {}
     sp = player.get("spawn")
     if isinstance(sp, (list, tuple)) and len(sp) >= 2:
-        out.append({"xz": (float(sp[0]), float(sp[1])), "label": "spawn", "kind": "spawn"})
-    for r in player.get("arrival", []) or []:
+        out.append({"xz": (float(sp[0]), float(sp[1])), "label": "spawn", "kind": "spawn",
+                    "index": None})
+    for i, r in enumerate(player.get("arrival", []) or []):
         p = r.get("pos") if isinstance(r, dict) else None
         if isinstance(p, (list, tuple)) and len(p) >= 2:
             out.append({"xz": (float(p[0]), float(p[1])),
-                        "label": f"arrival {r.get('entrance', 0)}", "kind": "arrival"})
+                        "label": f"arrival {r.get('entrance', 0)}", "kind": "arrival", "index": i})
     return out
+
+
+def move_placed(row: dict, key, x, z, what) -> str:
+    """A marker drag: rewrite the ``key`` position (``pos``, or ``spawn`` on ``[player]``) of
+    the row the marker was drawn from -- the row OBJECT, never a list index."""
+    row[key] = [int(round(x)), int(round(z))]
+    return f"move {what}"
+
+
+def delete_placed(rows: list, row, what) -> str:
+    """Remove ``row`` from ``rows`` by IDENTITY: two rows may share a name, a position, or the
+    index the other had before an Editor delete."""
+    del rows[next(k for k, r in enumerate(rows) if r is row)]
+    return f"delete {what}"
 
 
 # The render-frame height resolver moved to the pure home (the canvas needs it too, for
@@ -451,7 +475,8 @@ class PlaceDoc(QWidget):
         self._bundles = {}                      # (donor, cam_index) -> build_surface dict
         self._cam_pick = {}                     # surface source -> its chosen camera index
         self._region_rows_cache = []            # the last region_rows derivation (canvas feed)
-        self._loading = None                    # (source, ci) in flight, else None
+        self._marker_rows_cache = []            # per fed marker: the row object it was drawn from
+        self._loading = None                   # (source, ci) in flight, else None
         self._resume = set()                    # project sources the author loaded this session:
         #                                         re-read, unasked, on the way back (_resume_room)
         self._loader = _SurfaceLoader()
@@ -572,8 +597,20 @@ class PlaceDoc(QWidget):
         self.canvas.region_deleted.connect(self._on_region_deleted)
         self.canvas.region_retarget.connect(self._on_region_retarget)
         self.canvas.region_reword.connect(self._on_region_reword)
+        self.canvas.marker_moved.connect(self._on_marker_moved)
+        self.canvas.marker_clicked.connect(self._on_marker_clicked)
+        self.canvas.marker_deleted.connect(self._on_marker_deleted)
         self.canvas.click_refused.connect(lambda m: self._refresh(m, "warn"))
         root.addWidget(self.canvas, 1)
+        # A refused field (a bundled example, an installed copy, an unsaved doc) has nothing to
+        # draw or click: the canvas gives way to the reason and the way out, centred (P19)
+        self.refused_msg = QLabel("")
+        self.refused_msg.setProperty("role", "muted")
+        self.refused_msg.setWordWrap(True)
+        self.refused_msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.refused_msg.setContentsMargins(48, 0, 48, 0)
+        self.refused_msg.setVisible(False)
+        root.addWidget(self.refused_msg, 1)
 
         self.status = QLabel("")
         self.status.setProperty("role", "muted")
@@ -588,6 +625,7 @@ class PlaceDoc(QWidget):
         self._blocked = None
         self._verbatim = False
         self._region_rows_cache = []
+        self._marker_rows_cache = []
         self.canvas.set_place_mode(False)
         self.canvas.set_region_mode(False)
         self.canvas.set_surface([])
@@ -780,8 +818,12 @@ class PlaceDoc(QWidget):
             self._resume.add(key[0])                # the author wants THIS room on the canvas
         self._loading = key
         self.load_btn.setEnabled(False)
-        what = f"field #{key[0][1]}" if key[0][0] == "real" else str(self._member)
-        self._refresh(f"Loading {what} (camera {key[1]}) — extracting + compositing…")
+        angle = f" (camera {key[1]})" if self.cam_box.count() > 1 else ""
+        if key[0][0] == "real":
+            self._refresh(f"Loading donor field #{key[0][1]}{angle} — extracting its art, camera "
+                          "and walkmesh…")
+        else:
+            self._refresh(f"Loading {self._member}{angle} — reading its camera, walkmesh and art…")
         self._loader.start(*key)
 
     def _settle(self, key) -> bool:
@@ -917,28 +959,34 @@ class PlaceDoc(QWidget):
         return isinstance(pl, dict) and key in pl
 
     # the author's words for what a scene.toml key sets (never the key itself)
-    _SCENE_WORDS = {"to": "target", "zone": "zone", "message": "message", "entrance": "entrance"}
+    _SCENE_WORDS = {"to": "target", "zone": "zone", "message": "message", "entrance": "entrance",
+                    "pos": "position"}
+    # why a verbatim fork takes no spawn/arrival: the radios' tooltip and a marker drag's refusal
+    _VERBATIM_ENTRY = ("a verbatim fork runs the donor's own entry sequence — spawn/arrival rows "
+                       "are ignored on it (the donor's real per-door arrivals carry)")
     _PLAYER_WORDS = {"spawn": "the spawn point", "arrival": "the arrival points"}
+    _FIELD_ID_PROMPT = "Destination field id (a stock field or one of yours):"
 
     @staticmethod
     def _blender_says(what):
         return (f"Placed in Blender — the scene.toml sets {what}, so a change here would not "
                 "ship. Change it in Blender and re-export, then press F5.")
 
-    def _scene_refusal(self, r, key):
-        """Why Place must not write ``key`` of canvas row ``r`` (None = delete it), else None."""
+    def _scene_refusal(self, r, key, thing="this zone"):
+        """Why Place must not write ``key`` of canvas row ``r`` (None = delete it), else None.
+        ``thing``: what to call a scene-only row the add-on wrote without a name."""
         srow = r.get("scene")
         # No field.toml row to write, named or NOT: the add-on writes no name= for an unnamed
         # gateway or event, so a scene-only row need not match a scene name (review of P2).
         if r.get("data_index") is None:
-            name = (srow or {}).get("name") or "this zone"
+            name = (srow or {}).get("name") or thing
             return (f"Placed in Blender — {name} lives only in the scene.toml; change or delete "
                     "it in Blender and re-export, then press F5.")
         if srow is None:
             return None
         name = srow.get("name")
         if key is None:
-            return (f"Placed in Blender — {name}'s zone comes from the scene.toml, so deleting it "
+            return (f"Placed in Blender — {name} is in the scene.toml too, so deleting it "
                     "here would still ship the scene's one. Delete it in Blender and re-export, "
                     "then press F5.")
         if key in srow:
@@ -984,17 +1032,42 @@ class PlaceDoc(QWidget):
         if self._blocked is not None or self._data is None:
             self._refresh()
             return
-        if self.rkind_btns["gateway"].isChecked():
-            to = self.gw_to.value()
+        # A door with no target, and every event, ask right away (P27): the answer and the zone
+        # land as ONE undo step; Cancel keeps the flagged placeholder. Asked BEFORE any write,
+        # and the answer goes only to the field it was asked for (the dialog is modal, and the
+        # shell can re-feed under it).
+        data = self._data
+        gateway = self.rkind_btns["gateway"].isChecked()
+        to = self.gw_to.value() if gateway else None
+        if gateway and not to:
+            asked = self._ask_field_id(0)
+        elif not gateway:
+            asked = self._ask_message("")
+        else:
+            asked = None
+        if self._data is not data:
+            # true whether THIS field was reloaded or another one opened under the prompt
+            self._refresh("The field changed while you answered — the zone was not drawn.",
+                          "warn")
+            return
+        state = ""
+        if gateway:
+            to = to or asked or 0
             label = place_gateway(self._data, quad, to, self.gw_ent.value(),
                                   taken=self._scene_names("gateway"))
             note = label + ("" if to else " — set its target ('to field', or the Editor form)")
         else:
             note = label = place_event(self._data, quad, taken=self._scene_names("event"))
+            if asked is not None:
+                try:
+                    set_event_message(self._data, len(self._data["event"]) - 1, asked)
+                except ValueError as e:             # the blank-line rule, from its one owner
+                    note += (f" — kept the placeholder: {e}. Right-click it → Set message.")
+                    state = "warn"
         if self.on_edit:
             self.on_edit(self._member, label)
         self._refresh_regions()
-        self._refresh(note)
+        self._refresh(note, state)
 
     def _on_region_changed(self, i, quad):
         if self._data is None or not 0 <= i < len(self._region_rows_cache):
@@ -1050,11 +1123,11 @@ class PlaceDoc(QWidget):
         text = self._ask_message("" if cur == "..." else cur)
         if text is None:
             return
-        if not text.strip():                        # '' builds clean and shows nothing in-game
-            self._refresh(f"Kept {r['label']}'s message — an empty line shows nothing when the "
-                          "player walks in. Type the words, or Cancel.", "warn")
+        try:
+            label = set_event_message(self._data, r["data_index"], text)
+        except ValueError as e:                     # '' builds clean and shows nothing in-game
+            self._refresh(f"Kept {r['label']}'s message — {e}. Type the words, or Cancel.", "warn")
             return
-        label = set_event_message(self._data, r["data_index"], text)
         if self.on_edit:
             self.on_edit(self._member, label)
         self._refresh_regions()
@@ -1063,16 +1136,21 @@ class PlaceDoc(QWidget):
     def _ask_field_id(self, current):
         """Instance dialog behind a seam (a static execs in C++ past every test patch)."""
         from PySide6.QtWidgets import QInputDialog
+        dlg = self._field_id_dialog(current)
+        if dlg.exec() != QInputDialog.DialogCode.Accepted:
+            return None
+        return dlg.intValue()
+
+    def _field_id_dialog(self, current):
+        """The target prompt as built (apart from its exec, so a test can read what it shows)."""
+        from PySide6.QtWidgets import QInputDialog
         dlg = QInputDialog(self)
         dlg.setInputMode(QInputDialog.InputMode.IntInput)
         dlg.setIntRange(1, 32767)
         dlg.setIntValue(max(1, int(current) if isinstance(current, int) and current > 0 else 1))
         dlg.setWindowTitle("Gateway target")
-        dlg.setLabelText("Destination field id (a stock field or one of yours —\n"
-                         "reference/field-manifest.tsv names the stock ones):")
-        if dlg.exec() != QInputDialog.DialogCode.Accepted:
-            return None
-        return dlg.intValue()
+        dlg.setLabelText(self._FIELD_ID_PROMPT)
+        return dlg
 
     def _ask_message(self, current):
         """Instance dialog behind a seam (a static execs in C++ past every test patch)."""
@@ -1101,9 +1179,7 @@ class PlaceDoc(QWidget):
         if not blocked and self._verbatim:
             for key in ("spawn", "arrival"):
                 self.mode_btns[key].setEnabled(False)
-                self.mode_btns[key].setToolTip(
-                    "a verbatim fork runs the donor's own entry sequence — spawn/arrival rows "
-                    "are ignored on it (the donor's real per-door arrivals carry)")
+                self.mode_btns[key].setToolTip(self._VERBATIM_ENTRY)
             if self._mode() in ("spawn", "arrival"):
                 self.mode_btns["npc"].setChecked(True)
         if not blocked:                             # a [player] key the scene.toml sets (P2)
@@ -1120,32 +1196,51 @@ class PlaceDoc(QWidget):
         if self._blocked is not None or self._data is None:
             self._refresh()
             return
-        row = payload
-        stacked = payload.get("stacked") or []
-        if len(stacked) > 1:
-            row = self._choose_hit(stacked)
-            if row is None:
-                return
-        self._apply_hit(row)
+        row, picked = self._pick_hit(payload)
+        if row is None:
+            return
+        self._apply_hit(row, picked=picked)
+
+    def _pick_hit(self, payload):
+        """``(hit, asked)``: the hit to write, after asking only when the pixel lies over MORE
+        THAN ONE floor. A ray through a shared triangle edge meets one floor twice; each floor is
+        offered once (the nearest crossing). ``(None, True)`` = the author cancelled."""
+        rows, seen = [], set()
+        for r in payload.get("stacked") or []:
+            key = r.get("floor") if r.get("floor") is not None else ("tri", r.get("tri"))
+            if key not in seen:
+                seen.add(key)
+                rows.append(r)
+        if len(rows) <= 1:
+            return payload, False
+        return self._choose_hit(rows), True
 
     def _choose_hit(self, rows):
-        """A stacked walkmesh under the pixel (a bridge over a floor): the author picks the
-        floor, nearest-first with the VISIBLE one marked — never a silent guess. Behind a seam
-        so tests drive the choice without a popup."""
+        """A stacked walkmesh under the pixel (a bridge over a floor): the author picks which
+        floor the click means, nearest-first with the VISIBLE one marked — never a silent guess.
+        What that records is the SPOT where the click meets that floor; only (x, z) is stored,
+        and the game finds the height there (review finding P7). Behind a seam so tests drive the
+        choice without a popup."""
         menu = QMenu(self)
+        note = menu.addAction("Only the spot is stored — the game finds the height there")
+        note.setEnabled(False)
+        menu.addSeparator()
         acts = []
         for i, r in enumerate(rows):
-            y = -r["pos"][1]                        # render frame -> world height (the y-flip)
-            tag = "visible" if i == 0 else "behind"
-            acts.append(menu.addAction(f"floor {r['floor']} · height {y:.0f} ({tag})"))
+            tag = "the visible floor" if i == 0 else "the floor behind"
+            x, z = r["xz"]
+            which = f" (floor {r['floor']})" if r.get("floor") is not None else ""
+            acts.append(menu.addAction(f"Where the click meets {tag}{which}: "
+                                       f"x {x:.0f}, z {z:.0f}"))
         chosen = menu.exec(QCursor.pos())
         if chosen is None:
             return None
         return rows[acts.index(chosen)]
 
-    def _apply_hit(self, row):
+    def _apply_hit(self, row, picked=False):
         """ONE pure op per drop into the OPEN doc, then the one host callback (the shell
-        records the undo step + re-feeds; the marker appears through that round-trip)."""
+        records the undo step + re-feeds; the marker appears through that round-trip).
+        ``picked``: the author chose among stacked floors -- the note says what that recorded."""
         x, z = row["xz"]
         mode = self._mode()
         if mode in ("spawn", "arrival") and self._scene_player(mode):
@@ -1160,8 +1255,9 @@ class PlaceDoc(QWidget):
         else:
             label = set_arrival(self._data, self.ent_box.value(), x, z)
         note = f"{label} at ({int(round(x))}, {int(round(z))})"
-        if row.get("floor") is not None:
-            note += f" · floor {row['floor']}"
+        if picked:
+            note += (f" · where the click met floor {row['floor']}; only the spot is stored, and "
+                     "the game finds the height there")
         if mode == "npc":
             note += " — give it a model and words in the Editor (NPCs)"
         elif mode == "prop":
@@ -1174,13 +1270,14 @@ class PlaceDoc(QWidget):
     def _refresh_markers(self):
         bundle = self._bundle()
         if bundle is None or self._data is None:
+            self._marker_rows_cache = []
             self.canvas.set_markers([])
             return
         from ..scene import cam as _cam
         eye = tuple(_cam.decompose(bundle["cam"])["C"])
         blender_npcs = {e.get("name") for e in self._scene.get("npc", []) or []
                         if isinstance(e, dict) and e.get("pos") is not None}
-        marks = []
+        marks, owners = [], []
         for m in content_markers(self._view()):     # where the BUILD puts each thing (P2)
             x, z = m["xz"]
             y = floor_y_at(bundle["tris"], x, z, eye)
@@ -1190,8 +1287,127 @@ class PlaceDoc(QWidget):
             if ((m["kind"] == "npc" and label in blender_npcs)
                     or (m["kind"] in ("spawn", "arrival") and self._scene_player(m["kind"]))):
                 label += " (Blender)"
-            marks.append({"pos": (x, y, z), "label": label, "kind": m["kind"]})
+            e = self._marker_owner(m)
+            locked = self._marker_why(e, "pos")     # a move refused = every gesture refused
+            marks.append({"pos": (x, y, z), "label": label, "kind": m["kind"], "locked": locked,
+                          "keep": locked is None and self._marker_why(e, None) is not None})
+            owners.append(e)
+        self._marker_rows_cache = owners
         self.canvas.set_markers(marks)
+
+    def _marker_owner(self, m) -> dict:
+        """The field.toml ROW a marker's gestures write, resolved once from the marker's index
+        (the view keeps the field's own rows first, in order: ``build._merge_entities``), and
+        held as the object from then on. ``row`` is None where no field.toml row places it."""
+        kind, idx = m["kind"], m["index"]
+        pl = self._data.get("player") if isinstance(self._data.get("player"), dict) else None
+        out = {"kind": kind, "label": m["label"], "row": None, "scene": None, "data_index": None}
+        if kind == "spawn":
+            out["row"] = None if self._scene_player("spawn") else pl
+        elif kind == "arrival":
+            own = (pl or {}).get("arrival") or []
+            if not self._scene_player("arrival") and idx < len(own):
+                out["row"] = own[idx]
+        else:
+            own = self._data.get(kind) or []
+            if idx < len(own):
+                out["row"], out["data_index"] = own[idx], idx
+            if kind == "npc":                       # npcs merge by name with the scene's (P2)
+                out["scene"] = next((e for e in self._scene.get("npc", []) or []
+                                     if isinstance(e, dict) and m["label"]
+                                     and e.get("name") == m["label"]), None)
+        return out
+
+    def _marker_rows(self, e):
+        """The live list (or the [player] table) that holds ``e``'s row, read from the OPEN doc."""
+        if e["kind"] == "spawn":
+            return None
+        if e["kind"] == "arrival":
+            pl = self._data.get("player")
+            return (pl.get("arrival") if isinstance(pl, dict) else None) or []
+        return self._data.get(e["kind"]) or []
+
+    def _marker_target(self, i, key):
+        """The cache entry a marker gesture writes (``key``: "pos" to move, None to delete), or
+        None after saying why not. The row is checked BY IDENTITY against the open doc: an Editor
+        delete since the last feed must refuse, never land on the row now at that index."""
+        if self._blocked is not None or self._data is None:
+            self._refresh()
+            return None
+        if not 0 <= i < len(self._marker_rows_cache):
+            return None
+        e = self._marker_rows_cache[i]
+        why = self._marker_why(e, key)
+        if why is not None:                         # (the canvas already redrew it where it is)
+            self._refresh(why, "warn")
+            return None
+        return e
+
+    def _marker_why(self, e, key):
+        """Why a gesture on cache entry ``e`` must not write (``key`` as in _marker_target), else
+        None. Judged once: the feed asks it too, so a marker Place always refuses is never drawn
+        as a grab handle (review of P16)."""
+        why = None
+        if e["kind"] in ("spawn", "arrival"):
+            if self._verbatim:
+                why = self._VERBATIM_ENTRY[0].upper() + self._VERBATIM_ENTRY[1:] + "."
+            elif self._scene_player(e["kind"]):
+                why = self._blender_says(self._PLAYER_WORDS[e["kind"]])
+            elif key is None and e["kind"] == "spawn":
+                why = ("The spawn point can be moved but not deleted — drag it to where the "
+                       "player should stand.")
+        elif e["kind"] == "npc":
+            why = self._scene_refusal(e, key, thing="this NPC")
+        if why is None:
+            rows = self._marker_rows(e)
+            here = (self._data.get("player") is e["row"] if rows is None
+                    else any(r is e["row"] for r in rows))
+            if e["row"] is None or not here:
+                why = f"{e['label']} is no longer in this field — nothing changed."
+        return why
+
+    @staticmethod
+    def _marker_words(e):
+        return {"npc": f"NPC {e['label']}", "prop": f"prop {e['label']}"}.get(e["kind"], e["label"])
+
+    def _on_marker_moved(self, i, payload):
+        e = self._marker_target(i, "pos")
+        if e is None:
+            return
+        row, _picked = self._pick_hit(payload)
+        if row is None:
+            return
+        x, z = row["xz"]
+        label = move_placed(e["row"], "spawn" if e["kind"] == "spawn" else "pos", x, z,
+                            self._marker_words(e))
+        if self.on_edit:
+            self.on_edit(self._member, label)
+        self._refresh_markers()
+        self._refresh(f"{label} to ({int(round(x))}, {int(round(z))})")
+
+    def _on_marker_deleted(self, i):
+        e = self._marker_target(i, None)
+        if e is None:
+            return
+        label = delete_placed(self._marker_rows(e), e["row"], self._marker_words(e))
+        if self.on_edit:
+            self.on_edit(self._member, label)
+        self._refresh_markers()
+        self._refresh(label)
+
+    def _on_marker_clicked(self, i):
+        """A click ON a placed marker places nothing (P16): say what is there and how to change it."""
+        if not 0 <= i < len(self._marker_rows_cache):
+            return
+        e = self._marker_rows_cache[i]
+        name = "the spawn point" if e["kind"] == "spawn" else e["label"]
+        locked = self._marker_why(e, "pos")
+        if locked is not None:                      # never advertise a drag it will refuse
+            self._refresh(f"That is {name}. {locked} Nothing was added.", "warn")
+            return
+        how = ("drag it to move it" if self._marker_why(e, None) is not None
+               else "drag it to move it, or right-click it to delete it")
+        self._refresh(f"That is {name}, already placed — {how}. Nothing was added.")
 
     def _refresh(self, note="", state=""):
         if self._blocked is not None:
@@ -1227,14 +1443,21 @@ class PlaceDoc(QWidget):
             n = len(content_markers(self._view()))
             note = (f"Click the walkable footprint to place · {n} placed thing"
                     f"{'' if n == 1 else 's'} shown")
+            if any(self._marker_why(e, "pos") is None for e in self._marker_rows_cache):
+                note += " · drag one to move it, right-click it to delete it"
             if self._verbatim:
                 note += " · verbatim fork: new content seats below the donor's party band"
         self.status.setText(note)
         widgets.set_state(self.status, state)
+        refused = self._blocked is not None
+        self.refused_msg.setText(note if refused else "")
+        self.refused_msg.setVisible(refused)
+        self.canvas.setVisible(not refused)
+        self.status.setVisible(not refused)
 
     # ---------------------------------------------------------------- shell plumbing
     def crumb_label(self):
-        return self._member or "Place"
+        return f"Place — {self._member}" if self._member else "Place"
 
     def retheme(self, pal):
         self.pal = pal

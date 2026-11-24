@@ -163,11 +163,13 @@ def test_scene_problems_names_the_offenders():
         "steps": [{"turn": 128}],
     }])
     probs = cs.scene_problems(raw)
-    assert any('cast member "Nobody"' in p for p in probs)
-    assert any("step 0 can't run with a previous beat" in p for p in probs)
-    assert any("step 1 (say) can't run in parallel" in p for p in probs)
-    assert any('actor "Ghost" is not in the cast' in p for p in probs)
-    assert any('walk target "no_such_marker"' in p for p in probs)
+    # a cast scene speaks the build's own conductor sentences (one owner per rule)
+    assert any("scene #0: actors entry 'Nobody' is not a defined [[npc]]" in p for p in probs)
+    assert any("scene #0: step 0 can't have with_prev" in p for p in probs)
+    assert any("scene #0: step 1: only walk/path/animation/turn can run with_prev" in p
+               for p in probs)
+    assert any("scene #0: step 2 actor 'Ghost' is not in actors" in p for p in probs)
+    assert any("scene #0: step 2: movement target 'no_such_marker'" in p for p in probs)
     assert any("scene #1: step 0 (turn) needs a cast" in p for p in probs)
 
 
@@ -208,6 +210,115 @@ def test_scene_problems_flags_an_undefined_flag_name_with_the_resolvers_own_sent
     assert any("bridge_out" in p for p in cs.scene_problems(camp))
     assert cs.scene_problems(camp, flag_names={"bridge_out": 8713}) == [], \
         "a campaign-level name is defined"
+
+
+def _two_cast(steps, **extra):
+    """A cast-of-two scene (the multi-actor rules only bite with two) over a doc with Mira."""
+    r = _raw({"actors": ["Cid", "Mira"], "steps": steps, **extra})
+    r["npc"].append({"name": "Mira", "model": "GEO_SUB_F0_CID", "pos": [-250, -200]})
+    return r
+
+
+def _build_cutscene_problems(raw, tmp_path):
+    from ff9mapkit import build as _build
+    return [p for p in _build.validate(_build.FieldProject(copy.deepcopy(raw), tmp_path))
+            if "cutscene" in p]
+
+
+_TURN = {"turn": 128, "actor": "Mira"}
+# (rule, a scene the build REFUSES, the nearest scene the build ACCEPTS)
+_PARITY = [
+    ("C7a with_prev group led by a step that cannot run in parallel",
+     _two_cast([{"say": "hi"}, {**_TURN, "with_prev": True}]),
+     _two_cast([{"turn": 0, "actor": "Cid"}, {**_TURN, "with_prev": True}])),
+    ("C7b one actor twice in one parallel group",
+     _two_cast([dict(_TURN), {**_TURN, "with_prev": True}]),
+     _two_cast([dict(_TURN), {**_TURN, "actor": "Cid", "with_prev": True}])),
+    ("C7c an untagged actor step in a cast of two",
+     _two_cast([{"turn": 128}]),
+     _two_cast([dict(_TURN)])),
+    ("C7d a cast scene with no steps",
+     _two_cast([]),
+     _two_cast([dict(_TURN)])),
+    ("C7d a narration scene with no steps",
+     _raw({"steps": []}),
+     _raw({"steps": [{"say": "hi"}]})),
+    ("C7e a tail code the build does not know (cast)",
+     _two_cast([{"say": "hi", "tail": "SIDEWAYS"}]),
+     _two_cast([{"say": "hi", "tail": "UPR"}])),
+    ("C7e a tail code the build does not know (narration)",
+     _raw({"steps": [{"say": "hi", "tail": "SIDEWAYS"}]}),
+     _raw({"steps": [{"say": "hi", "tail": "UPR"}]})),
+    ("C7e a window style the build does not know",
+     _raw({"steps": [{"say": "hi", "style": "fancy"}]}),
+     _raw({"steps": [{"say": "hi", "style": "notail"}]})),
+    ("C8 the player acts outside the cast (the build accepts it)",
+     None,
+     _raw({"actors": ["Cid"], "steps": [{"walk": [0, 300], "actor": "player"}]})),
+]
+
+
+@pytest.mark.parametrize("rule, refused, accepted", _PARITY, ids=[r[0] for r in _PARITY])
+def test_scene_problems_agrees_with_the_build_rule_by_rule(tmp_path, rule, refused, accepted):
+    """C7 / C8, THE PARITY FENCE: the tab said 'No structural problems' over conductor blocks the
+    build refuses (several made by the tab's own buttons), and flagged actor = "player" outside
+    the cast, which the build accepts. For each rule: a block the build refuses is flagged here,
+    and the nearest block the build accepts is not."""
+    if refused is not None:
+        assert _build_cutscene_problems(refused, tmp_path), f"{rule}: the fixture must be refused"
+        assert cs.scene_problems(refused), f"{rule}: the build refuses it, the tab says nothing"
+    assert _build_cutscene_problems(accepted, tmp_path) == [], f"{rule}: the fixture must build"
+    assert cs.scene_problems(accepted) == [], f"{rule}: the build accepts it, the tab flags it"
+
+
+def test_scene_problems_speaks_the_builds_own_conductor_sentences(tmp_path):
+    """One owner per rule: a cast scene's structural sentences are the build's own, prefixed with
+    the scene on a dispatch (the build's label rides along as the tab's 'scene #k:')."""
+    raw = _two_cast([{"say": "hi"}, {**_TURN, "with_prev": True}])
+    raw["cutscene"] = [{"steps": [{"say": "a"}], "requires_scenario": 5}, raw["cutscene"]]
+    ours = cs.scene_problems(raw)
+    theirs = _build_cutscene_problems(raw, tmp_path)
+    assert ours and all(p.startswith("scene #1: ") for p in ours), ours
+    for p in ours:
+        assert "[cutscene] #1 " + p[len("scene #1: "):] in theirs, (p, theirs)
+    # a cast scene's bad tail is said once (the conductor rule owns it), not once per lane
+    assert len(cs.scene_problems(_two_cast([{"say": "hi", "tail": "SIDEWAYS"}]))) == 1
+    # and a half-typed cast scene never raises out of the render (a step that is not a table)
+    cs.scene_problems(_two_cast([5, dict(_TURN)]))
+
+
+_HALF_TYPED = [
+    ("a step that is not a table", lambda r: r["cutscene"]["steps"].insert(0, 5)),
+    ("an [[npc]] row that is not a table", lambda r: r["npc"].append("oops")),
+    ("a tail that is a list", lambda r: r["cutscene"]["steps"].insert(0, {"say": "hi",
+                                                                          "tail": ["x"]})),
+]
+
+
+@pytest.mark.parametrize("why, spoil", _HALF_TYPED, ids=[h[0] for h in _HALF_TYPED])
+def test_a_half_typed_cast_scene_never_reads_as_clean(why, spoil):
+    """C7 (after review): any exception in the build's conductor validator made the lane return
+    nothing, so a half-typed cast scene with a ghost cast member and an actor outside the cast
+    read 'No structural problems'. The sentences found so far stay, and a scene the validator
+    could not finish says so."""
+    raw = _raw({"actors": ["Cid", "Ghost"], "steps": [{"walk": [0, 0], "actor": "Nobody"}]})
+    spoil(raw)
+    probs = cs.scene_problems(raw)
+    assert any('"Ghost"' in p or "'Ghost'" in p for p in probs), (why, probs)
+    assert len(probs) >= 2, (why, probs)       # the actor sentence, or the could-not-finish one
+
+
+def test_scene_problems_never_resolves_an_animation_name(monkeypatch):
+    """C7 (after review): the per-render lane resolved every animation NAME in every cast scene
+    through the catalog (tens of ms each, on the GUI thread, on every click). That is the
+    explicit Check's job (it reports a name that does not resolve) and the build's."""
+    from ff9mapkit import build as _build
+    calls = []
+    monkeypatch.setattr(_build, "_resolve_actor_animation",
+                        lambda *a, **k: calls.append(a) or 0)
+    raw = _raw([{"actors": ["Cid"], "steps": [{"animation": "idle", "actor": "Cid"}] * 3}] * 4)
+    assert cs.scene_problems(raw) == []
+    assert calls == [], f"{len(calls)} name lookups on the render lane"
 
 
 def test_scene_problems_clean_scene_is_silent():
@@ -356,6 +467,33 @@ def test_duplicate_scene_deep_copies():
     assert "duplicate" in lbl and len(raw["cutscene"]) == 2
     raw["cutscene"][1]["steps"][0]["say"] = "changed"
     assert raw["cutscene"][0]["steps"][0]["say"] == "a"        # the original is untouched
+
+
+def test_duplicate_scene_never_copies_a_pinned_once_flag():
+    """C9: the copy shared its source's explicit once-flag, so whichever scene played first set
+    the bit and the other never played. The copy now goes without it (the build gives it its
+    own), and the undo label says so."""
+    raw = _raw([{"requires_scenario": 5, "flag": 8712, "steps": [{"say": "a"}]}])
+    lbl = cs.duplicate_scene(raw, 0)
+    assert raw["cutscene"][0]["flag"] == 8712, "the source keeps its flag"
+    assert "flag" not in raw["cutscene"][1]
+    assert "once-flag" in lbl
+    plain = _raw([{"steps": [{"say": "a"}]}])
+    assert "flag" not in cs.duplicate_scene(plain, 0), "nothing to say when nothing was pinned"
+
+
+def test_scene_problems_flags_two_scenes_sharing_one_once_flag():
+    raw = _raw([{"requires_scenario": 5, "flag": 8712, "steps": [{"say": "a"}]},
+                {"requires_scenario": 6, "flag": 8712, "steps": [{"say": "b"}]}])
+    probs = [p for p in cs.scene_problems(raw) if "8712" in p]
+    assert len(probs) == 1 and "#0" in probs[0] and "#1" in probs[0], probs
+    raw["cutscene"][1]["once"] = False             # a replaying scene never tests its once-flag
+    assert not [p for p in cs.scene_problems(raw) if "8712" in p]
+    raw["cutscene"][1]["once"] = True
+    raw["cutscene"][1]["flag"] = 8713
+    assert not [p for p in cs.scene_problems(raw) if "once-flag" in p]
+    raw["cutscene"][0]["flag"] = raw["cutscene"][1]["flag"] = [8713]   # half-typed: never raise
+    cs.scene_problems(raw)
 
 
 def test_delete_scene_removes_one_and_drops_the_emptied_section():

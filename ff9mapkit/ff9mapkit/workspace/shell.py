@@ -4888,6 +4888,10 @@ class Workspace(QMainWindow):
         if (getattr(self, "place_doc", None) is not None
                 and self.tabs.currentWidget() is self.place_doc):
             self._feed_place()                     # same live-follow for the Place surface
+        if (getattr(self, "trace_doc", None) is not None
+                and self.tabs.currentWidget() is self.trace_doc):
+            tgt = self._behavior_target()          # and Trace's "Load <field>" offer (T39)
+            self.trace_doc.offer_project(self.member_paths.get(tgt) if tgt else None)
         if field_item is not None and p:
             member = self._payload(field_item)[1]
             if item is field_item:                 # the member row itself -> its Field form
@@ -5803,6 +5807,9 @@ class Workspace(QMainWindow):
         if key == "cutscene_tab":                    # a Cutscene-DOC edit -> land back on that tab
             node = getattr(self, "_member_items", {}).get(member)    # (the bare "cutscene" token is
             if getattr(self, "cutscene_doc", None) is not None:      # the Editor TREE node's, below)
+                fd = self._safe_doc(member)                          # select the scene this step
+                if fd is not None:                                   # touched, BEFORE any feed
+                    self.cutscene_doc.follow_history(member, self.member_paths.get(member), fd.data)
                 self.tabs.setCurrentWidget(self.cutscene_doc)        # fires _feed_cutscene on show
             if node is not None and self.tree.currentItem() is not node:
                 self.tree.setCurrentItem(node)       # _on_select re-feeds from the restored data

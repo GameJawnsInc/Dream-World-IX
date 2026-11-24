@@ -103,6 +103,124 @@ def test_pitch_rejudges_the_trace(app, tmp_path):
     assert doc.gen_btn.isEnabled()
 
 
+_BOWTIE = [(100, 300), (280, 440), (280, 300), (100, 440)]
+
+
+def test_a_crossed_outline_gates_generate_and_says_which_sides(app, tmp_path, monkeypatch):
+    """Finding T5: a crossed outline walked through to a walkmesh over floor nobody traced. The tab
+    asks the build's own rule and says which sides cross; Generate refuses with that sentence."""
+    pytest.importorskip("PIL")
+    doc, run = _doc(app)
+    doc.load_image(_photo(tmp_path))
+    doc.canvas._commit_floor(_BOWTIE)
+    assert not doc.gen_btn.isEnabled()
+    want = "the side from vertex 0 to 1 crosses the side from vertex 2 to 3"
+    assert want in doc.gen_btn.toolTip()
+    assert doc.status.text().startswith("⚠") and want in doc.status.text()
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    assert run.calls == [] and want in doc.status.text()
+    assert doc.status.property("state") == "error"
+    doc.canvas._commit_floor([(100, 300), (280, 300), (280, 440), (100, 440)])   # untangled
+    assert doc.gen_btn.isEnabled() and "crosses" not in doc.status.text()
+
+
+def test_a_floor_too_narrow_to_walk_gates_generate_and_names_the_vertex(app, tmp_path,
+                                                                        monkeypatch):
+    """Final review of batch 4: the build refuses a notch narrower than the walk margin, and the
+    canvas then draws no walk edge -- but the tab's gate asked only the crossed-outline rule, so
+    the dashed ring vanished without a word and Generate failed in the job. One rule decides the
+    ring, the gate and the status."""
+    pytest.importorskip("PIL")
+    from ff9mapkit import imagefield as IF
+    doc, run = _doc(app)
+    doc.load_image(_photo(tmp_path))
+    cam = doc.canvas.camera()
+    slit = [(-600, 800), (600, 800), (600, 2000), (30, 2000), (30, 1000), (-30, 1000),
+            (-30, 2000), (-600, 2000)]
+    doc.canvas._commit_floor([IF.world_to_click(cam, p) for p in slit])
+    assert not [it for it in doc.canvas._scene.items() if it.data(0) == "outset"]
+    assert not doc.gen_btn.isEnabled(), "Generate is offered on a floor the build refuses"
+    assert "too narrow near vertex" in doc.gen_btn.toolTip()
+    assert doc.status.text().startswith("⚠") and "too narrow near vertex" in doc.status.text()
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    assert run.calls == []
+    wide = [(-600, 800), (600, 800), (600, 2000), (200, 2000), (200, 1000), (-200, 1000),
+            (-200, 2000), (-600, 2000)]
+    doc.canvas._commit_floor([IF.world_to_click(cam, p) for p in wide])
+    assert doc.gen_btn.isEnabled() and "narrow" not in doc.status.text()
+    assert [it for it in doc.canvas._scene.items() if it.data(0) == "outset"]
+
+
+def test_a_session_saved_with_a_crossed_outline_still_opens_to_be_repaired(app, tmp_path):
+    """The new rule must not lock out a session recorded before it: it reopens, armed, and only
+    Generate refuses -- with the sentence that says what to fix."""
+    pytest.importorskip("PIL")
+    import json
+    photo = _photo(tmp_path)
+    side = tmp_path / "proj" / "photo.trace.json"
+    side.parent.mkdir()
+    side.write_text(json.dumps({"image": str(photo), "upright": True, "pitch": 26,
+                                "floor": [list(p) for p in _BOWTIE], "name": "OLD",
+                                "id": "30790"}), encoding="utf-8")
+    doc, _run = _doc(app)
+    doc.load_trace(side)
+    assert doc._floor == _BOWTIE and doc._project is not None
+    assert "crosses" in doc.status.text() and not doc.gen_btn.isEnabled()
+
+
+def test_an_off_frame_horizon_says_where_it_is(app, tmp_path):
+    """Finding T27: at the default pitch the horizon sits just above the frame, so no dashed line
+    is drawn -- while the pitch tooltip and the empty-state teach both pointed at one. The readout
+    says how far off it is, the canvas marks the top edge with that distance, and the teach no
+    longer presumes a visible line."""
+    pytest.importorskip("PIL")
+    from ff9mapkit.scene import cam as C
+    doc, _ = _doc(app)
+    doc.load_image(_photo(tmp_path))
+    hy = C.horizon_canvas_y(doc.canvas.camera())
+    assert hy < 0                                       # the premise: the default is above
+    far = f"↑ horizon {max(1, round(-hy))} px"         # short: the plate sits on the art
+    assert doc.pitch_label.text().endswith(f"horizon {max(1, round(-hy))} px above")
+    tags = {it.data(0) for it in doc.canvas._scene.items()}
+    assert "horizonedge" in tags and "horizon" not in tags
+    assert any(far in lab["text"].text() for lab in doc.canvas._labels)
+    assert "below the dashed horizon" not in doc.status.text()
+    assert "readout" in doc.pitch.toolTip()
+    doc.pitch.setValue(10)                              # on the frame: the line, not the mark
+    tags = {it.data(0) for it in doc.canvas._scene.items()}
+    assert "horizon" in tags and "horizonedge" not in tags
+    assert "horizon y" in doc.pitch_label.text()
+
+
+def test_the_undo_tooltip_says_a_pitch_change_is_not_undone(app):
+    """Finding T11: Undo walks gestures, not the pitch slider -- moving the pitch and pressing
+    Undo takes back the last vertex instead. The tooltip says so."""
+    doc, _ = _doc(app)
+    tip = doc.undo_btn.toolTip()
+    assert "pitch" in tip.lower() and "not" in tip
+
+
+def test_a_refused_region_reshape_says_why(app, tmp_path):
+    """A reshape whose corner lands behind the camera keeps the old zone; it used to say nothing."""
+    pytest.importorskip("PIL")
+    from ff9mapkit import imagefield as IF
+    doc, _ = _traced_doc(app, tmp_path)
+    doc.tools.set_current("regions")
+    doc.gw_to.setValue(4005)
+    cam = doc.canvas.camera()
+    quad = [IF.click_to_world(cam, p) for p in
+            [(60.0, 300.0), (140.0, 300.0), (140.0, 330.0), (60.0, 330.0)]]
+    doc._on_region_drawn(quad)
+    before, steps = [list(r["quad"]) for r in doc._regions], len(doc._history)
+    behind = list(quad)
+    behind[2] = (0.0, -1.0e7)                         # a corner far behind the camera
+    doc._on_region_changed(0, behind)
+    assert [r["quad"] for r in doc._regions] == before and len(doc._history) == steps
+    assert "kept" in doc.status.text() and doc.status.property("state") == "warn"
+
+
 def test_undo_and_clear_are_host_history(app, tmp_path):
     pytest.importorskip("PIL")
     doc, _ = _doc(app)
@@ -134,7 +252,7 @@ def test_generate_emits_the_tracer_command(app, tmp_path, monkeypatch):
     assert argv == [sys.executable, "-m", "ff9mapkit", "image-field", str(img),
                     "--floor", "130,200 254,200 364,440 20,440",
                     "--out", str(tmp_path / "photo-field"),
-                    "--name", "HALLWAY", "--id", "30777"]
+                    "--name=HALLWAY", "--id", "30777"]
     assert kw["cwd"] == str(KIT)
     # finding T22: the next step is the app's own Deploy, not an unquoted terminal line (tools/
     # exists only in a checkout; the installed project folder has a space in it). The warp id is
@@ -348,6 +466,33 @@ def test_a_snip_becomes_a_positionable_overlay(app, tmp_path, monkeypatch):
     assert doc.gen_btn.isEnabled()
 
 
+@pytest.mark.parametrize("name,size,full", [("snip@2x.png", (531, 473), False),
+                                            ("frame@2x.png", (768, 896), True)])
+def test_a_cut_out_named_at_2x_previews_at_its_real_size(app, tmp_path, monkeypatch, name, size,
+                                                         full):
+    """Finding V1: Qt loads a file named '...@2x.png' with device pixel ratio 2, so the canvas drew
+    the snip at half its rect (a full frame at a quarter of the frame) while the build ships the
+    file's real size. The preview must cover exactly the rect the build will use."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    doc, _run, _ = _snip_doc(app, tmp_path, monkeypatch)
+    png = tmp_path / name
+    Image.new("RGBA", size, (10, 20, 30, 128)).save(png)
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: str(png))
+    doc.on_fg_attach()
+    f = doc._fg[0]
+    assert f["pm"].devicePixelRatio() == 1
+    (item,) = [it for it in doc.canvas._scene.items() if it.data(0) == "cutoutimg"]
+    got = item.sceneBoundingRect()
+    if full:
+        want = (0.0, 0.0, 384.0, 448.0)
+    else:
+        (cut,) = doc.canvas._cutouts
+        want = cut["rect"]
+    assert all(abs(a - b) < 0.6 for a, b in
+               zip((got.x(), got.y(), got.width(), got.height()), want)), (got, want)
+
+
 def test_dragging_a_snip_moves_its_anchor_and_rederives_z(app, tmp_path, monkeypatch):
     pytest.importorskip("PIL")
     doc, _, _ = _snip_doc(app, tmp_path, monkeypatch)
@@ -388,6 +533,79 @@ def test_generate_composes_a_placed_snip_to_the_full_frame(app, tmp_path, monkey
     assert abs((bx1 - bx0) - 531) <= 1 and abs((by1 - by0) - 473) <= 1   # at natural photo scale
 
 
+@pytest.mark.parametrize("mode,fill", [("RGB", (90, 80, 70)), ("RGBA", (90, 80, 70, 255))])
+def test_a_cut_out_with_no_transparent_pixels_is_warned_at_attach(app, tmp_path, monkeypatch,
+                                                                  mode, fill):
+    """Finding T21: an un-erased copy of the photo (no alpha, or alpha all 255) was accepted as a
+    full-frame occluder: in the game it hides the actor everywhere behind the contact line."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    doc, _ = _traced(app, tmp_path)
+    png = tmp_path / "copy.png"
+    Image.new(mode, (800, 600), fill).save(png)
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: str(png))
+    doc.fg_btn.setChecked(True)
+    doc._on_contact(230.0, 320.0)
+    assert doc._fg[0]["image"] == str(png)             # attached (it may be meant), but said
+    said = doc.status.text()
+    assert said.startswith("⚠") and "no transparent pixels" in said
+    assert doc.status.property("state") == "warn"
+    doc.on_fg_attach()                                 # the Attach route says it too
+    assert "no transparent pixels" in doc.status.text()
+    assert doc.status.property("state") == "warn"
+
+
+def test_a_cut_out_with_transparency_is_not_warned(app, tmp_path, monkeypatch):
+    pytest.importorskip("PIL")
+    doc, _ = _traced(app, tmp_path)
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: str(_cutout(tmp_path)))
+    doc.fg_btn.setChecked(True)
+    doc._on_contact(230.0, 320.0)
+    assert "transparent" not in doc.status.text() and doc.status.property("state") != "warn"
+
+
+def test_an_unreadable_cut_out_is_said_not_swallowed(app, tmp_path, monkeypatch):
+    """Finding T20: Image.open on a corrupt PNG raised inside the Qt slot, with no hook to show it
+    -- the contact stayed unattached and nothing was said. Both attach routes now say what failed,
+    and Attach leaves no Undo step behind for a gesture that did nothing."""
+    pytest.importorskip("PIL")
+    doc, _ = _traced(app, tmp_path)
+    bad = tmp_path / "broken.png"
+    bad.write_bytes(b"not a png at all")
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: str(bad))
+    doc.fg_btn.setChecked(True)
+    doc._on_contact(230.0, 320.0)                      # the contact itself is good: it stays
+    assert len(doc._fg) == 1 and not doc._fg[0].get("image")
+    assert "Could not read broken.png" in doc.status.text()
+    assert doc.status.property("state") == "error"
+    steps = len(doc._history)
+    doc._project, doc._stamped = {"out": str(tmp_path), "name": "P", "fid": 30777}, True
+    doc.on_fg_attach()                                 # (as if a Generate had just stamped it)
+    assert len(doc._history) == steps and not doc._fg[0].get("image")
+    assert "Could not read broken.png" in doc.status.text()
+    assert doc.status.property("state") == "error"
+    assert "not stamped" not in doc.status.text()      # a gesture that did nothing changed nothing
+
+
+def test_a_placed_cut_out_that_cannot_be_written_beside_the_photo_is_said(app, tmp_path,
+                                                                         monkeypatch):
+    """Finding T20: Generate writes a placed snip's composed frame beside the photo. A folder it
+    cannot write to (a mounted share) raised inside the slot: nothing started and nothing said."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    doc, run, _ = _snip_doc(app, tmp_path, monkeypatch)
+    doc.id_box.setText("30777")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+
+    def refuse(self, fp, *a, **k):
+        raise PermissionError(13, "Access is denied", str(fp))
+    monkeypatch.setattr(Image.Image, "save", refuse)
+    doc.on_generate()
+    assert run.calls == [] and doc._project is None
+    assert "fg0" in doc.status.text() and "Access is denied" in doc.status.text()
+    assert doc.status.property("state") == "error"
+
+
 def test_photo_aspect_cutout_registers_full_frame(app, tmp_path, monkeypatch):
     """Same frame at half resolution shares the aspect — registered (locked, fills the frame),
     and Generate passes the ORIGINAL path untouched."""
@@ -402,6 +620,88 @@ def test_photo_aspect_cutout_registers_full_frame(app, tmp_path, monkeypatch):
     doc.on_generate()
     argv, _kw = run.calls[0]
     assert argv[argv.index("--foreground") + 1].startswith(str(snip))
+
+
+@pytest.mark.parametrize("size", [(1536, 1792), (384, 448)])
+def test_a_cut_out_made_in_the_builds_frame_registers_full_frame(app, tmp_path, monkeypatch,
+                                                                 size):
+    """Finding T14: the picker, the CLI help and the old tracer all say to make the cut-out at
+    the full canvas, and the build fills the frame with it 1:1 -- but on a 4:3 photo the tab read
+    such a PNG as a snip and shrank it. The build's own 384:448 frame registers too; the photo's
+    aspect still does (the owner's rule: same aspect as the photo = aligned)."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    doc, run = _traced(app, tmp_path)                  # an 800x600 (4:3) photo
+    png = tmp_path / "frame.png"
+    Image.new("RGBA", size, (0, 0, 0, 0)).save(png)
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: str(png))
+    doc.fg_btn.setChecked(True)
+    doc._on_contact(230.0, 320.0)
+    f = doc._fg[0]
+    assert f["kind"] == "full" and f["offset"] is None
+    (cut,) = doc.canvas._cutouts
+    assert cut["rect"] is None and cut["locked"]
+    doc.id_box.setText("30777")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    argv, _kw = run.calls[0]
+    assert argv[argv.index("--foreground") + 1].startswith(str(png))   # passed through untouched
+
+
+@pytest.mark.parametrize("size", [(60, 70), (120, 140), (385, 448), (400, 466)])
+def test_a_small_crop_that_only_shares_the_frames_shape_stays_a_snip(app, tmp_path, monkeypatch,
+                                                                     size):
+    """Final review of T14: registering by ASPECT made a 60x70 crop of a lamp a full-frame layer
+    that the build stretches over the whole room. Only a PNG of the frame's own size (384x448 or
+    a whole multiple) is the frame; the photo-aspect rule is the owner's and is unchanged."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    doc, _run = _traced(app, tmp_path)                 # an 800x600 (4:3) photo
+    png = tmp_path / "lamp.png"
+    Image.new("RGBA", size, (10, 20, 30, 128)).save(png)
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: str(png))
+    doc.fg_btn.setChecked(True)
+    doc._on_contact(230.0, 320.0)
+    f = doc._fg[0]
+    assert f["kind"] == "snip" and f["offset"] is not None, f
+    (cut,) = doc.canvas._cutouts
+    assert cut["rect"] is not None and not cut["locked"]
+
+
+def test_a_recorded_snip_reopens_where_it_was_dragged(app, tmp_path):
+    """A record that carries an offset IS a snip, whatever the classifier would call the file
+    today -- an old record never changes meaning (final review of T14: a frame-shaped snip
+    reopened as a full frame, its dragged spot dropped, and the next Generate saved that)."""
+    pytest.importorskip("PIL")
+    import json
+    from PIL import Image
+    photo = _photo(tmp_path)                           # 800x600
+    lamp = tmp_path / "lamp.png"
+    Image.new("RGBA", (384, 448), (10, 20, 30, 128)).save(lamp)   # today's classifier: the frame
+    side = tmp_path / "proj" / "photo.trace.json"
+    side.parent.mkdir()
+    side.write_text(json.dumps({
+        "image": str(photo), "upright": True, "pitch": 26, "name": "OLD", "id": "30790",
+        "floor": [[130, 200], [254, 200], [364, 440], [20, 440]],
+        "fg": [{"contact": [230, 320], "image": str(lamp), "offset": [100.0, 150.0]}]}),
+        encoding="utf-8")
+    doc, _run = _doc(app)
+    doc.load_trace(side)
+    f = doc._fg[0]
+    assert f["kind"] == "snip" and tuple(f["offset"]) == (100.0, 150.0), f
+    (cut,) = doc.canvas._cutouts
+    assert cut["rect"] is not None and abs(cut["rect"][0] - 100.0) < 0.1
+
+
+def test_the_cut_out_wording_says_what_to_make(app):
+    """The picker and tooltips said 'full canvas' -- a frame the tab then misread. They now say
+    the two things that register (a copy of the photo, or of the 384x448 frame) and the snip."""
+    from ff9mapkit.workspace import tracedoc as TD
+    doc, _ = _doc(app)
+    for tip in (doc.tools.button("cutout").toolTip(), doc.fg_attach_btn.toolTip(),
+                TD._CUTOUT_PICKER_TITLE):
+        assert "full canvas" not in tip.replace("-", " ")
+        assert "copy of the photo" in tip and "crop" in tip
 
 
 def test_generate_is_in_place_after_the_first_run(app, tmp_path, monkeypatch):
@@ -617,8 +917,7 @@ def test_a_drawn_region_is_stored_in_canvas_px_and_reaches_the_argv(app, tmp_pat
     argv, _kw = run.calls[0]
     gi = argv.index("--gateway")
     assert argv[gi + 1] == "4005,2@60,300;140,300;140,330;60,330"
-    ei = argv.index("--event-zone")
-    assert argv[ei + 1] == "Watch the ledge@200,340;300,340;300,380;200,380"
+    assert "--event-zone=Watch the ledge@200,340;300,340;300,380;200,380" in argv
     # the sidecar round-trips the whole region session
     doc2, _ = _doc(app)
     doc2.load_trace(tmp_path / "photo-field" / "photo.trace.json")
@@ -664,6 +963,30 @@ def test_open_field_toml_backfills_regions(app, tmp_path, monkeypatch):
     assert doc._regions[1]["message"] == "hi"
     gx, gy = doc._regions[0]["quad"][0]
     assert abs(gx - 60.0) < 1.0 and abs(gy - 300.0) < 1.0  # world ints -> sub-px inversion
+
+
+def test_an_event_message_that_starts_with_a_dash_reaches_the_cli_intact(app, tmp_path,
+                                                                         monkeypatch):
+    """Finding T17: '--event-zone' '-Stop!@...' as two argv items made argparse read the message
+    as an option ('expected one argument') and the Generate failed. The values the author types
+    ride in the '--flag=value' form, which argparse never mistakes for an option."""
+    pytest.importorskip("PIL")
+    from ff9mapkit import cli
+    from ff9mapkit import imagefield as IF
+    doc, run = _traced_doc(app, tmp_path)
+    doc.tools.set_current("regions")
+    doc.rkind_btns["event"].setChecked(True)
+    doc.ev_msg.setText("-Stop!")
+    cam = doc.canvas.camera()
+    doc._on_region_drawn([IF.click_to_world(cam, p) for p in
+                          [(200.0, 340.0), (300.0, 340.0), (300.0, 380.0), (200.0, 380.0)]])
+    doc.id_box.setText("30777")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    argv = run.calls[0][0]
+    args = cli.build_parser().parse_args(argv[3:])     # past `python -m ff9mapkit`
+    assert args.event_zone[0].startswith("-Stop!@")
+    assert args.name == doc.name_box.text()
 
 
 def test_a_targetless_door_gates_generate_until_retargeted(app, tmp_path, monkeypatch):
@@ -945,18 +1268,41 @@ def test_first_generate_hands_the_project_to_the_shell_once(app, tmp_path, monke
     doc.name_box.setText("PICTURE")          # (a new photo names itself; T13)
     monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
     doc.on_generate()
-    _argv, kw = run.calls[0]
     toml = tmp_path / "photo-field" / "PICTURE.field.toml"   # the session's name (the box default)
+    run.calls[0][1]["on_finished"](1)                  # a FAILED first job opens nothing
+    assert opened == []
+    # Finding E16: this used to call the SAME launch's callback a second time, a path no user
+    # takes -- the real retry is a second Generate, which must still count as the first one
+    doc.on_generate()
     toml.parent.mkdir(parents=True, exist_ok=True)
     toml.write_text('[field]\nid = 30785\nname = "PICTURE"\narea = 11\n', encoding="utf-8")
-    kw["on_finished"](1)                               # a FAILED first job opens nothing
-    assert opened == []
-    kw["on_finished"](0)
+    run.calls[1][1]["on_finished"](0)
     assert opened == [str(toml)]
     doc.on_generate()                                  # in place now
-    _argv2, kw2 = run.calls[1]
-    kw2["on_finished"](0)                              # a clean REGENERATE stays put
+    run.calls[2][1]["on_finished"](0)                  # a clean REGENERATE stays put
     assert opened == [str(toml)]
+
+
+@pytest.mark.parametrize("code", [0, 1, 2, 62097])     # done, failed, refused, killed by Stop
+def test_the_status_never_stays_on_generating(app, tmp_path, monkeypatch, code):
+    """Finding E14: the tab's status kept saying 'Generating ...' after the job had ended, until
+    the next gesture. Every ending -- a first Generate or a regenerate, clean, failed or stopped
+    (the tab sees a Stop as the kill's exit code) -- settles it."""
+    pytest.importorskip("PIL")
+    doc, run, toml = _armed(app, tmp_path, monkeypatch)
+    doc.canvas._commit_floor([(120, 210), (254, 200), (364, 440), (20, 440)])
+    doc.on_generate()
+    assert "Generating" in doc.status.text()
+    run.calls[-1][1]["on_finished"](code)
+    assert "Generating" not in doc.status.text() and doc.status.text()
+    fresh, run2 = _doc(app)                            # and a FIRST Generate that writes nothing
+    fresh.load_image(_photo(tmp_path))
+    fresh.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    fresh.id_box.setText("30786")
+    monkeypatch.setattr(fresh, "_ask_out", lambda: str(tmp_path / "other"))
+    fresh.on_generate()
+    run2.calls[0][1]["on_finished"](code)
+    assert "Generating" not in fresh.status.text() and fresh.status.text()
 
 
 def test_a_failed_first_generate_leaves_the_tab_unarmed_and_the_retry_opens(app, tmp_path,
@@ -1016,6 +1362,98 @@ def test_the_status_settles_after_a_regenerate_and_a_failed_one_is_not_stamped(a
     toml.write_text('[field]\nid = 30789\nname = "PICTURE"\narea = 13\n', encoding="utf-8")
     run.calls[3][1]["on_finished"](1)                  # judged by the disk: it is stamped
     assert "not stamped" not in doc.status.text() and "Output panel" in doc.status.text()
+
+
+def _hall(app, tmp_path):
+    """A generated HALL with three traced doors, a Place-added key on the MIDDLE one and an
+    author-placed start point at the far end; reopened in the tab, the FIRST door deleted and the
+    far half traced away -- launched, with what the job would write already on disk."""
+    pytest.importorskip("PIL")
+    import re
+    from PIL import Image
+    from ff9mapkit import imagefield as IF
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
+    floor = [(130.0, 140.0), (254.0, 140.0), (364.0, 440.0), (20.0, 440.0)]
+    doors = ["4005@60,300;100,300;100,330;60,330", "4006@160,300;200,300;200,330;160,330",
+             "4007@260,300;300,300;300,330;260,330"]
+    man = IF.build_image_field(photo, floor, tmp_path / "proj", name="HALL", field_id=30790,
+                               gateways=doors)
+    toml = Path(man["toml"])
+    w = man["world_floor"]
+    far = (int(0.9 * w[0][0] + 0.1 * w[2][0]), int(0.9 * w[0][1] + 0.1 * w[2][1]))
+    text = re.sub(r"spawn = \[-?\d+, -?\d+\]", f"spawn = [{far[0]}, {far[1]}]",
+                  toml.read_text(encoding="utf-8"), count=1)
+    text = text.replace('name = "traced_door1"',
+                        'name = "traced_door1"\nflag_gate = 8800\nrequires_flag = 8801', 1)
+    toml.write_text(text, encoding="utf-8", newline="\n")
+    doc, run = _doc(app)
+    doc.load_project(toml)
+    doc._on_region_deleted(0)                           # the FIRST door, deleted in Trace
+    shorter = [(130.0, 300.0), (254.0, 300.0), (364.0, 440.0), (20.0, 440.0)]
+    doc.canvas._commit_floor(shorter)                   # and the far half traced away
+    doc.on_generate()
+    assert len(run.calls) == 1
+    IF.build_image_field(photo, shorter, tmp_path / "proj", name="HALL", field_id=30790,
+                         gateways=doors[1:])            # what the job does on disk
+    return doc, run, photo, shorter, doors
+
+
+def test_a_regenerate_says_on_the_status_what_it_moved_or_removed(app, tmp_path):
+    """Finding E13: what a regenerate takes back was named only in the Output console. The tab's
+    own status now leads with it: a key dropped from a regenerated row and a start point the
+    author placed that the new floor no longer covers. Review of E13: traced rows renumber by
+    position, so deleting the FIRST of three named the wrong door as removed -- a traced row's
+    going is not reported (the author deleted it here), and its key is judged against the row
+    with the same zone, under that row's new name."""
+    from ff9mapkit import imagefield as IF
+    doc, run, photo, shorter, doors = _hall(app, tmp_path)
+    run.calls[0][1]["on_finished"](0)
+    said = doc.status.text()
+    assert said.startswith("⚠") and "Regenerated HALL" in said
+    assert "removed" not in said                        # not traced_door2, which still exists
+    assert "traced_door0 lost “flag gate”" in said      # the middle door, renumbered to 0
+    assert "flag_gate" not in said, "a raw key in the status"
+    # a key the Editor form shows is named by the form's own label (without its format hint)
+    assert "traced_door0 lost “Opens when flag set”" in said
+    assert "requires_flag" not in said and "requires flag" not in said
+    assert "spawn point moved" in said and "off the new floor" in said   # Place's own word
+    assert doc.status.property("state") == "warn"
+    # a second regenerate: the generator's own spawn follows the floor and names nothing
+    doc.canvas._commit_floor([(132.0, 302.0)] + shorter[1:])
+    doc.on_generate()
+    IF.build_image_field(photo, [(132.0, 302.0)] + shorter[1:], tmp_path / "proj", name="HALL",
+                         field_id=30790, gateways=doors[1:])
+    run.calls[1][1]["on_finished"](0)
+    assert doc.status.text().startswith("Regenerated HALL") and "⚠" not in doc.status.text()
+
+
+def test_a_dropped_key_is_named_without_the_forms_format_hint():
+    """'traced_event0 lost “Give item (id, count)”' quoted a hint for typing the value; the name
+    of the thing is 'Give item'."""
+    import tomllib
+    from ff9mapkit.workspace.tracedoc import TraceDoc as TD
+    old = {"event": [{"name": "traced_zone0", "zone": [[0, 0], [1, 0], [1, 1], [0, 1]],
+                      "message": "hi", "give_item": [232, 1], "set_flag": ["boss_dead", 1]}]}
+    new = "[[event]]\nname = \"traced_zone0\"\nmessage = \"hi\"\nzone = [[0, 0], [1, 0], [1, 1], [0, 1]]\n"
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        toml = Path(td) / "X.field.toml"
+        toml.write_text(new, encoding="utf-8")
+        assert tomllib.loads(new)["event"][0]["zone"] == old["event"][0]["zone"]
+        said = TD._what_it_took(old, toml)
+    assert "lost “Give item”" in said and "lost “Set flag”" in said, said
+    assert "(" not in said, said
+
+
+def test_a_written_file_whose_job_reported_an_error_still_says_what_it_took(app, tmp_path):
+    """The job can rewrite the project and still exit non-zero (E10). That status leads with what
+    the regenerate took too (the review's surviving mutation: its prefix could go unnoticed)."""
+    doc, run, *_ = _hall(app, tmp_path)
+    run.calls[0][1]["on_finished"](1)
+    said = doc.status.text()
+    assert said.startswith("⚠") and "traced_door0 lost “flag gate”" in said
+    assert "but the job reported an error" in said and doc.status.property("state") == "warn"
 
 
 def test_a_finish_after_the_author_moved_on_leaves_the_new_session_alone(app, tmp_path,
@@ -1116,7 +1554,7 @@ def test_renaming_an_armed_project_is_refused_not_written_beside_it(app, tmp_pat
     assert "PICTURE.field.toml" in doc.status.text() and "one field per folder" in doc.status.text()
     doc.name_box.setText("PICTURE")
     doc.on_generate()
-    assert len(run.calls) == 2 and run.calls[1][0][run.calls[1][0].index("--name") + 1] == "PICTURE"
+    assert len(run.calls) == 2 and "--name=PICTURE" in run.calls[1][0]
 
 
 def test_a_field_renamed_in_the_editor_cannot_regenerate_into_a_second_file(app, tmp_path):
@@ -1888,7 +2326,7 @@ def test_a_project_named_before_the_name_rule_still_regenerates(app, tmp_path):
     doc.on_generate()
     assert len(run.calls) == 1, doc.status.text()
     argv = run.calls[0][0]
-    assert argv[argv.index("--name") + 1] == "attic-room"
+    assert "--name=attic-room" in argv
     doc.name_box.setText("attic room")                 # a NEW bad name is still refused
     doc.on_generate()
     assert len(run.calls) == 1 and doc.status.property("state") == "error"

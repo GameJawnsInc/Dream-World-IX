@@ -73,6 +73,9 @@ class BackdropCanvas(QGraphicsView):
     region_deleted = Signal(int)             # the region menu's delete — the host owns the doc op
     region_retarget = Signal(int)            # "Set gateway target…" — the host asks + writes
     region_reword = Signal(int)              # "Set message…" (events) — the host asks + writes
+    marker_moved = Signal(int, object)       # place mode: a marker dragged — (index, walkmesh hit)
+    marker_clicked = Signal(int)             # place mode: a press on a marker that did not travel
+    marker_deleted = Signal(int)             # the marker menu's delete — the host owns the doc op
     click_refused = Signal(str)              # why a click produced no floor point
 
     def __init__(self, palette, *, scale=100, on_floor=None):
@@ -97,6 +100,7 @@ class BackdropCanvas(QGraphicsView):
         self._surface_tris = []              # RENDER-frame triangles (mesh_world_tris's output)
         self._surface_floors = []            # floor index per triangle (or empty)
         self._markers = []                   # [{pos: (x,y,z) render frame, label, kind}]
+        self._marker_items = {}              # i -> the marker anchor (live drag target)
         self._cutouts = []                   # rung 2 previews: see set_cutouts
         self._cutout_items = {}              # i -> the overlay pixmap item (live drag target)
         self._contact_items = {}             # i -> the contact anchor item (live drag target)
@@ -444,7 +448,12 @@ class BackdropCanvas(QGraphicsView):
     def set_markers(self, markers):
         """Placed-content markers: ``[{"pos": (x, y, z) render frame, "label": str}, ...]``.
         Screen-fixed furniture at each point's projected pixel; points behind the camera are
-        skipped (they are not on this canvas)."""
+        skipped (they are not on this canvas). In place mode a marker is a grab handle: a drag
+        emits ``marker_moved``, a press that does not travel ``marker_clicked`` (never a second
+        placement on top of it), its menu ``marker_deleted`` -- each by its index in this list.
+        ``locked`` (the host's reason it refuses every gesture): no grab cursor, no drag, no menu;
+        the tooltip gives the reason and a click still only emits ``marker_clicked``. ``keep``:
+        movable but never deleted -- no menu."""
         self._markers = list(markers or [])
         self._rebuild()
 
@@ -507,6 +516,7 @@ class BackdropCanvas(QGraphicsView):
         self._trace_items = []
         self._cutout_items = {}
         self._contact_items = {}
+        self._marker_items = {}
         self._region_items = {}
         self._region_handle_items = {}
         self._region_edge_items = {}
@@ -543,11 +553,28 @@ class BackdropCanvas(QGraphicsView):
 
     def _draw_horizon(self, w, h):
         """The refusal boundary, visible: a dashed line at ``horizon_canvas_y`` with a
-        screen-fixed label. Off-frame horizons draw nothing (a horizon above the frame means
-        every canvas row is floor; below it, none is — the guard still refuses either way)."""
+        screen-fixed label. A horizon ABOVE the frame (every canvas row is floor) is marked on
+        the top edge with how far off it is -- the default Trace pitch puts it 4 px up, and the
+        tooltip that says to line it up had nothing to point at (finding T27). Only for a host
+        that sets ``mark_horizon_off_frame`` (Trace, where the author lines the horizon up; on a
+        field's own camera in Place it is not an instrument). Below the frame, none is floor:
+        nothing drawn (the guard still refuses either way)."""
         if self._cam is None:
             return
         hy = _cam.horizon_canvas_y(self._cam)
+        if hy < 0 and getattr(self, "mark_horizon_off_frame", False):
+            case, pen = self._cased_pen(self.pal["warn"], 1.6, [2, 4])
+            self._scene.addLine(0, 0, w, 0, case).setData(0, "casing")
+            self._scene.addLine(0, 0, w, 0, pen).setData(0, "horizonedge")
+            anchor = self._scene.addRect(QRectF(0, 0, 0, 0), QPen(Qt.PenStyle.NoPen))
+            anchor.setPos(6, 0)
+            anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
+            anchor.setData(0, "horizonedgelabel")
+            # short: the plate sits ON the art's top strip, where the eye level is matched (at
+            # 150% the long form spanned the whole photo and ran off its right edge -- review)
+            self._label(anchor, f"↑ horizon {max(1, round(-hy))} px",
+                        self._ink["warn_text"], dx=0, dy=2)
+            return
         if not 0 <= hy < h:
             return
         case, pen = self._cased_pen(self.pal["warn"], 1.6, [6, 4])   # cosmetic: survives fit zoom
@@ -610,7 +637,8 @@ class BackdropCanvas(QGraphicsView):
         if not self._markers or self._cam is None:
             return
         color = QColor(self.pal["text"])
-        for m in self._markers:
+        grab = self._place_mode                    # the Place tool's handles only (P16): inert
+        for i, m in enumerate(self._markers):      # under Regions corners and on the Trace tab
             try:
                 cx, cy = imagefield.world_point_to_click(self._cam, m["pos"])
             except imagefield.ImageFieldError:
@@ -619,12 +647,26 @@ class BackdropCanvas(QGraphicsView):
             anchor.setPos(cx, cy)
             anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
             anchor.setData(0, "marker")
-            anchor.setData(1, m.get("kind"))
+            anchor.setData(1, i)
             path = self._marker_path(m.get("kind"))
-            self._halo(anchor, path)
-            self._child(self._scene.addPath(path, self._ring_pen(), QBrush(color)), anchor)
+            free = grab and not m.get("locked")    # the host refuses every gesture on a locked one
+            halo = self._halo(anchor, path, free)
+            # a marker the host will never move LOOKS fixed in a still image too: the muted ink
+            # (never hollow -- hollow means INVALID on this canvas, and this marker is fine)
+            ink = QColor(self.pal["muted"]) if grab and not free else color
+            gl = self._child(self._scene.addPath(path, self._ring_pen(), QBrush(ink)), anchor)
+            if grab:
+                name = m.get("label") or m.get("kind")
+                if free:
+                    mark_grabbable(gl)
+                tip = (f"{name}: {m['locked']}" if not free
+                       else f"{name}: drag to move it" if m.get("keep")
+                       else f"{name}: drag to move it, right-click for its menu")
+                halo.setToolTip(tip)
+                gl.setToolTip(tip)
             if m.get("label"):
                 self._label(anchor, m["label"], self.pal["text"], dx=8)
+            self._marker_items[i] = anchor
 
     # -- Rung 2: cut-out previews + their contact handles --
     def _draw_cutout_overlays(self, w, h):
@@ -1101,14 +1143,14 @@ class BackdropCanvas(QGraphicsView):
             self._trace_items.append({"anchor": anchor, "i": i})
 
     def _draw_outset(self, worlds):
-        """The +48u collision-outset ring the build will actually emit, derived through the
-        SAME conversions (world outset -> re-projected per vertex). Suspended while any vertex
-        is invalid — a preview computed from partial geometry would lie."""
+        """The +48u collision-outset ring the build will actually emit: the build's OWN ring
+        (``imagefield.walk_edge`` -- repeats dropped, sharp tips bevelled), re-projected per
+        vertex. Suspended while any vertex is invalid, and for an outline the build refuses —
+        a preview computed from partial geometry would lie."""
         if len(worlds) < 3 or any(w is None for w in worlds):
             return
         try:
-            grown = imagefield.outset_polygon([tuple(w) for w in worlds],
-                                              imagefield.COLLISION_OUTSET)
+            grown = imagefield.walk_edge([tuple(w) for w in worlds])
             ring = [imagefield.world_to_click(self._cam, g) for g in grown]
         except imagefield.ImageFieldError:
             return
@@ -1153,12 +1195,35 @@ class BackdropCanvas(QGraphicsView):
         self._update_coords()
         return True
 
+    def _begin_marker_drag(self, i):
+        if not 0 <= i < len(self._markers) or i not in self._marker_items:
+            return False
+        p = self._marker_items[i].pos()
+        self._drag = {"kind": "marker", "i": i, "pt": (p.x(), p.y())}
+        self._update_coords()
+        return True
+
+    def _marker_menu(self, i, global_pos):
+        """The marker's list-op menu, behind a seam (tests drive the choice without a popup).
+        The host owns the delete -- and refuses what it may not delete, saying why."""
+        from PySide6.QtWidgets import QMenu
+        if not 0 <= i < len(self._markers):
+            return
+        m = self._markers[i]
+        menu = QMenu(self)
+        rm = menu.addAction(f"Delete {m.get('label') or m.get('kind')}")
+        if menu.exec(global_pos) is rm:
+            self.marker_deleted.emit(i)
+
     def _drag_canvas(self, cx, cy):
         """One drag step, CANVAS px (tests drive this directly — the testable seam)."""
         d = self._drag
         if not d:
             return
-        if d.get("kind") == "cpt":
+        if d.get("kind") == "marker":
+            d["pt"] = (cx, cy)
+            self._marker_items[d["i"]].setPos(cx, cy)
+        elif d.get("kind") == "cpt":
             d["pt"] = (cx, cy)
             self._contact_items[d["i"]].setPos(cx, cy)
         elif d.get("kind") == "cimg":
@@ -1191,6 +1256,18 @@ class BackdropCanvas(QGraphicsView):
         if not d:
             return
         self._hint.hide()                          # a drag, too, is the first gesture (P18)
+        if d.get("kind") == "marker":              # re-raycast where it was let go (P16)
+            m = self._markers[d["i"]]
+            try:
+                hit = imagefield.click_to_surface(self._cam, self._surface_tris, d["pt"])
+            except imagefield.ImageFieldError as e:
+                self._rebuild()                    # it goes back where the document has it
+                self.click_refused.emit(f"{m.get('label') or m.get('kind')} is back where it "
+                                        f"was — {e}")
+                return
+            self.marker_moved.emit(d["i"], self._surface_payload(hit))
+            self._rebuild()                        # document truth: the host's re-feed moves it
+            return
         if d.get("kind") == "cpt":
             if d["pt"] != d["start"]:
                 self.contact_moved.emit(d["i"], round(d["pt"][0], 1), round(d["pt"][1], 1))
@@ -1203,10 +1280,16 @@ class BackdropCanvas(QGraphicsView):
             if d["quad"] != d["start"]:
                 self.region_changed.emit(
                     d["i"], [(round(x, 1), round(z, 1)) for x, z in d["quad"]])
-            else:
-                self._rebuild()                    # nothing changed: restore the law overlays
-            return
+            self._rebuild()                        # document truth: a host that took the change
+            return                                 # re-fed it; one that refused it did not (V10)
         if d["pt"] != tuple(self._trace[d["i"]]):
+            if self._cam is not None:              # the click's own refusal, for a drag (V7)
+                try:
+                    imagefield.click_to_world(self._cam, d["pt"])
+                except imagefield.ImageFieldError as e:
+                    self._rebuild()                # the vertex goes back where it was
+                    self.click_refused.emit(str(e))
+                    return
             pts = list(self._trace)
             pts[d["i"]] = (round(d["pt"][0], 1), round(d["pt"][1], 1))
             self._commit_floor(pts)
@@ -1241,6 +1324,18 @@ class BackdropCanvas(QGraphicsView):
             self._place_hint()
             return
         cx, cy = d["pt"]
+        if kind == "marker":
+            m = self._markers[d["i"]]
+            head = str(m.get("label") or m.get("kind"))
+            try:
+                hit = imagefield.click_to_surface(self._cam, self._surface_tris, (cx, cy))
+                head += f" · world x {hit['pos'][0]:.0f} · z {hit['pos'][2]:.0f}"
+            except imagefield.ImageFieldError:
+                head += " · off the walkable floor"
+            self._coords.setText(head)
+            self._coords.show()
+            self._place_hint()
+            return
         if kind == "cimg":
             self._coords.setText(f"fg{d['i']} · canvas {cx:.0f},{cy:.0f}")
             self._coords.show()
@@ -1356,6 +1451,14 @@ class BackdropCanvas(QGraphicsView):
             # through cursor-less items — the exact says-Move-but-pans mismatch the owner hit.
             # Kind priority (vertex > contact anchor > snip) matches the furniture's z-order.
             under = self.items(event.position().toPoint())
+            if self._place_mode:                   # a placed marker out-ranks the floor (P16)
+                for it in under:
+                    mi = self._resolve_data(it, "marker")
+                    if (mi is not None and not self._markers[int(mi)].get("locked")
+                            and self._begin_marker_drag(int(mi))):
+                        self._drag["press"] = event.position()   # no travel = a click on it
+                        event.accept()
+                        return
             if self._trace_mode:
                 for it in under:
                     i = self._resolve_vertex(it)
@@ -1418,6 +1521,12 @@ class BackdropCanvas(QGraphicsView):
                 self._end_vertex_drag()
                 event.accept()
                 return
+            if d.get("kind") == "marker":          # a click ON a marker places nothing: the
+                self._cancel_drag()                # host says what it is and how to move it
+                self._hint.hide()
+                self.marker_clicked.emit(d["i"])
+                event.accept()
+                return
             self._cancel_drag()                    # it never travelled: a CLICK, not a drag --
             event.accept()                         # a contact on a snip's body (V9), the first
         else:                                      # corner inside a drawn quad (P24)
@@ -1449,6 +1558,11 @@ class BackdropCanvas(QGraphicsView):
             self._rebuild()
             return
         if self._place_mode:                       # Rung 3: the click raycasts the walkmesh
+            for it in self.items(event.position().toPoint()):
+                mi = self._resolve_data(it, "marker")
+                if mi is not None:                 # a locked marker: it pans, but a click on it
+                    self.marker_clicked.emit(int(mi))   # places nothing -- the host says why
+                    return
             c = self._widget_to_canvas(event.position())
             try:
                 hit = imagefield.click_to_surface(self._cam, self._surface_tris,
@@ -1484,6 +1598,16 @@ class BackdropCanvas(QGraphicsView):
                         self._region_menu(i, event.globalPos())
                         event.accept()
                         return
+            return super().contextMenuEvent(event)
+        if self._place_mode:
+            for it in self.items(event.pos()):
+                mi = self._resolve_data(it, "marker")
+                if mi is not None:
+                    m = self._markers[int(mi)]
+                    if not (m.get("locked") or m.get("keep")):   # no Delete the host refuses
+                        self._marker_menu(int(mi), event.globalPos())
+                    event.accept()
+                    return
             return super().contextMenuEvent(event)
         if not self._trace_mode:
             return super().contextMenuEvent(event)

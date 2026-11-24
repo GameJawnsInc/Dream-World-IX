@@ -519,6 +519,14 @@ def _private_cache(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_dialogs(monkeypatch):
+    """A drawn door with no target, and every drawn event, now ask at once (P27): no test may
+    ever open a real modal. Unless a test answers them itself, both dialogs are Cancelled."""
+    monkeypatch.setattr(P.PlaceDoc, "_ask_field_id", lambda self, cur: None)
+    monkeypatch.setattr(P.PlaceDoc, "_ask_message", lambda self, cur: None)
+
+
+@pytest.fixture(autouse=True)
 def _deterministic_qt_teardown(qt_drain):
     """Widgets die HERE, not in a forced GC pass (THE GC-CHILD LAW's teardown half)."""
     yield
@@ -1605,3 +1613,411 @@ def test_the_place_regions_tool_says_zone_and_how_to_cancel(app):
     d, _ = _doc(app)
     tip = d.tools.button("regions").toolTip()
     assert "zones" in tip and "quad" not in tip and "Esc" in tip, tip
+
+
+# --------------------------------------------------------------- batch 4: empty zones (P11)
+@pytest.mark.parametrize("zone, empty", [
+    ([[0, 500], [100, 500], [200, 500], [300, 500]], True),          # four corners in a line
+    ([[50, 500], [50, 500], [50, 500], [50, 500]], True),            # all on one spot
+    ([[0, 500], [100, 500], [100, 600], [0, 600]], False),           # an ordinary zone
+    ([[0, 500], [100, 500], [0, 600], [100, 600]], False),           # a bowtie: its signed area
+])                                                                    # cancels, yet the fan fires
+def test_a_zone_with_no_area_warns_that_it_can_never_fire(zone, empty):
+    """P11: the fan audit is vacuous on a degenerate zone (no interior to judge), so four
+    collinear or coincident corners passed clean -- a trigger that can never fire."""
+    for kind, row in (("gateway", {"name": "d", "to": 4005, "zone": zone}),
+                      ("event", {"name": "z", "message": "hi", "zone": zone})):
+        (r,) = P.region_rows({kind: [row]})
+        said = bool(r["warn"] and "never fire" in r["warn"])
+        assert said is empty, (kind, zone, r["warn"])
+
+
+# --------------------------------------------------------------- batch 4: the crumb (P31)
+def test_the_crumb_names_the_surface_like_its_siblings(app):
+    """P31: Behavior and Cutscene read 'Behavior — X' / 'Cutscene — X'; Place read the bare
+    member name, like the Editor's field crumb."""
+    d, _ = _doc(app)
+    assert d.crumb_label() == "Place"
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    assert d.crumb_label() == "Place — FORK"
+
+
+# --------------------------------------------------------------- batch 4: ask at the draw (P27)
+_Q = [(-200.0, 800.0), (200.0, 800.0), (200.0, 1200.0), (-200.0, 1200.0)]
+
+
+def test_a_door_drawn_without_a_target_asks_for_it_in_the_same_step(app, monkeypatch):
+    """P27: a door drawn while 'to field' showed '?' was written to=0 and had to be repaired by a
+    right-click. The draw asks now; the answer and the zone are ONE undo step, and a reserved
+    world-map id still warns on the art (region_rows judges every route)."""
+    d, calls = _regions_on(app, {"field": {"source_field": 351}})
+    asked = []
+    monkeypatch.setattr(d, "_ask_field_id", lambda cur: asked.append(cur) or 9005)
+    d._on_region_drawn(_Q)
+    assert asked == [0] and calls == [("FORK", "draw gateway door0 -> 9005")], calls
+    assert d._data["gateway"][0]["to"] == 9005
+    assert "world-map hole" in d.canvas._regions[0]["warn"]
+    asked.clear()
+    d.gw_to.setValue(4005)                              # a target in the box: nothing to ask
+    d._on_region_drawn([(x + 500, z) for x, z in _Q])
+    assert asked == [] and d._data["gateway"][1]["to"] == 4005
+
+
+def test_a_cancelled_door_target_keeps_todays_flagged_placeholder(app):
+    d, calls = _regions_on(app, {"field": {"source_field": 351}})
+    d._on_region_drawn(_Q)                              # (the fixture's dialogs Cancel)
+    assert len(calls) == 1 and d._data["gateway"][0]["to"] == 0
+    assert "NO TARGET" in d.canvas._regions[0]["warn"]
+
+
+@pytest.mark.parametrize("typed, kept", [("Mind the gap.", "Mind the gap."), ("  ", "..."),
+                                         (None, "...")])
+def test_a_drawn_event_asks_for_its_words_and_a_blank_line_is_still_refused(app, monkeypatch,
+                                                                             typed, kept):
+    d, calls = _regions_on(app, {"field": {"source_field": 351}})
+    d.rkind_btns["event"].setChecked(True)
+    asked = []
+    monkeypatch.setattr(d, "_ask_message", lambda cur: asked.append(cur) or typed)
+    d._on_region_drawn(_Q)
+    assert asked == [""] and len(calls) == 1, calls
+    assert d._data["event"][0]["message"] == kept
+    if typed is not None and not typed.strip():         # the blank-line rule holds on this route
+        assert "empty" in d.status.text() and d.status.property("state") == "warn"
+
+
+def test_a_field_swapped_while_the_draw_asks_gets_nothing(app, monkeypatch):
+    """The dialog is modal and the shell can re-feed under it: the answer belongs to the field it
+    was asked for, never to the one that is open when it comes back."""
+    d, calls = _regions_on(app, {"field": {"source_field": 351}})
+    other = {"field": {"source_field": 351}}
+
+    def swap(cur):
+        d.show_field("OTHER", other, Path("C:/somewhere/OTHER.field.toml"))
+        return 4005
+    monkeypatch.setattr(d, "_ask_field_id", swap)
+    d._on_region_drawn(_Q)
+    assert calls == [] and "gateway" not in other
+
+
+def test_a_zone_dropped_because_the_field_reloaded_says_so(app, monkeypatch):
+    """Final review of P27: the same guard fires when the SAME field is re-fed under the dialog
+    (a regenerate or a revert finishing). The four corners and the typed line went without a
+    word; the status now says the zone was not drawn."""
+    import copy
+    data = {"field": {"source_field": 351}}
+    d, calls = _regions_on(app, data)
+    d.rkind_btns["event"].setChecked(True)
+
+    def refeed(cur):
+        d.show_field("FORK", copy.deepcopy(data), Path("C:/somewhere/FORK.field.toml"))
+        return "The door is locked."
+    monkeypatch.setattr(d, "_ask_message", refeed)
+    d._on_region_drawn(_Q)
+    assert calls == []
+    assert "The field changed while you answered" in d.status.text()
+    assert "not drawn" in d.status.text()
+    assert d.status.property("state") == "warn"
+
+
+def test_a_zone_dropped_because_another_field_opened_does_not_say_reloaded(app, monkeypatch):
+    """The same guard fires when ANOTHER field opens under the prompt (a first Generate handing
+    its project to the shell). 'The field reloaded ... draw it again' was untrue there: the
+    sentence is one that holds in both cases."""
+    d, calls = _regions_on(app, {"field": {"source_field": 351}})
+    d.rkind_btns["event"].setChecked(True)
+
+    def swap(cur):
+        d.show_field("OTHER", {"field": {"source_field": 351}},
+                     Path("C:/somewhere/OTHER.field.toml"))
+        return "The door is locked."
+    monkeypatch.setattr(d, "_ask_message", swap)
+    d._on_region_drawn(_Q)
+    said = d.status.text()
+    assert calls == [] and "not drawn" in said
+    assert "reloaded" not in said and "draw it again" not in said, said
+
+
+def test_the_gateway_prompt_names_no_repository_path():
+    """The target prompt now opens on every door drawn without a target (P27); it pointed a
+    first-time author at reference/field-manifest.tsv, a file an installed kit does not have."""
+    from ff9mapkit.workspace.placedoc import PlaceDoc
+    assert "field id" in PlaceDoc._FIELD_ID_PROMPT
+    assert "manifest" not in PlaceDoc._FIELD_ID_PROMPT and ".tsv" not in PlaceDoc._FIELD_ID_PROMPT
+
+
+def test_the_gateway_dialog_shows_that_prompt(app):
+    """...and the dialog the author sees is built with it (the constant alone proved nothing)."""
+    d, _calls = _regions_on(app, {"field": {"source_field": 351}})
+    dlg = d._field_id_dialog(4005)
+    try:
+        assert dlg.labelText() == d._FIELD_ID_PROMPT
+        assert dlg.intValue() == 4005
+    finally:
+        dlg.deleteLater()
+
+
+# --------------------------------------------------------------- batch 4: stacked floors (P7)
+def test_the_stacked_floor_chooser_lists_each_floor_once_and_says_what_it_records(app, monkeypatch):
+    """P7: a click on a triangle edge listed the same floor twice, and the menu read 'floor 1 ·
+    height -300' as if the floor were recorded. Only the plan spot (x, z) is stored -- where the
+    click meets that floor -- and the game finds the height there."""
+    import types
+    data = {"field": {"source_field": 351}}
+    d, calls = _placed(app, data)
+    up = {"xz": (0.0, 1500.0), "pos": (0.0, -300.0, 1500.0), "floor": 1, "tri": 2, "s": 1.0}
+    low = {"xz": (0.0, 721.0), "pos": (0.0, 0.0, 721.0), "floor": 0, "tri": 0, "s": 2.0}
+    low2 = dict(low, tri=1)                             # the same floor, through the shared edge
+    seen = []
+
+    class _FakeMenu:
+        def __init__(self, parent=None):
+            self.acts = []
+
+        def addAction(self, text):
+            tok = types.SimpleNamespace(text=text, setEnabled=lambda on: None)
+            self.acts.append(tok)
+            return tok
+
+        def addSeparator(self):
+            pass
+
+        def exec(self, pos):
+            seen.extend(a.text for a in self.acts)
+            return self.acts[-1]                        # the floor behind
+
+    monkeypatch.setattr(P, "QMenu", _FakeMenu)
+    d._on_surface_clicked(dict(low, stacked=[low, low2]))   # one floor twice: no question at all
+    assert seen == [] and len(calls) == 1
+    d._on_surface_clicked(dict(up, stacked=[up, low, low2]))
+    picks = [t for t in seen if "floor" in t]
+    assert len(picks) == 2, seen                        # floor 1, floor 0 -- each once
+    assert any("height" in t and "game" in t for t in seen), seen
+    assert data["npc"][-1]["pos"] == [0, 721] and len(calls) == 2
+    assert "only the spot" in d.status.text(), d.status.text()
+    seen.clear()                                        # a mesh with no floor ids: two crossings
+    a, b = dict(up, floor=None), dict(low, floor=None)  # are two surfaces, never merged into one
+    d._on_surface_clicked(dict(a, stacked=[a, b]))
+    assert len([t for t in seen if "floor" in t]) == 2, seen
+
+
+# --------------------------------------------------------------- batch 4: the refused state (P19)
+def test_a_refused_field_shows_why_in_place_of_an_empty_canvas(app):
+    """P19: on a bundled example the tab kept a large empty canvas frame with its zoom pill, and
+    the one signal was the warn line under it. The canvas gives way to a centred, quiet message
+    that says why nothing can be placed and the way out; a placeable field brings it back."""
+    d, _ = _doc(app)
+    ex = Path(ff9mapkit.__file__).parent.parent / "examples" / "vivi-hut" / "hut_int.field.toml"
+    d.show_field("HUT", {"verbatim_eb": {"donor": 351}}, ex)
+    QApplication.processEvents()
+    assert not d.canvas.isVisibleTo(d)
+    msg = d.refused_msg
+    assert msg.isVisibleTo(d) and msg.property("role") == "muted"
+    assert "bundled example" in msg.text() and "New Field" in msg.text(), msg.text()
+    assert msg.alignment() & Qt.AlignmentFlag.AlignHCenter and msg.wordWrap()
+    assert not d.status.isVisibleTo(d)                  # said once, not twice
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    QApplication.processEvents()
+    assert d.canvas.isVisibleTo(d) and not msg.isVisibleTo(d) and d.status.isVisibleTo(d)
+
+
+# --------------------------------------------------------------- batch 4: the loading line (P14)
+def test_the_loading_line_names_the_room_in_words(app):
+    """P14: the status while a room loads printed the request's raw source tuple (fixed when the
+    bundle key gained its source, batch 2 -- fenced here), still said 'camera 0' on a room with one
+    camera, and said 'extracting + compositing' over a field's own files, which are only read."""
+    d, _ = _doc(app)
+    d._loader.start = lambda *a: None
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    d.on_load()
+    real = d.status.text()
+    d._loading = None
+    d.show_field("NOVEL", {"field": {"id": 30058}}, Path("C:/somewhere/NOVEL.field.toml"))
+    d.on_load()
+    own = d.status.text()
+    for text in (real, own):
+        assert "('" not in text and "camera 0" not in text and "\\" not in text, text
+    assert "donor field #351" in real, real
+    assert "NOVEL" in own and "extract" not in own and "composit" not in own, own
+    d._loading = None
+    d._sync_cam_box(3)                                  # a multi-camera room says which angle
+    d._cam_pick[d._source] = 2
+    d.on_load()
+    assert "camera 2" in d.status.text(), d.status.text()
+
+
+# --------------------------------------------------------------- batch 4: placed markers (P16)
+def _send(c, kind, canvas_pt, buttons=None):
+    """One mouse event at a CANVAS point, delivered the way Qt delivers it (sendEvent)."""
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QMouseEvent
+    t = {"press": QEvent.Type.MouseButtonPress, "move": QEvent.Type.MouseMove,
+         "release": QEvent.Type.MouseButtonRelease}[kind]
+    vp = c.viewport()
+    wpt = c.viewportTransform().map(QPointF(*canvas_pt))
+    pos = QPointF(round(wpt.x()), round(wpt.y()))
+    left = Qt.MouseButton.LeftButton
+    if buttons is None:
+        buttons = left if kind != "release" else Qt.MouseButton.NoButton
+    btn = Qt.MouseButton.NoButton if kind == "move" else left
+    QApplication.sendEvent(vp, QMouseEvent(t, pos, QPointF(vp.mapToGlobal(pos.toPoint())), btn,
+                                           buttons, Qt.KeyboardModifier.NoModifier))
+
+
+def _placed(app, data, scene=None, path="C:/somewhere/FORK.field.toml"):
+    d, calls = _doc(app)
+    d.show_field("FORK", data, Path(path), scene=scene)
+    d._bundles[(d._source, 0)] = dict(_bundle(), source=d._source)
+    d._apply_bundle(d._bundles[(d._source, 0)], refit=True)
+    QApplication.processEvents()
+    return d, calls
+
+
+def _px(d, x, z):
+    return IF.world_point_to_click(d.canvas.camera(), (x, 0.0, z))
+
+
+def _hit(x, z):
+    row = {"xz": (x, z), "pos": (x, 0.0, z), "floor": 0, "tri": 0, "s": 1.0}
+    return dict(row, stacked=[row])
+
+
+def test_a_click_on_a_placed_marker_never_drops_a_second_one(app):
+    """P16: the marker was inert, so a click on it raycast the floor beneath it and appended a
+    SECOND NPC on top of the first. It places nothing now, and says how to move or delete it."""
+    data = {"field": {"source_field": 351}, "npc": [{"name": "A", "pos": [0, 1500]}]}
+    d, calls = _placed(app, data)
+    p = _px(d, 0, 1500)
+    _send(d.canvas, "press", p)
+    _send(d.canvas, "release", p)
+    assert calls == [] and len(data["npc"]) == 1, data["npc"]
+    assert "drag" in d.status.text() and "A" in d.status.text(), d.status.text()
+
+
+def test_dragging_a_marker_moves_that_row_in_one_undo_step(app):
+    data = {"field": {"source_field": 351},
+            "npc": [{"name": "A", "pos": [0, 1500]}, {"name": "B", "pos": [-400, 1000]}]}
+    d, calls = _placed(app, data)
+    _send(d.canvas, "press", _px(d, 0, 1500))
+    _send(d.canvas, "move", _px(d, 200, 1200))
+    _send(d.canvas, "release", _px(d, 200, 1200))
+    assert len(calls) == 1 and calls[0] == ("FORK", "move NPC A"), calls
+    x, z = data["npc"][0]["pos"]
+    assert math.hypot(x - 200, z - 1200) < 10, data["npc"][0]
+    assert data["npc"][1]["pos"] == [-400, 1000] and len(data["npc"]) == 2
+    mira = next(m for m in d.canvas._markers if m["label"] == "A")
+    assert math.hypot(mira["pos"][0] - x, mira["pos"][2] - z) < 1e-6   # drawn where it now is
+
+
+def test_a_marker_gesture_writes_the_row_it_was_drawn_from_not_its_old_index(app):
+    """Two NPCs share a name, and the first is removed in the Editor before Place is re-fed:
+    the marker for the second still writes THAT row (by identity), and the marker for the
+    removed one refuses instead of landing on whatever now sits at its index."""
+    def stale():
+        data = {"field": {"source_field": 351},
+                "npc": [{"name": "A", "pos": [0, 1500]}, {"name": "A", "pos": [-400, 1000]}]}
+        d, calls = _placed(app, data)
+        second = data["npc"][1]
+        del data["npc"][0]                               # the Editor's delete, no re-feed yet
+        return d, calls, data, second
+
+    d, calls, data, second = stale()
+    d._on_marker_moved(1, _hit(100.0, 1100.0))
+    assert second["pos"] == [100, 1100] and len(calls) == 1
+    for gesture in (lambda d: d._on_marker_moved(0, _hit(300.0, 1300.0)),
+                    lambda d: d._on_marker_deleted(0)):
+        d, calls, data, second = stale()
+        gesture(d)
+        assert data["npc"] == [{"name": "A", "pos": [-400, 1000]}] and calls == []
+        assert "no longer" in d.status.text() and d.status.property("state") == "warn"
+
+
+def test_deleting_a_marker_removes_that_row_and_the_spawn_stays(app):
+    data = {"field": {"source_field": 351}, "prop": [{"name": "prop0", "prop": "barrel",
+                                                      "pos": [0, 1500]}],
+            "player": {"spawn": [100, 1200]}}
+    d, calls = _placed(app, data)
+    i_prop = next(k for k, m in enumerate(d.canvas._markers) if m["kind"] == "prop")
+    i_spawn = next(k for k, m in enumerate(d.canvas._markers) if m["kind"] == "spawn")
+    d._on_marker_deleted(i_spawn)
+    assert data["player"]["spawn"] == [100, 1200] and calls == []
+    assert "spawn" in d.status.text() and "move" in d.status.text(), d.status.text()
+    d._on_marker_deleted(i_prop)
+    assert data["prop"] == [] and calls == [("FORK", "delete prop prop0")], calls
+    d._on_marker_moved(next(k for k, m in enumerate(d.canvas._markers) if m["kind"] == "spawn"),
+                       _hit(-100.0, 1300.0))
+    assert data["player"]["spawn"] == [-100, 1300] and calls[-1] == ("FORK", "move spawn")
+
+
+def test_a_marker_blender_or_a_verbatim_fork_owns_refuses_to_move(app):
+    scene = {"npc": [{"name": "guard", "pos": [5, 1500]}, {"name": "ghost", "pos": [-200, 1200]}]}
+    data = {"field": {"source_field": 351}, "npc": [{"name": "guard", "preset": "vivi"}]}
+    d, calls = _placed(app, data, scene=scene)
+    for m_label in ("guard", "ghost"):
+        i = next(k for k, m in enumerate(d.canvas._markers) if m["label"].startswith(m_label))
+        d._on_marker_moved(i, _hit(0.0, 1000.0))
+        assert calls == [] and "Blender" in d.status.text(), d.status.text()
+        d._on_marker_deleted(i)
+        assert calls == [] and "Blender" in d.status.text(), d.status.text()
+    assert data["npc"] == [{"name": "guard", "preset": "vivi"}]
+    vdata = {"verbatim_eb": {"donor": 351}, "player": {"spawn": [0, 1500],
+                                                       "arrival": [{"entrance": 1, "pos": [0, 1200]}]}}
+    d, calls = _placed(app, vdata)
+    for k in range(len(d.canvas._markers)):
+        d._on_marker_moved(k, _hit(100.0, 1000.0))
+        assert calls == [] and "verbatim" in d.status.text(), d.status.text()
+    assert vdata["player"] == {"spawn": [0, 1500], "arrival": [{"entrance": 1, "pos": [0, 1200]}]}
+
+
+@pytest.mark.parametrize("case", ["verbatim", "blender"])
+def test_a_marker_place_always_refuses_offers_no_drag_or_delete(app, case):
+    """Review of P16: a verbatim fork's spawn (`import --verbatim` writes one) and a Blender NPC
+    wore the grab cursor, said 'drag to move it', and offered Delete -- each refused in turn.
+    The feed now carries the refusal: no grab cursor, the tooltip and a click say why."""
+    if case == "verbatim":
+        data, scene, word = ({"verbatim_eb": {"donor": 351}, "field": {"id": 30500},
+                              "player": {"spawn": [0, 1500]}}, None, "verbatim")
+    else:
+        data, scene, word = ({"field": {"source_field": 351},
+                              "npc": [{"name": "guard", "preset": "vivi"}]},
+                             {"npc": [{"name": "guard", "pos": [0, 1500]}]}, "Blender")
+    d, calls = _placed(app, data, scene=scene)
+    assert len(d.canvas._markers) == 1 and d.canvas._markers[0]["locked"]
+    glyphs = [k for k in d.canvas._kids if k.data(2) == "marker"]
+    assert glyphs and not any(k.hasCursor() for k in glyphs)
+    tips = " ".join(k.toolTip() for k in glyphs)
+    assert word in tips and "drag" not in tips, tips
+    p = _px(d, 0, 1500)
+    _send(d.canvas, "press", p)
+    _send(d.canvas, "release", p)
+    text = d.status.text()
+    assert word in text and "drag it" not in text and "Nothing was added" in text, text
+    assert calls == [] and d.status.property("state") == "warn"
+    d._on_marker_clicked(5)                              # (a stale index says nothing)
+
+
+def test_a_movable_spawn_says_drag_and_never_offers_delete(app):
+    data = {"field": {"source_field": 351}, "player": {"spawn": [0, 1500]}}
+    d, calls = _placed(app, data)
+    m = d.canvas._markers[0]
+    assert not m["locked"] and m["keep"]
+    p = _px(d, 0, 1500)
+    _send(d.canvas, "press", p)
+    _send(d.canvas, "release", p)
+    assert "drag it to move it." in d.status.text() and "delete" not in d.status.text()
+    assert d.status.text().startswith("That is the spawn point,"), d.status.text()
+
+
+def test_a_marker_dropped_off_the_floor_says_so_and_a_stack_asks(app, monkeypatch):
+    data = {"field": {"source_field": 351}, "npc": [{"name": "A", "pos": [0, 1500]}]}
+    d, calls = _placed(app, data)
+    _send(d.canvas, "press", _px(d, 0, 1500))
+    _send(d.canvas, "move", (4.0, 4.0))
+    _send(d.canvas, "release", (4.0, 4.0))
+    assert calls == [] and data["npc"][0]["pos"] == [0, 1500]
+    assert "back where it was" in d.status.text() and d.status.property("state") == "warn"
+    asked = []
+    monkeypatch.setattr(d, "_choose_hit", lambda rows: asked.append(rows) or rows[1])
+    low = {"xz": (10.0, 1000.0), "pos": (10.0, 0.0, 1000.0), "floor": 0, "tri": 0, "s": 2.0}
+    up = {"xz": (20.0, 1100.0), "pos": (20.0, -300.0, 1100.0), "floor": 1, "tri": 2, "s": 1.0}
+    d._on_marker_moved(0, dict(up, stacked=[up, low]))
+    assert asked and data["npc"][0]["pos"] == [10, 1000] and len(calls) == 1
