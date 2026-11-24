@@ -858,12 +858,12 @@ class CutsceneDoc(QWidget):
         self._stack.setCurrentWidget(self._guide_page)
 
     # -- pages --
-    def _build_guide(self, state):
+    def _build_guide(self, state, note=""):
         glyph = icons.pixmap("play", self.pal["muted"], 46)
         if state == "noscene":
             return widgets.empty_state(
                 "", "This field has no [[cutscene]] scene",
-                teach="A cutscene is an ordered list of steps that runs with control locked: "
+                teach=(note + "\n\n" if note else "") + "A cutscene is an ordered list of steps that runs with control locked: "
                       "say lines, walks, animations, windows, flags. A CAST (actors = "
                       "[names]) stages NPCs and the player; no cast = narration. Repeat "
                       "[[cutscene]] blocks — each gated to its own story beat — for the "
@@ -876,10 +876,10 @@ class CutsceneDoc(QWidget):
                   "scenes, steps, staging, and the storyboard render here.",
             icon_pixmap=glyph)
 
-    def _show_guide(self, state):
+    def _show_guide(self, state, note=""):
         self._guide_state = state
         old = self._guide_page
-        self._guide_page = self._build_guide(state)
+        self._guide_page = self._build_guide(state, note)
         self._stack.addWidget(self._guide_page)
         self._stack.setCurrentWidget(self._guide_page)
         self._stack.removeWidget(old)
@@ -1445,10 +1445,18 @@ class CutsceneDoc(QWidget):
         if self._raw is None or self._editor_refuses():
             return
         self._close_editor()
+        k, n = self._scene, len(self._steps())
         label = cutscenescan.delete_scene(self._raw, self._scene)
         self._scene = max(0, self._scene - 1)
         self._selected_step = None
         self._after_edit(label)
+        # no confirm (undo-first, as the step delete): say what went and how to get it back, where
+        # the author is looking -- the next render puts the summary back
+        said = f"Deleted scene #{k} ({n} step{'s' if n != 1 else ''}) — Ctrl+Z restores it."
+        if self._stack.currentWidget() is self._guide_page:
+            self._show_guide("noscene", said)      # that was the last scene
+        else:
+            self.head_sum.setText(said)
 
     # -- scene settings (Apply-committed: a per-keystroke checkpoint would spam undo) --
     def _toggle_settings(self, on):

@@ -121,3 +121,22 @@ def test_undo_of_a_step_edit_in_another_scene_goes_to_that_scene(win):
     doc.rail.setCurrentRow(0)
     win._undo()
     assert _says(win)[2] == "scene 2" and _shown(win) == 2
+
+
+def test_a_scene_delete_says_what_went_and_how_to_get_it_back(win):
+    """C25: '− Scene' deletes at once (undo-first, no confirm, like the step delete) and said
+    nothing: the scene just vanished from the rail. It says what went and that Ctrl+Z restores
+    it -- through the shell's own re-feed, which re-renders the doc -- also for the last scene."""
+    from PySide6.QtWidgets import QLabel
+    doc = win.cutscene_doc
+    doc.rail.setCurrentRow(1)
+    doc.del_scene_btn.click()
+    assert doc.head_sum.fullText() == "Deleted scene #1 (1 step) — Ctrl+Z restores it."
+    doc.rail.setCurrentRow(1)                          # the next render puts the summary back
+    assert "Deleted" not in doc.head_sum.fullText()
+    for _ in range(2):
+        doc.del_scene_btn.click()
+    said = [lab.text() for lab in doc._guide_page.findChildren(QLabel)]
+    assert any(t.startswith("Deleted scene #0 (1 step) — Ctrl+Z restores it.") for t in said), said
+    win._undo()
+    assert len(_says(win)) == 1
