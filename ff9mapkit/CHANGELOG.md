@@ -207,6 +207,71 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **`image-field` command**: `--id` is checked against the custom field-id band before anything is built, and the
   deploy hint prints the id you gave (it always printed 30058) with the path quoted.
 
+### Fixed — Cutscene tab: typing that vanished, checks that disagreed with the build, lists you could not read
+- **A step with typing that was not applied is no longer thrown away** by the row buttons, + Step, another row's
+  pencil, or selecting, adding, duplicating or deleting a scene. The editor says to Apply or Close first, right under
+  its Apply and Close buttons. A step you open and leave alone never blocks.
+- **Values typed in Scene settings survive** a tab switch, a drag on the stage, an undo of something else and a theme
+  change. Adding or removing a scene rebuilds the form.
+- **PROBLEMS agrees with the build for scenes with a cast.** It flags a step that cannot run with the previous beat,
+  one actor twice in the same beat, an untagged step in a cast of two or more, a scene with no steps, and an unknown
+  window tail or style. It no longer flags a `player` step outside the cast, which the build accepts. A scene it
+  cannot finish checking says so. Animation names are checked by "Check the staging" and by the build.
+- **Duplicate Scene no longer copies a pinned once-flag**, and PROBLEMS flags two play-once scenes that share one.
+- **A line with `signal = "+"` or `signal = true` opens and applies** in the step editor; the field takes +, a
+  number, or blank.
+- **Opening a step keeps its Apply and Close buttons and the row being edited in view.** An error from Apply is
+  shown under those buttons.
+- **The scene list shows what tells scenes apart first** ("#0 · beat 100" over "3 steps · cast 2") and shortens a row
+  with an ellipsis instead of cutting it off above a sideways scrollbar. Hover a row for the whole line.
+- **The staging problems list shows the whole sentence.** Click a problem, or press Enter on it, to go to its scene
+  and step; the stage scrolls to where the walk stalls without changing your zoom. "Check the staging" does the same
+  for the scene you are on.
+- **The storyboard clears when a scene loses its last step**, and its "(no line this beat)" placeholder is a quiet
+  caption.
+- **Undo and Redo of adding, duplicating or deleting a scene select the scene that changed.**
+- "Runs with the previous beat" is available on the second line of a scene you start from empty.
+
+### Changed — Place tab: move and delete what you placed
+- **Drag a placed NPC, prop, chest, spawn or arrival to move it** (one Undo step), and right-click one to delete it.
+  Clicking one no longer drops a second item on top of it. A drop off the walkable floor, Esc, or a lost mouse
+  release puts it back, and a drop off the floor says why.
+- **A marker Place cannot change** (the spawn or an arrival on a verbatim fork, an NPC placed in Blender) is drawn
+  greyed, shows no move cursor, and says why when you hover or click it. The spawn can be moved but not deleted.
+- **Drawing a gateway with no target, or an event zone, asks for the target or the message straight away.** Cancel
+  keeps the marked placeholder, and a blank message is still refused.
+- **On a field it cannot edit** (a bundled example, an installed copy), the tab shows a message saying why and what
+  to do, instead of an empty frame.
+- **Where floors overlap**, the chooser lists each floor once and explains that only the spot is stored; the game
+  finds the height there.
+- **A zone whose corners lie in a line or on one spot warns that it can never fire** (Place and Trace).
+- **A zone the tab refuses snaps back on the art** instead of staying where you let go (Place and Trace), and a floor
+  vertex dragged above the horizon on the Trace tab is refused like a click there.
+- While a room loads, the status names it plainly. The breadcrumb reads "Place — <field>", like Behavior and
+  Cutscene.
+
+### Fixed — Trace tab: floors the build could not walk, the spawn point, and cut-outs
+- **A floor outline whose sides cross, or with a gap too narrow to walk through, is refused at the Generate button**
+  with the vertex named, and nothing is written. Before, the walkmesh silently covered floor you never traced. The
+  dashed walk edge on the photo is the edge the build cuts: a very sharp tip is trimmed instead of being thrown far
+  across the room. A session saved with such an outline still opens so you can fix it.
+- **An L- or U-shaped floor puts the player's spawn point on the floor.**
+- **Regenerate keeps a spawn point you placed in the Place tab** while the new floor still covers it. After a
+  regenerate the status says what it took: a spawn point that moved, a row you wrote by hand that went, or something
+  you added to a traced door or zone. A project generated before this version takes the generator's spawn point one
+  more time, and says so.
+- **A cut-out PNG made at the full 384x448 frame (or a whole multiple of it) lines up with the photo** instead of
+  shrinking to a small piece. The cut-out wording says what to make: a copy of the photo with everything but the
+  object erased, or a crop of the object to drag into place.
+- **Trace says so when a cut-out cannot be read, or when Generate cannot write a placed cut-out beside the photo**,
+  warns when a cut-out has no transparent pixels (it would hide the character everywhere behind it), and previews a
+  file named "...@2x.png" at its real size.
+- **An event message that starts with a dash** (such as "-Stop!") no longer makes Generate fail.
+- **When the horizon is above the picture, Trace says how far**, next to the Pitch slider and on the picture's top
+  edge.
+- **The "Load <field>" button follows the field you select in the tree.** The Undo tooltip says a pitch change is not
+  undone, and a zone reshape the tab refuses says why.
+
 ### Changed — World tab: faster, and the window no longer freezes while it works
 - **Undo, Redo and every Accept no longer reload the whole 3D map.** Only the blocks whose files changed are drawn
   again: Undo and Redo come back in under a second (8-11 s before), a forest Accept in about 5 s (22-25 s).
