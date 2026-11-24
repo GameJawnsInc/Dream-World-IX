@@ -1078,7 +1078,7 @@ def _zone_key(zone):
     vertex dropped), or None when it is not a quad of numbers."""
     try:
         pts = [(int(round(float(p[0]))), int(round(float(p[1])))) for p in zone]
-    except (TypeError, ValueError, IndexError):
+    except (TypeError, ValueError, IndexError, OverflowError):   # OverflowError: an inf corner
         return None
     if len(pts) == 5 and pts[-1] == pts[-2]:
         pts = pts[:4]
@@ -1092,8 +1092,8 @@ def _camera_of(existing):
     try:
         return _guide.make_camera(float(cam["pitch"]), float(cam["distance"]),
                                   fov_x_deg=float(cam["fov"]), range_wh=(CANVAS_W, CANVAS_H))
-    except (TypeError, KeyError, ValueError):
-        return None
+    except (TypeError, KeyError, ValueError, ZeroDivisionError, OverflowError):
+        return None                                # (fov = 0 or 180 divides by zero)
 
 
 def _is_generated_layer(image) -> bool:

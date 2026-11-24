@@ -1882,23 +1882,27 @@ def snap_script(ctx: _Ctx, state: str) -> None:
 BEHAVIOR_STATES = ("guide", "bare", "wizard", "branchwiz", "doc", "compiled", "edit",
                    "stage", "sweep", "siege", "sim")
 
-TRACE_STATES = ("bare", "traced", "contacts", "regions")
+TRACE_STATES = ("bare", "traced", "contacts", "regions", "horizon", "keys")
 
 
 def snap_trace(ctx: _Ctx, state: str) -> None:
     """The Trace tab (click-authoring Rungs 1+2+4): the empty on-ramp ('bare' — the teach caption
-    + the bare canvas frame with its horizon), the synthetic proof room loaded with a traced
-    floor polygon and its +48u outset ring ('traced'), that room with the PILLAR marked as a
-    foreground cut-out at its in-game-proven contact (230,320) -> z 1073 ('contacts' — the strip
-    + the anchored marker), or the Regions tool with a drawn gateway + a law-warned event zone
-    ('regions'). The photo + polygon come from test_imagefield's _paint_room — ONE owner for the
-    fixture art (kit-painted, zero Square-Enix bytes)."""
+    + the bare canvas frame; at the default pitch the horizon sits just ABOVE the frame, so only
+    its top-edge mark shows), the synthetic proof room loaded with a traced floor polygon and its
+    +48u outset ring ('traced'), that room with the PILLAR marked as a foreground cut-out at its
+    in-game-proven contact (230,320) -> z 1073 ('contacts' — the strip + the anchored marker), the
+    Regions tool with a drawn gateway + a law-warned event zone ('regions'), the traced room at
+    pitch 12, where the dashed horizon line and its label lie INSIDE the frame and the back
+    vertices fall above it ('horizon'), or the traced room reached from the keyboard: the canvas
+    focused by Tab, its pill naming the keys and the crosshair aimed by the arrows ('keys'). The
+    photo + polygon come from test_imagefield's _paint_room — ONE owner for the fixture art
+    (kit-painted, zero Square-Enix bytes)."""
     if state not in TRACE_STATES:
         raise ValueError(f"unknown trace state {state!r} (know: {', '.join(TRACE_STATES)})")
     win = _make_win(ctx)
     win.tabs.setCurrentWidget(win.trace_doc)
     _settle(4)
-    if state in ("traced", "contacts", "regions"):
+    if state in ("traced", "contacts", "regions", "horizon", "keys"):
         import importlib.util
         p = REPO / "ff9mapkit" / "tests" / "test_imagefield.py"
         spec = importlib.util.spec_from_file_location("_trace_fixture", p)
@@ -1935,22 +1939,41 @@ def snap_trace(ctx: _Ctx, state: str) -> None:
         td._on_region_drawn([_if.click_to_world(cam, p) for p in   # a bowtie: the spill wash
                              [(220.0, 380.0), (330.0, 380.0), (220.0, 430.0), (330.0, 430.0)]])
         _settle(6)
+    if state == "horizon":
+        win.trace_doc.pitch.setValue(12)               # through the slider, as the author does
+        _settle(6)
+    if state == "keys":
+        from PySide6.QtCore import Qt as _Qt
+        from PySide6.QtTest import QTest
+        cv = win.trace_doc.canvas
+        win.activateWindow()
+        cv.setFocus(_Qt.FocusReason.TabFocusReason)
+        _settle(4)
+        for key, n in ((_Qt.Key.Key_Down, 7), (_Qt.Key.Key_Left, 9)):   # aimed by the arrows alone
+            for _ in range(n):
+                QTest.keyClick(cv, key)
+        _settle(6)
     _grab(ctx, f"trace-{state}", win)
     _grab(ctx, f"trace-{state}-canvas", win.trace_doc.canvas)   # the SUBJECT, not just the window
     with _no_modals():                                 # a traced, un-generated session now asks
         _close(win)                                    # before the window closes (finding T25)
 
 
-PLACE_STATES = ("bare", "fork", "refused", "regions")
+PLACE_STATES = ("bare", "fork", "refused", "regions", "multicam")
 
 
 def snap_place(ctx: _Ctx, state: str) -> None:
     """The Place tab (click-authoring Rung 3c/4): the empty on-ramp ('bare'), a fork member with
     a loaded surface + placed content ('fork' — kit-painted stand-in art + a synthetic flat quad,
-    so the snap needs no install; the REAL donor surface arrives through the user's own Load),
-    a bundled example refusing placement outright ('refused'), or the Regions tool with all
-    three zone-law renders on the art ('regions' — a gateway's walk-out edge, a TREADQUAD
-    overlap warn, and a non-convex quad's over-trigger spill wash)."""
+    so the snap needs no install; the REAL donor surface arrives through the user's own Load;
+    one NPC, Bram, is placed in the field's Blender scene.toml, so its marker is the greyed,
+    LOCKED one Place refuses to move), a bundled example refusing placement outright
+    ('refused'), the Regions tool with all three zone-law renders on the art ('regions' — a
+    gateway's walk-out edge, a TREADQUAD overlap warn, and a non-convex quad's over-trigger spill
+    wash), or that fork as a two-camera room placed under its SECOND camera ('multicam' — the
+    Camera chooser shown, the floor and markers seen from a steeper angle; the stand-in art is
+    camera 0's photo, so under camera 1 the footprint does not sit on it -- a real multi-camera
+    room brings each camera's own art)."""
     if state not in PLACE_STATES:
         raise ValueError(f"unknown place state {state!r} (know: {', '.join(PLACE_STATES)})")
     # 'fork' deliberately ends with an UNSAVED placed prop, so win.close() would fire the
@@ -1969,7 +1992,7 @@ def _snap_place_body(ctx: _Ctx, state: str) -> None:
         win.tabs.setCurrentWidget(win.place_doc)
         _settle(4)
         assert win.place_doc._blocked, "the bundled example must refuse placement"
-    elif state in ("fork", "regions"):
+    elif state in ("fork", "regions", "multicam"):
         import importlib.util
         from ff9mapkit import imagefield as _if
         from ff9mapkit.scene import guide as _guide
@@ -1996,16 +2019,25 @@ def _snap_place_body(ctx: _Ctx, state: str) -> None:
         pf.write_text('[field]\nid = 4702\nname = "PLACEDEMO"\narea = 11\nsource_field = 351\n\n'
                       '[[npc]]\nname = "Mira"\npreset = "vivi"\ndialogue = "..."\n'
                       f'pos = [{round(mx)}, {round(mz)}]\n', encoding="utf-8")
+        if state == "fork":                            # an NPC Blender placed: Place shows it, greyed,
+            bx, bz = w(200, 410)                       # and refuses to move it (a locked marker)
+            (root / "PLACEDEMO.scene.toml").write_text(
+                f'[[npc]]\nname = "Bram"\npos = [{round(bx)}, {round(bz)}]\n', encoding="utf-8")
         assert win.open_field(pf), "the demo fork must open"
         win.tabs.setCurrentWidget(win.place_doc)
         pd = win.place_doc
         # the rung-7d bundle key shape: (source tuple, cam) — the doc's _bundle() lookups miss
         # an old-style bare-donor key silently (markers/regions would never paint here)
-        key = (("real", 351), 0)
-        pd._bundles[key] = {"donor": 351, "source": ("real", 351), "cam_index": 0, "n_cams": 1,
-                            "cam": cam, "png": str(photo), "tris": [(a, b, c), (a, c, d)],
-                            "floors": [0, 0]}
-        pd._apply_bundle(pd._bundles[key], refit=True)
+        n_cams = 2 if state == "multicam" else 1
+        cams = [cam, _guide.make_camera(_if.DEFAULT_PITCH + 12, _if.DEFAULT_DISTANCE,
+                                        fov_x_deg=_if.DEFAULT_FOV)][:n_cams]
+        for ci, cm in enumerate(cams):
+            pd._bundles[(("real", 351), ci)] = {
+                "donor": 351, "source": ("real", 351), "cam_index": ci, "n_cams": n_cams,
+                "cam": cm, "png": str(photo), "tris": [(a, b, c), (a, c, d)], "floors": [0, 0]}
+        ci = n_cams - 1                                # multicam: placed under camera 1, chosen
+        pd._cam_pick[("real", 351)] = ci               # through the doc's own pick
+        pd._apply_bundle(pd._bundles[(("real", 351), ci)], refit=True)
         if state == "regions":
             pd.tools.set_current("regions")            # the rung-4 tool, through its own strip
             pd._ask_message = lambda cur: None         # a drawn event asks for its words (P27):

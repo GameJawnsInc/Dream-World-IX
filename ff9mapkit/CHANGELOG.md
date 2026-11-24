@@ -272,6 +272,61 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **The "Load <field>" button follows the field you select in the tree.** The Undo tooltip says a pitch change is not
   undone, and a zone reshape the tab refuses says why.
 
+### Added — Place and Trace work from the keyboard
+- **Tab into the art and aim a crosshair with the arrow keys** (hold Shift to move one pixel). Enter or Space clicks
+  there, Shift+F10 or the Menu key opens the menu of what is under it, and Delete deletes it. The keys run the same
+  code as the mouse, so whatever a click would refuse there is refused in the same words.
+- **A key acts only where you can see it.** If you zoomed or panned and the crosshair is off screen, the first press
+  brings it back and changes nothing. Holding a key clicks once; only the arrows repeat.
+- The hint in the corner lists the keys when you reach the canvas from the keyboard, and the crosshair shows only
+  after an arrow key, so mouse users never see it. Moving a thing by keyboard is delete, then place: there is no
+  keyboard dragging yet.
+- **Handles, markers and zone corners grow with the text size**, like the labels beside them, and so does the area
+  you can grab.
+- **A placed marker's right-click menu has "Open in the Editor"**, which selects its row and opens its form.
+- A zone that exists only in a Blender scene.toml no longer looks draggable on Place: it is drawn greyed, with no
+  handles or menu, and says why.
+
+### Added — Trace tab: the project's own doors, a session summary, Detect floor
+- **Trace shows the doors and zones the project already has** (drawn in Place or written by hand), greyed and marked
+  "(project)", so a new door is not drawn over one blind. A traced door that overlaps one is warned about. Trace
+  never moves, changes or deletes them, and says where you can.
+- **Traced doors and zones are named on the canvas the way Generate writes them** ("traced_door0"), so one cannot be
+  mistaken for a "door0" made in Place.
+- **The Inspector sums up the session**: the photo, the pitch, the floor and its size in game units, the cut-outs and
+  zones with their warnings, the project folder, whether the last Generate has seen every change, and the next step.
+  The status line under the canvas now shows only what needs your attention.
+- **Detect floor** lays a starting outline from the photo's colours on an empty floor, as one Undo step; drag it onto
+  the floor's real edges.
+- **An empty Trace tab asks you to open or drop a photo**, and a photo dropped on the window opens in Trace (it asks
+  first if traced work would be replaced). "Trace a photo…" sits beside New Field in the Field menu and in the
+  command list (Ctrl+K).
+- **A Generate you stop says "stopped", not "failed".** The next step no longer tells you to press Deploy (F9) when
+  the Editor has a different field open; it says to open this field first.
+
+### Changed — Cutscene tab: room for the stage, a step list you can drive from the keyboard, plainer words
+- **The step list takes only the height its steps need** (up to half), so the stage gets the rest. A split you drag
+  is kept, and opening a step or Scene settings still gets room. The stage re-fits when its pane changes size,
+  unless you have zoomed.
+- **The Problems / Staging column fits the Inspector at 150% text size** instead of being cut off at the window
+  edge. Its buttons are now "Check staging" and "Open .toml".
+- **A name label on the stage never sits on a marker** (Cutscene and Behavior).
+- **The selected step is highlighted**, also in storyboard mode, and **the step list works from the keyboard**: Tab
+  reaches each step, Up and Down select, Enter opens the step, and after Move, Duplicate or Remove the keyboard stays
+  on that step's button. The step editor's Tab order runs through its fields before Apply and Close.
+- **A step with unapplied typing is also kept when you click its own pencil or press Enter on it**; the editor asks
+  you to Apply or Close.
+- Step buttons are at least 24 pixels tall, and Move up on the first step and Move down on the last are disabled.
+- **Every Editor form field has a name a screen reader can say.**
+- **The storyboard's unit is now a "moment"** ("moment 1 of 2", "Runs together with the previous step"). "Beat" means
+  only the story position a scene is gated to.
+- A step's speaker is shown by name in the step list. Deleting a scene says what went and that Ctrl+Z restores it.
+  Scene settings help is in plain words. The first-run banner says "Your field is ready" for any field.
+
+### Fixed — Inspector
+- Switching straight from the Cutscene tab to Behavior no longer leaves the ordinary Inspector card showing under
+  Behavior's column.
+
 ### Changed — World tab: faster, and the window no longer freezes while it works
 - **Undo, Redo and every Accept no longer reload the whole 3D map.** Only the blocks whose files changed are drawn
   again: Undo and Redo come back in under a second (8-11 s before), a forest Accept in about 5 s (22-25 s).

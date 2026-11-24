@@ -87,6 +87,7 @@ class StageCanvas(QGraphicsView):
         self._sim_items = []                      # rung E1: the stepper's live layer (only
         self._sim_mode = False                    # these churn per tick — never the scene)
         self._labels = []                         # every _label call, for the de-collision pass
+        self._markers = []                        # every _marker's (anchor, r): labels avoid them
         self.on_sim_click = None                  # sim mode's one input: click = move player
         self.on_move = on_move
         self.on_radius = on_radius
@@ -262,9 +263,14 @@ class StageCanvas(QGraphicsView):
         (zoom-immune furniture), so what collides depends on the current transform —
         the pass re-runs after every draw, fit, and zoom step. Anchors never move;
         only each text child's dy shifts, so the leader point stays honest."""
-        placed = []
         step = 13
         vw = self.viewport().width()
+        try:                                       # every marker dot is occupied ground: a
+            placed = [QRectF(p.x() - r - 2, p.y() - r - 2, 2 * r + 4, 2 * r + 4)   # label
+                      for p, r in ((self.mapFromScene(a.pos()), r)  # pushed onto a dot hid it
+                                   for a, r in self._markers)]      # ('player spawn' on Cid)
+        except RuntimeError:                       # scene rebuilt under a stale list
+            return
         for lab in self._labels:
             try:
                 base = self.mapFromScene(lab["anchor"].pos())
@@ -272,32 +278,35 @@ class StageCanvas(QGraphicsView):
                 return
             t = lab["item"]
             br = t.boundingRect()
-            dx = lab["dx"]
-            if vw > 40 and base.x() + dx + br.width() > vw - 2:
-                dx = -dx - br.width()              # off the right edge: mirror to the left
-            x = base.x() + dx
-            cands, down = [lab["dy"]], []
-            for k in range(1, 7):                  # nearest tier first, above before below
-                cands.append(lab["dy"] - step * k)
-                down.append(lab["dy"] + step * k)
+            own = lab["dx"]
+            other = -own - br.width()              # the same gap, on the marker's other side
+            if vw > 40 and base.x() + own + br.width() > vw - 2:
+                own, other = other, own            # off the right edge: mirror to the left
+            sides, down = [], []
+            for k in range(0, 7):                  # nearest tier first, BOTH sides of the own
+                sides += [(own, lab["dy"] - step * k), (other, lab["dy"] - step * k)]
+                if k:                              # marker before a climb (a climbed name sat
+                    down += [(own, lab["dy"] + step * k), (other, lab["dy"] + step * k)]
             # a DOWN tier must clear the anchor's own marker row (r≈5 + breathing room):
             # the first down candidate from dy=-16 lands the text ACROSS the dots
             # (snap-caught strike-through on the ×N cluster labels)
-            cands += [dy for dy in down if dy >= 8 or dy + br.height() <= -8]
+            cands = sides + [(dx, dy) for dx, dy in down if dy >= 8 or dy + br.height() <= -8]
             pick = cands[0]
             for onscreen_only in (True, False):    # prefer a tier that stays in the
                 found = False                      # viewport; overlap-free beats clipped
-                for dy in cands:
-                    rect = QRectF(x, base.y() + dy, br.width(), br.height())
-                    if onscreen_only and rect.top() < 1:
+                for dx, dy in cands:
+                    rect = QRectF(base.x() + dx, base.y() + dy, br.width(), br.height())
+                    if onscreen_only and (rect.top() < 1 or rect.left() < 1
+                                          or (vw > 40 and rect.right() > vw - 2)):
                         continue
                     if not any(rect.intersects(pl) for pl in placed):
-                        pick, found = dy, True
+                        pick, found = (dx, dy), True
                         break
                 if found:
                     break
-            t.setPos(dx, pick)
-            placed.append(QRectF(x, base.y() + pick, br.width(), br.height()))
+            t.setPos(*pick)
+            placed.append(QRectF(base.x() + pick[0], base.y() + pick[1],
+                                 br.width(), br.height()))
 
     def paintEvent(self, ev):                      # noqa: N802 (Qt override)
         if self._fit_pending:                      # deferred to the first REAL paint: at set_model
@@ -527,6 +536,7 @@ class StageCanvas(QGraphicsView):
         dot = self._child(self._scene.addEllipse(-r, -r, 2 * r, 2 * r), anchor)
         dot.setPen(QPen(QColor(color), 1.6))
         dot.setBrush(QBrush(Qt.BrushStyle.NoBrush) if hollow else QBrush(QColor(color)))
+        self._markers.append((anchor, r))
         return anchor
 
     def _reset_scene(self):
@@ -537,6 +547,7 @@ class StageCanvas(QGraphicsView):
         self._coords.hide()
         self._move_items, self._grip_items = [], []
         self._labels = []                          # rebuilt by the draw; de-collision reads it
+        self._markers = []
         self._scene.clear()
 
     def _draw_handles(self):

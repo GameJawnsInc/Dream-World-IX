@@ -289,7 +289,7 @@ def test_the_storyboard_scrubs_beats_and_wraps_the_say_line(doc, tmp_path):
     assert len(beats) == 2                              # [walk + turn] then [say]
     assert doc.board_slider.maximum() == 1
     doc._show_beat(1)
-    assert "beat 2 of 2" in doc.board_pos.text()
+    assert doc.board_pos.text() == "moment 2 of 2"
     # E1: the strip shows the line the BUILD emits (name line, quotes, the build's wrap) --
     # not an invented "Cid:" prefix
     assert doc.board_say.text() == _as_built("Cid", "Made it to the altar.")
@@ -298,6 +298,52 @@ def test_the_storyboard_scrubs_beats_and_wraps_the_say_line(doc, tmp_path):
     assert t["beatpos"] >= 1                            # storyboard mode draws positions
     doc.board_btn.setChecked(False)
     assert doc.ladder._beat_marks == set()
+
+
+def test_beat_means_the_story_and_moment_means_steps_that_run_together(doc, tmp_path):
+    """C20: 'beat' meant the story position ('plays at beat 100') AND the storyboard's group of
+    steps ('beat 1 of 2', 'Runs with the previous beat') on one screen. The story keeps 'beat';
+    the storyboard's unit is a 'moment' wherever the tab shows it."""
+    from PySide6.QtWidgets import QAbstractButton, QLabel
+    _fed(doc, tmp_path)
+    doc.board_btn.setChecked(True)
+    doc._show_beat(0)
+    doc._edit_step(1)
+    assert "plays at beat 100" in doc.scene_gate.fullText() if hasattr(doc.scene_gate, "fullText") \
+        else "plays at beat 100" in doc.scene_gate.text()
+    said = []
+    for w in doc.findChildren(QLabel) + doc.findChildren(QAbstractButton) + [doc.board_slider]:
+        said += [w.text() if hasattr(w, "text") else "", w.toolTip(), w.accessibleName()]
+    said += [doc.board_note.toolTip()] + [r.accessibleName() for r in doc.ladder._rows]
+    said += cutscenescan.scene_problems(
+        {"cutscene": [{"steps": [{"say": "a", "with_prev": True}]}]})
+    story = [t for t in said if "beat" in t.lower() and "plays at beat" not in t
+             and "story beat" not in t]
+    assert story == [], story
+    assert doc.board_pos.text() == "moment 1 of 2"
+    assert doc.editor.with_prev.text() == "Runs together with the previous step"
+
+
+def test_a_row_names_who_speaks_and_notes_its_other_keys_quietly(doc, tmp_path):
+    """C27: a say with a speaker showed a '+speaker' pill: the key, not the name, behind a '+'
+    that read like a button. The row shows the NAME in the actor's slot ("as Vivi" beside an
+    actor), and other extra keys as a muted caption with no '+'."""
+    from PySide6.QtWidgets import QLabel
+    toml = FIELD_TOML.replace(
+        '  { say = "Made it to the altar.", speaker = "Cid" },\n',
+        '  { say = "Made it to the altar.", speaker = "Cid" },\n'
+        '  { say = "Me too.", actor = "Mira", speaker = "Vivi", tail = "UPR" },\n')
+    _fed(doc, tmp_path, toml)
+    rows = _rows_now(doc)
+
+    def texts(row):
+        return [lab.text() for lab in row.findChildren(QLabel)]
+
+    assert "Cid" in texts(rows[2]) and not any("+" in t for t in texts(rows[2]))
+    assert "Mira" in texts(rows[3]) and "as Vivi" in texts(rows[3])
+    caps = [lab for lab in rows[3].findChildren(QLabel) if lab.text() == "tail"]
+    assert caps and caps[0].property("role") == "caption", "an extra key is a quiet caption"
+    assert "as Vivi" in rows[3].accessibleName()
 
 
 def test_a_beat_with_no_line_says_so_quietly(doc, tmp_path):
@@ -610,6 +656,78 @@ def test_a_long_staging_row_wraps_whole_natively():
     if out["platform"] in ("offscreen", "minimal"):
         pytest.skip(f"no native font database ({out['platform']})")
     assert Path(out["file"]).resolve().is_relative_to(pkg_root)
+    assert out["cut"] == [], "\n".join(out["cut"])
+
+
+# C31: the docked column is laid out at whatever width the Inspector has. Measured natively
+# before the fix, its floor was the staging button's whole label (198 px at 150%, 171 at 125%),
+# wider than the Inspector's 169 px viewport in the default window at 150%, so the column was
+# cut at the window edge ("Check the stagi", "No structural proble").
+_NATIVE_COLUMN_CHILD = r'''
+import json
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication
+app = QApplication([])
+print("QT-PLATFORM-UP", flush=True)
+import ff9mapkit
+from ff9mapkit.editor import theme
+from ff9mapkit.workspace import style
+from ff9mapkit.workspace.shell import _apply_app_theme
+from ff9mapkit.workspace.cutscenedoc import CutsceneDoc
+pal = theme.pick_palette("mist")
+_apply_app_theme(app, pal)
+cut = []
+W = 150                                      # under the 169 px Inspector of 1280 px at 150%
+for scale in (100, 125, 150):
+    d = CutsceneDoc(pal, scale=scale)
+    host = d.instruments
+    host.setStyleSheet(style.qss(pal, "comfortable", scale))
+    host.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+    host.resize(W, 600)
+    host.show()
+    app.processEvents()
+    if host.minimumSizeHint().width() > W:
+        cut.append(f"{scale}%: the column asks {host.minimumSizeHint().width()} px")
+    for b in (d.stage_btn, d.toml_btn):
+        if b.geometry().right() >= host.width():
+            cut.append(f"{scale}%: {b.accessibleName()!r} ends at {b.geometry().right()}")
+        if b.isVisible() and b.text() == "":
+            cut.append(f"{scale}%: a button lost its label")
+    if d.stage_btn.accessibleName() != "Check that every cutscene walk can reach its target":
+        cut.append(f"{scale}%: the staging button's name is {d.stage_btn.accessibleName()!r}")
+    host.hide()
+print(json.dumps({"platform": app.platformName(), "file": ff9mapkit.__file__, "cut": cut}))
+'''
+
+
+def _run_native_child(code):
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    import ff9mapkit
+    pkg_root = Path(ff9mapkit.__file__).resolve().parent.parent
+    env = {k: v for k, v in os.environ.items() if k != "QT_QPA_PLATFORM"}
+    env["PYTHONIOENCODING"] = "utf-8"
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                       timeout=300, env=env, cwd=str(pkg_root))
+    lines = r.stdout.decode("utf-8", "replace").strip().splitlines()
+    err = r.stderr.decode("utf-8", "replace")[-600:]
+    if "QT-PLATFORM-UP" not in lines:
+        pytest.skip(f"no native Qt platform here: {err}")
+    assert r.returncode == 0, f"the measuring child crashed AFTER Qt came up:\n{err}"
+    out = json.loads(lines[-1])
+    if out["platform"] in ("offscreen", "minimal"):
+        pytest.skip(f"no native font database ({out['platform']})")
+    assert Path(out["file"]).resolve().is_relative_to(pkg_root)
+    return out
+
+
+def test_the_docked_column_fits_a_narrow_inspector_natively():
+    """C31: the Problems/Staging column yields to the Inspector's width at every text size --
+    its buttons elide instead of setting the column's floor at their whole label."""
+    out = _run_native_child(_NATIVE_COLUMN_CHILD)
     assert out["cut"] == [], "\n".join(out["cut"])
 
 
@@ -1590,7 +1708,7 @@ def test_a11y_names_on_every_interactive_control(doc, tmp_path):
     _fed(doc, tmp_path)
     assert doc.rail.accessibleName() == "Cutscene scenes"
     assert doc.canvas.accessibleName() == "Cutscene stage"
-    assert doc.board_slider.accessibleName() == "Storyboard beat"
+    assert doc.board_slider.accessibleName() == "Storyboard moment"
     assert doc.stage_btn.accessibleName()
     assert doc.stage_list.accessibleName() == "Cutscene staging problems"
     assert doc.ladder.accessibleName() == "Cutscene steps"
@@ -1679,6 +1797,115 @@ def test_adding_or_duplicating_a_scene_closes_the_step_editor(doc, tmp_path):
         assert doc.editor.scene is None, f"{act.__name__} left the step editor open"
 
 
+def test_the_first_rows_up_and_the_last_rows_down_are_disabled(doc, tmp_path):
+    """C37: up on row 0 and down on the last row were enabled, did nothing, and cost a tab stop."""
+    _fed(doc, tmp_path)
+    QApplication.sendPostedEvents(None, 52)            # bury the rebuilt rows' predecessors
+    up, down = "Move this step up", "Move this step down"
+    assert not _rowtool(doc, up, 0).isEnabled() and _rowtool(doc, down, 0).isEnabled()
+    assert _rowtool(doc, up, 2).isEnabled() and not _rowtool(doc, down, 2).isEnabled()
+    _rowtool(doc, down, 1).click()                     # the boundary follows the rows
+    QApplication.sendPostedEvents(None, 52)
+    assert not _rowtool(doc, up, 0).isEnabled() and not _rowtool(doc, down, 2).isEnabled()
+
+
+def _focused_doc(doc, tmp_path):
+    _shown(doc, tmp_path)
+    import warnings
+    with warnings.catch_warnings():                    # focusWidget() needs the active window, and
+        warnings.simplefilter("ignore", DeprecationWarning)   # offscreen activates no window itself
+        QApplication.setActiveWindow(doc)
+    QApplication.processEvents()
+
+
+def _focus_name():
+    w = QApplication.focusWidget()
+    return (w.accessibleName() or type(w).__name__) if w is not None else None
+
+
+def _rows_now(doc):
+    QApplication.sendPostedEvents(None, 52)
+    return list(doc.ladder._rows)
+
+
+def test_the_selected_row_wears_a_state_the_storyboard_cannot_hide(doc, tmp_path):
+    """C24: selection decides where '+ Step' inserts, yet it showed only as a glyph on the index
+    chip that the storyboard's beat mark replaced. The row itself carries the state."""
+    _fed(doc, tmp_path)
+    doc._on_step_select(1)
+    assert [r.property("selected") for r in _rows_now(doc)] == [False, True, False]
+    doc.board_btn.setChecked(True)
+    doc._show_beat(0)                                  # beat 0 marks rows 0 and 1, not 2
+    assert [r.property("selected") for r in _rows_now(doc)] == [False, True, False]
+    assert all(r.objectName() == "cutsceneStep" for r in _rows_now(doc))
+
+
+def test_a_row_tool_keeps_the_keyboard_on_its_step_after_the_rebuild(doc, tmp_path):
+    """C36: rows are rebuilt on every edit, so the focused tool died and the focus fell to an
+    unrelated button. It comes back to the same tool on the step's new row."""
+    from PySide6.QtTest import QTest
+    _focused_doc(doc, tmp_path)
+    down = _rowtool(doc, "Move this step down", 0)
+    down.setFocus()
+    QTest.keyClick(down, Qt.Key.Key_Space)
+    assert [forms.step_key(s) for s in doc._steps()][:2] == ["turn", "walk"]
+    assert _focus_name() == "Move this step down — step 1", _focus_name()
+    dup = _rowtool(doc, "Duplicate this step", 1)
+    dup.setFocus()
+    QTest.keyClick(dup, Qt.Key.Key_Space)
+    assert _focus_name() == "Duplicate this step — step 2", _focus_name()
+    rm = _rowtool(doc, "Remove this step (Ctrl+Z undoes)", 3)
+    rm.setFocus()
+    QTest.keyClick(rm, Qt.Key.Key_Space)               # the last row: the focus stays at the end
+    assert _focus_name() == "Remove this step (Ctrl+Z undoes) — step 2", _focus_name()
+    # moving the first row's step down into the last place: down is disabled there, the row holds it
+    last = _rowtool(doc, "Move this step down", 1)
+    last.setFocus()
+    QTest.keyClick(last, Qt.Key.Key_Space)
+    assert isinstance(QApplication.focusWidget(), type(_rows_now(doc)[0]))
+    assert QApplication.focusWidget() is _rows_now(doc)[2]
+
+
+def test_a_row_is_a_keyboard_stop_up_down_select_and_enter_edits(doc, tmp_path):
+    """C36 / C24: selection was mouse-only, so a keyboard author could insert only at the end."""
+    from PySide6.QtTest import QTest
+    _focused_doc(doc, tmp_path)
+    row0 = _rows_now(doc)[0]
+    assert row0.focusPolicy() & Qt.FocusPolicy.TabFocus
+    row0.setFocus()
+    QTest.keyClick(row0, Qt.Key.Key_Down)
+    assert doc._selected_step == 1 and QApplication.focusWidget() is _rows_now(doc)[1]
+    QTest.keyClick(QApplication.focusWidget(), Qt.Key.Key_Down)
+    QTest.keyClick(QApplication.focusWidget(), Qt.Key.Key_Up)
+    assert doc._selected_step == 1 and QApplication.focusWidget() is _rows_now(doc)[1]
+    QTest.keyClick(QApplication.focusWidget(), Qt.Key.Key_Return)
+    assert doc.editor.scene == 0 and doc.editor.step_i == 1
+
+
+def test_the_tab_order_reads_rows_then_the_editor_then_the_stage(doc, tmp_path):
+    """E5: rebuilt rows joined the focus chain last, after the toolbar and the Inspector; inside
+    the editor Apply and Close came before the fields; the read-only wrap preview was a stop."""
+    _focused_doc(doc, tmp_path)
+    doc._edit_step(2)
+    QApplication.processEvents()
+    chain, w = [], doc.board_btn
+    for _ in range(80):
+        w = w.nextInFocusChain()
+        if w is doc.canvas:
+            break
+        if w.isVisible() and w.isEnabled() and w.focusPolicy() & Qt.FocusPolicy.TabFocus:
+            chain.append(w)
+    assert w is doc.canvas, "the stage does not follow the ladder"
+    rows = _rows_now(doc)
+    assert chain[0] is rows[0], "the first stop after the scene bar is not the first row"
+    ed = doc.editor
+    i_row2, i_kind = chain.index(rows[2]), chain.index(ed.kind)
+    assert i_row2 < i_kind < chain.index(ed.value_text) < chain.index(ed.apply_btn) \
+        < chain.index(ed.close_btn)
+    previews = [b for b in ed.say_preview.findChildren(type(ed.value_text))]
+    assert previews and all(p not in chain and p.accessibleName() for p in previews)
+
+
 def _rowtool(doc, glyph_tip, i):
     """The real ladder button (rowtools are named '<tip> — step <i>')."""
     from PySide6.QtWidgets import QPushButton
@@ -1694,6 +1921,11 @@ _GESTURES = {
     "delete": lambda doc: _rowtool(doc, "Remove this step (Ctrl+Z undoes)", 1).click(),
     "pencil on another row": lambda doc: _rowtool(doc, "Edit this step (click again to fold)",
                                                   1).click(),
+    # the final review of batch 5: the OPEN row's own pencil, and Enter on that row (new with
+    # the keyboard ladder), folded the editor and dropped the line -- the gap batch 4 left open
+    "pencil on the open row": lambda doc: _rowtool(doc, "Edit this step (click again to fold)",
+                                                   0).click(),
+    "Enter on the open row": lambda doc: doc.ladder._on_row_key(0, "enter"),
     "add a step": lambda doc: doc.add_step_btn.click(),
     "another scene": lambda doc: doc.rail.setCurrentRow(0),
     "delete the scene": lambda doc: doc.del_scene_btn.click(),
@@ -1727,6 +1959,165 @@ def _in_view(doc, w):
     vp = doc._lscroll.viewport()
     y = w.mapTo(vp, QPoint(0, 0)).y()
     return 0 <= y and y + min(w.height(), 30) <= vp.height()
+
+
+def _shown(doc, tmp_path, w=1000, h=700, toml=FIELD_TOML):
+    from PySide6.QtCore import Qt as _Qt
+    doc.setAttribute(_Qt.WidgetAttribute.WA_DontShowOnScreen)
+    doc.resize(w, h)
+    doc.show()
+    _fed(doc, tmp_path, toml)
+    QApplication.processEvents()
+    QApplication.processEvents()
+
+
+def _ladder_content(doc):
+    return doc.ladder.sizeHint().height() + 2 * doc._lscroll.frameWidth()
+
+
+def test_the_ladder_pane_takes_its_content_up_to_half_and_the_stage_the_rest(doc, tmp_path):
+    """C15: the split was set once to 340:280, so a three-step scene left a third of the ladder
+    pane empty while the stage was a strip. Until the author drags the handle, the ladder takes
+    its content's height, never more than half; the stage gets the rest -- also after a resize."""
+    _shown(doc, tmp_path)
+    for h in (700, 900, 560):
+        doc.resize(1000, h)
+        QApplication.processEvents()
+        QApplication.processEvents()
+        lad, stage = doc._vsplit.sizes()
+        total = lad + stage
+        assert lad == min(_ladder_content(doc), total // 2), (h, lad, stage)
+        assert stage >= total // 2
+    # a long scene: the ladder stops at half and scrolls
+    long = FIELD_TOML.replace('  { wait = 30 },\n', "".join(
+        f'  {{ say = "line {n}" }},\n' for n in range(12)) + '  { wait = 30 },\n')
+    _fed(doc, tmp_path, long)
+    doc.rail.setCurrentRow(1)
+    QApplication.processEvents()
+    lad, stage = doc._vsplit.sizes()
+    assert _ladder_content(doc) > (lad + stage) // 2 and lad == (lad + stage) // 2
+
+
+def test_a_dragged_split_is_the_authors_and_the_storyboard_keeps_a_stage(doc, tmp_path):
+    """C15: a split the author dragged is a choice -- renders and resizes keep it. Turning the
+    storyboard on (its strip takes height from this split) still keeps the stage at least 200 px
+    at 100% text (or half the split), so the stage it narrates is never a sliver."""
+    _shown(doc, tmp_path)
+    total = sum(doc._vsplit.sizes())
+    doc._vsplit.setSizes([total - 60, 60])
+    doc._vsplit.splitterMoved.emit(total - 60, 1)      # what a drag of the handle sends
+    doc._render()
+    doc.resize(1000, 720)
+    QApplication.processEvents()
+    QApplication.processEvents()
+    assert doc._vsplit.sizes()[1] < 100, "a render or a resize undid the author's split"
+    doc.board_btn.setChecked(True)
+    QApplication.processEvents()
+    lad, stage = doc._vsplit.sizes()
+    assert stage >= min(200, (lad + stage) // 2), (lad, stage)
+
+
+def test_an_open_panel_still_gets_a_usable_ladder(doc, tmp_path):
+    """The old guard, now inside the one owner: the step editor opens with up to 300 px of
+    ladder (at 100%), the stage keeping 140."""
+    _shown(doc, tmp_path, h=760)
+    doc._edit_step(2)
+    QApplication.processEvents()
+    lad, stage = doc._vsplit.sizes()
+    assert lad >= min(300, lad + stage - 140) and stage >= 140, (lad, stage)
+
+
+def test_scene_settings_opens_with_a_usable_ladder(doc, tmp_path):
+    """C15 after review: the ladder pane shrinks to a short scene's rows, and Scene settings
+    opens INSIDE that pane -- it must get the same guard as the step editor, or the card shows
+    only its first field."""
+    _shown(doc, tmp_path, h=760)
+    QApplication.processEvents()
+    before = doc._vsplit.sizes()[0]
+    doc.settings_btn.setChecked(True)
+    QApplication.processEvents()
+    lad, stage = doc._vsplit.sizes()
+    assert before < min(300, lad + stage - 140), "the fence needs a ladder shrunk to its rows"
+    assert lad >= min(300, lad + stage - 140) and stage >= 140, (lad, stage)
+
+
+def test_the_stage_refits_to_its_pane_until_the_author_zooms(doc, tmp_path):
+    """C15/C23: the storyboard strip and the split change the stage's height; the stage re-fits
+    while it is still fitted, and never resets a zoom the author chose."""
+    from PySide6.QtCore import QPoint, QPointF
+    from PySide6.QtGui import QWheelEvent
+    _shown(doc, tmp_path, h=600)                       # a stage short enough to fit under the cap
+    doc.canvas.repaint()                               # the first paint runs the pending fit
+    QApplication.processEvents()
+    z0 = doc.canvas._zoom
+    doc.board_btn.setChecked(True)
+    QApplication.processEvents()
+    QApplication.processEvents()
+    assert doc.canvas._zoom != z0, "the stage kept the zoom of a taller pane"
+    r = doc.canvas.mapFromScene(doc.canvas.sceneRect()).boundingRect()
+    vp = doc.canvas.viewport().rect()
+    assert vp.adjusted(-2, -2, 2, 2).contains(r), "an edge marker is clipped after the toggle"
+    ev = QWheelEvent(QPointF(20, 20), QPointF(20, 20), QPoint(0, 0), QPoint(0, 120),
+                     Qt.MouseButton.NoButton, Qt.KeyboardModifier.ControlModifier,
+                     Qt.ScrollPhase.NoScrollPhase, False)
+    fitted = doc.canvas._zoom
+    QApplication.sendEvent(doc.canvas.viewport(), ev)
+    zoomed = doc.canvas._zoom
+    assert zoomed != fitted, "the wheel did not zoom (the fence would prove nothing)"
+    doc.board_btn.setChecked(False)
+    QApplication.processEvents()
+    QApplication.processEvents()
+    assert doc.canvas._zoom == zoomed, "a pane change reset the author's zoom"
+
+
+def _on_screen(c, it):
+    """An item's painted rect in viewport px (labels and dots are zoom-immune furniture)."""
+    return it.deviceTransform(c.viewportTransform()).mapRect(it.boundingRect())
+
+
+def _label_hits(c):
+    """Every (label, dot) pair where a stage label is painted across a marker dot."""
+    from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsSimpleTextItem
+    items = c._scene.items()
+    texts = [it for it in items if isinstance(it, QGraphicsSimpleTextItem)
+             and it.data(2) == "label"]
+    dots = [it for it in items if isinstance(it, QGraphicsEllipseItem) and it.data(2)
+            and it.data(2) != "label"]
+    return [(t.text(), d.data(2)) for t in texts for d in dots
+            if _on_screen(c, t).adjusted(1, 1, -1, -1).intersects(_on_screen(c, d))]
+
+
+@pytest.mark.parametrize("w,h", [(330, 150), (420, 130), (527, 208), (601, 175)])
+def test_a_stage_label_never_lands_on_a_marker(doc, tmp_path, w, h):
+    """C23: labels avoided each other but not the dots, so 'player spawn' was pushed a tier
+    down onto Cid's start post at 125% and 150%. A dot is occupied ground; a label tries the
+    other side of its own marker before it climbs."""
+    _shown(doc, tmp_path)
+    c = doc.canvas
+    for board in (False, True):
+        doc.board_btn.setChecked(board)
+        c.resize(w, h)
+        QApplication.processEvents()
+        c._fit()
+        assert _label_hits(c) == [], f"board={board}"
+        for lab in c._labels:                          # each label stays beside its own anchor
+            a = c.mapFromScene(lab["anchor"].pos())
+            r = _on_screen(c, lab["item"])
+            assert r.left() - 40 <= a.x() <= r.right() + 40, lab["item"].text()
+
+
+def test_the_zoom_pill_gives_way_in_a_short_stage(doc, tmp_path):
+    """C15: in a stage a few lines tall the 'Ctrl+scroll zooms' pill covered the routed leg and
+    a name; it shows only when the stage is at least six pill-heights tall."""
+    _shown(doc, tmp_path)
+    c = doc.canvas
+    assert c._hint.isVisible(), "a roomy stage teaches its zoom"
+    c.resize(c.width(), 5 * c._hint.height())
+    QApplication.processEvents()
+    assert not c._hint.isVisible(), "the pill sits on the stage it should leave visible"
+    c.resize(c.width(), 10 * c._hint.height())
+    QApplication.processEvents()
+    assert c._hint.isVisible()
 
 
 def test_opening_a_step_shows_the_editors_header_and_the_row_it_edits(doc, tmp_path):
@@ -1922,3 +2313,28 @@ def test_a_check_that_was_running_while_the_scenes_changed_paints_nothing(doc, t
     doc._finish_stage((doc._stage_gen, doc._last_stage, stale_rows, doc._wmesh))
     assert doc._verdicts == [], "rows judged against the old scene layout were painted"
     assert doc._restage_timer.isActive(), "the document must be judged again as it now is"
+
+
+# --------------------------------------------------------------- batch 5, after its final review
+def test_a_clean_open_row_still_folds_on_its_own_pencil_and_on_enter(doc, tmp_path):
+    """...and only a DIRTY editor refuses: an untouched one folds as it always did."""
+    _fed(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc._edit_step(0)
+    assert doc.editor.scene == 1
+    doc.ladder._on_row_key(0, "enter")
+    assert doc.editor.scene is None
+    doc._edit_step(0)
+    _rowtool(doc, "Edit this step (click again to fold)", 0).click()
+    assert doc.editor.scene is None
+
+
+def test_the_inspector_buttons_say_what_they_do_in_two_words(doc):
+    """At 150% the Inspector's buttons elided to 'Check the ...' and 'Open the ....': the words
+    that say WHAT were the ones cut. The labels are short; the tooltip and the accessible name
+    keep the sentence."""
+    assert doc.stage_btn.text() in ("Check staging", "Check staging…") or \
+        doc.stage_btn._full == "Check staging"
+    assert doc.toml_btn._full == "Open .toml"
+    assert doc.stage_btn.accessibleName() == "Check that every cutscene walk can reach its target"
+    assert "walk" in doc.stage_btn.toolTip() and ".toml" in doc.toml_btn.toolTip()

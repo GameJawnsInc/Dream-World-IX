@@ -85,7 +85,8 @@ def test_gestures_gate_generate(app, tmp_path):
     assert not doc.gen_btn.isEnabled()                 # 2 vertices: not a polygon yet
     doc.canvas._commit_floor([(100, 300), (280, 300), (190, 430)])
     assert doc.gen_btn.isEnabled()
-    assert "3 vertices traced" in doc.status.text()
+    assert "3 vertices" in doc.ins_floor.text()         # the tally lives in the Inspector (T41)
+    assert doc.status.text() == "Generate the field project."   # the status: the next step
 
 
 def test_pitch_rejudges_the_trace(app, tmp_path):
@@ -584,7 +585,7 @@ def test_an_unreadable_cut_out_is_said_not_swallowed(app, tmp_path, monkeypatch)
     assert len(doc._history) == steps and not doc._fg[0].get("image")
     assert "Could not read broken.png" in doc.status.text()
     assert doc.status.property("state") == "error"
-    assert "not stamped" not in doc.status.text()      # a gesture that did nothing changed nothing
+    assert "Changed since the last Generate" not in doc.status.text()      # a gesture that did nothing changed nothing
 
 
 def test_a_placed_cut_out_that_cannot_be_written_beside_the_photo_is_said(app, tmp_path,
@@ -859,11 +860,11 @@ def test_unstamped_changes_warn_until_regenerate(app, tmp_path, monkeypatch):
     doc.id_box.setText("30777")
     monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
     doc.on_generate()
-    assert "not stamped" not in doc.status.text()
+    assert "Changed since the last Generate" not in doc.status.text()
     doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 445)])
-    assert "not stamped" in doc.status.text() and "Regenerate" in doc.status.text()
+    assert "Changed since the last Generate" in doc.status.text() and "Regenerate" in doc.status.text()
     doc.on_generate()
-    assert "not stamped" not in doc.status.text()
+    assert "Changed since the last Generate" not in doc.status.text()
 
 
 # --------------------------------------------------------------------------- rung 4: regions
@@ -1341,19 +1342,19 @@ def test_a_failed_first_generate_leaves_the_tab_unarmed_and_the_retry_opens(app,
 def test_the_status_settles_after_a_regenerate_and_a_failed_one_is_not_stamped(app, tmp_path,
                                                                                monkeypatch):
     """Every finish says how it ended. A regenerate that failed and left the project as it was
-    must not claim the project matches the session: the 'not stamped' warning comes back."""
+    must not claim the project matches the session: the 'Changed since the last Generate' warning comes back."""
     pytest.importorskip("PIL")
     doc, run, toml = _armed(app, tmp_path, monkeypatch)
     doc.canvas._commit_floor([(120, 210), (254, 200), (364, 440), (20, 440)])
     doc.on_generate()
     toml.write_text('[field]\nid = 30789\nname = "PICTURE"\narea = 12\n', encoding="utf-8")
     run.calls[1][1]["on_finished"](0)
-    assert "Regenerated PICTURE" in doc.status.text() and "not stamped" not in doc.status.text()
+    assert "Regenerated PICTURE" in doc.status.text() and "Changed since the last Generate" not in doc.status.text()
     doc.canvas._commit_floor([(110, 220), (254, 200), (364, 440), (20, 440)])
     doc.on_generate()
     run.calls[2][1]["on_finished"](2)                  # refused: the file did not move
     assert "failed" in doc.status.text() and "Generating" not in doc.status.text()
-    assert "not stamped" in doc.status.text()
+    assert "Changed since the last Generate" in doc.status.text()
     # the job writes walkmesh.obj + art BEFORE the toml, so an unmoved toml proves nothing about
     # them: the status must not give the all-clear (review of T8)
     assert "was not changed" not in doc.status.text()
@@ -1361,7 +1362,7 @@ def test_the_status_settles_after_a_regenerate_and_a_failed_one_is_not_stamped(a
     doc.on_generate()                                  # a failure that DID write the file is
     toml.write_text('[field]\nid = 30789\nname = "PICTURE"\narea = 13\n', encoding="utf-8")
     run.calls[3][1]["on_finished"](1)                  # judged by the disk: it is stamped
-    assert "not stamped" not in doc.status.text() and "Output panel" in doc.status.text()
+    assert "Changed since the last Generate" not in doc.status.text() and "Output panel" in doc.status.text()
 
 
 def _hall(app, tmp_path):
@@ -1797,7 +1798,7 @@ def test_a_long_status_wraps_and_never_widens_the_tab(app, tmp_path):
 
 
 def test_the_warning_the_author_must_act_on_comes_first(app, tmp_path, monkeypatch):
-    """The 'not stamped' and 'door without a target' clauses used to be APPENDED after the counts,
+    """The 'Changed since the last Generate' and 'door without a target' clauses used to be APPENDED after the counts,
     so they were the part cut off the right edge."""
     pytest.importorskip("PIL")
     from ff9mapkit import imagefield as IF
@@ -1811,8 +1812,9 @@ def test_the_warning_the_author_must_act_on_comes_first(app, tmp_path, monkeypat
                           [(60.0, 300.0), (140.0, 300.0), (140.0, 330.0), (60.0, 330.0)]])
     doc._refresh()
     text = doc.status.text()
-    assert text.startswith("⚠ not stamped"), text
-    assert text.index("without a target") < text.index("vertices traced"), text
+    assert text.startswith("⚠ Changed since the last Generate"), text
+    # the tally moved to the Inspector (T41): what is left after the stamp is the warning
+    assert text.split(" · ")[1].startswith("⚠ 1 door without a target"), text
 
 
 def test_a_tool_switch_that_spills_the_row_keeps_the_frame_in_view_and_the_authors_zoom(app, tmp_path):
@@ -2396,4 +2398,664 @@ def test_the_regions_tool_says_zone_and_how_to_cancel(app, tmp_path):
     doc.ev_msg.setText("The floor creaks.")
     doc._on_region_drawn([(-200.0, 900.0), (200.0, 900.0), (200.0, 1300.0), (-200.0, 1300.0)])
     doc._refresh()
-    assert "1 zone" in doc.status.text() and "region" not in doc.status.text(), doc.status.text()
+    assert "Zones: 1" in doc.ins_zones.text() and "region" not in doc.status.text(), \
+        doc.status.text()
+
+
+# --------------------------------------------------------------------------- T33: Detect floor
+def _room_photo(tmp_path):
+    """A photo with a floor auto_floor can find: a lit trapezoid on a dark room."""
+    from PIL import Image, ImageDraw
+    p = tmp_path / "room-photo.png"
+    im = Image.new("RGB", (1200, 900), (60, 60, 90))
+    ImageDraw.Draw(im).polygon([(360, 450), (840, 450), (1200, 900), (0, 900)], fill=(150, 120, 80))
+    im.save(p)
+    return p
+
+
+def test_detect_floor_seeds_an_empty_floor_as_one_undoable_gesture(app, tmp_path):
+    """Finding T33: the tab never called imagefield.auto_floor, the seed the CLI tracer had."""
+    pytest.importorskip("numpy")
+    doc, _run = _doc(app)
+    assert not doc.detect_btn.isEnabled()                # nothing to detect on yet
+    doc.load_image(_room_photo(tmp_path))
+    assert doc.detect_btn.isEnabled() and "starting outline" in doc.detect_btn.toolTip().lower()
+    doc.detect_btn.click()
+    assert len(doc._floor) >= 3 and doc.canvas.floor() == doc._floor
+    assert all(0 <= x <= 384 and 0 <= y <= 448 for x, y in doc._floor)
+    assert len(doc._history) == 1 and doc.gen_btn.isEnabled()   # the hand trace's own gate
+    assert "starting outline" in doc.status.text() and "drag" in doc.status.text()
+    doc.on_undo()
+    assert doc._floor == [] and doc.canvas.floor() == []
+
+
+def test_detect_floor_never_replaces_a_traced_floor(app, tmp_path):
+    pytest.importorskip("numpy")
+    doc, _run = _doc(app)
+    doc.load_image(_room_photo(tmp_path))
+    mine = [(100.0, 300.0), (280.0, 300.0), (190.0, 430.0)]
+    doc.canvas._commit_floor(mine)
+    assert not doc.detect_btn.isEnabled()                # not offered over a traced floor...
+    doc.on_detect_floor()                                # ...and the handler still guards itself
+    assert doc._floor == mine and len(doc._history) == 1
+    assert "Clear the floor first" in doc.status.text()
+    assert doc.status.property("state") == "warn"
+
+
+def test_detect_floor_says_why_in_the_tabs_words_when_it_finds_none(app, tmp_path):
+    pytest.importorskip("numpy")
+    doc, _run = _doc(app)
+    doc.load_image(_photo(tmp_path))                     # one flat colour: no floor boundary
+    doc.detect_btn.click()
+    said = doc.status.text()
+    assert said.startswith("⚠ No floor found") and doc.status.property("state") == "warn", said
+    assert "--" not in said and "auto floor-seed" not in said, said
+    assert "trace it by hand" in said, said
+    from PySide6.QtGui import QGuiApplication
+    assert QGuiApplication.overrideCursor() is None     # the busy cursor ends with a refusal too
+    assert doc._floor == [] and doc._history == []
+
+
+def test_detect_floor_on_a_photo_moved_since_it_opened_says_so(app, tmp_path):
+    """Review of T33: auto_floor re-reads the photo; one moved away raised FileNotFoundError out
+    of the slot and the status stayed on 'Detecting the floor…'."""
+    pytest.importorskip("numpy")
+    doc, _run = _doc(app)
+    p = _room_photo(tmp_path)
+    doc.load_image(p)
+    p.unlink()
+    doc.detect_btn.click()
+    said = doc.status.text()
+    assert said.startswith("⚠ No floor found — could not read room-photo.png"), said
+    assert doc.status.property("state") == "warn" and doc._floor == []
+    from PySide6.QtGui import QGuiApplication
+    assert QGuiApplication.overrideCursor() is None
+
+
+def test_detect_floor_without_numpy_is_disabled_and_says_why(app, tmp_path, monkeypatch):
+    import importlib.util
+    real = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec",
+                        lambda name, *a: None if name == "numpy" else real(name, *a))
+    doc, _run = _doc(app)
+    doc.load_image(_photo(tmp_path))
+    assert not doc.detect_btn.isEnabled() and "numpy" in doc.detect_btn.toolTip()
+
+
+def test_detect_floor_is_a_floor_tool_control(app, tmp_path):
+    pytest.importorskip("PIL")
+    doc, _ = _traced_doc(app, tmp_path)
+    assert doc.detect_btn.isVisible()
+    doc.tools.set_current("regions")
+    assert not doc.detect_btn.isVisible()
+
+
+def test_a_field_that_is_not_a_trace_project_keeps_the_opening_teach_first(app, tmp_path):
+    """Batch 4 left (T39): with nothing loaded, selecting a field in the tree replaced the opening
+    teach with '<field> was not loaded here'. The teach stays; the note follows it."""
+    doc, _ = _doc(app)
+    teach = doc.status.text()
+    plain = tmp_path / "plain.field.toml"
+    plain.write_text('[field]\nid = 4003\nname = "X"\narea = 11\n', encoding="utf-8")
+    doc.offer_project(plain)
+    said = doc.status.text()
+    assert teach == ""                                  # the centred prompt says it now
+    assert said.startswith("plain.field.toml (the open field) was not loaded here"), said
+
+
+def test_a_stopped_regenerate_says_stopped(app, tmp_path, monkeypatch):
+    pytest.importorskip("PIL")
+    stop = []
+    doc, run, toml = _armed(app, tmp_path, monkeypatch, was_stopped=lambda: bool(stop))
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 445)])
+    doc.on_generate()
+    stop.append(1)
+    run.calls[-1][1]["on_finished"](1)                 # the file is as it was
+    said = doc.status.text()
+    assert "Regenerate stopped" in said and "failed" not in said, said
+    assert doc.status.property("state") == "warn" and not doc._stamped
+    doc.on_generate()                                  # stopped AFTER the toml was rewritten
+    toml.write_text(toml.read_text(encoding="utf-8") + "\n# rewritten by the job\n",
+                    encoding="utf-8")
+    run.calls[-1][1]["on_finished"](1)
+    said = doc.status.text()
+    assert "was written to" in said and "job was stopped before it finished" in said, said
+    assert "reported an error" not in said, said
+
+
+# --------------------------------------------------------------------------- T35: the empty canvas
+def test_the_bare_tab_asks_for_a_photo_where_the_canvas_will_be(app, tmp_path):
+    """Finding T35: with nothing loaded the canvas was an empty frame over a muted one-liner. A
+    centred prompt stands in for it until a photo opens."""
+    pytest.importorskip("PIL")
+    doc, _ = _doc(app)
+    doc.resize(760, 700)
+    doc.show()
+    QApplication.processEvents()
+    assert doc.empty_msg.isVisible() and not doc.canvas.isVisible()
+    assert "Open or drop a photo" in doc.empty_msg.text()
+    assert doc.empty_msg.property("role") == "muted"         # an existing role, no new style
+    doc.load_image(_photo(tmp_path))
+    assert doc.canvas.isVisible() and not doc.empty_msg.isVisible()
+
+
+# --------------------------------------------------------------------------- T34: the floor's size
+def test_the_inspector_says_how_big_the_traced_floor_is_in_world_units(app, tmp_path):
+    """Finding T34: nothing said how large the traced floor will be in the game. The Inspector's
+    floor line gives its world extent, re-judged with the pitch; with a vertex above the horizon
+    there is no size to give."""
+    pytest.importorskip("PIL")
+    from ff9mapkit import imagefield as IF
+    doc, _ = _doc(app)
+    doc.load_image(_photo(tmp_path))
+    pts = [(100, 300), (280, 300), (280, 430), (100, 430)]
+    doc.canvas._commit_floor(pts)
+    world = [IF.click_to_world(doc.canvas.camera(), p) for p in pts]
+    w = max(x for x, _ in world) - min(x for x, _ in world)
+    d = max(z for _, z in world) - min(z for _, z in world)
+
+    def about(v):
+        return int(round(v, -2 if v >= 1000 else -1))
+    assert f", about {about(w)} × {about(d)} units" in doc.ins_floor.text(), doc.ins_floor.text()
+    doc.pitch.setValue(40)                               # a steeper camera: a smaller floor
+    assert f"about {about(w)} × {about(d)}" not in doc.ins_floor.text()
+    doc.canvas._commit_floor([(100, 50)] + pts[1:])      # above the horizon: no honest size
+    doc.pitch.setValue(6)
+    assert "units" not in doc.ins_floor.text()
+
+
+# --------------------------------------------------------------------------- T41: the Inspector summary
+def test_the_inspector_summary_follows_the_session(app, tmp_path, monkeypatch):
+    """Finding T41: the Inspector was empty on Trace while one status line carried every count.
+    The docked summary names the photo, the pitch, each tally with its warning, the project
+    folder, whether the last Generate has seen the session, and the next step."""
+    pytest.importorskip("PIL")
+    doc, run = _doc(app)
+    assert doc.ins_photo.fullText() == "No photo open" and "Open or drop a photo" in doc.ins_next.text()
+    # with no photo there is nothing to count: the four tally lines stay out of the way, and the
+    # status does not repeat the centred prompt a third time
+    assert not any(lb.isVisibleTo(doc.instruments) for lb in
+                   (doc.ins_pitch, doc.ins_floor, doc.ins_fg, doc.ins_zones))
+    assert doc.status.text() == ""
+    assert doc.open_btn.text() == "Open a photo…" and doc.img_label.text() == "no photo"
+    doc.load_image(_photo(tmp_path))
+    doc.canvas._commit_floor([(100, 100), (280, 100), (280, 430), (100, 430)])
+    assert doc.ins_photo.fullText() == "Photo: photo.png"
+    assert doc.ins_pitch.text().startswith(f"Pitch {doc.pitch.value()}°")
+    assert doc.ins_floor.text().startswith("Floor: 4 vertices, about "), doc.ins_floor.text()
+    assert doc.ins_floor.text().count("loor") == 1, "the line says 'floor' twice"
+    assert all(lb.isVisibleTo(doc.instruments) for lb in
+               (doc.ins_pitch, doc.ins_floor, doc.ins_fg, doc.ins_zones))
+    assert doc.ins_proj.fullText() == "Not generated yet"
+    doc.pitch.setValue(6)                                # two vertices go above the horizon
+    assert "⚠ 2 above the horizon" in doc.ins_floor.text()
+    assert doc.ins_floor.property("state") == "warn"
+    assert doc.ins_next.text() == doc.gen_btn.toolTip()  # not ready: why, in the button's words
+    assert doc.status.text().startswith("⚠ 2 above the horizon"), doc.status.text()
+    doc.pitch.setValue(26)
+    assert doc.ins_floor.property("state") == ""
+    doc.tools.set_current("regions")
+    doc._on_region_drawn([(-200.0, 900.0), (200.0, 900.0), (200.0, 1300.0), (-200.0, 1300.0)])
+    assert doc.ins_zones.text().startswith("Zones: 1 · ⚠ 1 door without a target")
+    doc._on_region_deleted(0)
+    doc.id_box.setText("30777")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    assert doc.ins_proj.fullText() == "Folder: photo-field"
+    assert doc.ins_proj.toolTip() == str(tmp_path / "photo-field")
+    assert doc.ins_stamp.text() == "The last Generate has seen every change."
+    name = doc._project["name"]                          # F9 deploys the shell's open field, so
+    assert doc.ins_next.text() == (f"{name} is up to date. To play it, open {name}.field.toml "
+                                   f"in the Editor (Field → Open Field…), then press Deploy (F9)."
+                                   ), doc.ins_next.text()   # the step says how to aim it here
+    doc.canvas._commit_floor([(100, 110), (280, 100), (280, 430), (100, 430)])
+    assert doc.ins_stamp.text().startswith("⚠ Changed since") and "Regenerate" in doc.ins_next.text()
+    said = doc.status.text()                             # the stamp IS the next step: said once
+    assert said.startswith("⚠ Changed since the last Generate") and said.count("Regenerate") == 1, said
+
+
+# --------------------------------------------------------------------------- E12: the project's own rows
+def _ctx_rows(doc):
+    """The canvas rows that are the project's own (fed for context), by the row the tab holds."""
+    return [r for r, back in zip(doc._region_rows_cache, doc._region_back)
+            if any(back is c for c in doc._context)]
+
+
+def test_the_projects_own_doors_and_zones_are_drawn_as_context(app, tmp_path):
+    """Finding E12: a door and a zone drawn in the Place tab were not on the Trace canvas at all,
+    so the author drew new doors blind to them. They are drawn now, named as the project's own,
+    and they are NOT session rows: never counted, never unsaved work, never in the argv."""
+    pytest.importorskip("PIL")
+    _photo_, _floor, toml, doors, zones = _regionless_project_with_place_rows(tmp_path)
+    doc, run = _doc(app)
+    doc.load_project(toml)
+    assert doc._regions == []                          # still file-side (T1)
+    ctx = _ctx_rows(doc)
+    assert sorted(r["kind"] for r in ctx) == ["event", "gateway"], doc._region_rows_cache
+    assert len(doc.canvas._regions) == 2               # on the canvas
+    assert all("(project)" in r["label"] for r in ctx), [r["label"] for r in ctx]
+    assert any(r["label"].startswith(doors[0]) for r in ctx)
+    assert not doc.has_unsaved()
+    doc._refresh()
+    assert "zone" not in doc.status.text(), doc.status.text()   # never counted as the trace's
+    doc.on_generate()
+    argv, _kw = run.calls[0]
+    assert "--gateway" not in argv and not any(a.startswith("--event-zone") for a in argv)
+
+
+def test_a_traced_door_over_the_projects_own_is_judged_by_the_overlap_law(app, tmp_path):
+    pytest.importorskip("PIL")
+    _photo_, _floor, toml, _doors, _zones = _regionless_project_with_place_rows(tmp_path)
+    doc, _run = _doc(app)
+    doc.load_project(toml)
+    doc.tools.set_current("regions")
+    doc.gw_to.setValue(4005)
+    over = [(-480.0, 920.0), (-420.0, 920.0), (-420.0, 980.0), (-480.0, 980.0)]   # inside door0
+    doc._on_region_drawn(over)
+    ctx = _ctx_rows(doc)
+    mine = [r for r in doc._region_rows_cache if not any(r is c for c in ctx)]
+    assert len(mine) == 1 and "overlaps" in (mine[0]["warn"] or ""), mine
+    assert all(r["warn"] is None for r in ctx)          # judged for overlap, nothing else
+    doc._refresh()
+    assert "1 with law warnings" in doc.status.text(), doc.status.text()
+    zones = doc.ins_zones.text()                        # the trace's row, never the project's too
+    assert "⚠ 1 with law warnings" in zones and "2 with law" not in zones, zones
+
+
+def test_the_projects_own_rows_refuse_every_gesture_and_say_where(app, tmp_path, monkeypatch):
+    pytest.importorskip("PIL")
+    _photo_, _floor, toml, _doors, _zones = _regionless_project_with_place_rows(tmp_path)
+    doc, _run = _doc(app)
+    doc.load_project(toml)
+    monkeypatch.setattr(doc, "_ask_field_id", lambda cur: (_ for _ in ()).throw(AssertionError))
+    monkeypatch.setattr(doc, "_ask_message", lambda cur: (_ for _ in ()).throw(AssertionError))
+    assert len(_ctx_rows(doc)) == 2
+    for row in list(_ctx_rows(doc)):
+        i = row["i"]
+        quad = list(row["quad"])
+        moved = [(x + 40, z) for x, z in quad]
+        for gesture in (lambda: doc._on_region_deleted(i), lambda: doc._on_region_changed(i, moved),
+                        lambda: doc._on_region_retarget(i), lambda: doc._on_region_reword(i)):
+            gesture()
+            said = doc.status.text()
+            assert "Place tab" in said and "Editor" in said, said
+            assert doc.status.property("state") == "warn"
+            assert doc._history == [] and doc._regions == []
+            assert len(_ctx_rows(doc)) == 2
+            back = next(r for r in doc.canvas._regions if r["i"] == i)
+            assert back["quad"] == quad                     # a drag snaps back to the file's
+
+
+def test_the_projects_own_rows_are_reread_with_the_project(app, tmp_path, monkeypatch):
+    """The finding's own path: Generate, add a door in Place and save, come back to Trace. The
+    shell feeds the open field on every show; for the armed project that re-reads its own rows.
+    A regenerate's finish re-reads them too."""
+    pytest.importorskip("PIL")
+    from ff9mapkit.editor.model import FieldDoc
+    from ff9mapkit.workspace import placedoc
+    doc, run, toml = _armed(app, tmp_path, monkeypatch)
+    assert _ctx_rows(doc) == []
+    fd = FieldDoc.load(toml)
+    placedoc.place_gateway(fd.data, [(-500, 900), (-400, 900), (-400, 1000), (-500, 1000)], 301)
+    fd.save()                                          # Place, then Save
+    doc.offer_project(str(toml))                       # back on Trace
+    assert len(_ctx_rows(doc)) == 1 and not doc.has_unsaved()
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 445)])
+    doc.on_generate()
+    fd = FieldDoc.load(toml)
+    placedoc.place_event(fd.data, [(100, 900), (200, 900), (200, 1000), (100, 1000)])
+    fd.save()                                          # what the merge keeps, on disk
+    run.calls[-1][1]["on_finished"](0)
+    assert len(_ctx_rows(doc)) == 2
+
+
+def test_a_project_file_that_cannot_be_read_is_said_not_shown_as_no_rows(app, tmp_path,
+                                                                        monkeypatch):
+    pytest.importorskip("PIL")
+    doc, _run, toml = _armed(app, tmp_path, monkeypatch)
+    good = toml.read_text(encoding="utf-8")
+    toml.write_text(good + "\n[[gateway]\n", encoding="utf-8")      # broken by hand
+    doc.offer_project(str(toml))
+    assert "could not read the project's own doors and zones" in doc.status.text()
+    toml.write_text(good, encoding="utf-8")
+    doc.offer_project(str(toml))
+    assert "could not read" not in doc.status.text(), doc.status.text()
+
+
+def test_a_project_row_out_of_view_at_this_pitch_is_said(app, tmp_path):
+    pytest.importorskip("PIL")
+    _photo_, _floor, toml, _doors, _zones = _regionless_project_with_place_rows(tmp_path)
+    toml.write_text(toml.read_text(encoding="utf-8") + (
+        '\n[[gateway]]\nname = "behind"\nto = 302\nzone = [[-100, -9000], [100, -9000], '
+        '[100, -8800], [-100, -8800]]\n'), encoding="utf-8")
+    doc, _run = _doc(app)
+    doc.load_project(toml)
+    assert "1 of the project's own" in doc.status.text(), doc.status.text()
+    doc._refresh()
+    assert "1 of the project's own" in doc.status.text(), doc.status.text()
+    zones = doc.ins_zones.text()
+    assert "plus 3 of the project's own · ⚠ 1 of those cannot be drawn at this pitch" \
+        in zones, zones
+    assert doc.ins_zones.property("state") == "warn"
+
+
+def test_a_pre_prefix_door_the_session_reemits_is_not_drawn_twice(app, tmp_path):
+    """A project from before the traced_ prefix calls its traced door door0. Reopened from its
+    record, the session holds that door; the regenerate merge replaces the file's door0 with it
+    (the same quad), so it is the session's, not the project's own context."""
+    pytest.importorskip("PIL")
+    import json
+    from PIL import Image
+    from ff9mapkit import imagefield as IF
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
+    floor = [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)]
+    man = IF.build_image_field(photo, floor, tmp_path / "proj", name="OLD", field_id=30795,
+                               gateways=["4005@60,300;140,300;140,330;60,330"])
+    toml = Path(man["toml"])
+    toml.write_text(toml.read_text(encoding="utf-8").replace('"traced_door0"', '"door0"'),
+                    encoding="utf-8")
+    (toml.parent / "room.trace.json").write_text(json.dumps({
+        "image": str(photo), "upright": True, "pitch": int(IF.DEFAULT_PITCH),
+        "floor": [list(p) for p in floor], "fg": [],
+        "regions": [{"kind": "gateway", "to": 4005, "entrance": 0, "message": "...",
+                     "quad": [[60, 300], [140, 300], [140, 330], [60, 330]]}],
+        "name": "OLD", "id": "30795"}), encoding="utf-8")
+    from ff9mapkit.editor.model import FieldDoc
+    from ff9mapkit.workspace import placedoc
+    fd = FieldDoc.load(toml)                           # and a door the Place tab added since
+    placedoc.place_gateway(fd.data, [(-500, 900), (-400, 900), (-400, 1000), (-500, 1000)], 301)
+    fd.save()
+    placed = fd.data["gateway"][-1]["name"]
+    doc, _run = _doc(app)
+    doc.load_project(toml)
+    assert len(doc._regions) == 1                      # the twin is the session's ...
+    assert [r["label"].split(" (project)")[0] for r in _ctx_rows(doc)] == [placed]   # ... not this
+
+
+def _record_project_with_a_place_door(tmp_path):
+    """A traced project (a traced_ door) the Place tab gave one door of its own, and its
+    .trace.json record: (photo, record, the Place door's name)."""
+    import json
+    from PIL import Image
+    from ff9mapkit import imagefield as IF
+    from ff9mapkit.editor.model import FieldDoc
+    from ff9mapkit.workspace import placedoc
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
+    floor = [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)]
+    man = IF.build_image_field(photo, floor, tmp_path / "proj", name="REC", field_id=30796,
+                               gateways=["4005@60,300;140,300;140,330;60,330"])
+    fd = FieldDoc.load(man["toml"])
+    placedoc.place_gateway(fd.data, [(-500, 900), (-400, 900), (-400, 1000), (-500, 1000)], 301)
+    fd.save()
+    record = Path(man["toml"]).parent / "room.trace.json"
+    record.write_text(json.dumps({
+        "image": str(photo), "upright": True, "pitch": int(IF.DEFAULT_PITCH),
+        "floor": [list(p) for p in floor], "fg": [],
+        "regions": [{"kind": "gateway", "to": 4005, "entrance": 0, "message": "...",
+                     "quad": [[60, 300], [140, 300], [140, 330], [60, 330]]}],
+        "name": "REC", "id": "30796"}), encoding="utf-8")
+    return photo, record, fd.data["gateway"][-1]["name"]
+
+
+def test_a_project_reopened_from_its_record_draws_its_own_rows(app, tmp_path):
+    """Review of E12: reopening from the .trace.json -- the usual way back in -- must draw the
+    project's own door too, and only it (the traced_ door is the session's)."""
+    pytest.importorskip("PIL")
+    _photo_, record, placed = _record_project_with_a_place_door(tmp_path)
+    doc, _run = _doc(app)
+    doc.open_path(str(record))
+    assert len(doc._regions) == 1
+    assert [r["label"] for r in _ctx_rows(doc)] == [f"{placed} (project) → 301"], \
+        [r["label"] for r in doc._region_rows_cache]
+
+
+def test_a_new_photo_drops_the_last_projects_own_rows(app, tmp_path):
+    """Review of E12: another project's doors mean nothing on new art -- never drawn there, never
+    judged by the overlap law against what the author traces next."""
+    pytest.importorskip("PIL")
+    _photo_, record, _placed = _record_project_with_a_place_door(tmp_path)
+    doc, _run = _doc(app)
+    doc.open_path(str(record))
+    assert _ctx_rows(doc)
+    doc.load_image(_photo(tmp_path))
+    assert doc._context == [] and doc.canvas._regions == []
+    assert "of its own" not in doc.ins_zones.text()
+
+
+# --------------------------------------------------------------- batch 5 seam: context rows are locked
+def test_the_projects_own_rows_are_fed_to_the_canvas_as_locked(app, tmp_path):
+    """The other half of the seam: the tab refuses every gesture on a project row, so it must
+    tell the canvas -- a row fed without ``locked`` wore the grab cursor and the Delete menu."""
+    pytest.importorskip("PIL")
+    doc, _run = _doc(app)
+    doc.load_image(_photo(tmp_path))
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    doc._context = [{"kind": "gateway", "name": "door0", "to": 301,
+                     "zone": [[-200, 900], [200, 900], [200, 1100], [-200, 1100]]}]
+    doc._regions.append({"kind": "gateway", "to": 4005, "entrance": 0, "message": "...",
+                         "quad": [(60.0, 300.0), (100.0, 300.0), (100.0, 330.0), (60.0, 330.0)]})
+    doc._refresh_regions()
+    rows = doc.canvas._regions
+    ctx = [r for r in rows if "(project)" in str(r.get("label"))]
+    mine = [r for r in rows if "(project)" not in str(r.get("label"))]
+    assert len(ctx) == 1 and len(mine) == 1
+    assert ctx[0].get("locked") and "Place tab" in ctx[0]["locked"]
+    assert not mine[0].get("locked")
+
+
+# --------------------------------------------------------------- batch 5, after its final review
+def _old_project_with_its_own_door(tmp_path):
+    """A project from before the traced_ prefix (its traced door is called door0), with its
+    record -- the shape the regenerate merge recognises as the session's own twin."""
+    import json
+    from PIL import Image
+    from ff9mapkit import imagefield as IF
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
+    floor = [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)]
+    man = IF.build_image_field(photo, floor, tmp_path / "proj", name="OLD", field_id=30795,
+                               gateways=["4005@60,300;140,300;140,330;60,330"])
+    toml = Path(man["toml"])
+    toml.write_text(toml.read_text(encoding="utf-8").replace('"traced_door0"', '"door0"'),
+                    encoding="utf-8")
+    (toml.parent / "room.trace.json").write_text(json.dumps({
+        "image": str(photo), "upright": True, "pitch": int(IF.DEFAULT_PITCH),
+        "floor": [list(p) for p in floor], "fg": [],
+        "regions": [{"kind": "gateway", "to": 4005, "entrance": 0, "message": "...",
+                     "quad": [[60, 300], [140, 300], [140, 330], [60, 330]]}],
+        "name": "OLD", "id": "30795"}), encoding="utf-8")
+    return toml
+
+
+def test_a_pitch_change_does_not_turn_the_sessions_own_door_into_a_project_row(app, tmp_path):
+    """Final review of E12: the twin test (a pre-prefix door0 that IS this session's door) was
+    made at the CURRENT pitch only, while the regenerate merge also matches under the camera the
+    file records. After a pitch change the author's own door was drawn a second time as 'the
+    project's own -- Trace never touches it', and the next Regenerate replaced it."""
+    pytest.importorskip("PIL")
+    toml = _old_project_with_its_own_door(tmp_path)
+    doc, _run = _doc(app)
+    doc.load_trace(toml.parent / "room.trace.json")
+    assert doc._context == [] and len(doc._regions) == 1
+    doc.pitch.setValue(doc.pitch.value() + 6)
+    doc._read_context(toml)
+    assert doc._context == [], [c.get("name") for c in doc._context]
+
+
+def test_a_zone_with_an_infinite_coordinate_does_not_stop_the_project_opening(app, tmp_path):
+    """A hand-written zone with inf in it raised OverflowError out of the context read and left
+    the project half loaded. It cannot be drawn or judged: it is skipped, and the rest opens."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    from ff9mapkit import imagefield as IF
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
+    man = IF.build_image_field(photo, [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0),
+                                       (20.0, 440.0)], tmp_path / "proj", name="HALL",
+                               field_id=30796)
+    toml = Path(man["toml"])
+    toml.write_text(toml.read_text(encoding="utf-8")
+                    + '\n[[gateway]]\nname = "far"\nto = 301\n'
+                      'zone = [[0, 900], [inf, 900], [inf, 1000], [0, 1000]]\n'
+                    + '\n[[gateway]]\nname = "near"\nto = 302\n'
+                      'zone = [[-500, 900], [-400, 900], [-400, 1000], [-500, 1000]]\n',
+                    encoding="utf-8")
+    assert IF._zone_key([[0, 900], [float("inf"), 900], [1, 1], [2, 2]]) is None
+    doc, _run = _doc(app)
+    doc.load_project(toml)
+    assert doc._project is not None and len(doc._floor) == 4
+    assert [c.get("name") for c in doc._context] == ["near"]
+
+
+def test_a_traced_door_is_named_on_the_canvas_as_generate_writes_it(app, tmp_path):
+    """The canvas called the session's first door 'door0' while Generate writes it as
+    'traced_door0' -- and a door the Place tab made is ALSO called door0, so two plates read
+    'door0'. The session's rows carry the names they are written under."""
+    pytest.importorskip("PIL")
+    doc, _run = _doc(app)
+    doc.load_image(_photo(tmp_path))
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    doc._context = [{"kind": "gateway", "name": "door0", "to": 301,
+                     "zone": [[-200, 900], [200, 900], [200, 1100], [-200, 1100]]}]
+    doc._regions.append({"kind": "gateway", "to": 4005, "entrance": 0, "message": "...",
+                         "quad": [(60.0, 300.0), (100.0, 300.0), (100.0, 330.0), (60.0, 330.0)]})
+    doc._regions.append({"kind": "event", "to": 0, "entrance": 0, "message": "It creaks.",
+                         "quad": [(200.0, 340.0), (300.0, 340.0), (300.0, 380.0), (200.0, 380.0)]})
+    doc._refresh_regions()
+    labels = sorted(str(r.get("label")) for r in doc.canvas._regions)
+    assert any(lb.startswith("traced_door0") for lb in labels), labels
+    assert any(lb.startswith("traced_zone0") for lb in labels), labels
+    assert sum(lb.startswith("door0") for lb in labels) == 1, labels   # the project's, once
+
+
+def test_the_summary_says_plainly_what_else_the_project_holds(app, tmp_path):
+    pytest.importorskip("PIL")
+    doc, _run = _doc(app)
+    doc.load_image(_photo(tmp_path))
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    doc._context = [{"kind": "gateway", "name": "door0", "to": 301,
+                     "zone": [[-200, 900], [200, 900], [200, 1100], [-200, 1100]]}]
+    doc._refresh_regions()
+    doc._refresh()
+    said = doc.ins_zones.text()
+    assert "plus 1 of the project's own" in said and "more of its own" not in said, said
+
+
+def test_detect_floor_is_not_offered_over_a_traced_floor(app, tmp_path):
+    """The button stayed enabled over a traced floor and then always refused. Like Undo and
+    Clear beside it, it is disabled when it can do nothing, and its tooltip says why."""
+    pytest.importorskip("PIL")
+    pytest.importorskip("numpy")
+    doc, _run = _doc(app)
+    doc.load_image(_photo(tmp_path))
+    assert doc.detect_btn.isEnabled()
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    assert not doc.detect_btn.isEnabled()
+    assert "Clear the floor first" in doc.detect_btn.toolTip()
+    doc.tools.set_current("floor")
+    doc.on_clear()
+    assert doc.detect_btn.isEnabled() and "Clear the floor first" not in doc.detect_btn.toolTip()
+
+
+def test_a_project_reopened_from_its_own_art_does_not_call_it_the_photo(app, tmp_path):
+    pytest.importorskip("PIL")
+    from PIL import Image
+    from ff9mapkit import imagefield as IF
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
+    man = IF.build_image_field(photo, [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0),
+                                       (20.0, 440.0)], tmp_path / "proj", name="HALL",
+                               field_id=30797)
+    doc, _run = _doc(app)
+    doc.load_project(Path(man["toml"]), sidecar=False)
+    assert doc.ins_photo.fullText() == "Photo: the project's own art", doc.ins_photo.fullText()
+
+
+# --------------------------------------------------------------- batch 5, the second review
+def _hall_with(tmp_path, extra_toml, name="HALL", fid=30798):
+    from PIL import Image
+    from ff9mapkit import imagefield as IF
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
+    man = IF.build_image_field(photo, [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0),
+                                       (20.0, 440.0)], tmp_path / "proj", name=name,
+                               field_id=fid)
+    toml = Path(man["toml"])
+    toml.write_text(toml.read_text(encoding="utf-8") + extra_toml, encoding="utf-8")
+    return toml
+
+
+def test_a_five_corner_zone_of_the_project_is_still_drawn(app, tmp_path):
+    """The skip for a zone with an infinite corner tested the QUAD key, which is also None for
+    any honest five-corner zone -- the build accepts those, and the canvas stopped drawing them."""
+    pytest.importorskip("PIL")
+    toml = _hall_with(tmp_path, '\n[[gateway]]\nname = "five"\nto = 301\n'
+                      'zone = [[-500, 900], [-400, 900], [-350, 950], [-400, 1000], [-500, 1000]]\n')
+    doc, _run = _doc(app)
+    doc.load_project(toml)
+    assert [c.get("name") for c in doc._context] == ["five"]
+
+
+def test_a_project_whose_camera_table_cannot_make_a_camera_still_opens(app, tmp_path):
+    """The twin test reads the camera the file records; fov = 0 raised ZeroDivisionError out of
+    it and a project that used to open no longer did."""
+    pytest.importorskip("PIL")
+    from ff9mapkit import imagefield as IF
+    assert IF._camera_of({"camera": {"pitch": 26, "distance": 3000, "fov": 0}}) is None
+    toml = _old_project_with_its_own_door(tmp_path)
+    import re
+    toml.write_text(re.sub(r"fov = [0-9.]+", "fov = 0", toml.read_text(encoding="utf-8"), count=1),
+                    encoding="utf-8")
+    assert "fov = 0" in toml.read_text(encoding="utf-8")
+    doc, _run = _doc(app)
+    doc.load_trace(toml.parent / "room.trace.json")
+    assert doc._project is not None and len(doc._regions) == 1
+    assert "Could not open" not in doc.status.text()
+
+
+def test_a_door_the_author_renamed_is_not_taken_for_the_sessions_twin(app, tmp_path):
+    """The regenerate merge retakes a pre-prefix row only when it is still NAMED door0 / zone0.
+    The canvas hid ANY row with the session's quad, so a door the author had renamed in the
+    Editor vanished from the canvas and the regenerate then kept it beside a new traced one."""
+    pytest.importorskip("PIL")
+    toml = _old_project_with_its_own_door(tmp_path)
+    toml.write_text(toml.read_text(encoding="utf-8").replace('name = "door0"', 'name = "exit"'),
+                    encoding="utf-8")
+    doc, _run = _doc(app)
+    doc.load_trace(toml.parent / "room.trace.json")
+    assert [c.get("name") for c in doc._context] == ["exit"]
+
+
+def test_an_authors_own_photo_called_base_png_is_not_the_projects_art(app, tmp_path, monkeypatch):
+    pytest.importorskip("PIL")
+    from PIL import Image
+    art = tmp_path / "art"
+    art.mkdir()
+    Image.new("RGB", (800, 600), (90, 80, 70)).save(art / "base.png")
+    doc, run = _doc(app)
+    doc.load_image(art / "base.png")
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    doc.id_box.setText("30799")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path / "out"))
+    doc.on_generate()
+    assert doc._project is not None
+    assert doc.ins_photo.fullText() == "Photo: base.png", doc.ins_photo.fullText()
+
+
+def test_a_door_hidden_above_the_horizon_does_not_renumber_the_next_one(app, tmp_path):
+    """The canvas names a traced row as Generate writes it -- by its place among ALL the
+    session's rows of its kind. Counting only the rows that can be drawn gave the second door
+    the first one's name whenever the first was hidden."""
+    pytest.importorskip("PIL")
+    doc, _run = _doc(app)
+    doc.load_image(_photo(tmp_path))
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    doc._regions.append({"kind": "gateway", "to": 4001, "entrance": 0, "message": "...",
+                         "quad": [(60.0, -900.0), (100.0, -900.0), (100.0, -870.0), (60.0, -870.0)]})
+    doc._regions.append({"kind": "gateway", "to": 4002, "entrance": 0, "message": "...",
+                         "quad": [(160.0, 300.0), (200.0, 300.0), (200.0, 330.0), (160.0, 330.0)]})
+    doc._refresh_regions()
+    labels = [str(r.get("label")) for r in doc.canvas._regions]
+    assert len(labels) == 1 and labels[0].startswith("traced_door1"), labels

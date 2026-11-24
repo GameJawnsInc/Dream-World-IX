@@ -52,8 +52,11 @@ def _contrast(a: QColor, b: QColor) -> float:
 
 _ZOOM_MIN, _ZOOM_MAX = 0.1, 8.0
 _CLICK_SLOP_PX = 4          # press->release travel at/under this = a click, past it = a pan
-_HANDLE_R = 4               # a trace vertex handle's screen radius (px, zoom-immune)
+_HANDLE_R = 4               # a trace vertex handle's screen radius at 100% (px, zoom-immune;
+                            # every glyph dimension scales with the text-size dial: _k)
 _LABEL_TIERS = 3            # how far a label may be pushed from home, in plate heights
+_KEY_STEP = 8               # an arrow key moves the keyboard crosshair this many canvas px
+                            # (Shift: one canvas px)
 
 
 class BackdropCanvas(QGraphicsView):
@@ -76,6 +79,7 @@ class BackdropCanvas(QGraphicsView):
     marker_moved = Signal(int, object)       # place mode: a marker dragged — (index, walkmesh hit)
     marker_clicked = Signal(int)             # place mode: a press on a marker that did not travel
     marker_deleted = Signal(int)             # the marker menu's delete — the host owns the doc op
+    marker_opened = Signal(int)              # the marker menu's "Open in the Editor" (``open``)
     click_refused = Signal(str)              # why a click produced no floor point
 
     def __init__(self, palette, *, scale=100, on_floor=None):
@@ -116,6 +120,12 @@ class BackdropCanvas(QGraphicsView):
         self._labels = []                    # on-art labels, for the de-collision pass (P21)
         self._glyphs = []                    # haloed glyphs: obstacles for that pass
         self._ink = derive(palette)
+        self._kb_pt = None                   # the keyboard crosshair, CANVAS px (a document
+                                             # point: the view follows it, never the reverse);
+                                             # None until an arrow key first shows it (E7/E15)
+        self._kb_item = None                 # its anchor in the current scene
+        self._kb_hint = False                # the canvas took the keyboard from a key: the pill
+                                             # names the keys
         self._kids = []                      # STRONG refs to child items (labels/dots/glyphs):
                                              # a parented QGraphicsItem whose only Python wrapper
                                              # dies can be GC-DELETED on the C++ side mid-handler
@@ -129,9 +139,7 @@ class BackdropCanvas(QGraphicsView):
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setBackgroundBrush(QColor(palette["surface"]))
         self.setAccessibleName("Field backdrop")
-        self.setAccessibleDescription(
-            "The field's background art under its camera: click the floor to get an exact "
-            "world position; the dashed line is the camera's horizon, above which no floor exists")
+        # its accessible description is set by _sync_hint: what a click does in THIS tool
         self._hint = QLabel("", self.viewport())   # the mode's own words: _sync_hint
         self._hint.setObjectName("backdropHint")   # selector-scoped (the round-9 census law)
         self._hint.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -146,9 +154,30 @@ class BackdropCanvas(QGraphicsView):
         """The pill says what a click does in THIS mode (P18), and is shown again: called on a
         mode change and a new field. The first click or drag hides it -- it covers the art's
         bottom-right, where the near floor edge, doors and contacts live."""
+        self._hint.setText(self._hint_text())
+        self._hint.show()
+        self._place_hint()
+        self.setAccessibleDescription(self._describe())
+
+    def _describe(self):
+        """What this canvas is and how to drive it in the tool it is in, for a screen reader:
+        the pill's own first words, then the keys that answer here."""
+        what = self._hint_text().split(" · ")[0]
         if self._cam is None:
-            what = ""                              # nothing on this canvas resolves a click
-        elif self._region_mode:
+            return ("The field's background art. It has no camera yet, so nothing here can be "
+                    "clicked; Ctrl+0 fits it to the view.")
+        more = ("" if self._contact_mode else
+                "; Shift+F10 or the Menu key opens the menu of what is under it, and Delete "
+                "deletes that thing")
+        return (f"The field's background art under its camera: {what}. The dashed line is the "
+                f"camera's horizon, above which no floor exists. From the keyboard, the arrow "
+                f"keys aim a crosshair (Shift moves it one pixel) and Enter or Space clicks "
+                f"there{more}.")
+
+    def _hint_text(self):
+        if self._cam is None:
+            return "Ctrl+scroll zooms · Ctrl+0 fits"   # nothing on this canvas resolves a click
+        if self._region_mode:
             what = "click 4 corners"               # (Esc: the tool's tooltip -- this pill hides on
             #                                        the first corner, before Esc can do anything)
         elif self._contact_mode:
@@ -157,15 +186,22 @@ class BackdropCanvas(QGraphicsView):
             what = "click the floor's outline"
         else:
             what = "click the floor"
-        self._hint.setText(f"{what} · Ctrl+scroll zooms" if what else
-                           "Ctrl+scroll zooms · Ctrl+0 fits")
-        self._hint.show()
-        self._place_hint()
+        if not self._kb_hint:                      # the keys: only for a canvas reached from
+            return f"{what} · Ctrl+scroll zooms"   # the keyboard
+        # nothing in the Cut-outs tool has a menu or a Delete: do not promise them there
+        more = "" if self._contact_mode else " · Shift+F10 menu · Delete deletes"
+        return f"{what} · Ctrl+0 fits\narrows aim · Enter clicks{more}"
 
     # -- text + geometry (CALIBRE) --
     def _font(self, pt, bold=False):
         weight = QFont.Weight.DemiBold if bold else QFont.Weight.Normal
         return QFont("Segoe UI", max(1, round(pt * self._scale / 100)), weight)
+
+    def _k(self, v):
+        """A glyph dimension at the text-size dial (V15): handles, glyphs, halos and label
+        offsets grow with the labels beside them, and a press resolves by the item's own shape,
+        so the hit area grows with them."""
+        return v * self._scale / 100
 
     def set_scale(self, pct):
         pct = pct if pct in range(50, 301) else 100
@@ -238,18 +274,18 @@ class BackdropCanvas(QGraphicsView):
         the glyph's own pen is the white inner ring. A tagged child, so a press on the rim
         resolves like a press on the glyph."""
         k = QColor(0, 0, 0)
-        pen = QPen(k, 4.4)
+        pen = QPen(k, self._k(4.4))
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         under = self._child(self._scene.addPath(
             path, pen, QBrush(Qt.BrushStyle.NoBrush) if hollow else QBrush(k)), anchor)
-        self._glyphs.append((anchor, path.boundingRect().adjusted(-2.2, -2.2, 2.2, 2.2)))
+        self._glyphs.append((anchor, path.boundingRect().adjusted(-self._k(2.2), -self._k(2.2),
+                                                                  self._k(2.2), self._k(2.2))))
         if grab:
             mark_grabbable(under)
         return under
 
-    @staticmethod
-    def _ring_pen():
-        return QPen(QColor(255, 255, 255), 1.4)
+    def _ring_pen(self):
+        return QPen(QColor(255, 255, 255), self._k(1.4))
 
     def _label(self, anchor, text, ink, dx=6, dy=None, tip=None):
         """On-art text: an opaque surface plate + an ink fenced on that surface, both children
@@ -273,8 +309,11 @@ class BackdropCanvas(QGraphicsView):
         t.setBrush(QBrush(QColor(ink)))
         br = t.boundingRect()
         w, h = br.width() + 6, br.height() + 2
+        dx = self._k(dx)                           # offsets in glyph units (the dial, V15)
         if dy is None:
-            dy = -h - 8                            # plate bottom at -9: clear of a r<=8 glyph
+            dy = -h - self._k(8)                   # plate bottom at -9: clear of a r<=8 glyph
+        else:
+            dy = self._k(dy)
         rr = QPainterPath()
         rr.addRoundedRect(QRectF(0, 0, w, h), 3, 3)
         plate.setPath(rr)
@@ -321,7 +360,7 @@ class BackdropCanvas(QGraphicsView):
                 cands.append((-lab["dx"] - w, lab["dy"]))
             cands += [(dx, lab["dy"] - step * k) for k in range(1, _LABEL_TIERS + 1)]
             cands += [(dx, lab["dy"] + step * k) for k in range(1, _LABEL_TIERS + 1)
-                      if lab["dy"] + step * k >= 8]   # a DOWN tier clears the anchor's own glyph
+                      if lab["dy"] + step * k >= self._k(8)]   # a DOWN tier clears the anchor's own glyph
 
             def rect(c):
                 return QRectF(base.x() + c[0] - 3, base.y() + c[1] - 1, w, h)
@@ -355,6 +394,7 @@ class BackdropCanvas(QGraphicsView):
             self.resetTransform()
             self._zoom = 1.0
             self._fit_pending = True
+            self._kb_pt = None                     # a new frame: the crosshair starts over
             self._sync_hint()                      # a new field: the pill teaches again
         self._rebuild()
 
@@ -453,7 +493,8 @@ class BackdropCanvas(QGraphicsView):
         placement on top of it), its menu ``marker_deleted`` -- each by its index in this list.
         ``locked`` (the host's reason it refuses every gesture): no grab cursor, no drag, no menu;
         the tooltip gives the reason and a click still only emits ``marker_clicked``. ``keep``:
-        movable but never deleted -- no menu."""
+        movable but never deleted -- no Delete. ``open``: the host can show its row in the Editor,
+        so an unlocked marker's menu offers that (``marker_opened``)."""
         self._markers = list(markers or [])
         self._rebuild()
 
@@ -527,6 +568,7 @@ class BackdropCanvas(QGraphicsView):
         self._labels = []                          # every _label call, for the de-collision pass
         self._glyphs = []                          # (anchor, screen box) of every haloed glyph
         self._ink = derive(pal)                    # the *_text inks fenced on the plate's surface
+        self._kb_item = None
         self._coords.hide()
         sc.clear()
         w, h = self._frame_wh()
@@ -550,6 +592,32 @@ class BackdropCanvas(QGraphicsView):
         self._draw_region_handles()
         self._draw_markers()
         self._decollide_labels()
+        self._draw_kb_cross()                      # topmost: it is where the next key acts
+
+    def _draw_kb_cross(self):
+        """The keyboard crosshair: four arms around an open centre (the aimed pixel stays
+        visible), a white stroke on a black one so it holds on any art (the handles' halo).
+        Inert to the mouse; shown only while the canvas has the keyboard."""
+        self._kb_item = None
+        if self._kb_pt is None:
+            return
+        sc = self._scene
+        a = sc.addRect(QRectF(0, 0, 0, 0), QPen(Qt.PenStyle.NoPen))
+        a.setPos(*self._kb_pt)
+        a.setFlag(a.GraphicsItemFlag.ItemIgnoresTransformations)
+        a.setData(0, "kbcross")
+        a.setZValue(3)
+        path = QPainterPath()
+        for sx, sy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            path.moveTo(self._k(3) * sx, self._k(3) * sy)
+            path.lineTo(self._k(10) * sx, self._k(10) * sy)
+        for color, width in ((QColor(0, 0, 0), 4.4), (QColor(255, 255, 255), 1.6)):
+            pen = QPen(color, self._k(width))
+            pen.setCapStyle(Qt.PenCapStyle.SquareCap)
+            arm = self._child(sc.addPath(path, pen), a)
+            arm.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+        a.setVisible(self.hasFocus())
+        self._kb_item = a
 
     def _draw_horizon(self, w, h):
         """The refusal boundary, visible: a dashed line at ``horizon_canvas_y`` with a
@@ -611,8 +679,7 @@ class BackdropCanvas(QGraphicsView):
             it = self._scene.addPolygon(poly, pen, QBrush(fill))
             it.setData(0, "meshtri")
 
-    @staticmethod
-    def _marker_path(kind):
+    def _marker_path(self, kind):
         """Placed content speaks its KIND by shape (P25), not only through its label: npc a
         circle, prop a square, chest a lidded box, spawn a triangle, arrival a diamond."""
         p = QPainterPath()
@@ -631,7 +698,7 @@ class BackdropCanvas(QGraphicsView):
             p.closeSubpath()
         else:                                      # npc and anything unknown
             p.addEllipse(QPointF(0, 0), 5, 5)
-        return p
+        return QTransform.fromScale(self._k(1), self._k(1)).map(p)   # at the dial (V15)
 
     def _draw_markers(self):
         if not self._markers or self._cam is None:
@@ -660,7 +727,7 @@ class BackdropCanvas(QGraphicsView):
                 if free:
                     mark_grabbable(gl)
                 tip = (f"{name}: {m['locked']}" if not free
-                       else f"{name}: drag to move it" if m.get("keep")
+                       else f"{name}: drag to move it" if m.get("keep") and not m.get("open")
                        else f"{name}: drag to move it, right-click for its menu")
                 halo.setToolTip(tip)
                 gl.setToolTip(tip)
@@ -709,7 +776,8 @@ class BackdropCanvas(QGraphicsView):
             anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
             anchor.setData(0, "cutoutpt")
             anchor.setData(1, c["i"])
-            dia = QPolygonF([QPointF(0, -5), QPointF(5, 0), QPointF(0, 5), QPointF(-5, 0)])
+            r = self._k(5)
+            dia = QPolygonF([QPointF(0, -r), QPointF(r, 0), QPointF(0, r), QPointF(-r, 0)])
             grab = self._trace_mode or self._contact_mode   # the press gate's modes only (V6)
             halo = QPainterPath()
             halo.addPolygon(dia)
@@ -718,7 +786,7 @@ class BackdropCanvas(QGraphicsView):
             gl = self._child(self._scene.addPolygon(dia), anchor)
             gl.setPen(self._ring_pen())
             if c.get("bad"):                       # INVALID speaks by shape too: hollow (V13)
-                gl.setPen(QPen(color, 2.2))
+                gl.setPen(QPen(color, self._k(2.2)))
                 gl.setBrush(QBrush(Qt.BrushStyle.NoBrush))
             else:
                 gl.setBrush(QBrush(color))
@@ -792,7 +860,12 @@ class BackdropCanvas(QGraphicsView):
                 continue
             i = r["i"]
             warn = r.get("warn")
-            color = QColor(pal["warn"] if warn else pal["accent"])
+            # A row the host LOCKS (``locked`` = its reason: the Trace tab's view of the
+            # project's own doors) is context: drawn quieter, never a grab handle, no corner
+            # handles, no menu -- the canvas must not advertise a gesture the host always
+            # refuses (the markers' contract, batch 4).
+            locked = r.get("locked")
+            color = QColor(pal["warn"] if warn else pal["muted"] if locked else pal["accent"])
             case, pen = self._cased_pen(color, 1.6,
                                         [5, 3] if r.get("kind") == "event" else None)
             fill = QColor(color)
@@ -807,11 +880,15 @@ class BackdropCanvas(QGraphicsView):
             tip = str(r.get("label") or f"zone {i}")
             if warn:
                 tip += f"\n⚠ {warn}"
+            if locked:
+                tip += f"\n{locked}"
             it.setToolTip(tip)
-            if self._region_mode:
+            if self._region_mode and not locked:
                 mark_grabbable(it)
-            # the fan audit, painted: what the engine tests vs what the author drew
-            audit = imagefield.zone_fan_audit(r["quad"])
+            # the fan audit, painted: what the engine tests vs what the author drew (not for a
+            # locked row: it cannot be reshaped here, and its own tab paints its law)
+            audit = ({"gap": 0.0, "spill": 0.0} if locked
+                     else imagefield.zone_fan_audit(r["quad"]))
             law_items = []
             if max(audit["gap"], audit["spill"]) > 0.02:
                 drawn = QPainterPath()
@@ -859,8 +936,9 @@ class BackdropCanvas(QGraphicsView):
                 edge.setData(0, "regionedge")
                 edge.setData(1, i)
                 edge.setToolTip("the walk-out edge (drawn thick, with an arrow): the exit walks "
-                                "the player across this edge into the fade — right-click the zone "
-                                "to move it to the next edge")
+                                "the player across this edge into the fade"
+                                + ("" if locked else " — right-click the zone to move it to the "
+                                                     "next edge"))
                 self._region_edge_items[i] = edge
                 mx, my = (x0 + x1) / 2, (y0 + y1) / 2
                 cx = sum(p[0] for p in pts) / len(pts)
@@ -873,6 +951,7 @@ class BackdropCanvas(QGraphicsView):
                 anchor.setData(0, "regionchevron")
                 anchor.setData(1, i)
                 ux, uy = ex / el, ey / el
+                ux, uy = self._k(ux), self._k(uy)  # the chevron at the dial (V15)
                 tipx, tipy = 7 * ux, 7 * uy
                 px, py = -uy, ux
                 chev = QPolygonF([QPointF(tipx, tipy),
@@ -918,7 +997,8 @@ class BackdropCanvas(QGraphicsView):
             anchor.setPos(x, y)
             anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
             anchor.setData(0, "regionpending")
-            box = QRectF(-_HANDLE_R, -_HANDLE_R, 2 * _HANDLE_R, 2 * _HANDLE_R)
+            hr = self._k(_HANDLE_R)
+            box = QRectF(-hr, -hr, 2 * hr, 2 * hr)
             halo = QPainterPath()
             halo.addEllipse(box)
             self._halo(anchor, halo)
@@ -937,7 +1017,7 @@ class BackdropCanvas(QGraphicsView):
         sc = self._scene
         for r in self._regions:
             pts = self._region_pts_px(r["quad"])
-            if pts is None:
+            if pts is None or r.get("locked"):     # a locked row has no handles to grab
                 continue
             color = QColor(self.pal["warn"] if r.get("warn") else self.pal["accent"])
             for ci, (x, y) in enumerate(pts):
@@ -946,7 +1026,8 @@ class BackdropCanvas(QGraphicsView):
                 anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
                 anchor.setData(0, "regionpt")
                 anchor.setData(1, (r["i"], ci))
-                box = QRectF(-_HANDLE_R, -_HANDLE_R, 2 * _HANDLE_R, 2 * _HANDLE_R)
+                hr = self._k(_HANDLE_R)
+                box = QRectF(-hr, -hr, 2 * hr, 2 * hr)
                 halo = QPainterPath()
                 halo.addRect(box)
                 self._halo(anchor, halo, grab=True)
@@ -976,7 +1057,7 @@ class BackdropCanvas(QGraphicsView):
 
     def _begin_region_quad_drag(self, i, grab_canvas):
         r = self._region_row(i)
-        if r is None or i not in self._region_items:
+        if r is None or i not in self._region_items or r.get("locked"):
             return False
         quad = [tuple(p) for p in r["quad"]]
         h = self._region_h_hint(quad)
@@ -1123,13 +1204,14 @@ class BackdropCanvas(QGraphicsView):
             anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
             anchor.setData(0, "tracept")
             anchor.setData(1, i)
-            box = QRectF(-_HANDLE_R, -_HANDLE_R, 2 * _HANDLE_R, 2 * _HANDLE_R)
+            hr = self._k(_HANDLE_R)
+            box = QRectF(-hr, -hr, 2 * hr, 2 * hr)
             halo = QPainterPath()
             halo.addEllipse(box)
             self._halo(anchor, halo, grab=self._trace_mode, hollow=bad)
             dot = self._child(self._scene.addEllipse(box), anchor)
             if bad:                                # INVALID speaks by SHAPE as well as colour:
-                dot.setPen(QPen(color, 2.2))       # a hollow ring and a ✕ (V13)
+                dot.setPen(QPen(color, self._k(2.2)))   # a hollow ring and a ✕ (V13)
                 dot.setBrush(QBrush(Qt.BrushStyle.NoBrush))
             else:
                 dot.setPen(self._ring_pen())
@@ -1211,8 +1293,14 @@ class BackdropCanvas(QGraphicsView):
             return
         m = self._markers[i]
         menu = QMenu(self)
-        rm = menu.addAction(f"Delete {m.get('label') or m.get('kind')}")
-        if menu.exec(global_pos) is rm:
+        op = menu.addAction("Open in the Editor") if m.get("open") else None
+        rm = None if m.get("keep") else menu.addAction(f"Delete {m.get('label') or m.get('kind')}")
+        act = menu.exec(global_pos)
+        if act is None:
+            return
+        if act is op:
+            self.marker_opened.emit(i)
+        elif act is rm:
             self.marker_deleted.emit(i)
 
     def _drag_canvas(self, cx, cy):
@@ -1439,7 +1527,165 @@ class BackdropCanvas(QGraphicsView):
                 self._decollide_labels()
                 event.accept()
                 return
+        if self._key_gesture(event):
+            event.accept()
+            return
         super().keyPressEvent(event)
+
+    # -- the keyboard path (E7, E15): ONE grammar for every tool of both tabs. The arrows aim a
+    # crosshair; Enter/Space, the Menu key/Shift+F10 and Delete then run the MOUSE's own code at
+    # its canvas point (a synthesized press+release, the context-menu handler, that menu's
+    # Delete), so everything the mouse refuses there, the keys refuse in the same words. No
+    # keyboard dragging: moving a thing by keyboard is Delete, then place it again.
+    _ARROWS = {Qt.Key.Key_Left: (-1, 0), Qt.Key.Key_Right: (1, 0),
+               Qt.Key.Key_Up: (0, -1), Qt.Key.Key_Down: (0, 1)}
+
+    def _key_gesture(self, event) -> bool:
+        k = event.key()
+        mods = event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier
+        shift = mods == Qt.KeyboardModifier.ShiftModifier
+        bare = mods == Qt.KeyboardModifier.NoModifier
+        if k in self._ARROWS and (bare or shift):
+            self._kb_note_keyboard()
+            self._kb_move(*self._ARROWS[k], fine=shift)
+            return True
+        act = None
+        if bare and k in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            act = self._kb_click
+        elif (bare and k == Qt.Key.Key_Menu) or (shift and k == Qt.Key.Key_F10):
+            act = self._kb_menu
+        elif bare and k == Qt.Key.Key_Delete:
+            act = self._kb_delete
+        if act is None:
+            return False
+        if event.isAutoRepeat():                   # a mouse cannot auto-repeat a click: a held key
+            return True                            # acts once (only the arrows repeat)
+        self._kb_note_keyboard()
+        # The first key shows WHERE it would act -- and so does any key pressed while the
+        # crosshair is out of view (a Ctrl+wheel zoom and a pan leave it behind): _kb_move(0, 0)
+        # brings it back into view and nothing is clicked or deleted where nobody is looking.
+        if self._kb_pt is None or not self.viewport().rect().contains(
+                self._kb_viewport_pt().toPoint()):
+            self._kb_move(0, 0)
+        else:
+            act()
+        return True
+
+    def _kb_step(self):
+        return _KEY_STEP
+
+    def _kb_note_keyboard(self):
+        if not self._kb_hint:                      # a key user: the pill (if still up) says the keys
+            self._kb_hint = True
+            self._hint.setText(self._hint_text())
+            self._place_hint()
+
+    def _kb_move(self, dx, dy, fine=False):
+        """Aim the crosshair. Its first appearance is the middle of what the view shows; after
+        that it is a DOCUMENT point the view follows (ensureVisible from its own scene point)."""
+        w, h = self._frame_wh()
+        if self._kb_pt is None:
+            vp = self.viewport()
+            c = self._widget_to_canvas(QPointF(vp.width() / 2, vp.height() / 2))
+            x, y = round(c.x()), round(c.y())
+        else:
+            s = 1 if fine else self._kb_step()
+            x, y = self._kb_pt[0] + dx * s, self._kb_pt[1] + dy * s
+        self._kb_pt = (float(min(max(x, 0), w - 1)), float(min(max(y, 0), h - 1)))   # on the art
+        try:
+            if self._kb_item is None:
+                self._draw_kb_cross()
+            else:
+                self._kb_item.setPos(*self._kb_pt)
+                self._kb_item.setVisible(self.hasFocus())
+        except RuntimeError:                       # a scene rebuilt under a stale wrapper
+            self._draw_kb_cross()
+        x, y = self._kb_pt
+        self.ensureVisible(QRectF(x - 1, y - 1, 2, 2), 24, 24)
+
+    def _kb_viewport_pt(self) -> QPointF:
+        return self.viewportTransform().map(QPointF(*self._kb_pt))
+
+    def _kb_click(self):
+        """Enter: the mouse's click at the crosshair -- a press and a release that do not
+        travel, delivered the way Qt delivers them, so the press resolution (a marker or a handle
+        under it) and the click's own refusals are the mouse's, not a copy of them."""
+        from PySide6.QtCore import QEvent
+        from PySide6.QtGui import QMouseEvent
+        from PySide6.QtWidgets import QApplication
+        vp = self.viewport()
+        p = self._kb_viewport_pt()
+        g = QPointF(vp.mapToGlobal(p))
+        left, none = Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton
+        for t, held in ((QEvent.Type.MouseButtonPress, left),
+                        (QEvent.Type.MouseButtonRelease, none)):
+            QApplication.sendEvent(vp, QMouseEvent(t, p, g, left, held,
+                                                   Qt.KeyboardModifier.NoModifier))
+
+    def _kb_menu(self):
+        """The Menu key / Shift+F10: the right-click handler at the crosshair."""
+        from PySide6.QtGui import QContextMenuEvent
+        p = self._kb_viewport_pt().toPoint()
+        if self._kb_says_locked(p):
+            return
+        self.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Reason.Keyboard, p,
+                                                self.viewport().mapToGlobal(p)))
+
+    def _kb_says_locked(self, pos) -> bool:
+        """A locked zone has no menu and no Delete, and a keyboard author never sees the tooltip
+        that says why: when the key lands on one (and on nothing it could act on), say the
+        host's reason through the canvas's own refusal signal -- as a locked marker's Delete
+        does through its host."""
+        if not self._region_mode or self._pending_region or self._menu_target(pos) is not None:
+            return False
+        for it in self.items(pos):
+            for tag in ("regionquad", "regionedge", "regionlabel"):
+                ri = self._resolve_data(it, tag)
+                why = (self._region_row(int(ri)) or {}).get("locked") if ri is not None else None
+                if why:
+                    self.click_refused.emit(str(why))
+                    return True
+        return False
+
+    def _kb_delete(self):
+        """Delete: the Delete of the menu of what is under the crosshair. A marker's is always
+        sent: the host owns that delete and says why when it refuses one (a locked marker)."""
+        p = self._kb_viewport_pt().toPoint()
+        if self._kb_says_locked(p):
+            return
+        t = self._menu_target(p)
+        kind, i = t or (None, None)
+        if kind == "vertex":
+            self._delete_vertex(i)
+        elif kind == "region":
+            self.region_deleted.emit(i)
+        elif kind == "marker":
+            self.marker_deleted.emit(i)
+
+    def focusInEvent(self, event):                 # noqa: N802 (Qt override)
+        super().focusInEvent(event)
+        if event.reason() in (Qt.FocusReason.TabFocusReason, Qt.FocusReason.BacktabFocusReason,
+                              Qt.FocusReason.ShortcutFocusReason):
+            self._kb_hint = True
+            self._sync_hint()                      # reached by keys: the pill names them
+        self._kb_show_cross()
+
+    def focusOutEvent(self, event):                # noqa: N802 (Qt override)
+        super().focusOutEvent(event)
+        if event.reason() == Qt.FocusReason.PopupFocusReason:
+            return                                 # its own menu: still the keyboard's canvas
+        if event.reason() != Qt.FocusReason.ActiveWindowFocusReason:
+            self._kb_hint = False
+            self._hint.setText(self._hint_text())  # re-worded, never re-shown
+            self._place_hint()
+        self._kb_show_cross()
+
+    def _kb_show_cross(self):
+        try:
+            if self._kb_item is not None:
+                self._kb_item.setVisible(self.hasFocus())
+        except RuntimeError:
+            self._kb_item = None
 
     # -- click vs pan: slop, not modes. In trace mode a press ON a handle starts a drag;
     # a slop-click elsewhere appends a vertex; everything else stays a pan.
@@ -1583,37 +1829,48 @@ class BackdropCanvas(QGraphicsView):
             return
         self.floor_clicked.emit(x, z)
 
-    def contextMenuEvent(self, event):             # noqa: N802 (Qt override)
+    def _menu_target(self, pos):
+        """What a right-click at viewport ``pos`` is about, as ``(kind, index)`` -- "pending"
+        (a quad mid-draw), "region", "marker" or "vertex" -- or None. ONE resolution for the
+        mouse's menu, the Menu key and Delete."""
+        under = self.items(pos)
         if self._region_mode:
-            if self._pending_region:               # right-click abandons the quad mid-draw
-                self._pending_region = []
-                self._rebuild()
-                event.accept()
-                return
-            for it in self.items(event.pos()):
+            if self._pending_region:
+                return ("pending", None)
+            for it in under:
                 for tag in ("regionpt", "regionquad", "regionedge", "regionlabel"):
                     pay = self._resolve_data(it, tag)
-                    if pay is not None:
-                        i = pay[0] if tag == "regionpt" else int(pay)
-                        self._region_menu(i, event.globalPos())
-                        event.accept()
-                        return
-            return super().contextMenuEvent(event)
-        if self._place_mode:
-            for it in self.items(event.pos()):
+                    if pay is None:
+                        continue
+                    ri = pay[0] if tag == "regionpt" else int(pay)
+                    if (self._region_row(ri) or {}).get("locked"):
+                        continue                   # no menu, no Delete: look under it
+                    return ("region", ri)
+        elif self._place_mode:
+            for it in under:
                 mi = self._resolve_data(it, "marker")
                 if mi is not None:
-                    m = self._markers[int(mi)]
-                    if not (m.get("locked") or m.get("keep")):   # no Delete the host refuses
-                        self._marker_menu(int(mi), event.globalPos())
-                    event.accept()
-                    return
+                    return ("marker", int(mi))
+        elif self._trace_mode:
+            i = next((v for v in (self._resolve_vertex(it) for it in under) if v is not None),
+                     None)
+            if i is not None:
+                return ("vertex", i)
+        return None
+
+    def contextMenuEvent(self, event):             # noqa: N802 (Qt override)
+        kind, i = self._menu_target(event.pos()) or (None, None)
+        if kind is None:
             return super().contextMenuEvent(event)
-        if not self._trace_mode:
-            return super().contextMenuEvent(event)
-        i = next((v for v in (self._resolve_vertex(it) for it in self.items(event.pos()))
-                  if v is not None), None)
-        if i is None:
-            return super().contextMenuEvent(event)
-        self._vertex_menu(i, event.globalPos())
+        if kind == "pending":                      # right-click abandons the quad mid-draw
+            self._pending_region = []
+            self._rebuild()
+        elif kind == "region":
+            self._region_menu(i, event.globalPos())
+        elif kind == "marker":
+            m = self._markers[i]
+            if not m.get("locked") and (m.get("open") or not m.get("keep")):   # no menu of
+                self._marker_menu(i, event.globalPos())    # entries the host only refuses
+        else:
+            self._vertex_menu(i, event.globalPos())
         event.accept()

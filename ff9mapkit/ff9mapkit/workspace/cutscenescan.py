@@ -55,7 +55,7 @@ class StagingResult:
         # walked is the false green this panel exists to prevent.
         if self.skipped:
             bits.append(f"{len(self.skipped)} scene{'' if len(self.skipped) == 1 else 's'} "
-                        f"NOT checked (unresolved names — run Check)")
+                        f"NOT checked (unresolved names — run the toolbar Check)")
         if bits:
             return " · ".join(bits) + f" across {scope}."
         return f"✓ Every walk in {scope} reaches its target."
@@ -210,13 +210,15 @@ def ladder_rows(raw, scene_idx: int) -> list:
             "kind": k,
             "verb": k or "(empty)",
             "actor": s.get("actor") or "",
+            "speaker": str(s.get("speaker") or ""),     # the NAME on the line (shown, not a key)
             "detail": _forms.step_value_text(s),
             "with_prev": bool(s.get("with_prev")),
             "group": group_of.get(i, i),
             "is_text": k in _forms.TEXT_STEPS,
             "valueless": _forms.STEP_KIND.get(k) == _forms.BOOL,
             "extras": sorted(kk for kk in s
-                             if kk not in _forms.STEP_KIND and kk not in ("actor", "with_prev")),
+                             if kk not in _forms.STEP_KIND
+                             and kk not in ("actor", "with_prev", "speaker")),
         })
     return rows
 
@@ -294,7 +296,8 @@ def scene_problems(raw, flag_names=None) -> list:
                 out.append(f'{tag}step {i} ({kk}) needs a cast -- add actors = ["<npc name>"]')
             if s.get("with_prev"):
                 if i == 0:
-                    out.append(f"{tag}step 0 can't run with a previous beat (there isn't one)")
+                    out.append(f"{tag}step 0 can't run together with a previous step "
+                               "(there isn't one)")
                 elif kk not in _forms.PARALLEL_STEPS:
                     out.append(f"{tag}step {i} ({kk}) can't run in parallel -- only "
                                f"{', '.join(_forms.PARALLEL_STEPS)} can ride with_prev")
@@ -602,13 +605,13 @@ def storyboard(raw, base_dir, wmesh, scene_idx: int) -> dict:
                                  "positions": dict(pos), "legs": legs})
         # THE HONESTY LEDGER -- on the strip's face, not in a docstring.
         out["notes"] = [
-            "beat axis, no clock -- a say waits for the player, so seconds would be fiction",
+            "one moment at a time, no clock -- a say waits for the player, so seconds would be fiction",
             "walks are the compiler's routed polylines, not the engine's smooth path",
             "@player resolves to [player] spawn; the real player stands wherever they walked",
         ]
         if wmesh is None and cast:
             out["notes"].insert(1, "no walkmesh loaded -- legs shown straight "
-                                   "(Check the staging routes them)")
+                                   "(Check staging routes them)")
     except Exception as e:                     # noqa: BLE001 -- worker material must never raise
         out["error"] = f"Could not build the storyboard -- {e}"
     return out

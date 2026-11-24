@@ -1492,6 +1492,7 @@ class Workspace(QMainWindow):
         # Open. The keyboard shortcuts (below) are independent of the menus, so the keys still work directly.
         self._field_btn = self._menu_button(tb, "Field", "Create or open a standalone field", [
             ("New Field…   (Ctrl-N)", self.on_new_field),
+            ("Trace a photo…", lambda: self.tabs.setCurrentWidget(self.trace_doc)),   # T37
             ("Open Field…", self.on_open_field)])
         self._campaign_btn = self._menu_button(tb, "Campaign", "Create or open a campaign (a chain of fields)", [
             ("New Campaign…   (Ctrl-Shift-N)", self.on_new_campaign),
@@ -1788,7 +1789,8 @@ class Workspace(QMainWindow):
         self.trace_doc = TraceDoc(self.pal, KIT, run=self.run_job, problems=self._show_problems,
                                   scale=self._text_scale, on_generated=self.open_field,
                                   can_generate=self._trace_can_generate,
-                                  on_regenerated=self._trace_regenerated)
+                                  on_regenerated=self._trace_regenerated,
+                                  was_stopped=lambda: bool(self._stopped))
         self.tabs.addTab(self.trace_doc, "Trace")
         # the multiplayer ghost-sync front door: host/join a session point-and-click (wraps `ff9mapkit coop`;
         # the setup streams through run_job, the ws->wss bridge runs in-process inside this app).
@@ -1823,7 +1825,8 @@ class Workspace(QMainWindow):
         # clicking a forked room's OWN art (every click raycasts the donor walkmesh). The shell
         # PUSHES the open doc (tab show / tree select, the Behavior contract); the doc's one
         # disk touch is the user's own 'Load the room' click.
-        self.place_doc = PlaceDoc(self.pal, on_edit=self._on_place_edit, scale=self._text_scale)
+        self.place_doc = PlaceDoc(self.pal, on_edit=self._on_place_edit, on_open=self._open_from_place,
+                                  scale=self._text_scale)
         self.tabs.addTab(self.place_doc, "Place")
         # click-authoring Rung 6c (studies/click-authoring/RUNG6.md): lay several rooms out on a
         # plan-view chart, declare which shared walls are doors, Compose a wired dungeon through
@@ -4996,8 +4999,19 @@ class Workspace(QMainWindow):
             self.tabs.setCurrentWidget(self.doc_scroll)    # re-enters this handler for the Editor
             return
         self._refresh_undo_actions()                       # Trace/Floorplan Undo is their own (_local_undo_doc)
-        self._mount_behavior_instruments(w is getattr(self, "behavior_doc", None))
-        self._mount_cutscene_instruments(w is getattr(self, "cutscene_doc", None))
+        # One tab's column in the Inspector at a time. EVERY unmount runs before the one mount:
+        # in a fixed order, going straight from Cutscene to Behavior mounted Behavior's column
+        # and then the Cutscene unmount put the ordinary card back under it.
+        beh = w is getattr(self, "behavior_doc", None)
+        cut = w is getattr(self, "cutscene_doc", None)
+        tra = w is getattr(self, "trace_doc", None)
+        for on in (False, True):                           # the unmounts, then the mount
+            if beh is on:
+                self._mount_behavior_instruments(on)
+            if cut is on:
+                self._mount_cutscene_instruments(on)
+            if tra is on:
+                self._mount_trace_instruments(on)
         if w in (self.doc_scroll, self.map):
             self.crumb.set(self._content_crumbs)
             self._set_chip(self._content_chip)
@@ -5106,6 +5120,26 @@ class Workspace(QMainWindow):
             w.hide()                               # hide BEFORE the reparent: a visible widget
             self._insp_lay.removeWidget(w)         # reparented to None flashes as its own OS
             w.setParent(None)                      # window (the ladder's phantom-window lesson)
+            self.insp_body.show()
+
+    def _mount_trace_instruments(self, on):
+        """Dock the Trace doc's session summary into the INSPECTOR while that tab shows (finding
+        T41) -- the Cutscene contract exactly: the SAME widget moves, the ordinary inspector card
+        hides under it and returns when the tab changes away (_on_tab_changed runs every
+        unmount before the one mount, so the card never returns under another tab's column)."""
+        doc = getattr(self, "trace_doc", None)
+        if doc is None or getattr(self, "_insp_lay", None) is None:
+            return
+        w = doc.instruments
+        mounted = w.parent() is not None
+        if on and not mounted:
+            self.insp_body.hide()
+            self._insp_lay.addWidget(w, 1)
+            w.show()
+        elif not on and mounted:
+            w.hide()                               # hide BEFORE the reparent (phantom window)
+            self._insp_lay.removeWidget(w)
+            w.setParent(None)
             self.insp_body.show()
 
     def _feed_cutscene(self):
@@ -5510,6 +5544,7 @@ class Workspace(QMainWindow):
         always; a field's objects once it's been expanded)."""
         cmds = [
             ("New Field…", "command", self.on_new_field),
+            ("Trace a photo…", "command", lambda: self.tabs.setCurrentWidget(self.trace_doc)),
             ("New Campaign…", "command", self.on_new_campaign),
             ("New Journey…", "command", self.on_new_journey),
             ("Open Journey…", "command", self.on_open_journey),
@@ -5792,6 +5827,14 @@ class Workspace(QMainWindow):
                     self.tree.setCurrentItem(rn)       # fires _on_select -> mounts the panel + breadcrumb
                     return True
         return False
+
+    def _open_from_place(self, member, key):
+        """Place's 'Open in the Editor': expand the member first, so a never-expanded campaign member
+        builds its lazy rows and _goto_focus finds the marker's row instead of the member row."""
+        mi = getattr(self, "_member_items", {}).get(member)
+        if mi is not None:
+            mi.setExpanded(True)                      # itemExpanded -> _on_expand loads the lazy rows
+        self._goto_focus(member, key)
 
     def _goto_focus(self, member, key):
         """Select + mount the node ``(member, key)`` after an undo/redo (falls back to the member row)."""
@@ -8106,7 +8149,8 @@ class Workspace(QMainWindow):
         return True
 
     # ---- drag-and-drop open ----
-    _DROP_SUFFIXES = (".toml", ".dat", ".json", ".glb", ".gltf")
+    _IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".bmp", ".webp")   # a photo -> Trace (T35)
+    _DROP_SUFFIXES = (".toml", ".dat", ".json", ".glb", ".gltf") + _IMAGE_SUFFIXES
 
     def dragEnterEvent(self, event):               # noqa: N802 (Qt override)
         urls = event.mimeData().urls() if event.mimeData() else []
@@ -8142,6 +8186,10 @@ class Workspace(QMainWindow):
             self.models_doc.set_glb(p)
             self.tabs.setCurrentWidget(self.models_doc)
             self.statusBar().showMessage(f"{p.name} → Models (pick a mod folder, then Import model)", 8000)
+            return True
+        if s in self._IMAGE_SUFFIXES:              # a photo: Trace's own Open path, its unsaved
+            self.tabs.setCurrentWidget(self.trace_doc)   # question included
+            self.trace_doc.open_path(str(p))
             return True
         return self.open_save(str(p))              # .dat / save JSON
 
@@ -8797,7 +8845,7 @@ class Workspace(QMainWindow):
             # quiet, NOT accent: the always-visible crumb Deploy chip (top-right) is this surface's single
             # accent, and it is enabled+accent in exactly this state -- a second gold Deploy one row below it
             # would be two accents on one surface. The spine names the step; the chip carries the accent.
-            return ("Your fork is ready — press Deploy to put it in your game.",
+            return ("Your field is ready — press Deploy to put it in your game.",   # forked or not
                     [("Deploy", self._deploy_now, False)])
         return ("", [])                                 # READY (veteran) -- the Deploy button is already right there
 

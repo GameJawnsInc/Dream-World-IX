@@ -448,7 +448,7 @@ def test_a_crashing_worker_re_enables_the_button(win, tmp_path, monkeypatch):
     _doc_fed(win, tmp_path, _HEAD + '[cutscene]\nactors = ["Cid"]\nsteps = [ { walk = "altar" } ]\n')
     win.cutscene_doc.stage_now(sync=True)
     assert win.cutscene_doc.stage_btn.isEnabled(), "the button must never strand disabled"
-    assert win.cutscene_doc.stage_btn.text() == "Check the staging"
+    assert win.cutscene_doc.stage_btn._full == "Check staging"
     assert "boom" in win.cutscene_doc.stage_note.text(), "the crash must be SAID, not eaten"
 
 

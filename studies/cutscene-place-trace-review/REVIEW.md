@@ -260,6 +260,92 @@ and lint files (4 skips), the shell's `--smoke`, native renders of every `cutsce
 the locked marker and a sharp-tipped floor), and mutation runs by each reviewer and on the last commit
 (11 of 11 caught). Not played in the game or driven by hand.
 
+## Fixed since, batch 5 (2026-11-23)
+
+Batches 1 to 4 are on `master` (`dab0a05c`, `15c48e2c`, `e08c4680`, `a4dbb27a`). Batch 5 is on the
+branch, commits `5b549d74..4eeb6e4f`: 24 more findings (15 minor, 9 nits) in three groups that touch
+different files. Most of them are improvements, not repairs: new affordances. The method is batch 3's.
+Each group was implemented by one agent in its own worktree, attacked by a reviewer (9 findings, 6 of
+them major) and answered by a fixer. Three seams between the groups were closed at the merge
+(`398dce66`). The integrated batch was then attacked by three reviewers, each followed by a skeptic: 16
+findings, one refuted, 13 answered in `4e864a14`. That answer was attacked by two more reviewers with
+probes and mutation runs (10 findings); 8 are answered in `4eeb6e4f`. That last commit was not itself
+reviewed.
+
+With this batch 132 of the 139 findings are fixed. The 7 that remain are listed at the end of this
+section.
+
+| Group | Findings answered |
+|---|---|
+| **Cutscene tab** | C31 (the Problems / Staging column fits the Inspector at 150%) · C15 (the step list takes its content's height, up to half; a dragged split is kept; the stage re-fits until the author zooms) · C23 (a stage label never sits on a marker; Behavior too) · C24, C36, E5 (a visible selected step; the step list by keyboard; focus kept on the step after a row tool; tab order) · C37 (row tools at 24 px; first-up and last-down disabled) · C38 (every form input has an accessible name) · C20 (the storyboard's unit is a "moment"; "beat" is the story position) · C27 (the speaker by name in the step list) · C25 (a deleted scene is said, with Ctrl+Z) · C29 (Scene settings help in plain words) · C32 (the first-run banner says "field") |
+| **Trace tab** | E12 (the project's own doors and zones drawn as context, judged by the overlap law, never written or moved) · T41, T34 (a session summary in the Inspector, with the floor's size) · T33 (Detect floor) · T35 (an empty state that takes a dropped photo) · T37 (Trace a photo… in the Field menu and the command list) · leftovers of batch 4: a stopped job says "stopped"; the tree-follow note no longer replaces the opening hint |
+| **Shared canvas** | E7, E15 (a keyboard path on Place and Trace: a crosshair, Enter / Space, the Menu key or Shift+F10, Delete, through the mouse's own code) · V15 (handles and markers scale with the text size) · V12, V14 (native view tests; painted-label tests; new review states) · leftover of batch 4: Open in the Editor on a marker's menu |
+
+**What the later reviews changed** (each was a first answer that was wrong in a new way):
+
+- C15 sized the ladder to its rows, so Scene settings, which opens inside that pane, opened one field
+  tall. Opening a panel now gets the room the step editor gets.
+- T41's next step said "Press Deploy (F9)" when F9 would deploy another field, or nothing: F9 deploys
+  the field the Editor has open. The step now says to open this field first.
+- E12 drew the project's own doors with the grab cursor, corner handles and the Delete menu, though
+  every gesture on them is refused. The canvas gained a "locked" row (muted, no handles, no menu, the
+  reason in its tooltip and on a key press), which Place's Blender-only zones now use too.
+- The keyboard path: a held Enter drew a zone with no area (keys now act once per press); a key acted
+  at a crosshair that a zoom and a pan had left off screen (a key now acts only in view; otherwise the
+  press brings the crosshair back); Delete on a locked zone was silent.
+- "Open in the Editor" landed on the Field form for a campaign member whose tree row had never been
+  expanded.
+- The keyboard step list made batch 4's open gap easy to hit: Enter on the open step's row folded the
+  editor over unapplied typing. That row's pencil and Enter now refuse like every other gesture.
+- The skip for a zone with an infinite corner hid every honest five-corner zone; the twin test under
+  the file's camera crashed on `fov = 0` and hid a door the author had renamed.
+- Naming traced rows as Generate writes them needed their place among all rows, not only the drawn
+  ones.
+- Found on the way, older than the batch: switching straight from Cutscene to Behavior left the
+  ordinary Inspector card under Behavior's column.
+
+**Left open in batch 5** (known, not fixed):
+
+- Keyboard path: no keyboard dragging or nudging (moving a thing is delete, then place). The Menu key
+  was not tried on a physical keyboard. The two-line keyboard hint is wide, and at 150% it covers the
+  bottom of the art until the first gesture.
+- V15: at 150% on a short canvas the larger handles crowd dense clusters.
+- Traced names on the canvas ("traced_door0 → 4005") are longer than the old ones and can hang over
+  the edge of the photo at 150%; they stay readable. A pre-prefix door that a regenerate renames to its
+  traced twin is still reported as "removed door0".
+- C31: at 1024x720 and 125% the window is under its own minimum (1043 px), so the Inspector is still
+  squeezed there. At 150% the staging button still shortens ("Check sta…").
+- C15: at 150% with the storyboard on, the stage is still a strip of about 120 px; there is little
+  height to give it. Closing a panel does not re-balance the split until the next resize.
+- C23: walk legs do not count as occupied, so a label can cross a leg. On the Behavior stage the
+  compass and handles can still overlap labels.
+- C24, E5: a selected step and a focused step share an outline colour (the selected one also has a
+  fill and a mark, which storyboard marks replace). Clicking a selected row deselects it. The Scene
+  settings form is not in the tab chain.
+- C11: a field switch or Close project from the shell still closes a step editor with unapplied typing
+  without asking.
+- E12: a door drawn in Place but not saved appears on Trace only after Save. The project's own rows
+  show no dead-zone or over-trigger paint on Trace.
+- T41: the plain counts and the floor size are only in the Inspector; with that pane collapsed the
+  status still carries every warning and the next step.
+- T33: Detect floor runs in the window's own thread, about a quarter of a second on a 12-megapixel
+  photo, behind a busy cursor.
+
+**The 7 findings that remain:**
+
+- Documentation: C30 (the S5 tutorial and its figure), P26 (no page for the Place tab), T36 (no page
+  for the Trace tab, and the docsite card that points elsewhere). These should describe the app after
+  it has been tried by hand.
+- `build.py`: C16 (a bad cutscene tail is reported twice), together with the build half of C9 and the
+  wording of the sentences PROBLEMS now shows. Any change there needs the full suite.
+- Needs a playtest to settle: C33 (how to reach a gated scene in game), C34 (a facing indicator for
+  turn steps, a cast picker), P8 (a verbatim fork's own exits in Place's overlap judge).
+
+Verified by: 1,736 tests across the Workspace, GUI, cutscene, behavior, image-field, floorplan, forms
+and lint files (4 skips), the shell's `--smoke`, native renders of every `cutscene:*`, `place:*` and
+`trace:*` surface read before and after (mist 100 and 150, light 100, dracula 150), and mutation runs
+by each reviewer and on the last commit (11 of 11 caught). Not played in the game or driven by hand.
+
 ## 1. The numbers
 
 139 findings stand: **4 data-loss bugs, 23 major, 88 minor, 24 nits.**

@@ -448,7 +448,9 @@ def build_surface(donor: int, cam_index: int = 0) -> dict:
 # --------------------------------------------------------------------- the document
 class PlaceDoc(QWidget):
     """Click-to-place on a forked real field's own art. ``on_edit(member, label)`` is the ONE
-    write channel — the shell checkpoints the mutation this doc made in the open doc's dict."""
+    write channel — the shell checkpoints the mutation this doc made in the open doc's dict.
+    ``on_open(member, key)``: the shell's way to a row's Editor form (``key`` as the tree has it,
+    ``npc:2`` or ``player``); without one, no marker offers it."""
 
     MODES = (("npc", "NPC"), ("prop", "Prop"), ("spawn", "Spawn"), ("arrival", "Arrival"))
     MODE_TIPS = {
@@ -462,10 +464,11 @@ class PlaceDoc(QWidget):
                    "number, the number the source field's gateway sends. Drawn as a diamond.",
     }
 
-    def __init__(self, pal, *, on_edit, scale=100):
+    def __init__(self, pal, *, on_edit, on_open=None, scale=100):
         super().__init__()
         self.pal = pal
         self.on_edit = on_edit
+        self.on_open = on_open
         self._member = None
         self._data = None                       # the OPEN doc's dict (the shell's reference)
         self._path = None
@@ -600,6 +603,7 @@ class PlaceDoc(QWidget):
         self.canvas.marker_moved.connect(self._on_marker_moved)
         self.canvas.marker_clicked.connect(self._on_marker_clicked)
         self.canvas.marker_deleted.connect(self._on_marker_deleted)
+        self.canvas.marker_opened.connect(self._on_marker_opened)
         self.canvas.click_refused.connect(lambda m: self._refresh(m, "warn"))
         root.addWidget(self.canvas, 1)
         # A refused field (a bundled example, an installed copy, an unsaved doc) has nothing to
@@ -1025,6 +1029,10 @@ class PlaceDoc(QWidget):
                                if isinstance(e, dict) and name and e.get("name") == name), None)
             if r["scene"] is not None or r["data_index"] is None:
                 r["label"] += " (Blender)"
+            if r["data_index"] is None:
+                # no field.toml row at all: EVERY gesture is refused (_scene_refusal), so the
+                # canvas must not offer one -- no grab cursor, no handles, no menu, no Delete
+                r["locked"] = self._scene_refusal(r, None)
         self._region_rows_cache = rows
         self.canvas.set_regions(self._region_rows_cache)
 
@@ -1290,7 +1298,8 @@ class PlaceDoc(QWidget):
             e = self._marker_owner(m)
             locked = self._marker_why(e, "pos")     # a move refused = every gesture refused
             marks.append({"pos": (x, y, z), "label": label, "kind": m["kind"], "locked": locked,
-                          "keep": locked is None and self._marker_why(e, None) is not None})
+                          "keep": locked is None and self._marker_why(e, None) is not None,
+                          "open": self.on_open is not None})
             owners.append(e)
         self._marker_rows_cache = owners
         self.canvas.set_markers(marks)
@@ -1395,6 +1404,22 @@ class PlaceDoc(QWidget):
         self._refresh_markers()
         self._refresh(label)
 
+    def _on_marker_opened(self, i):
+        """The marker menu's Open in the Editor: the row it was drawn from, found BY IDENTITY in
+        the open doc (an Editor delete since the feed moved it), handed to the shell."""
+        if self.on_open is None or self._data is None or not 0 <= i < len(self._marker_rows_cache):
+            return
+        e = self._marker_rows_cache[i]
+        rows = self._marker_rows(e)
+        if e["kind"] in ("spawn", "arrival"):          # [player]'s form holds both
+            key = "player"
+        else:
+            key = next((f"{e['kind']}:{k}" for k, r in enumerate(rows) if r is e["row"]), None)
+        if e["row"] is None or key is None:
+            self._refresh(f"{e['label']} is no longer in this field — nothing changed.", "warn")
+            return
+        self.on_open(self._member, key)
+
     def _on_marker_clicked(self, i):
         """A click ON a placed marker places nothing (P16): say what is there and how to change it."""
         if not 0 <= i < len(self._marker_rows_cache):
@@ -1405,8 +1430,14 @@ class PlaceDoc(QWidget):
         if locked is not None:                      # never advertise a drag it will refuse
             self._refresh(f"That is {name}. {locked} Nothing was added.", "warn")
             return
-        how = ("drag it to move it" if self._marker_why(e, None) is not None
-               else "drag it to move it, or right-click it to delete it")
+        keep = self._marker_why(e, None) is not None
+        if self.on_open is not None:                # the Editor form: a move without a drag
+            how = ("drag it to move it, or right-click it to open it in the Editor" if keep
+                   else "drag it to move it, or right-click it to delete it or open it in the "
+                        "Editor")
+        else:
+            how = ("drag it to move it" if keep
+                   else "drag it to move it, or right-click it to delete it")
         self._refresh(f"That is {name}, already placed — {how}. Nothing was added.")
 
     def _refresh(self, note="", state=""):
