@@ -297,3 +297,158 @@ def test_paint_template_row_is_gated_on_a_camera_and_runs_the_verb(app, pin_pref
     assert argv == [_sys.executable, "-m", "ff9mapkit", "paint-template", str(cam.resolve())]
     # the ok_next carries the paint-over workflow: the composer's two art files, by name
     assert "art/back.png" in kw["ok_next"] and "art/floor.png" in kw["ok_next"]
+
+
+@pytest.mark.parametrize("theme", ["light", "dark", "mist", "dracula"])
+def test_a_disabled_tool_segment_looks_disabled(app, theme):
+    """T28: ToolStrip segments are ``#railSeg``, whose id-scoped rule OUT-RANKS the generic
+    ``QToolButton:disabled`` (and that rule's ``$muted`` is the resting segment's colour anyway),
+    so a disabled tool was pixel-identical to a clickable one. Proven from pixels: the SAME label
+    in the same unchecked state, enabled vs disabled, under the real sheet on an ancestor (the
+    app's structure -- a bare widget would measure Fusion), must render differently, and the
+    disabled ink must sit closer to its ground than the enabled ink does."""
+    from PySide6.QtWidgets import QVBoxLayout, QWidget
+
+    from ff9mapkit.editor.theme import _contrast as contrast
+    from ff9mapkit.workspace.shell import _apply_app_theme
+    from ff9mapkit.workspace.style import qss
+
+    pal = pick_palette(theme)
+    _apply_app_theme(app, pal)
+    host = QWidget()
+    host.setStyleSheet(qss(pal))
+    lay = QVBoxLayout(host)
+    strips = []
+    for _ in range(2):
+        s = widgets.ToolStrip([("a", "Floor", ""), ("b", "Regions", "")], initial="a")
+        lay.addWidget(s)
+        strips.append(s)
+    strips[1].button("b").setEnabled(False)
+    host.show()
+    app.processEvents()
+    on, off = (s.button("b") for s in strips)
+    assert on.size() == off.size()
+    from PySide6.QtCore import QPoint, QRect
+
+    def shot(btn):                       # through the HOST: a segment's ground is transparent,
+        return host.grab(QRect(btn.mapTo(host, QPoint(0, 0)), btn.size())).toImage()  # its own
+    a, b = shot(on), shot(off)           # grab would read that as black
+    diff = sum(a.pixelColor(x, y) != b.pixelColor(x, y)
+               for y in range(a.height()) for x in range(a.width()))
+    assert diff > 20, f"{theme}: a disabled segment renders like an enabled one ({diff} px)"
+
+    def ink_contrast(img):
+        ground = img.pixelColor(2, img.height() // 2)
+        best = 1.0
+        for y in range(img.height()):
+            for x in range(img.width()):
+                best = max(best, contrast(img.pixelColor(x, y).name(), ground.name()))
+        return best
+
+    assert ink_contrast(b) < ink_contrast(a), theme
+    host.hide()
+
+
+# --------------------------------------------------------------- batch 3, the final review
+@pytest.mark.parametrize("theme", ["light", "dark", "mist", "dracula"])
+@pytest.mark.parametrize("kind", ["radio", "check"])
+def test_a_disabled_radio_or_checkbox_in_a_tool_row_looks_disabled(app, theme, kind):
+    """Beside a dimmed tool segment (T28), a disabled NPC / Prop radio kept its label at full
+    contrast: only the indicator dimmed, so the row read 'Place is off' and 'NPC is ready' at
+    once. Measured on the LABEL alone (the indicator already differed).
+
+    Scoped to the tool rows (widgets.SpillRow), NOT app-wide: on the Build tab an app-wide rule
+    left a disabled option's title fainter than the caption under it, and elsewhere a disabled
+    checkbox's label is a sentence the author still has to read."""
+    from PySide6.QtCore import QPoint, QRect
+    from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QRadioButton, QVBoxLayout, QWidget
+
+    from ff9mapkit.editor.theme import _contrast as contrast
+    from ff9mapkit.workspace.shell import _apply_app_theme
+    from ff9mapkit.workspace.style import qss
+
+    pal = pick_palette(theme)
+    _apply_app_theme(app, pal)
+    host = QWidget()
+    host.setStyleSheet(qss(pal))
+    lay = QVBoxLayout(host)
+    cls = QRadioButton if kind == "radio" else QCheckBox
+    lead = QWidget()
+    row = QHBoxLayout(lead)
+    on, off = cls("Arrival"), cls("Arrival")
+    off.setEnabled(False)
+    row.addWidget(on)
+    row.addWidget(off)
+    lay.addWidget(widgets.SpillRow(lead, QWidget()))
+    plain = cls("Arrival")                             # the same control OUTSIDE a tool row
+    plain.setEnabled(False)
+    lay.addWidget(plain)
+    host.show()
+    app.processEvents()
+
+    def label_ink(w):
+        left = w.height() + 8                          # past the indicator and its spacing
+        img = host.grab(QRect(w.mapTo(host, QPoint(left, 0)),
+                              w.size() - type(w.size())(left, 0))).toImage()
+        ground = img.pixelColor(img.width() - 2, img.height() // 2)
+        return max(contrast(img.pixelColor(x, y).name(), ground.name())
+                   for y in range(img.height()) for x in range(img.width()))
+
+    assert label_ink(off) < label_ink(on) - 1.0, (theme, kind, label_ink(on), label_ink(off))
+    assert label_ink(plain) > label_ink(off) + 1.0, (theme, kind, label_ink(plain), label_ink(off))
+    host.hide()
+
+
+# --------------------------------------------------------------- batch 5, the Cutscene ladder
+@pytest.mark.parametrize("theme", ["light", "dark", "mist", "dracula"])
+def test_the_selected_cutscene_step_and_a_disabled_row_tool_read_from_pixels(app, theme, tmp_path):
+    """C24: the selected step row showed only a glyph the storyboard replaced. Its card is now the
+    rail's selected idiom (an id + property rule that must OUT-RANK the generic card rule) -- the
+    same card, selected vs not, must render a different ground, also while the storyboard marks a
+    beat. C37: a disabled row tool (up on row 0) must read fainter than the same enabled tool."""
+    import tomllib
+
+    from PySide6.QtCore import QPoint, QRect
+    from PySide6.QtWidgets import QPushButton
+
+    from ff9mapkit.editor.theme import _contrast as contrast
+    from ff9mapkit.workspace.cutscenedoc import CutsceneDoc
+    from ff9mapkit.workspace.shell import _apply_app_theme
+    from ff9mapkit.workspace.style import qss
+
+    pal = pick_palette(theme)
+    _apply_app_theme(app, pal)
+    doc = CutsceneDoc(pal)
+    doc.setStyleSheet(qss(pal))
+    doc.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+    doc.resize(1000, 700)
+    doc.show()
+    toml = ('[field]\nname = "S"\n\n[[cutscene]]\nsteps = [ { say = "a" }, { say = "b" }, '
+            '{ say = "c" } ]\n')
+    doc.show_field("S", tomllib.loads(toml), tmp_path / "S.field.toml")
+    doc._on_step_select(1)
+    app.processEvents()
+
+    def ground(row):                                   # a pixel of the card's own fill, inside
+        img = doc.grab(QRect(row.mapTo(doc, QPoint(0, 0)), row.size())).toImage()   # its border
+        return img.pixelColor(img.width() - 6, img.height() // 2).name()
+
+    for board in (False, True):
+        doc.board_btn.setChecked(board)
+        app.processEvents()
+        rows = doc.ladder._rows
+        assert ground(rows[1]) != ground(rows[0]), (theme, board, "the selection is invisible")
+        assert ground(rows[0]) == ground(rows[2])
+
+    def ink(btn):
+        img = doc.grab(QRect(btn.mapTo(doc, QPoint(0, 0)), btn.size())).toImage()
+        g = img.pixelColor(1, img.height() // 2).name()
+        return max(contrast(img.pixelColor(x, y).name(), g)
+                   for y in range(img.height()) for x in range(img.width()))
+
+    ups = [next(b for b in r.findChildren(QPushButton) if b.property("tool") == "↑")
+           for r in (doc.ladder._rows[0], doc.ladder._rows[2])]
+    assert not ups[0].isEnabled() and ups[1].isEnabled()
+    assert ink(ups[0]) < ink(ups[1]) - 1.0, (theme, ink(ups[0]), ink(ups[1]))
+    doc.hide()
+    doc.instruments.setParent(None)

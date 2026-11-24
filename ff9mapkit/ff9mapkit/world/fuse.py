@@ -233,7 +233,8 @@ def fuse_layout(mod_folder: str, placements, *, disc: int = 1, lod: str = "0_1",
 #: The fixed execution order: base mint (placement layouts + synthetic islands) -> interior
 #: relief (reads the DEPLOYED bytes the base tier wrote) -> navigation stamps (reclassify the
 #: deployed water). Within a tier, rows run in document order.
-COMPOSE_TIERS = (("placement", "island", "river", "sink", "morph", "transplant"), ("mountain", "forest", "hill"),
+COMPOSE_TIERS = (("placement", "island", "river", "sink", "morph", "transplant", "prefab"),
+                 ("mountain", "forest", "hill"),
                  ("coastnav", "rim_retile"))
 COMPOSE_TABLES = tuple(t for tier in COMPOSE_TIERS for t in tier)
 
@@ -296,6 +297,38 @@ def _world_tree_md5(mod_root: Path) -> dict:
             h = hashlib.md5(p.read_bytes()).hexdigest()
             _MD5_SEEN[key] = (st.st_size, st.st_mtime_ns, h, now)
         out[p.relative_to(mod_root).as_posix()] = h
+    return out
+
+
+def manifest_step(mod_folder, label: str, spec: dict, write, *, game=None, allow_overwrite: bool = False):
+    """Run ONE writer outside :func:`compose_layout` under the compose's own manifest law: THE MANIFEST DRIFT GATE
+    first (refuses -- ``ValueError`` -- when a manifest-recorded file has diverged on disk, unless ``allow_overwrite``),
+    then ``write()``, then one ``world_manifest.json`` entry naming every file it changed. What a writer that is
+    not a fuse row (a TURNED prefab: ``prefab.write_turned``) owes the folder, so a later compose sees its files.
+    Returns ``write()``'s value."""
+    import json
+    from datetime import datetime, timezone
+    mod_root = config.find_game_path(game) / mod_folder
+    man_path = mod_root / "FF9_Data" / "WorldMap" / _MANIFEST_NAME
+    old = json.loads(man_path.read_text(encoding="utf-8")) if man_path.is_file() else None
+    pre = _world_tree_md5(mod_root)
+    recorded: dict = {}
+    for e in (old or {}).get("entries", ()):
+        recorded.update(e.get("files", {}))
+    drift = sorted(p for p, h in recorded.items() if p in pre and pre[p] != h)
+    if drift and not allow_overwrite:
+        raise ValueError(f"manifest-drift: {len(drift)} file(s) the folder's world_manifest.json recorded have "
+                         f"changed on disk since (e.g. {drift[:3]}): refusing to build over them (allow_overwrite "
+                         f"waives this gate)")
+    out = write()
+    post = _world_tree_md5(mod_root)
+    changed = {p: h for p, h in post.items() if pre.get(p) != h}
+    if changed:
+        man_path.parent.mkdir(parents=True, exist_ok=True)
+        entries = list((old or {}).get("entries", ())) + [
+            {"table": label, "spec": spec, "files": changed,
+             "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}]
+        man_path.write_text(json.dumps({"op": "compose", "entries": entries}, indent=1), encoding="utf-8")
     return out
 
 
@@ -384,7 +417,7 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
         _strict_keys("island", row, {"center", "cell", "radius", "height", "patches",
                                      "seed", "lobes", "rim_run", "flat", "ground",
                                      "relief_amp", "relief_seed", "coastnav",
-                                     "coastnav_policy"})
+                                     "coastnav_policy", "prefab_frame"})
         ren = {"radius": "base_radius", "height": "land_height", "patches": "n_patches"}
         kw = {ren.get(k, k): v for k, v in row.items() if k not in ("center", "cell")}
         if "center" in row:
@@ -481,7 +514,8 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
             res = IN.carve_mountain(soup, donor=donor, disc=disc, game=game,
                                     alcove=catalog_alcove(donor) or "auto",
                                     rock_height=arg("rock_height"), spread=arg("spread"),
-                                    rot_deg=rot, **loc, **extra)
+                                    rot_deg=rot, prefab_frame=bool(row.get("prefab_frame", False)),
+                                    **loc, **extra)
             IN.census_gate(res["changed"], disc=disc, game=game, baseline=blocks,
                            parts=IN.census_parts(res), stack=stack)
         if not dry_run:
@@ -595,6 +629,23 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
         if cli._cmd_world_transplant(cli.build_parser().parse_args(argv)) != 0:
             raise ValueError(f"world-transplant refused the carry of {d} to {c}")
 
+    def _prefab_runner(row):
+        # `world-prefab`'s ONE pipeline (world/prefab.py place): its clear window, the staged identity against the
+        # catalog, its own compose of the prefab's rows, and the written land's identity -- so a recipe places the
+        # land the catalog names, exactly as the World tab's card and the command do
+        from . import prefab as PF
+        _strict_keys("prefab", row, {"name", "cell", "turn"})
+        if disc != 1 or rtarget != 1 or lod != "0_1":
+            raise ValueError("[[prefab]] places on disc 1 (lod 0_1); its disc-4 copy is the mirror's -- no --disc or "
+                             "--target-disc")
+        if "name" not in row or "cell" not in row:
+            raise ValueError("[[prefab]] needs name = \"...\" and cell = [bx, by]")
+        try:
+            PF.place(str(row["name"]), tuple(int(v) for v in row["cell"]), mod_folder, game=game, dry_run=dry_run,
+                     skip_mirror=skip_mirror, allow_overwrite=allow_overwrite, turn=int(row.get("turn", 0)))
+        except PF.PrefabRefused as e:
+            raise ValueError(str(e)) from e
+
     def _placement_runner(_row):
         out = fuse_layout(mod_folder, list(placements), disc=disc, lod=lod, game=game,
                           allow_overwrite=allow_overwrite, dry_run=dry_run,
@@ -606,7 +657,7 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
         return out
 
     runners = {"island": _island_runner, "river": _river_runner, "sink": _sink_runner, "morph": _morph_runner,
-               "transplant": _transplant_runner,
+               "transplant": _transplant_runner, "prefab": _prefab_runner,
                "coastnav": _coastnav_runner, "rim_retile": _rim_runner}
 
     steps = []                                               # (label, table, spec, runner)

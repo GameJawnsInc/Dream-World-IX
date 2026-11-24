@@ -260,22 +260,23 @@ CUTSCENE_SPEC = [
     Field("actors", "Cast", STRLIST, "[[npc]] names (and/or \"player\") the scene drives; blank = narration"),
     Field("once", "Play once", BOOL, "off = replays every visit", default=True),
     Field("requires_scenario", "Requires beat", SCENARIOREF,
-          "the DIRECTOR GATE: only plays when the ScenarioCounter == this beat (number or area name); "
-          "blank = always"),
+          "only plays while the story is at this beat (a number or an area name), not before or "
+          "after; blank = always. (The game's story counter, ScenarioCounter.)"),
     Field("requires_flag", "Requires flag set", FLAGREF,
           "only plays while this story flag (name/idx) is set", catalog="flag"),
     Field("requires_flag_clear", "Requires flag clear", FLAGREF,
           "only plays while this story flag (name/idx) is UNSET — the other half of a flag gate",
           catalog="flag"),
     Field("set_scenario", "Then set beat", SCENARIOREF,
-          "the DIRECTOR ADVANCE: at scene end, move the story to this beat (once, only when it played)"),
+          "when the scene ends, move the story on to this beat (once, and only if the scene played)"),
     Field("set_flags", "Then set flags", FLAGDICTLIST,
           'story bits raised at scene end (inside the once-gate): "name, 1; other, 0"'),
     Field("then_warp", "Then warp to field", OPTINT,
           "end the scene with a fade + warp to this field id (how a forced-ATE scene returns)"),
     Field("flag", "Once-flag override", OPTINT,
-          "advanced: pin THIS gEventGlobal bit as the scene's once-flag (blank = auto-allocated; "
-          "a campaign member's 2nd+ scene needs one)", advanced=True),
+          "advanced: the story flag that remembers this scene has played (blank = one is picked "
+          "for you; a campaign member's 2nd+ scene needs its own). A gEventGlobal bit number.",
+          advanced=True),
     Field("warmup", "Warmup frames", OPTINT, "default 30 (let the field settle)", advanced=True),
 ]
 MARKER_SPEC = [
@@ -362,14 +363,14 @@ SECTION_HELP = {
 
 # cutscene steps: each is a dict with exactly one action key.
 STEP_KIND = {
-    "say": STR, "wait": INT, "set_flag": PAIR,                    # any cutscene
+    "say": STR, "wait": INT, "set_flag": FLAGPAIR,                # any cutscene
     "open": STR, "close": INT, "wait_window": INT,               # any cutscene (multi-window)
     "raise": BOOL, "set_signal": INT, "wait_signal": INT,       # any cutscene (windows + text signals)
     "walk": POINT, "path": PATH, "teleport": POINT,              # actor only (movement)
     "animation": ANIM, "turn": INT, "face_player": BOOL,        # actor only (anim/facing)
 }
 STEP_LABEL = {
-    "say": "Say (dialogue)", "wait": "Wait (frames)", "set_flag": "Set flag (idx, val)",
+    "say": "Say (dialogue)", "wait": "Wait (frames)", "set_flag": "Set flag (name/idx, val)",
     "open": "Open a window (async)", "close": "Close a window", "wait_window": "Wait for a window",
     "raise": "Raise windows above a fade", "set_signal": "Set text signal",
     "wait_signal": "Wait for text signal",
@@ -380,7 +381,8 @@ STEP_LABEL = {
 STEP_HELP = {
     "say": "dialogue text shown in a window (blocks until dismissed)",
     "wait": "frames to pause (30 ≈ 1 second)",
-    "set_flag": "story flag as \"index, value\" -- e.g. 8712, 1 (custom flags live in 8712+)",
+    "set_flag": "story flag as \"name, value\" (a [[flag]] name) or \"index, value\" -- e.g. "
+                "boss_dead, 1 or 8712, 1 (raw custom indices live in 8712+)",
     "open": "dialogue text in a window that STAYS UP while the scene runs on -- close it later with "
             "'Close a window'. Set Window to keep two on screen at once",
     "close": "the window id to dispose (the number you opened it with)",

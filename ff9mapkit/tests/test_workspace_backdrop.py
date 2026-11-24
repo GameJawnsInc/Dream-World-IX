@@ -211,6 +211,24 @@ def test_outset_preview_rings_the_polygon(app):
     assert min(xs) < 20 and max(xs) > 364 and max(ys) > 440
 
 
+def test_outset_preview_is_the_ring_the_build_emits(app):
+    """The dashed walk-edge preview and the build share ONE owner (``imagefield._grow_floor``).
+    At a tip sharper than the miter limit the build bevels (finding T4); a preview that still
+    called the bare ``outset_polygon`` drew the unlimited spike the build no longer ships."""
+    c, cam, _ = _trace_canvas(app)
+    tip = [(192, 250), (230, 430), (154, 430)]
+    c.set_floor(tip)
+    world = [IF.click_to_world(cam, p) for p in tip]
+    built = [IF.world_to_click(cam, v) for v in IF._grow_floor(world)[0]]
+    spike = IF.outset_polygon(world, IF.COLLISION_OUTSET)
+    assert len(built) != len(spike), "the fixture must be a floor the build bevels"
+    rings = [it for it in c._scene.items() if it.data(0) == "outset"]
+    assert len(rings) == 1
+    got = [(p.x(), p.y()) for p in rings[0].polygon()]
+    assert len(got) == len(built), "the preview is not the ring the build emits"
+    assert all(math.hypot(g[0] - b[0], g[1] - b[1]) < 1e-3 for g, b in zip(got, built))
+
+
 def test_pitch_change_marks_bad_vertices_and_suspends_outset(app):
     """Canvas px stay the truth: a camera swap re-judges every vertex. The two back vertices
     land above the shallower camera's horizon -> error-marked with the refusal tooltip, and
@@ -618,6 +636,9 @@ def test_corner_and_whole_quad_drags_emit_once_each(app):
     assert c._begin_region_corner_drag(0, 2)
     tx, ty = IF.world_point_to_click(c.camera(), (350.0, 0.0, 1600.0))
     c._drag_canvas(tx, ty)
+    quad_case, edge_case = c._region_case_items[0]         # P20: the casings ride the drag
+    assert quad_case.polygon() == c._region_items[0].polygon()
+    assert edge_case.line() == c._region_edge_items[0].line()
     c._end_vertex_drag()
     assert len(changed) == 1
     i, quad = changed[0]
@@ -721,3 +742,1652 @@ def test_zone_corners_project_at_the_mesh_floor_height(app):
     off_px = IF.world_point_to_click(c.camera(), (5000.0, y, 2000.0))
     off = c._px_to_zone_world(QPointF(*off_px))
     assert math.hypot(off[0] - 5000.0, off[1] - 2000.0) < 1.0     # the plane at floor height
+
+
+# --------------------------------------------------------------------------- the view grammar
+# Every fence here delivers its input through QApplication.sendEvent(view.viewport(), ...), the
+# path Qt itself takes, and runs at an ODD and an EVEN width (the skill's parity trap).
+
+def _fitted(app, w, h=560):
+    """A canvas shown at (w, h) whose deferred first-paint fit has really run."""
+    c, cam = _canvas(app)
+    c.resize(w, h)
+    QApplication.processEvents()
+    c.viewport().repaint()                     # the deferred fit runs in the first REAL paint
+    QApplication.processEvents()
+    assert not c._fit_pending
+    return c, cam
+
+
+def _ctrl_wheel(c, dy, dx=0, n=1):
+    from PySide6.QtCore import QPoint as _P
+    from PySide6.QtGui import QWheelEvent
+    vp = c.viewport()
+    pos = QPointF(vp.width() / 2, vp.height() / 2)
+    for _ in range(n):
+        ev = QWheelEvent(pos, QPointF(vp.mapToGlobal(pos.toPoint())), _P(0, 0), _P(dx, dy),
+                         Qt.MouseButton.NoButton, Qt.KeyboardModifier.ControlModifier,
+                         Qt.ScrollPhase.NoScrollPhase, False)
+        QApplication.sendEvent(vp, ev)
+        QApplication.processEvents()           # the scrollbars' layout lands between steps,
+                                               # as it does for a real hand on a real wheel
+
+
+def _ctrl_key(c, key):
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QKeyEvent
+    QApplication.sendEvent(c, QKeyEvent(QEvent.Type.KeyPress, key,
+                                        Qt.KeyboardModifier.ControlModifier))
+    QApplication.processEvents()
+
+
+def _art_fits(c):
+    """The whole frame lies inside the viewport and neither scrollbar has a range."""
+    r = c.mapFromScene(c._scene.sceneRect()).boundingRect()
+    vp = c.viewport().rect()
+    return (vp.contains(r) and c.verticalScrollBar().maximum() == 0
+            and c.horizontalScrollBar().maximum() == 0)
+
+
+@pytest.mark.parametrize("w", [501, 500])
+def test_a_layout_shrink_refits_until_the_author_zooms(app, w):
+    """T24: the Trace cut-out strip appearing (any layout shrink) must not crop the art behind a
+    scrollbar while the author is still at the fit; once they have zoomed, their zoom stays."""
+    c, _ = _fitted(app, w)
+    assert _art_fits(c)
+    c.resize(w, 470)                           # the strip row arrives: ~90 px shorter
+    QApplication.processEvents()
+    assert _art_fits(c), "a shrink left the art cropped behind a scrollbar"
+    c.resize(w, 620)                           # and a grown window fills again
+    QApplication.processEvents()
+    grown = c.transform().m11()
+    c.resize(w, 560)
+    QApplication.processEvents()
+    assert c.transform().m11() < grown
+    _ctrl_wheel(c, 120)                        # the author zooms: from now on it is theirs
+    z = c.transform().m11()
+    c.resize(w, 470)
+    QApplication.processEvents()
+    assert c.transform().m11() == pytest.approx(z)
+    _ctrl_key(c, Qt.Key.Key_0)                 # Ctrl+0 is the way back to following the layout
+    c.resize(w, 560)
+    QApplication.processEvents()
+    assert _art_fits(c) and c.transform().m11() > z * 0.5
+    _ctrl_key(c, Qt.Key.Key_1)                 # 1:1 is a chosen zoom too
+    c.resize(w, 470)
+    QApplication.processEvents()
+    assert c.transform().m11() == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("w", [501, 500])
+def test_ctrl0_from_a_zoomed_view_fits_like_the_first_paint(app, w):
+    """V4: Ctrl+0 measured the scrollbar-reduced viewport and fitted ~2% small."""
+    c, _ = _fitted(app, w)
+    first = c.transform().m11()
+    _ctrl_wheel(c, 120, n=4)                   # in until the scrollbars show
+    assert c.verticalScrollBar().maximum() > 0
+    _ctrl_key(c, Qt.Key.Key_0)
+    QApplication.processEvents()
+    assert c.transform().m11() == pytest.approx(first, abs=1e-9)
+    # ...and in ONE step: the end state above is also reachable by a small fit that the
+    # scrollbars' later disappearance re-fits (T24), which hides a regressed measurement.
+    _ctrl_wheel(c, 120, n=4)
+    assert c.verticalScrollBar().maximum() > 0
+    c._fit()                                   # no event loop between: the fit alone
+    assert c._fit_zoom == pytest.approx(first, abs=1e-9)
+
+
+@pytest.mark.parametrize("w", [501, 500])
+def test_the_hint_pill_stays_in_its_corner_after_a_pan(app, w):
+    """V2: the pill is a viewport child; QGraphicsView scrolls the viewport, children and all."""
+    c, _ = _fitted(app, w)
+    _ctrl_wheel(c, 120, n=6)
+    sb = c.verticalScrollBar()
+    hb = c.horizontalScrollBar()
+    assert sb.maximum() > 0
+    sb.setValue(sb.maximum())                  # exactly what ScrollHandDrag does
+    hb.setValue(hb.maximum())
+    QApplication.processEvents()
+    vp, hint = c.viewport(), c._hint
+    want = (vp.width() - hint.width() - 10, vp.height() - hint.height() - 8)
+    assert (hint.x(), hint.y()) == want
+
+
+@pytest.mark.parametrize("w", [501, 500])
+def test_ctrl_wheel_zoom_follows_the_delta_and_ignores_a_sideways_wheel(app, w):
+    """V5: a precision touchpad splits one 120 detent into small deltas -- eight 15s are ONE
+    step, not eight; a horizontal Ctrl+wheel (dy == 0) is not a zoom-out."""
+    c, _ = _fitted(app, w)
+    z0 = c.transform().m11()
+    _ctrl_wheel(c, 15, n=8)
+    assert c.transform().m11() / z0 == pytest.approx(1.15, rel=1e-6)
+    z1 = c.transform().m11()
+    _ctrl_wheel(c, 0, dx=120)
+    assert c.transform().m11() == pytest.approx(z1)
+    _ctrl_wheel(c, -120)
+    assert c.transform().m11() / z1 == pytest.approx(1 / 1.15, rel=1e-6)
+
+
+# --------------------------------------------------------------------------- gestures, end to end
+# Delivered through QApplication.sendEvent(view.viewport(), ...) with explicit button state, so a
+# BUTTONLESS move really is buttonless (mouse tracking is on: AnchorUnderMouse turns it on).
+
+def _mouse(c, kind, canvas_pt, *, button=Qt.MouseButton.LeftButton, buttons=None):
+    """One mouse event at a CANVAS point. ``kind`` = press / move / release."""
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QMouseEvent
+    t = {"press": QEvent.Type.MouseButtonPress, "move": QEvent.Type.MouseMove,
+         "release": QEvent.Type.MouseButtonRelease}[kind]
+    vp = c.viewport()
+    wpt = c.viewportTransform().map(QPointF(*canvas_pt))
+    pos = QPointF(round(wpt.x()), round(wpt.y()))
+    if buttons is None:
+        buttons = button if kind != "release" else Qt.MouseButton.NoButton
+    btn = Qt.MouseButton.NoButton if kind == "move" else button
+    ev = QMouseEvent(t, pos, QPointF(vp.mapToGlobal(pos.toPoint())), btn, buttons,
+                     Qt.KeyboardModifier.NoModifier)
+    QApplication.sendEvent(vp, ev)
+
+
+def _click(c, canvas_pt):
+    _mouse(c, "press", canvas_pt)
+    _mouse(c, "release", canvas_pt)
+
+
+_TRI = [(100.0, 300.0), (300.0, 300.0), (200.0, 430.0)]
+
+
+def test_a_drag_whose_release_was_lost_ends_on_the_next_buttonless_move(app):
+    """V3: a release lost to a modal menu left the vertex following the HOVER, and the next
+    ordinary click committed it at that stray spot."""
+    c, cam, calls = _trace_canvas(app)
+    c._commit_floor(_TRI)
+    n0 = len(calls)
+    _mouse(c, "press", _TRI[0])
+    assert c._drag and c._drag["kind"] == "vertex"
+    _mouse(c, "move", (130.0, 320.0))                        # still held: the vertex follows
+    assert c._drag and c._drag["pt"] != _TRI[0]
+    _mouse(c, "move", (220.0, 330.0), buttons=Qt.MouseButton.NoButton)   # the release never came
+    assert c._drag is None and c.floor() == _TRI and len(calls) == n0
+    a = c._trace_items[0]["anchor"]                          # the RETAINED wrapper
+    assert (a.pos().x(), a.pos().y()) == _TRI[0]             # the handle went home
+    _click(c, (220.0, 330.0))                                # the next click is just a click
+    assert len(c.floor()) == 4 and c.floor()[0] == _TRI[0]
+
+
+def test_escape_aborts_a_live_drag(app):
+    """V8: Esc mid-drag puts the vertex back; the release then commits nothing."""
+    c, cam, calls = _trace_canvas(app)
+    c._commit_floor(_TRI)
+    n0 = len(calls)
+    _mouse(c, "press", _TRI[1])
+    _mouse(c, "move", (320.0, 340.0))
+    assert c._drag
+    QTest.keyClick(c, Qt.Key.Key_Escape)
+    assert c._drag is None and not c._coords.isVisible()
+    _mouse(c, "release", (320.0, 340.0))
+    assert c.floor() == _TRI and len(calls) == n0
+    a = c._trace_items[1]["anchor"]
+    assert (a.pos().x(), a.pos().y()) == _TRI[1]
+
+
+def _snip(c, locked=False):
+    pm = QPixmap(40, 30)
+    pm.fill(Qt.GlobalColor.red)
+    c.set_cutouts([{"i": 0, "pixmap": pm, "rect": (100.0, 320.0, 40.0, 30.0),
+                    "contact": (120.0, 350.0), "label": "fg0", "bad": False, "locked": locked}])
+
+
+def test_snips_and_contacts_show_move_only_where_a_press_drags_them(app):
+    """V6: in the Regions tool a press on a snip pans or places a corner, so no Move cursor."""
+    from PySide6.QtWidgets import QGraphicsPolygonItem
+    c, cam, _ = _trace_canvas(app)
+    _snip(c)
+    c.set_region_mode(True)
+    snip = c._cutout_items[0]
+    assert not snip.hasCursor()
+    assert not any(k.hasCursor() for k in c._kids if isinstance(k, QGraphicsPolygonItem))
+    c.set_contact_mode(True)                                 # the Cut-outs tool: they drag again
+    assert c._cutout_items[0].hasCursor()
+
+
+def test_a_contact_click_on_a_snip_body_marks_a_contact(app):
+    """V9: in contact mode a click that does not travel is a contact, even over a snip's
+    opaque pixels; a press that travels still drags the snip."""
+    c, cam, _ = _trace_canvas(app)
+    _snip(c)
+    c.set_contact_mode(True)
+    got, moved = [], []
+    c.contact_clicked.connect(lambda x, y: got.append((x, y)))
+    c.cutout_moved.connect(lambda i, x, y: moved.append((i, x, y)))
+    _click(c, (110.0, 330.0))                                # ON the snip's red body
+    assert len(got) == 1 and not moved
+    assert abs(got[0][0] - 110.0) <= 1.0 and abs(got[0][1] - 330.0) <= 1.0
+    _mouse(c, "press", (110.0, 330.0))
+    _mouse(c, "move", (150.0, 360.0))
+    _mouse(c, "release", (150.0, 360.0))
+    assert len(moved) == 1 and len(got) == 1
+    c.set_trace_mode(True)                                   # tracing: a snip body is a grab,
+    n = len(c.floor())                                       # never a vertex
+    _click(c, (110.0, 330.0))                                # (no host re-fed the moved rect)
+    assert len(c.floor()) == n and len(got) == 1
+
+
+def test_a_first_corner_can_start_inside_an_existing_region(app):
+    """P24: a click inside a drawn quad (no corners pending) is the first corner of a new one;
+    a press that travels still moves the quad."""
+    c, drawn, changed, _, refused = _region_canvas(app)
+    c.set_regions([{"i": 0, "quad": _GW_QUAD, "label": "door0", "kind": "gateway",
+                    "warn": None}])
+    inside = IF.world_point_to_click(c.camera(), (0.0, 0.0, 1200.0))
+    _click(c, inside)
+    assert len(c._pending_region) == 1 and not changed and not refused
+    QTest.keyClick(c, Qt.Key.Key_Escape)
+    assert not c._pending_region
+    _mouse(c, "press", inside)
+    _mouse(c, "move", (inside[0] + 20, inside[1] + 10))
+    _mouse(c, "release", (inside[0] + 20, inside[1] + 10))
+    assert len(changed) == 1 and not c._pending_region
+
+
+def test_the_hint_pill_speaks_the_current_tool_then_gets_out_of_the_way(app):
+    """P18: the pill said 'click the floor' in every mode and sat over the art's bottom-right
+    for good. It now says what THIS mode's click does, and hides after the first gesture
+    (a mode change or a new field brings it back)."""
+    c, cam, _ = _trace_canvas(app)
+    hint = c._hint
+    assert "outline" in hint.text() and hint.isVisibleTo(c)
+    c.set_region_mode(True)
+    assert "4 corners" in hint.text()
+    assert "Esc" not in hint.text()                    # the first corner hides the pill, and Esc only
+    #                                                    acts after it: the tool's tooltip says it
+    assert "click the floor" not in hint.text()
+    c.set_contact_mode(True)
+    assert "base" in hint.text() and "click the floor" not in hint.text()
+    c.set_place_mode(True)
+    assert "click the floor" in hint.text()
+    c.set_region_mode(True)
+    _click(c, IF.world_point_to_click(cam, (0.0, 0.0, 1200.0)))   # one corner placed
+    assert len(c._pending_region) == 1 and not hint.isVisibleTo(c)
+    c.set_trace_mode(True)
+    assert hint.isVisibleTo(c) and "outline" in hint.text()
+    c.set_floor(_TRI)
+    assert c._begin_vertex_drag(0)                           # a drag spends it too
+    c._drag_canvas(110.0, 310.0)
+    c._end_vertex_drag()
+    assert not hint.isVisibleTo(c)
+    bare =BackdropCanvas(pick_palette("dark"))
+    bare.set_backdrop(None, None)
+    assert "click" not in bare._hint.text()                  # no camera: nothing to click
+
+
+def test_the_regions_tool_shows_the_traced_floor_edge(app):
+    """T29: doors belong on the walkable edge, so the Regions tool keeps the floor outline and
+    its outset ring in view -- inert, and without the vertex handles (a trace thing)."""
+    c, cam, calls = _trace_canvas(app)
+    c._commit_floor([(130.0, 200.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)])
+    c.set_region_mode(True)
+    tags = _tags(c)
+    assert "traceline" in tags and "outset" in tags
+    assert "tracept" not in tags                             # no vertex furniture to collide with
+    n0 = len(calls)                                          # corners, not vertices
+    _click(c, (200.0, 300.0))
+    assert len(calls) == n0 and len(c._pending_region) == 1
+
+
+# --------------------------------------------------------------------------- furniture ON the art
+# The art is an ARBITRARY ground. These fences read RENDERED pixels (colour is font-independent,
+# so offscreen colour holds) over art that spans the luminance range, in every shipped theme.
+
+_ARTS = {"black": "#000000", "white": "#ffffff", "tan floor": "#9e8460", "navy wall": "#26293a"}
+
+
+def _lum(c):
+    def ch(v):
+        v /= 255
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+    return 0.2126 * ch(c[0]) + 0.7152 * ch(c[1]) + 0.0722 * ch(c[2])
+
+
+def _cr(a, b):
+    la, lb = _lum(a), _lum(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def _furnished(app, theme, art):
+    """Every kind of on-art furniture over a flat ``art`` ground: trace legs + vertices (one
+    above the horizon), a contact, a gateway, a marker."""
+    from PySide6.QtGui import QColor
+    c = BackdropCanvas(pick_palette(theme), on_floor=lambda pts: None)
+    pm = QPixmap(384, 448)
+    pm.fill(QColor(art))
+    c.set_backdrop(pm, guide.make_camera(20.0, 3000.0, fov_x_deg=42.0))   # horizon y ~54
+    c.set_trace_mode(True)
+    c.resize(500, 560)
+    c.show()
+    QApplication.processEvents()
+    c.viewport().repaint()
+    c.set_floor([(60.0, 30.0), (330.0, 120.0), (360.0, 430.0), (30.0, 430.0)])   # 0 is bad
+    c.set_cutouts([{"i": 0, "pixmap": None, "rect": None, "contact": (200.0, 300.0),
+                    "label": "fg0 · z 1073", "bad": False, "locked": True}])
+    c.set_regions([{"i": 0, "quad": _GW_QUAD, "label": "door0 → 4005", "kind": "gateway",
+                    "warn": None}])
+    c.set_markers([{"pos": (0.0, 0.0, 2200.0), "label": "Mira", "kind": "npc"}])
+    QApplication.processEvents()
+    return c
+
+
+def _viewport_rgb(c):
+    img = c.viewport().grab().toImage()
+    return lambda x, y: img.pixelColor(x, y).getRgb()[:3], img.width(), img.height()
+
+
+def _label_rect(c, lab):
+    base = c.mapFromScene(lab["anchor"].pos())
+    p = lab["plate"].pos()
+    return QPointF(base.x() + p.x(), base.y() + p.y()), lab["w"], lab["h"]
+
+
+@pytest.mark.parametrize("theme", ["light", "dark", "mist", "dracula"])
+@pytest.mark.parametrize("art", list(_ARTS))
+def test_on_art_text_and_glyphs_hold_contrast_on_any_art(app, theme, art):
+    """P20: every label's ink clears 4.5:1 against what is actually painted behind it, and
+    every handle/glyph puts a pixel within 3:1-or-better reach of the art around it."""
+    from collections import Counter
+    c = _furnished(app, theme, _ARTS[art])
+    px, W, H = _viewport_rgb(c)
+    texts = [lab["text"].text() for lab in c._labels]
+    assert any("door0" in t for t in texts) and any("fg0" in t for t in texts)
+    assert any("Mira" in t for t in texts) and any("✕" in t for t in texts)
+    for lab in c._labels:
+        tl, w, h = _label_rect(c, lab)
+        x0, y0 = int(tl.x()) + 2, int(tl.y()) + 2
+        pts = [px(x, y) for y in range(y0, min(H, y0 + int(h) - 3))
+               for x in range(x0, min(W, x0 + int(w) - 3)) if x >= 0 and y >= 0]
+        assert pts, lab["text"].text()
+        ground = Counter(pts).most_common(1)[0][0]
+        ink = max(_cr(p, ground) for p in pts)
+        assert ink >= 4.5, f"{theme}/{art}: '{lab['text'].text()}' ink {ink:.2f}:1"
+    art_rgb = tuple(int(_ARTS[art][i:i + 2], 16) for i in (1, 3, 5))
+    for anchor, box in c._glyphs:
+        b = c.mapFromScene(anchor.pos())
+        ring = [px(int(b.x() + dx), int(b.y() + dy)) for dy in range(-9, 10)
+                for dx in range(-9, 10) if 0 <= b.x() + dx < W and 0 <= b.y() + dy < H]
+        assert max(_cr(p, art_rgb) for p in ring) >= 3.0, f"{theme}/{art}: a glyph vanishes"
+
+
+@pytest.mark.parametrize("theme", ["light", "dark", "mist", "dracula"])
+def test_every_on_art_stroke_clears_3_to_1_against_its_casing(app, theme):
+    """P20, the lines: a leg / outline / horizon / footprint edge is always adjacent to its own
+    casing, so THAT pair carries the 3:1 non-text floor, whatever the art does. And the casing
+    is really painted under the stroke (read from pixels on a mid-grey ground)."""
+    from PySide6.QtGui import QColor
+    c = _furnished(app, theme, "#808080")
+    for key in ("accent", "warn", "error"):
+        col = QColor(c.pal[key])
+        case = c._casing(col)
+        assert _cr(col.getRgb()[:3], case.getRgb()[:3]) >= 3.0, (theme, key)
+    px, W, H = _viewport_rgb(c)
+    a, b = (c.viewportTransform().map(QPointF(*p)) for p in ((360.0, 430.0), (30.0, 430.0)))
+    mx, my = int((a.x() + b.x()) / 2), int((a.y() + b.y()) / 2)   # the leg 2 -> 3 (horizontal)
+    column = [px(mx, y) for y in range(my - 4, my + 5)]
+    case = c._casing(QColor(c.pal["accent"])).getRgb()[:3]
+    grey = (128, 128, 128)                 # the casing pulls the leg's flank away from the art,
+    toward = (lambda p: _lum(p) < _lum(grey)) if _lum(case) < _lum(grey) else \
+        (lambda p: _lum(p) > _lum(grey))   # on the casing's side (antialiasing blends it)
+    assert any(toward(p) and _cr(p, grey) >= 2.0 for p in column), \
+        ("no casing under the leg", column, case)
+
+
+def test_labels_never_overprint_each_other_or_a_handle(app):
+    """P21: far-back zones compress to a few pixels; their labels used to pile into one
+    unreadable cluster under the corner handles. Labels now take free tiers."""
+    c, *_ = _region_canvas(app)
+    quads = [[(x - 150.0, 2600.0), (x + 150.0, 2600.0), (x + 150.0, 2900.0), (x - 150.0, 2900.0)]
+             for x in (-250.0, 0.0, 250.0)]
+    c.set_regions([{"i": n, "quad": q, "label": f"zone{n} → 40{n}5", "kind": "event",
+                    "warn": "over-trigger" if n == 1 else None} for n, q in enumerate(quads)])
+    c.set_markers([{"pos": (0.0, 0.0, 2750.0), "label": "Mira", "kind": "npc"}])
+    from PySide6.QtCore import QRectF
+    rects = []
+    for lab in c._labels:
+        tl, w, h = _label_rect(c, lab)
+        rects.append(QRectF(tl.x(), tl.y(), w, h))
+    assert len(rects) == 4
+    for a in range(len(rects)):
+        for b in range(a + 1, len(rects)):
+            assert not rects[a].intersects(rects[b]), (a, b)
+    for anchor, box in c._glyphs:
+        g = box.translated(c.mapFromScene(anchor.pos()).toPointF())
+        assert not any(r.intersects(g) for r in rects), "a label hides a handle"
+    assert not any(lab["text"].text() in "0123" for lab in c._labels)   # no corner indices
+    lines = [it.zValue() for it in c._scene.items() if it.data(0) in ("casing", "regionquad")]
+    assert all(lab["anchor"].zValue() > max(lines) for lab in c._labels)   # never struck out
+
+
+def test_markers_speak_their_kind_by_shape(app):
+    """P25: npc / prop / chest / spawn / arrival were five identical rings."""
+    from PySide6.QtWidgets import QGraphicsPathItem
+    c, _, _ = _place_canvas(app, [_RAMP])
+    kinds = ["npc", "prop", "chest", "spawn", "arrival"]
+    c.set_markers([{"pos": (-400.0 + 200 * n, 0.0, 1500.0), "label": k, "kind": k}
+                   for n, k in enumerate(kinds)])
+    shapes = {}
+    for k in c._kids:                                     # RETAINED wrappers only
+        if isinstance(k, QGraphicsPathItem) and k.data(2) == "marker" and \
+                k.pen().color().name() == "#ffffff":     # the glyph itself, not its halo
+            p = k.path()
+            br = p.boundingRect()
+            kind = c._markers[k.data(3)]["kind"]          # the payload is the marker's index (P16)
+            shapes[kind] = (round(br.width(), 1), round(br.height(), 1), p.elementCount())
+    assert sorted(shapes) == sorted(kinds)
+    assert len(set(shapes.values())) == len(kinds), shapes
+
+
+def test_an_invalid_vertex_differs_by_shape_not_only_colour(app):
+    """V13: a vertex above the horizon is a HOLLOW ring with a ✕ in its label."""
+    from PySide6.QtWidgets import QGraphicsEllipseItem
+    c, _, _ = _trace_canvas(app, pitch=20.0)                  # horizon y ~54
+    c.set_floor([(130.0, 30.0), (254.0, 200.0), (364.0, 440.0)])
+    dots = [k for k in c._kids if isinstance(k, QGraphicsEllipseItem)]
+    styles = [d.brush().style() for d in dots]
+    assert styles.count(Qt.BrushStyle.NoBrush) == 1 and styles.count(Qt.BrushStyle.SolidPattern) == 2
+    texts = sorted(lab["text"].text() for lab in c._labels if "horizon" not in lab["text"].text())
+    assert texts == ["0 ✕", "1", "2"]
+
+
+def test_an_invalid_contact_is_a_hollow_diamond(app):
+    """V13, the contact half: a contact with no floor under it is hollow, a good one filled."""
+    from PySide6.QtWidgets import QGraphicsPolygonItem
+    c, _, _ = _trace_canvas(app)
+    c.set_cutouts([{"i": 0, "pixmap": None, "rect": None, "contact": (120.0, 350.0),
+                    "label": "fg0", "bad": False, "locked": True},
+                   {"i": 1, "pixmap": None, "rect": None, "contact": (260.0, 350.0),
+                    "label": "fg1", "bad": True, "locked": True}])
+    styles = {k.data(3): k.brush().style() for k in c._kids
+              if isinstance(k, QGraphicsPolygonItem) and k.data(2) == "cutoutpt"}
+    assert styles == {0: Qt.BrushStyle.SolidPattern, 1: Qt.BrushStyle.NoBrush}
+
+
+def test_a_new_field_brings_the_hint_pill_back(app):
+    """P18: a click spends the pill; a NEW field (set_backdrop refit) teaches again, while a
+    camera re-feed of the same field (refit=False) does not."""
+    c, cam, _ = _trace_canvas(app)
+    _click(c, (200.0, 400.0))
+    assert not c._hint.isVisibleTo(c)
+    c.set_backdrop(c._pixmap, cam, refit=False)
+    assert not c._hint.isVisibleTo(c)
+    c.set_backdrop(c._pixmap, cam)
+    assert c._hint.isVisibleTo(c)
+
+
+def test_a_press_on_a_displaced_label_is_not_a_grab(app):
+    """P21, after review: a label pushed a tier or two off its dot is not that dot's handle.
+    A press on it used to start the vertex drag and snap the vertex to the cursor (one
+    commit moved it ~27 px); a no-travel click on it now reaches the floor like any click."""
+    c, cam, calls = _trace_canvas(app)
+    pts = [(150.0 + 6 * k, 380.0) for k in range(6)] + [(250.0, 420.0), (120.0, 420.0)]
+    c.set_floor(pts)
+    c._fit()
+    lab = max((lb for lb in c._labels if lb["anchor"].data(0) == "tracept"),
+              key=lambda lb: -lb["plate"].pos().y())           # the most displaced label
+    assert lab["plate"].pos().y() < lab["dy"] - 1               # really pushed off home
+    base = c.mapFromScene(lab["anchor"].pos())
+    pp = lab["plate"].pos()
+    press = c.mapToScene(QPoint(int(base.x() + pp.x() + lab["w"] / 2),
+                                int(base.y() + pp.y() + lab["h"] / 2)))
+    _mouse(c, "press", (press.x(), press.y()))
+    assert c._drag is None
+    _mouse(c, "move", (press.x() + 2, press.y()))
+    _mouse(c, "release", (press.x() + 2, press.y()))
+    assert not calls or calls[-1][:len(pts)] == pts             # no vertex moved
+    _click(c, (press.x(), press.y()))
+    assert c.floor()[:len(pts)] == pts and len(c.floor()) >= len(pts) + 1   # a floor click
+
+
+def _home(c, lab):
+    tl, w, h = _label_rect(c, lab)
+    return tl.y() - c.mapFromScene(lab["anchor"].pos()).y()
+
+
+def test_a_crowded_label_stays_near_its_anchor_and_on_screen(app):
+    """P21, after review: the tier search used to push a label up to six plates away (no
+    leader line says whose it is) and, when crowded, CLIPPED it off the viewport. Now it moves
+    at most _LABEL_TIERS tiers, and past that it overprints near home -- never off-screen."""
+    from ff9mapkit.workspace.backdrop import _LABEL_TIERS
+    assert _LABEL_TIERS <= 3
+    c, _, _ = _place_canvas(app, [_RAMP])
+    c._fit()
+    top = c.mapToScene(QPoint(c.viewport().width() // 2, 30))  # 30 px under the view's top
+    X, Z = IF.click_to_world(c.camera(), (top.x(), top.y()))
+    c.set_markers([{"pos": (X, 0.0, Z), "label": f"npc{n}", "kind": "npc"} for n in range(9)])
+    vp = c.viewport()
+    labs = [lab for lab in c._labels if lab["text"].text().startswith("npc")]
+    assert len(labs) == 9
+    for lab in labs:
+        tl, w, h = _label_rect(c, lab)
+        assert tl.y() >= 0 and tl.y() + h <= vp.height(), lab["text"].text()
+        step = lab["h"] + 1
+        assert abs(_home(c, lab) - (lab["dy"] - 1)) <= _LABEL_TIERS * step + 0.5, \
+            lab["text"].text()
+
+
+def test_a_label_at_the_right_edge_mirrors_inside_the_view(app):
+    c, _, _ = _place_canvas(app, [_RAMP])
+    c._fit()
+    vw = c.viewport().width()
+    edge = c.mapToScene(QPoint(vw - 6, 300))
+    X, Z = IF.click_to_world(c.camera(), (edge.x(), edge.y()))
+    c.set_markers([{"pos": (X, 0.0, Z), "label": "a long marker label", "kind": "npc"}])
+    lab = next(lb for lb in c._labels if lb["text"].text() == "a long marker label")
+    tl, w, h = _label_rect(c, lab)
+    assert tl.x() >= 0 and tl.x() + w <= vw
+
+
+def test_labels_renegotiate_on_a_ctrl_wheel_zoom(app):
+    """A zoom that spreads two anchors apart frees the bumped label: the tiers after a
+    Ctrl+wheel are what a fresh pass computes for the NEW transform (the scrollbars are
+    already up, so no viewport resize re-runs the pass behind the wheel's back)."""
+    c, _, _ = _place_canvas(app, [_RAMP])
+    c._fit()
+    _ctrl_wheel(c, 120, n=2)
+    assert c.verticalScrollBar().maximum() > 0
+    vp = c.viewport()
+    mid = c.mapToScene(QPoint(vp.width() // 2 - 40, vp.height() // 2))
+    c.set_markers([{"pos": (0.0, 0.0, 0.0), "label": "probe", "kind": "npc"}])
+    w = c._labels[-1]["w"]
+    gap = w / (c.transform().m11() * 1.07)                      # overlaps now, clear after 1.15x
+    pos = []
+    for dx in (0.0, gap):
+        X, Z = IF.click_to_world(c.camera(), (mid.x() + dx, mid.y()))
+        pos.append({"pos": (X, 0.0, Z), "label": "probe", "kind": "npc"})
+    c.set_markers(pos)
+    before = [_home(c, lab) for lab in c._labels]
+    assert before[0] != before[1]                               # one was bumped a tier
+    _ctrl_wheel(c, 120)
+    after = [_home(c, lab) for lab in c._labels]
+    c._decollide_labels()
+    assert [_home(c, lab) for lab in c._labels] == after        # already negotiated
+    assert after != before
+
+
+# --------------------------------------------------------------- batch 3, the final review
+def test_a_right_click_on_a_zone_label_opens_that_zones_menu(app, monkeypatch):
+    """Making labels non-grabbable (P21) took the 'regionlabel' tag off them too, so the context
+    menu's own label branch was dead: a right-click on the label a NO TARGET warning is written
+    on did nothing (or opened whichever quad lay under it). A zone label keeps its tag -- no
+    press loop resolves it, so it is still not a grab handle -- and carries the zone's tooltip,
+    since the warning mark is drawn on the label and the label may sit outside its quad."""
+    from PySide6.QtGui import QContextMenuEvent
+    c, *_ = _region_canvas(app)
+    thin = [(-300.0, 2600.0), (300.0, 2600.0), (300.0, 2700.0), (-300.0, 2700.0)]
+    c.set_regions([{"i": 0, "quad": thin, "label": "door0", "kind": "gateway",
+                    "warn": "NO TARGET"}])
+    c._fit()
+    lab = next(lb for lb in c._labels if lb["anchor"].data(0) == "regionlabel")
+    tl, w, h = _label_rect(c, lab)
+    pos = QPoint(int(tl.x() + w / 2), int(tl.y() + h / 2))
+    under = [it.data(0) for it in c.items(pos)]
+    assert not {"regionquad", "regionedge", "regionpt"} & set(under), under   # the premise: the
+    #                                                     label sits OUTSIDE its own thin quad
+    opened = []
+    monkeypatch.setattr(c, "_region_menu", lambda i, gp: opened.append(i))
+    c.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Reason.Mouse, pos, c.mapToGlobal(pos)))
+    assert opened == [0]
+    assert "NO TARGET" in lab["plate"].toolTip() and "NO TARGET" in lab["text"].toolTip()
+    sp = c.mapToScene(pos)                             # ...and a LEFT press on it grabs nothing
+    _mouse(c, "press", (sp.x(), sp.y()))
+    assert c._drag is None, c._drag                    # (outside its quad: nothing to grab at all)
+    _mouse(c, "release", (sp.x(), sp.y()))
+
+
+def test_a_marker_label_stays_beside_its_own_marker(app):
+    """P21: with only two markers on the art, the NPC's name was lifted a tier and landed beside
+    the PROP -- nearer the prop's square than its own circle, so the square read as 'Mira'. A
+    label whose home spot is taken tries the other side of its own glyph before it climbs."""
+    c, _, _ = _place_canvas(app, [_LOWER])
+    c._fit()
+
+    def world_at(sx, sy):
+        s = c.mapToScene(QPoint(int(sx), int(sy)))
+        x, z = IF.click_to_world(c.camera(), (s.x(), s.y()))
+        return (x, 0.0, z)
+
+    npc = {"pos": world_at(220, 330), "label": "Mira", "kind": "npc"}
+    c.set_markers([npc])
+    tl, w, h = _label_rect(c, c._labels[0])            # Mira's home plate, alone on the art...
+    prop = {"pos": world_at(tl.x() + w / 2, tl.y() + h / 2), "label": "prop0", "kind": "prop"}
+    c.set_markers([npc, prop])                         # ...and a prop set right where it sat
+    labs = {lb["text"].text(): lb for lb in c._labels}
+    tl, w, h = _label_rect(c, labs["Mira"])
+    centre = QPointF(tl.x() + w / 2, tl.y() + h / 2)
+    own = c.mapFromScene(labs["Mira"]["anchor"].pos())
+    other = c.mapFromScene(labs["prop0"]["anchor"].pos())
+
+    def dist(a, b):
+        return math.hypot(a.x() - b.x(), a.y() - b.y())
+
+    assert dist(centre, own) < dist(centre, other), (dist(centre, own), dist(centre, other))
+    from PySide6.QtCore import QRectF
+    plate = QRectF(tl.x(), tl.y(), w, h)
+    for anchor, box in c._glyphs:                      # and it still hides no handle
+        assert not plate.intersects(box.translated(c.mapFromScene(anchor.pos()).toPointF()))
+
+
+def test_zone_words_on_the_canvas_say_zone_and_name_what_is_drawn(app, monkeypatch):
+    """The status was reworded to 'zone', and the canvas right beside it still said 'region 0
+    corner 2' (a number it no longer draws), 'Delete region 0', and called the walk-out edge
+    'your first two corners' on a zone that had been rotated or was never drawn by hand."""
+    c, *_ = _region_canvas(app)
+    c.set_regions([{"i": 0, "quad": list(_GW_QUAD), "label": "", "kind": "gateway", "warn": None}])
+    c._fit()
+    assert c._region_items[0].toolTip().startswith("zone 0")
+    tip = c._region_edge_items[0].toolTip()
+    assert "walk-out edge" in tip and "first two corners" not in tip and "quad" not in tip
+    x, z = _GW_QUAD[0]
+    cx, cy = IF.world_to_click(c.camera(), (x, z))
+    _mouse(c, "press", (cx, cy))
+    _mouse(c, "move", (cx + 6, cy + 2))
+    readout = c._coords.text()
+    _mouse(c, "release", (cx + 6, cy + 2))
+    assert readout.startswith("zone 0") and "region" not in readout, readout
+    assert "corner 0" not in readout, readout          # corners are not numbered on the art
+
+
+# --------------------------------------------------------------- batch 4: placed markers grab (P16)
+_MIRA = (0.0, 0.0, 1500.0)
+_SPAWN = (300.0, 0.0, 1800.0)
+
+
+def _marker_canvas(app, w=500):
+    """Place mode over a big flat floor, two markers fed, every marker signal recorded."""
+    c, hits, refused = _place_canvas(app, [_LOWER], [0])
+    c.resize(w, 560)
+    QApplication.processEvents()
+    c._fit()
+    moved, clicked, deleted = [], [], []
+    c.marker_moved.connect(lambda i, p: moved.append((i, p)))
+    c.marker_clicked.connect(clicked.append)
+    c.marker_deleted.connect(deleted.append)
+    c.set_markers([{"pos": _MIRA, "label": "Mira", "kind": "npc"},
+                   {"pos": _SPAWN, "label": "spawn", "kind": "spawn"}])
+    return c, hits, refused, moved, clicked, deleted
+
+
+def _px(c, p):
+    return IF.world_point_to_click(c.camera(), p)
+
+
+def _anchor_at_home(c, i, p):
+    a = c._marker_items[i]                                   # the RETAINED wrapper
+    hx, hy = _px(c, p)
+    return math.hypot(a.pos().x() - hx, a.pos().y() - hy) < 1e-6
+
+
+@pytest.mark.parametrize("w", [501, 500])
+def test_a_marker_dragged_in_the_place_tool_moves_it_and_places_nothing(app, w):
+    """P16: a press on a placed marker was an ordinary floor click -- a SECOND NPC landed on top
+    of the first, and nothing could move it. A press there now grabs it; a release that travelled
+    emits ONE marker_moved with the walkmesh hit under the release, and the canvas redraws from
+    what it was fed (the host's re-feed is what moves it for good)."""
+    c, hits, refused, moved, clicked, _ = _marker_canvas(app, w)
+    _mouse(c, "press", _px(c, _MIRA))
+    assert c._drag and c._drag["kind"] == "marker"
+    to = (-300.0, 0.0, 1200.0)
+    _mouse(c, "move", _px(c, to))
+    a = c._marker_items[0]
+    assert math.hypot(a.pos().x() - _px(c, to)[0], a.pos().y() - _px(c, to)[1]) < 1.5   # follows
+    _mouse(c, "release", _px(c, to))
+    assert not hits and not refused and not clicked
+    assert len(moved) == 1 and moved[0][0] == 0
+    x, z = moved[0][1]["xz"]
+    assert math.hypot(x - to[0], z - to[2]) < 8.0            # integer widget-px quantization only
+    assert _anchor_at_home(c, 0, _MIRA)                      # document truth until a re-feed
+
+
+def test_a_press_on_a_marker_that_does_not_travel_places_nothing(app):
+    c, hits, refused, moved, clicked, _ = _marker_canvas(app)
+    _click(c, _px(c, _SPAWN))
+    assert clicked == [1] and not hits and not moved and not refused
+    assert c._drag is None
+
+
+def test_a_marker_dropped_off_the_walkmesh_goes_back_and_says_why(app):
+    c, hits, refused, moved, clicked, _ = _marker_canvas(app)
+    _mouse(c, "press", _px(c, _MIRA))
+    _mouse(c, "move", (4.0, 4.0))                            # the frame's top-left: no floor there
+    _mouse(c, "release", (4.0, 4.0))
+    assert not moved and not hits and not clicked
+    assert len(refused) == 1 and "Mira" in refused[0] and "back" in refused[0], refused
+    assert _anchor_at_home(c, 0, _MIRA)
+
+
+def test_escape_and_a_lost_release_put_a_marker_back(app):
+    c, hits, refused, moved, clicked, _ = _marker_canvas(app)
+    _mouse(c, "press", _px(c, _MIRA))
+    _mouse(c, "move", _px(c, (-300.0, 0.0, 1200.0)))
+    QTest.keyClick(c, Qt.Key.Key_Escape)
+    _mouse(c, "release", _px(c, (-300.0, 0.0, 1200.0)))
+    assert c._drag is None and _anchor_at_home(c, 0, _MIRA)
+    _mouse(c, "press", _px(c, _MIRA))
+    _mouse(c, "move", _px(c, (-300.0, 0.0, 1200.0)))
+    _mouse(c, "move", _px(c, (-200.0, 0.0, 1100.0)), buttons=Qt.MouseButton.NoButton)
+    assert c._drag is None and _anchor_at_home(c, 0, _MIRA)
+    assert not moved and not hits and not clicked
+
+
+@pytest.mark.parametrize("w", [501, 500])
+def test_a_vertex_dragged_above_the_horizon_is_refused_like_a_click_there(app, w):
+    """V7: a click above the horizon was refused, but a vertex DRAGGED there was committed -- a
+    vertex the build refuses. The release now refuses with the click's own words and puts the
+    vertex back. (A pitch change can still leave old vertices above it: drawn hollow, V13.)"""
+    c, cam, calls = _trace_canvas(app)
+    c.resize(w, 560)
+    QApplication.processEvents()
+    c._fit()
+    refused = []
+    c.click_refused.connect(refused.append)
+    c._commit_floor(_TRI)
+    n0 = len(calls)
+    up = (192.0, C.horizon_canvas_y(cam) - 8)
+    _mouse(c, "press", _TRI[2])
+    _mouse(c, "move", up)
+    _mouse(c, "release", up)
+    assert c.floor() == _TRI and len(calls) == n0, c.floor()
+    a = c._trace_items[2]["anchor"]                          # the RETAINED wrapper of the redraw
+    assert (a.pos().x(), a.pos().y()) == _TRI[2]
+    assert len(refused) == 1
+    _click(c, up)                                            # a click on the very same pixel
+    assert len(refused) == 2 and refused[0] == refused[1], refused
+    calls.clear()                                            # no camera: nothing to judge against,
+    c.set_backdrop(None, None)                               # and a drag still lands as before
+    assert c._begin_vertex_drag(0)
+    c._drag_canvas(110.0, 310.0)
+    c._end_vertex_drag()
+    assert len(calls) == 1 and c.floor()[0] == (110.0, 310.0)
+
+
+@pytest.mark.parametrize("w", [501, 500])
+@pytest.mark.parametrize("grab", ["corner", "body"])
+def test_a_region_drag_the_host_refuses_is_not_left_drawn(app, w, grab):
+    """V10: after a corner or whole-zone drag the canvas emitted region_changed and kept the
+    dragged shape, trusting the host to re-feed. Trace refuses a zone whose corner would go
+    behind the camera with a bare return, so the art showed a zone the document did not hold.
+    The canvas now redraws from what it was fed once the gesture ends."""
+    c, drawn, changed, _, refused = _region_canvas(app)
+    c.resize(w, 560)
+    QApplication.processEvents()
+    c._fit()
+    c.set_regions([{"i": 0, "quad": list(_GW_QUAD), "label": "door0", "kind": "gateway",
+                    "warn": None}])
+    home = c._region_items[0].polygon()
+    start = (_GW_QUAD[2] if grab == "corner" else (0.0, 1200.0))
+    sx, sy = IF.world_to_click(c.camera(), start)
+    _mouse(c, "press", (sx, sy))
+    _mouse(c, "move", (sx + 30, sy + 25))
+    _mouse(c, "release", (sx + 30, sy + 25))
+    assert len(changed) == 1                                 # the host was told (and did nothing)
+    assert c._region_items[0].polygon() == home              # the RETAINED wrapper of the redraw
+
+
+def test_a_right_click_on_a_marker_offers_delete(app, monkeypatch):
+    import types
+    from PySide6.QtGui import QContextMenuEvent
+
+    class _FakeMenu:
+        def __init__(self, parent=None):
+            self.acts = []
+
+        def addAction(self, text):
+            tok = types.SimpleNamespace(text=text)
+            self.acts.append(tok)
+            return tok
+
+        def exec(self, pos):
+            return next(a for a in self.acts if a.text.startswith("Delete"))
+
+    c, *_, deleted = _marker_canvas(app)
+    monkeypatch.setattr("PySide6.QtWidgets.QMenu", _FakeMenu)
+    wpt = c.viewportTransform().map(QPointF(*_px(c, _MIRA)))
+    pos = QPoint(round(wpt.x()), round(wpt.y()))
+    c.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Reason.Mouse, pos, c.mapToGlobal(pos)))
+    assert deleted == [0]
+
+
+def test_markers_stay_inert_outside_the_place_tool(app, monkeypatch):
+    """The Regions tool draws corners over markers, and the Trace tab never places: neither may
+    grab one, show it as grabbable, or open its menu."""
+    from PySide6.QtGui import QContextMenuEvent
+    c, hits, refused, moved, clicked, deleted = _marker_canvas(app)
+    glyphs = [k for k in c._kids if k.data(2) == "marker"]
+    assert glyphs and any(k.hasCursor() for k in glyphs)
+    assert "drag" in " ".join(k.toolTip() for k in glyphs)
+    c.set_region_mode(True)
+    glyphs = [k for k in c._kids if k.data(2) == "marker"]
+    assert glyphs and not any(k.hasCursor() for k in glyphs)
+    _click(c, _px(c, _MIRA))
+    assert len(c._pending_region) == 1 and not clicked and not moved
+    opened = []
+    monkeypatch.setattr(c, "_marker_menu", lambda i, gp: opened.append(i))
+    wpt = c.viewportTransform().map(QPointF(*_px(c, _SPAWN)))
+    pos = QPoint(round(wpt.x()), round(wpt.y()))
+    c.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Reason.Mouse, pos, c.mapToGlobal(pos)))
+    assert opened == []
+    c.set_trace_mode(True)
+    _mouse(c, "press", _px(c, _MIRA))
+    assert c._drag is None or c._drag.get("kind") != "marker"
+    _mouse(c, "release", _px(c, _MIRA))
+    c.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Reason.Mouse, pos, c.mapToGlobal(pos)))
+    assert opened == [] and not clicked and not moved and not deleted
+    glyphs = [k for k in c._kids if k.data(2) == "marker"]
+    assert glyphs and not any(k.hasCursor() or k.toolTip() for k in glyphs)
+
+
+def _top_at(c, p):
+    """The topmost item under a canvas point -- the one whose cursor the pointer shows."""
+    wpt = c.viewportTransform().map(QPointF(*_px(c, p)))
+    return c.itemAt(QPoint(round(wpt.x()), round(wpt.y())))
+
+
+def _ctx_at(c, p):
+    from PySide6.QtGui import QContextMenuEvent
+    wpt = c.viewportTransform().map(QPointF(*_px(c, p)))
+    pos = QPoint(round(wpt.x()), round(wpt.y()))
+    c.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Reason.Mouse, pos, c.mapToGlobal(pos)))
+
+
+def test_the_glyph_under_the_pointer_wears_the_grab_cursor_only_in_the_place_tool(app):
+    """Review of P16: the move cursor is the one cue that a marker drags. The glyph itself (the
+    topmost item at the marker's pixel), not only its halo beneath, must wear it."""
+    c, *_ = _marker_canvas(app)
+    top = _top_at(c, _MIRA)
+    assert top is not None and top.data(2) == "marker" and top.hasCursor()
+    assert top.cursor().shape() == Qt.CursorShape.SizeAllCursor
+    c.set_region_mode(True)
+    top = _top_at(c, _MIRA)
+    assert top is None or not top.hasCursor()
+
+
+def test_a_locked_marker_advertises_no_gesture_the_host_refuses(app, monkeypatch):
+    """Review of P16: a marker the host always refuses (a verbatim fork's spawn, a Blender NPC)
+    wore the grab cursor, said 'drag to move it' and offered Delete -- each refused in turn. It
+    now wears no grab cursor, its tooltip gives the host's reason, a press neither drags it nor
+    places on it (a click still reports it), and it opens no menu. A ``keep`` marker (movable,
+    never deleted) drags but opens no Delete either."""
+    c, hits, refused, moved, clicked, deleted = _marker_canvas(app)
+    c.set_markers([{"pos": _MIRA, "label": "Mira", "kind": "npc", "locked": "Placed in Blender."},
+                   {"pos": _SPAWN, "label": "spawn", "kind": "spawn", "keep": True}])
+    glyphs = [k for k in c._kids if k.data(2) == "marker" and k.data(3) == 0]
+    assert glyphs and not any(k.hasCursor() for k in glyphs)
+    # ...and it LOOKS fixed in a still image too: its glyph is drawn in the muted ink, never the
+    # kind's own colour (final review: only the cursor and the tooltip differed)
+    from PySide6.QtGui import QColor
+    inks = {k.brush().color().name() for k in glyphs if hasattr(k, "brush")
+            and k.brush().style() != Qt.BrushStyle.NoBrush}
+    free = {k.brush().color().name() for k in c._kids if k.data(2) == "marker" and k.data(3) == 1
+            and hasattr(k, "brush") and k.brush().style() != Qt.BrushStyle.NoBrush}
+    assert QColor(c.pal["muted"]).name() in inks, inks
+    assert QColor(c.pal["muted"]).name() not in free, free
+    tips = {k.toolTip() for k in glyphs if k.toolTip()}
+    assert tips == {"Mira: Placed in Blender."}, tips
+    _mouse(c, "press", _px(c, _MIRA))
+    assert c._drag is None
+    _mouse(c, "release", _px(c, _MIRA))
+    assert clicked == [0] and not hits and not moved
+    _mouse(c, "press", _px(c, _MIRA))                        # a press there pans, never drags it
+    _mouse(c, "move", _px(c, (-300.0, 0.0, 1200.0)))
+    _mouse(c, "release", _px(c, (-300.0, 0.0, 1200.0)))
+    assert clicked == [0] and not hits and not moved and _anchor_at_home(c, 0, _MIRA)
+    opened = []
+    monkeypatch.setattr(c, "_marker_menu", lambda i, gp: opened.append(i))
+    _ctx_at(c, _MIRA)
+    _ctx_at(c, _SPAWN)
+    assert opened == [] and not deleted
+    spawn = _top_at(c, _SPAWN)
+    assert spawn.hasCursor() and "right-click" not in spawn.toolTip(), spawn.toolTip()
+    _mouse(c, "press", _px(c, _SPAWN))
+    assert c._drag and c._drag["kind"] == "marker"
+
+
+# --------------------------------------------------------------- batch 5: the keyboard path (E7, E15)
+# Every key reaches the canvas the way Qt delivers it (QTest key events on the focused canvas);
+# a key "click" or "right-click" must land on the SAME code the mouse runs at that canvas point,
+# so a refusal is the mouse's refusal, word for word.
+def _focus(c):
+    c.activateWindow()
+    c.setFocus(Qt.FocusReason.TabFocusReason)
+    QApplication.processEvents()
+
+
+def _key(c, key, mods=Qt.KeyboardModifier.NoModifier, n=1):
+    for _ in range(n):
+        QTest.keyClick(c, key, mods)
+
+
+def _aim(c, target):
+    """Drive the crosshair onto a canvas point with the arrow keys alone (coarse, then Shift)."""
+    if c._kb_pt is None:
+        _key(c, Qt.Key.Key_Down)                     # the first arrow shows the cross where it is
+    for axis, (neg, pos) in enumerate(((Qt.Key.Key_Left, Qt.Key.Key_Right),
+                                       (Qt.Key.Key_Up, Qt.Key.Key_Down))):
+        for _ in range(400):
+            d = target[axis] - c._kb_pt[axis]
+            if abs(d) < 0.5:
+                break
+            fine = abs(d) < c._kb_step()
+            _key(c, pos if d > 0 else neg,
+                 Qt.KeyboardModifier.ShiftModifier if fine else Qt.KeyboardModifier.NoModifier)
+    assert abs(c._kb_pt[0] - target[0]) < 0.5 and abs(c._kb_pt[1] - target[1]) < 0.5, c._kb_pt
+
+
+def _words(msg):
+    """A refusal's sentence without the pixel it names."""
+    import re
+    return re.sub(r"-?\d+(\.\d+)?", "#", msg)
+
+
+def _cross_visible(c):
+    it = c._kb_item
+    return it is not None and it.isVisible()
+
+
+@pytest.mark.parametrize("w", [501, 500])
+def test_the_trace_tools_work_from_the_keyboard_alone(app, w):
+    """E15: arrows aim a crosshair, Enter adds a vertex where it stands, Shift+F10 opens the
+    vertex's own menu, Delete removes it -- and a key click above the horizon is refused in the
+    mouse's own words."""
+    c, cam, calls = _trace_canvas(app)
+    c.resize(w, 560)
+    QApplication.processEvents()
+    _focus(c)
+    assert c.hasFocus() and c._kb_pt is None and not _cross_visible(c)   # a mouse user sees none
+    _key(c, Qt.Key.Key_Return)                        # the first key only shows WHERE it would act:
+    assert not calls and _cross_visible(c)            # the middle of what the view shows
+    mid = c.mapToScene(c.viewport().rect().center())
+    assert abs(c._kb_pt[0] - mid.x()) <= 1 and abs(c._kb_pt[1] - mid.y()) <= 1
+    _aim(c, (120.0, 320.0))
+    assert _cross_visible(c)
+    _key(c, Qt.Key.Key_Return)
+    assert len(calls) == 1 and c.floor() == [(120.0, 320.0)], c.floor()
+    _aim(c, (300.0, 330.0))
+    _key(c, Qt.Key.Key_Space)
+    assert len(c.floor()) == 2
+    refused = []
+    c.click_refused.connect(refused.append)
+    up = (192.0, round(C.horizon_canvas_y(cam) - 8))
+    _aim(c, up)
+    _key(c, Qt.Key.Key_Enter)
+    assert len(c.floor()) == 2 and len(refused) == 1
+    _click(c, up)                                     # the mouse at the very same pixel
+    assert len(refused) == 2 and refused[0] == refused[1], refused
+    opened = []
+    real_menu = c._vertex_menu
+    c._vertex_menu = lambda i, gp: opened.append(i)
+    _aim(c, (300.0, 330.0))                           # ON vertex 1
+    _key(c, Qt.Key.Key_F10, Qt.KeyboardModifier.ShiftModifier)
+    _key(c, Qt.Key.Key_Menu)
+    assert opened == [1, 1]
+    c._vertex_menu = real_menu
+    n = len(calls)
+    _key(c, Qt.Key.Key_Return)                        # Enter ON a vertex: a press there grabs it,
+    assert len(calls) == n and len(c.floor()) == 2    # so no vertex lands on top (as the mouse)
+    _key(c, Qt.Key.Key_Delete)
+    assert c.floor() == [(120.0, 320.0)] and len(calls) == n + 1
+
+
+def test_the_cutouts_tool_marks_a_contact_from_the_keyboard(app):
+    c, cam, _ = _trace_canvas(app)
+    c.set_contact_mode(True)
+    got = []
+    c.contact_clicked.connect(lambda x, y: got.append((x, y)))
+    _focus(c)
+    _aim(c, (230.0, 320.0))
+    _key(c, Qt.Key.Key_Return)
+    assert got and abs(got[0][0] - 230.0) < 1e-6 and abs(got[0][1] - 320.0) < 1e-6, got
+
+
+@pytest.mark.parametrize("w", [501, 500])
+def test_the_regions_tool_draws_opens_and_deletes_a_zone_from_the_keyboard(app, w, monkeypatch):
+    """E7: four Enters draw a zone (the mouse's corner code, so the corners are the click's), the
+    Menu key opens the zone's menu at the crosshair, Delete is that menu's Delete, and Esc still
+    abandons a half-drawn zone."""
+    c, drawn, changed, deleted, refused = _region_canvas(app)
+    c.resize(w, 560)
+    QApplication.processEvents()
+    _focus(c)
+    corners = [IF.world_to_click(c.camera(), p) for p in _GW_QUAD]
+    aimed = []
+    for cx, cy in corners:
+        _aim(c, (round(cx), round(cy)))
+        aimed.append(c._kb_pt)
+        _key(c, Qt.Key.Key_Return)
+    assert len(drawn) == 1 and not refused
+    for (gx, gz), pt in zip(drawn[0], aimed):         # each corner is the click AT the crosshair
+        ex, ez = IF.click_to_world(c.camera(), pt)
+        assert (gx, gz) == (round(ex, 1), round(ez, 1))
+    c.set_regions([{"i": 0, "quad": _GW_QUAD, "label": "door0", "kind": "gateway", "warn": None}])
+    inside = IF.world_point_to_click(c.camera(), (0.0, 0.0, 1200.0))
+    _aim(c, (round(inside[0]), round(inside[1])))
+    opened = []
+    monkeypatch.setattr(c, "_region_menu", lambda i, gp: opened.append(i))
+    _key(c, Qt.Key.Key_Menu)
+    assert opened == [0]
+    _key(c, Qt.Key.Key_Delete)
+    assert deleted == [0]
+    _key(c, Qt.Key.Key_Return)                        # a first corner inside a zone (P24)
+    assert len(c._pending_region) == 1
+    _key(c, Qt.Key.Key_Escape)
+    assert not c._pending_region
+    low = guide.make_camera(10.0, 3000.0, fov_x_deg=42.0)   # a horizon inside the frame
+    c.set_backdrop(c._pixmap, low, refit=False)
+    up = (192.0, round(C.horizon_canvas_y(low) - 8))
+    _aim(c, up)                                       # above the horizon: the click's refusal
+    _key(c, Qt.Key.Key_Return)
+    assert len(refused) == 1 and not c._pending_region
+    _click(c, up)
+    assert len(refused) == 2 and _words(refused[0]) == _words(refused[1]), refused
+
+
+def _held(c, key, repeats):
+    """One press, then the OS's auto-repeat presses of a HELD key, then the release."""
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QKeyEvent
+    none = Qt.KeyboardModifier.NoModifier
+    QApplication.sendEvent(c, QKeyEvent(QEvent.Type.KeyPress, key, none, "", False))
+    for _ in range(repeats):
+        QApplication.sendEvent(c, QKeyEvent(QEvent.Type.KeyRelease, key, none, "", True))
+        QApplication.sendEvent(c, QKeyEvent(QEvent.Type.KeyPress, key, none, "", True))
+    QApplication.sendEvent(c, QKeyEvent(QEvent.Type.KeyRelease, key, none, "", False))
+
+
+def test_a_held_key_clicks_once_but_a_held_arrow_keeps_moving(app, monkeypatch):
+    """A mouse cannot auto-repeat a click, so neither can a held Enter/Space, Menu key or Delete:
+    in the Regions tool a held Enter is one corner, not a zero-area zone. The arrows still repeat."""
+    c, drawn, changed, deleted, refused = _region_canvas(app)
+    _focus(c)
+    _aim(c, (192.0, 330.0))
+    _held(c, Qt.Key.Key_Return, 5)
+    assert not drawn and len(c._pending_region) == 1, (drawn, c._pending_region)
+    y0 = c._kb_pt[1]
+    _held(c, Qt.Key.Key_Up, 3)                        # 1 press + 3 repeats = 4 steps
+    assert c._kb_pt[1] == y0 - 4 * c._kb_step()
+    c._pending_region = []
+    c.set_regions([{"i": 0, "quad": _GW_QUAD, "label": "door0", "kind": "gateway", "warn": None}])
+    inside = IF.world_point_to_click(c.camera(), (0.0, 0.0, 1200.0))
+    _aim(c, (round(inside[0]), round(inside[1])))
+    opened = []
+    monkeypatch.setattr(c, "_region_menu", lambda i, gp: opened.append(i))
+    _held(c, Qt.Key.Key_Menu, 4)
+    assert opened == [0]
+    _held(c, Qt.Key.Key_Delete, 4)
+    assert deleted == [0]
+
+
+@pytest.mark.parametrize("w", [501, 500])
+def test_the_place_tool_places_and_refuses_from_the_keyboard(app, w):
+    """E7: Enter places where the crosshair stands (the walkmesh raycast the mouse runs), is
+    refused off the floor in the mouse's words, reports a marker instead of placing on it, and
+    Delete on a marker is its menu's Delete -- the host refuses what it may not delete."""
+    c, hits, refused, moved, clicked, deleted = _marker_canvas(app, w)
+    _focus(c)
+    spot = IF.world_point_to_click(c.camera(), (-600.0, 0.0, 1300.0))
+    _aim(c, (round(spot[0]), round(spot[1])))
+    _key(c, Qt.Key.Key_Return)
+    assert len(hits) == 1 and not refused
+    x, z = hits[0]["xz"]
+    ex, ez = IF.click_to_world(c.camera(), c._kb_pt)
+    assert math.hypot(x - ex, z - ez) < 1e-6         # exactly the crosshair's point
+    _aim(c, (4.0, 4.0))                               # no floor up there
+    _key(c, Qt.Key.Key_Return)
+    assert len(refused) == 1 and len(hits) == 1
+    _click(c, (4.0, 4.0))                             # (the mouse lands on a whole screen px)
+    assert len(refused) == 2 and _words(refused[0]) == _words(refused[1]), refused
+    mx, my = _px(c, _MIRA)
+    _aim(c, (round(mx), round(my)))
+    _key(c, Qt.Key.Key_Return)
+    assert clicked == [0] and len(hits) == 1 and not moved
+    _key(c, Qt.Key.Key_Delete)
+    assert deleted == [0]
+    c.set_markers([{"pos": _MIRA, "label": "Mira", "kind": "npc", "locked": "Placed in Blender."}])
+    _key(c, Qt.Key.Key_Delete)                        # a locked one: the host says why not
+    assert deleted == [0, 0]
+
+
+def test_keys_never_trap_focus_and_keep_their_old_meanings(app):
+    """Tab and Shift+Tab still leave the canvas; Ctrl+0 still fits; with the crosshair up, the
+    arrows move it instead of scrolling a zoomed view, and the view follows it."""
+    from PySide6.QtWidgets import QPushButton, QVBoxLayout, QWidget
+    host = QWidget()
+    lay = QVBoxLayout(host)
+    before, after = QPushButton("before"), QPushButton("after")
+    c = BackdropCanvas(pick_palette("dark"))
+    pm = QPixmap(384, 448)
+    pm.fill(Qt.GlobalColor.darkGray)
+    c.set_backdrop(pm, guide.make_camera(26.0, 3000.0, fov_x_deg=42.0))
+    c.set_place_mode(True)
+    for wdg in (before, c, after):
+        lay.addWidget(wdg)
+    host.resize(520, 700)
+    host.show()
+    QApplication.processEvents()
+    _focus(c)
+    _key(c, Qt.Key.Key_Tab)
+    assert after.hasFocus()
+    _focus(c)
+    _key(c, Qt.Key.Key_Backtab, Qt.KeyboardModifier.ShiftModifier)
+    assert before.hasFocus()
+    _focus(c)
+    _ctrl_wheel(c, 120, n=6)
+    assert c.verticalScrollBar().maximum() > 0
+    v0 = c.verticalScrollBar().value()
+    _key(c, Qt.Key.Key_Down)                          # shows the cross: no scroll, no move
+    start = c._kb_pt
+    assert c.verticalScrollBar().value() == v0
+    _key(c, Qt.Key.Key_Down, n=20)
+    assert c._kb_pt[1] > start[1] and c.verticalScrollBar().value() > v0   # the view followed...
+    vp = c.mapFromScene(QPointF(*c._kb_pt))
+    assert c.viewport().rect().contains(vp), (vp, c.viewport().rect())   # ...far enough
+    _key(c, Qt.Key.Key_Up, n=20)
+    assert c._kb_pt == start                          # a document point: no drift
+    _ctrl_key(c, Qt.Key.Key_0)
+    assert _art_fits(c)
+    host.close()
+
+
+def test_the_hint_names_the_keys_only_for_keyboard_focus(app):
+    c, *_ = _marker_canvas(app)
+    c.activateWindow()
+    c.setFocus(Qt.FocusReason.MouseFocusReason)
+    QApplication.processEvents()
+    assert c.hasFocus() and "Enter" not in c._hint.text()
+    _key(c, Qt.Key.Key_Down)                           # ...until a key is used there
+    assert "Enter" in c._hint.text()
+    c.clearFocus()
+    QApplication.processEvents()
+    assert not _cross_visible(c)                       # only while the canvas has the keyboard,
+    c.set_markers(list(c._markers))                    # a redraw behind its back included
+    assert not _cross_visible(c)
+    assert "Enter" not in c._hint.text()
+    _focus(c)
+    assert "Enter" in c._hint.text() and "arrow" in c._hint.text() and c._hint.isVisibleTo(c)
+    assert "Enter" in c.accessibleDescription() and "arrow" in c.accessibleDescription()
+    assert _cross_visible(c)
+    from PySide6.QtWidgets import QMenu
+    menu = QMenu(c)                                    # its own menu keeps the cross up, on the
+    menu.addAction("Delete")                           # thing it is about, and the pill's keys
+    menu.popup(c.mapToGlobal(QPoint(40, 40)))
+    QApplication.processEvents()
+    assert _cross_visible(c) and "Enter" in c._hint.text()
+    menu.close()
+    QApplication.processEvents()
+    assert _cross_visible(c) and "Enter" in c._hint.text()
+    c.set_backdrop(c._pixmap, c.camera())              # another field: the cross starts over
+    assert c._kb_pt is None and not _cross_visible(c)
+
+
+# --------------------------------------------------------------- batch 5: the dial and the theme reach the paint (V14)
+def test_set_scale_and_retheme_reach_every_painted_label(app):
+    """V14: the old fences checked that ``_scale`` and ``pal`` were ASSIGNED, so they stayed green
+    with a rebuild that ignored both. Read what is painted: every label's font follows the text
+    size dial, and after a retheme its ink and its plate are the new theme's."""
+    from PySide6.QtGui import QColor
+    c = _furnished(app, "dark", "#808080")
+    base = {lab["text"].text(): lab["text"].font().pointSize() for lab in c._labels}
+    assert base and set(base.values()) == {8}
+    c.set_scale(150)
+    assert {lab["text"].text(): lab["text"].font().pointSize() for lab in c._labels} == \
+        {t: 12 for t in base}
+    light = pick_palette("light")
+    c.retheme(light)
+    assert {lab["text"].text() for lab in c._labels} == set(base)
+    for lab in c._labels:
+        assert lab["text"].font().pointSize() == 12          # the dial survives a retheme
+        assert lab["plate"].brush().color() == QColor(light["surface"])
+    mira = next(lab for lab in c._labels if lab["text"].text() == "Mira")
+    assert mira["text"].brush().color() == QColor(light["text"])
+    bad = next(lab for lab in c._labels if "✕" in lab["text"].text())
+    from ff9mapkit.editor.theme import derive
+    assert bad["text"].brush().color() == QColor(derive(light)["error_text"])
+
+
+def test_grab_targets_grow_with_the_text_size_dial(app):
+    """V15: the labels follow the dial, the handles beside them did not -- at 150% an 8 px vertex
+    dot sat under a 12 pt name. Every glyph (and so its hit area: a press resolves by the item's
+    own shape), its halo and its label offset now scale with the dial."""
+    def sizes(c):
+        out = {}
+        for k in c._kids:
+            tag = k.data(2)
+            if tag in ("tracept", "cutoutpt", "marker", "regionchevron", "kbcross") \
+                    and not hasattr(k, "text"):
+                br = k.boundingRect()
+                out.setdefault(tag, []).append(round(max(br.width(), br.height()), 3))
+        return {t: max(v) for t, v in out.items()}
+
+    c = _furnished(app, "dark", "#808080")
+    c.set_region_mode(True)
+    c.set_trace_mode(True)
+    _focus(c)
+    _key(c, Qt.Key.Key_Down)                       # the crosshair too
+    small = sizes(c)
+    lab = next(lb for lb in c._labels if lb["text"].text() == "Mira")
+    dx0 = lab["dx"]
+    c.set_scale(150)
+    big = sizes(c)
+    assert set(small) == {"tracept", "cutoutpt", "marker", "regionchevron", "kbcross"}, small
+    for tag, s in small.items():
+        assert big[tag] == pytest.approx(1.5 * s, rel=0.02), (tag, s, big[tag])
+    lab = next(lb for lb in c._labels if lb["text"].text() == "Mira")
+    assert lab["dx"] == pytest.approx(1.5 * dx0)
+    c.set_region_mode(True)                        # the zone corner handles
+    corner = [k.boundingRect().width() for k in c._kids if k.data(2) == "regionpt"]
+    c.set_scale(100)
+    assert max(corner) == pytest.approx(1.5 * max(k.boundingRect().width() for k in c._kids
+                                                  if k.data(2) == "regionpt"), rel=0.02)
+
+
+def test_glyph_pens_obstacles_and_the_down_tier_follow_the_dial(app):
+    """V15, after review: the ring and halo pens, the de-collision obstacle box of every glyph and
+    the floor of a DOWN label tier scale with the dial too -- not only the glyph outlines."""
+    tags = ("tracept", "cutoutpt", "marker", "regionchevron", "regionpt")
+
+    def pens(c):
+        out = {}
+        for k in c._kids:
+            if k.data(2) in tags and not hasattr(k, "text") and hasattr(k, "pen") \
+                    and k.pen().style() != Qt.PenStyle.NoPen:
+                out.setdefault(k.data(2), set()).add(round(k.pen().widthF(), 4))
+        return out
+
+    c = _furnished(app, "dark", "#808080")
+    c.set_region_mode(True)
+    c.set_trace_mode(True)
+    small = pens(c)
+    c.set_scale(150)
+    big = pens(c)
+    assert set(small) >= {"tracept", "marker"}, small
+    for tag, ws in small.items():
+        assert big[tag] == {round(1.5 * w, 4) for w in ws}, (tag, ws, big[tag])
+    # the obstacle IS the halo's painted extent (its path plus half its pen), at the dial
+    from PySide6.QtCore import QRectF
+    halos = [k.boundingRect() for k in c._kids if hasattr(k, "path") and hasattr(k, "pen")
+             and k.pen().widthF() == pytest.approx(1.5 * 4.4)]
+    assert c._glyphs and halos
+    for _anchor, box in c._glyphs:
+        assert box in halos, (box, halos[:4])
+    # the down tier: one label boxed in from above, its first down tier at dy 10 (inside a
+    # 150% glyph of r<=12, outside a 100% one of r<=8)
+
+    def settle():
+        lab = next(lb for lb in c._labels if lb["text"].text() == "Mira")
+        step = lab["h"] + 1
+        lab["dy"] = 10 - step
+        c._labels = [lab]
+        c._glyphs = [(lab["anchor"], QRectF(-5000, -5000, 10000, 5008.5))]
+        c._decollide_labels()
+        return lab["text"].pos().y(), step
+
+    y, step = settle()
+    assert y == pytest.approx(10 + step), (y, step)
+    c.set_scale(100)
+    y, step = settle()
+    assert y == pytest.approx(10), (y, step)
+
+
+# --------------------------------------------------------------- batch 5: the view, natively (V12)
+# Every fence above runs offscreen at one canvas size. The view grammar's defects (V2-V5, T24)
+# live in Qt's own integer re-centring and in the real font database, so this child runs the
+# same gestures on the NATIVE platform, hidden (WA_DontShowOnScreen), at the size it is given --
+# the test drives it at an odd and an even size. Every input goes through
+# QApplication.sendEvent(view.viewport(), ...) or a key event on the view, the way Qt delivers it.
+_NATIVE_VIEW_CHILD = r'''
+import json, sys
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QKeyEvent, QMouseEvent, QPixmap, QWheelEvent
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
+app = QApplication([])
+print("QT-PLATFORM-UP", flush=True)
+import ff9mapkit
+from ff9mapkit.editor.theme import pick_palette
+from ff9mapkit.scene import guide
+from ff9mapkit.workspace.backdrop import BackdropCanvas
+W, H = int(sys.argv[1]), int(sys.argv[2])
+bad = []
+
+
+def canvas(trace=False):
+    c = BackdropCanvas(pick_palette("mist"), on_floor=lambda pts: None)
+    c.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+    pm = QPixmap(384 * 4, 448 * 4)
+    pm.fill(Qt.GlobalColor.darkGray)
+    c.set_backdrop(pm, guide.make_camera(10.0, 3000.0, fov_x_deg=42.0))
+    c.set_trace_mode(trace)
+    c.resize(W, H)
+    c.show()
+    app.processEvents()
+    c.viewport().repaint()                     # the deferred fit runs in the first REAL paint
+    app.processEvents()
+    return c
+
+
+def wheel(c, dy, n=1):
+    vp = c.viewport()
+    pos = QPointF(vp.width() / 2, vp.height() / 2)
+    for _ in range(n):
+        QApplication.sendEvent(vp, QWheelEvent(
+            pos, QPointF(vp.mapToGlobal(pos.toPoint())), QPoint(0, 0), QPoint(0, dy),
+            Qt.MouseButton.NoButton, Qt.KeyboardModifier.ControlModifier,
+            Qt.ScrollPhase.NoScrollPhase, False))
+        app.processEvents()
+
+
+def ctrl(c, key):
+    QApplication.sendEvent(c, QKeyEvent(QEvent.Type.KeyPress, key,
+                                        Qt.KeyboardModifier.ControlModifier))
+    app.processEvents()
+
+
+def mouse(c, kind, pt, buttons=None):
+    t = {"press": QEvent.Type.MouseButtonPress, "move": QEvent.Type.MouseMove,
+         "release": QEvent.Type.MouseButtonRelease}[kind]
+    vp = c.viewport()
+    w = c.viewportTransform().map(QPointF(*pt))
+    pos = QPointF(round(w.x()), round(w.y()))
+    left = Qt.MouseButton.LeftButton
+    if buttons is None:
+        buttons = left if kind != "release" else Qt.MouseButton.NoButton
+    btn = Qt.MouseButton.NoButton if kind == "move" else left
+    QApplication.sendEvent(vp, QMouseEvent(t, pos, QPointF(vp.mapToGlobal(pos.toPoint())), btn,
+                                           buttons, Qt.KeyboardModifier.NoModifier))
+
+
+TRI = [(100.0, 300.0), (300.0, 300.0), (200.0, 430.0)]
+
+# 1. after a pan the hint pill is still in its corner
+c = canvas()
+wheel(c, 120, n=6)
+for sb in (c.verticalScrollBar(), c.horizontalScrollBar()):
+    sb.setValue(sb.maximum())
+app.processEvents()
+vp, hint = c.viewport(), c._hint
+want = (vp.width() - hint.width() - 10, vp.height() - hint.height() - 8)
+if (hint.x(), hint.y()) != want:
+    bad.append(f"pill at {(hint.x(), hint.y())} after a pan, corner is {want}")
+if hint.x() < 0:
+    bad.append(f"pill wider than the view: {hint.width()} px in {vp.width()}")
+c.close()
+
+# 2. zoom then Ctrl+0 equals the first fit
+c = canvas()
+first = c.transform().m11()
+wheel(c, 120, n=4)
+ctrl(c, Qt.Key.Key_0)
+if abs(c.transform().m11() - first) > 1e-9:
+    bad.append(f"Ctrl+0 fit {c.transform().m11():.6f}, the first fit was {first:.6f}")
+r = c.mapFromScene(c._scene.sceneRect()).boundingRect()
+if not c.viewport().rect().contains(r):
+    bad.append(f"Ctrl+0 left the art {r} outside the view {c.viewport().rect()}")
+wheel(c, 120, n=4)                             # ...and in ONE step, before the scrollbars' later
+c._fit()                                       # departure can re-fit a small fit back (T24)
+if abs(c._fit_zoom - first) > 1e-9:
+    bad.append(f"a fit from a zoomed view chose {c._fit_zoom:.6f}, the first fit {first:.6f}")
+ctrl(c, Qt.Key.Key_0)
+
+# 3. eight Ctrl+wheel steps of 15 equal one of 120
+z0 = c.transform().m11()
+wheel(c, 15, n=8)
+z8 = c.transform().m11()
+ctrl(c, Qt.Key.Key_0)
+wheel(c, 120)
+if abs(z8 / z0 - c.transform().m11() / z0) > 1e-6:
+    bad.append(f"8 x 15 zoomed x{z8 / z0:.6f}, one 120 x{c.transform().m11() / z0:.6f}")
+c.close()
+
+# 4. a mouse move with no button after a lost release moves nothing
+c = canvas(trace=True)
+c._commit_floor(TRI)
+mouse(c, "press", TRI[0])
+mouse(c, "move", (130.0, 320.0))
+mouse(c, "move", (220.0, 330.0), buttons=Qt.MouseButton.NoButton)
+a = c._trace_items[0]["anchor"]
+if c._drag is not None or c.floor() != TRI or (a.pos().x(), a.pos().y()) != TRI[0]:
+    bad.append(f"a buttonless move after a lost release moved the vertex: {c.floor()}")
+
+# 5. Esc in mid-drag restores
+mouse(c, "press", TRI[1])
+mouse(c, "move", (320.0, 340.0))
+QTest.keyClick(c, Qt.Key.Key_Escape)
+mouse(c, "release", (320.0, 340.0))
+a = c._trace_items[1]["anchor"]
+if c.floor() != TRI or (a.pos().x(), a.pos().y()) != TRI[1]:
+    bad.append(f"Esc mid-drag did not restore: {c.floor()}")
+
+# 6. the keyboard path: the arrows aim, Enter adds the vertex AT the crosshair, the zoomed view
+# follows it, and coming back by the same keys lands on the same document point
+wheel(c, 120, n=6)
+QTest.keyClick(c, Qt.Key.Key_Down)
+start = c._kb_pt
+for _ in range(20):
+    QTest.keyClick(c, Qt.Key.Key_Down)
+p = c.mapFromScene(QPointF(*c._kb_pt))
+if not c.viewport().rect().contains(p):
+    bad.append(f"the view did not follow the crosshair: {p} outside {c.viewport().rect()}")
+QTest.keyClick(c, Qt.Key.Key_Right, Qt.KeyboardModifier.ShiftModifier)
+aimed = c._kb_pt
+QTest.keyClick(c, Qt.Key.Key_Return)
+got = c.floor()[-1] if len(c.floor()) == 4 else None
+if got != (round(aimed[0], 1), round(aimed[1], 1)):
+    bad.append(f"Enter added {got}, the crosshair stood at {aimed}")
+QTest.keyClick(c, Qt.Key.Key_Left, Qt.KeyboardModifier.ShiftModifier)
+for _ in range(20):
+    QTest.keyClick(c, Qt.Key.Key_Up)
+if c._kb_pt != start:
+    bad.append(f"the crosshair drifted: {c._kb_pt} != {start}")
+c.close()
+print(json.dumps({"platform": app.platformName(), "file": ff9mapkit.__file__, "bad": bad}))
+'''
+
+
+@pytest.mark.parametrize("size", [(641, 561), (640, 560)])
+def test_the_view_grammar_holds_natively_at_an_odd_and_an_even_size(size):
+    """V12: pan -> the pill stays in its corner; zoom then Ctrl+0 -> the first fit; eight
+    Ctrl+wheel 15s -> one 120; a buttonless move after a lost release moves nothing; Esc mid-drag
+    restores; and the keyboard path -- on the native platform, hidden, at an odd and an even size."""
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    import ff9mapkit
+    pkg_root = Path(ff9mapkit.__file__).resolve().parent.parent
+    env = {k: v for k, v in os.environ.items() if k != "QT_QPA_PLATFORM"}
+    env["PYTHONIOENCODING"] = "utf-8"
+    r = subprocess.run([sys.executable, "-c", _NATIVE_VIEW_CHILD, *map(str, size)],
+                       capture_output=True, timeout=300, env=env, cwd=str(pkg_root))
+    lines = r.stdout.decode("utf-8", "replace").strip().splitlines()
+    err = r.stderr.decode("utf-8", "replace")[-600:]
+    if "QT-PLATFORM-UP" not in lines:
+        pytest.skip(f"no native Qt platform here: {err}")
+    assert r.returncode == 0, f"the native child crashed AFTER Qt came up:\n{err}"
+    out = json.loads(lines[-1])
+    if out["platform"] in ("offscreen", "minimal"):
+        pytest.skip(f"no native platform ({out['platform']})")
+    assert Path(out["file"]).resolve().is_relative_to(pkg_root)
+    assert out["bad"] == [], "\n".join(out["bad"])
+
+
+# --------------------------------------------------------------- batch 5 seam: locked zone rows
+def test_a_locked_zone_row_advertises_no_gesture_the_host_refuses(app, monkeypatch):
+    """Batch 5, the seam between two groups: the Trace tab now draws the project's own doors and
+    zones as context and refuses every gesture on them -- and the canvas gave those rows the grab
+    cursor, corner handles and the Delete / retarget menu (the defect markers were cured of in
+    batch 4). A zone row the host marks ``locked`` is drawn quieter, wears no grab cursor, has no
+    handles, starts no drag, opens no menu and answers Delete with nothing; its tooltip gives the
+    host's reason. An ordinary row beside it keeps everything."""
+    from PySide6.QtGui import QColor
+    c, cam, _calls = _trace_canvas(app)
+    c.set_trace_mode(False)
+    c.set_region_mode(True)
+    quad = lambda cx: [IF.click_to_world(cam, p) for p in                      # noqa: E731
+                       ((cx - 30, 330), (cx + 30, 330), (cx + 30, 370), (cx - 30, 370))]
+    why = "the project's own door — change it in the Place tab or the Editor"
+    c.set_regions([
+        {"i": 0, "kind": "gateway", "label": "door0 (project)", "quad": quad(110), "warn": None,
+         "locked": why},
+        {"i": 1, "kind": "gateway", "label": "door1", "quad": quad(270), "warn": None}])
+    QApplication.processEvents()
+    locked, free = c._region_items[0], c._region_items[1]
+    assert not locked.hasCursor() and free.hasCursor()
+    assert why in locked.toolTip() and why not in free.toolTip()
+    assert locked.pen().color().name() == QColor(c.pal["muted"]).name()
+    assert free.pen().color().name() == QColor(c.pal["accent"]).name()
+    assert not [k for k in c._region_handle_items if k[0] == 0], "a locked row has corner handles"
+    assert len([k for k in c._region_handle_items if k[0] == 1]) == 4
+    changed, deleted, opened = [], [], []
+    c.region_changed.connect(lambda i, q: changed.append(i))
+    c.region_deleted.connect(deleted.append)
+    monkeypatch.setattr(c, "_region_menu", lambda i, gp: opened.append(i))
+    inside = (110.0, 350.0)
+    wpt = c.viewportTransform().map(QPointF(*inside))
+    assert c._menu_target(QPoint(round(wpt.x()), round(wpt.y()))) is None, "a locked row has a menu"
+    assert not c._begin_region_quad_drag(0, inside), "a locked row starts a drag"
+    c._drag = None
+    wfree = c.viewportTransform().map(QPointF(270.0, 350.0))
+    assert c._menu_target(QPoint(round(wfree.x()), round(wfree.y()))) == ("region", 1)
+    assert not changed and not deleted and not opened
+
+
+# --------------------------------------------------------------- batch 5, after its final review
+def _zoom_and_pan_away(c, notches=10):
+    """Ctrl+wheel in, then scroll to the top-left corner: the mouse's ordinary way to look closer."""
+    from PySide6.QtCore import QPoint, QPointF as _QPF
+    from PySide6.QtGui import QWheelEvent
+    vp = c.viewport()
+    pos = _QPF(vp.width() / 2, vp.height() / 2)
+    for _ in range(notches):
+        ev = QWheelEvent(pos, _QPF(vp.mapToGlobal(pos.toPoint())), QPoint(0, 0), QPoint(0, 120),
+                         Qt.MouseButton.NoButton, Qt.KeyboardModifier.ControlModifier,
+                         Qt.ScrollPhase.NoScrollPhase, False)
+        QApplication.sendEvent(vp, ev)
+    c.horizontalScrollBar().setValue(c.horizontalScrollBar().minimum())
+    c.verticalScrollBar().setValue(c.verticalScrollBar().minimum())
+    QApplication.processEvents()
+
+
+def _cross_in_view(c):
+    return c.viewport().rect().contains(c._kb_viewport_pt().toPoint())
+
+
+@pytest.mark.parametrize("w", [501, 500])
+def test_a_key_never_acts_at_a_crosshair_the_view_has_left(app, w):
+    """Final review of batch 5: the crosshair is a document point, and after a Ctrl+wheel zoom and
+    a pan it can lie outside what the view shows -- where Delete removed a vertex and Enter added
+    one that the author could not see. A key acts only at a crosshair that is IN VIEW; otherwise
+    the press brings it back into view (the 'first key shows where' rule) and changes nothing."""
+    c, cam, calls = _trace_canvas(app)
+    c.resize(w, 560)
+    QApplication.processEvents()
+    _focus(c)
+    for spot in ((300.0, 400.0), (340.0, 430.0), (250.0, 430.0)):
+        _aim(c, spot)
+        _key(c, Qt.Key.Key_Return)
+    assert len(c.floor()) == 3
+    _aim(c, (340.0, 430.0))                             # ON vertex 1
+    _zoom_and_pan_away(c)
+    assert not _cross_in_view(c), "the fixture must scroll the crosshair out of view"
+    before, n = list(c.floor()), len(calls)
+    _key(c, Qt.Key.Key_Delete)
+    assert c.floor() == before and len(calls) == n, "Delete acted where the author is not looking"
+    assert _cross_in_view(c), "the press must bring the crosshair back into view"
+    _zoom_and_pan_away(c, notches=0)                    # pan away again
+    assert not _cross_in_view(c)
+    _key(c, Qt.Key.Key_Return)
+    assert c.floor() == before and len(calls) == n, "Enter acted where the author is not looking"
+    assert _cross_in_view(c)
+    _key(c, Qt.Key.Key_Delete)                          # in view now: the key acts
+    assert len(c.floor()) == 2
+
+
+def test_the_keyboard_pill_promises_only_what_the_tool_answers(app):
+    """The pill said 'Shift+F10 menu · Delete deletes' in the Cut-outs tool, where both do
+    nothing (nothing there has a menu), and named Ctrl+scroll on a line for keyboard users."""
+    c, _cam, _ = _trace_canvas(app)
+    _focus(c)
+    _key(c, Qt.Key.Key_Down)
+    assert "Shift+F10" in c._hint_text() and "Delete" in c._hint_text()
+    c.set_contact_mode(True)
+    _key(c, Qt.Key.Key_Down)
+    said = c._hint_text()
+    assert "arrows aim" in said and "Enter" in said
+    assert "Shift+F10" not in said and "Delete" not in said, said
+    assert "Ctrl+0" in said
+
+
+def test_the_canvas_describes_the_tool_it_is_in_to_a_screen_reader(app):
+    """Its accessible description said a click 'gets an exact world position' on every tab and
+    in every tool. It follows the tool's own words, like the pill."""
+    c, _cam, _ = _trace_canvas(app)
+    assert "floor's outline" in c.accessibleDescription()
+    assert "world position" not in c.accessibleDescription()
+    c.set_contact_mode(True)
+    assert "object's base" in c.accessibleDescription()
+    assert "arrow" in c.accessibleDescription().lower()
+    assert "Delete" not in c.accessibleDescription()    # nothing to delete in this tool
+    c.set_contact_mode(False)
+    c.set_trace_mode(False)
+    c.set_region_mode(True)
+    assert "4 corners" in c.accessibleDescription() and "Delete" in c.accessibleDescription()
+
+
+def test_a_locked_doors_walk_out_edge_offers_no_right_click(app):
+    """A locked row opens no menu, yet its walk-out edge still said 'right-click the zone to
+    move it to the next edge'."""
+    c, cam, _calls = _trace_canvas(app)
+    c.set_trace_mode(False)
+    c.set_region_mode(True)
+    quad = lambda cx: [IF.click_to_world(cam, p) for p in                      # noqa: E731
+                       ((cx - 30, 330), (cx + 30, 330), (cx + 30, 370), (cx - 30, 370))]
+    c.set_regions([
+        {"i": 0, "kind": "gateway", "label": "door0 (project)", "quad": quad(110), "warn": None,
+         "locked": "the project's own"},
+        {"i": 1, "kind": "gateway", "label": "door1", "quad": quad(270), "warn": None}])
+    QApplication.processEvents()
+    assert "right-click" not in c._region_edge_items[0].toolTip()
+    assert "walk-out edge" in c._region_edge_items[0].toolTip()
+    assert "right-click" in c._region_edge_items[1].toolTip()
+
+
+# --------------------------------------------------------------- batch 5, the second review
+def test_a_key_on_a_locked_zone_says_why_instead_of_doing_nothing(app):
+    """A locked zone has no menu and no Delete -- but a keyboard author never sees its tooltip,
+    and Delete or Shift+F10 on it did nothing at all. The key now says the host's reason, the
+    way a locked marker's Delete does."""
+    c, cam, _calls = _trace_canvas(app)
+    c.set_trace_mode(False)
+    c.set_region_mode(True)
+    quad = [IF.click_to_world(cam, p) for p in ((160, 330), (220, 330), (220, 370), (160, 370))]
+    why = "That is the project's own door — change it in the Place tab or the Editor."
+    c.set_regions([{"i": 0, "kind": "gateway", "label": "door0 (project)", "quad": quad,
+                    "warn": None, "locked": why}])
+    QApplication.processEvents()
+    said, deleted = [], []
+    c.click_refused.connect(said.append)
+    c.region_deleted.connect(deleted.append)
+    _focus(c)
+    _aim(c, (190.0, 350.0))
+    _key(c, Qt.Key.Key_Delete)
+    assert said == [why] and not deleted
+    _key(c, Qt.Key.Key_F10, Qt.KeyboardModifier.ShiftModifier)
+    assert said == [why, why]
+    _aim(c, (60.0, 420.0))                              # off the zone: nothing to say
+    _key(c, Qt.Key.Key_Delete)
+    assert said == [why, why]
+
+
+def test_a_canvas_with_no_camera_is_not_described_by_a_mouse_gesture(app):
+    """With no camera the description read 'The field's background art. Ctrl+scroll zooms.'"""
+    c = BackdropCanvas(pick_palette("dark"))
+    said = c.accessibleDescription()
+    assert "background art" in said and "scroll" not in said, said
+    assert "Ctrl+0" in said

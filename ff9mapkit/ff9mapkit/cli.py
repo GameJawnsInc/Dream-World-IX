@@ -3611,7 +3611,8 @@ def _cmd_summon_rescore(args: argparse.Namespace) -> int:
 
 def _cmd_image_field(args: argparse.Namespace) -> int:
     """EXPERIMENTAL: synthesize a walkable FF9 field from an image + a hand-traced floor polygon."""
-    from pathlib import Path
+    _safe_console()        # the report prints AFTER every file is written: an arrow in a message or
+    from pathlib import Path   # a non-Latin path must not turn a complete project into exit 1 (E10)
 
     from . import imagefield
     if args.auto_floor and args.floor:
@@ -3648,6 +3649,12 @@ def _cmd_image_field(args: argparse.Namespace) -> int:
         return 2
     if not args.out:
         print("--out is required to build (the output project dir)", file=sys.stderr)
+        return 2
+    from . import pack                 # the ONE band validator (the Trace tab spends it too): a real
+    try:                               # id, the 9000-9012 world hole or an id past Int16 generated
+        pack.check_custom_id(args.id)  # fine and failed later at build (finding T18)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
         return 2
     try:
         if auto:
@@ -3689,9 +3696,12 @@ def _cmd_image_field(args: argparse.Namespace) -> int:
     if man.get("retaken"):
         print(f"  retook (generator-owned, the session wins): {', '.join(man['retaken'])}")
     for r in man.get("removed", []):
-        print(f"  removed (a generator row the session no longer has): {r} — if that was YOUR "
-              f"door, re-add it in the Place tab; regenerates keep hand rows")
-    print(f"Deploy + walk it: py tools/deploy_field.py {man['toml']} --id 30058   (then ~ -> Warp 30058)")
+        print(f"  removed (a traced_ row the session no longer draws): {r} — if you had edited "
+              f"it by hand, re-add it in the Place tab; rows without the traced_ name are kept")
+    # the id the toml carries, never a literal (it sent copied hints into another slot, T18); the
+    # path quoted, so a folder with spaces survives the copy (T22)
+    print(f'Deploy + walk it: py tools/deploy_field.py "{man["toml"]}" --id {args.id}   '
+          f"(then ~ -> Warp {args.id})")
     print("HAND-TRACED FLOOR: the polygon must outline the floor in the FINAL 384x448 canvas (top-left, "
           "Y-down), below the horizon. Only the human can confirm it lands on the art in-game (CLAUDE.md).")
     return 0
@@ -5552,7 +5562,7 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
                   skip_mirror=args.skip_mirror, target_disc=args.target_disc,
                   all_sea_target=args.all_sea_target,
                   coastnav=not args.skip_coastnav, coastnav_policy=args.coastnav_policy,
-                  allow_overwrite=args.allow_overwrite, area=args.area)
+                  allow_overwrite=args.allow_overwrite, area=args.area, prefab_frame=args.prefab_frame)
         if args.center:
             wx, wz = (float(v) for v in args.center.split(","))
             summary = I.landmass(args.mod_folder, center=(wx, wz), **kw)
@@ -5769,6 +5779,135 @@ def _parse_block_rect(spec: str) -> list:
     return [(x, y) for x in rng(xs) for y in rng(ys)]
 
 
+def _cmd_world_prefab(args: argparse.Namespace) -> int:
+    """Place a landmass PREFAB from world/data/prefabs.toml (rung P1, studies/overworld-editor/PREFABS.md): a frozen
+    island + carried-relief composition, stamped on an anchor block by whole blocks with the prefab frame on, so the
+    land written is the land its catalog entry names (the fingerprint). Refuses before writing on a busy window or a
+    broken identity."""
+    import json
+    from pathlib import Path
+    from .world import prefab as PF
+    from .world import recipe as R
+    try:
+        if args.save and not args.name:
+            raise PF.PrefabRefused("--save needs the new prefab's NAME (world-prefab NAME --save --from ...)",
+                                   gate="catalog")
+        if args.list or not args.name:
+            for p in PF.load_catalog():
+                tables = " + ".join(r["table"] for r in p["rows"])
+                turns = PF.turns_of(p)
+                print(f"{p['name']:24s} {p['status']:10s} {len(p.get('footprint') or ()):2d} blocks  {tables}"
+                      + (f"  turns {', '.join(str(t) for t in turns)}" if turns != (0,) else ""))
+                if p.get("note"):
+                    print(f"{'':24s} {p['note']}")
+            for why in PF.catalog_problems():
+                print(f"SKIPPED from your catalog: {why}", file=sys.stderr)
+            return 0
+        if args.save:
+            rep = _world_prefab_save(args, PF)
+            if args.report_json:
+                Path(args.report_json).write_text(json.dumps({"refused": None, **rep}, indent=1), encoding="utf-8")
+            return 0
+        if not args.cell:
+            print("give --cell BX,BY: the anchor block the prefab is placed on", file=sys.stderr)
+            return 2
+        cell = tuple(int(v) for v in args.cell.split(","))
+        prefab = PF.get(args.name)
+        if args.fingerprint and args.turn:
+            print("--fingerprint takes the walked land at turn 0 (a turn's identity is the catalog's land turned)",
+                  file=sys.stderr)
+            return 2
+        if args.turn and args.turn not in PF.turns_of(prefab):
+            raise PF.PrefabRefused(f"prefab {args.name!r} does not turn {args.turn}: its catalog entry allows "
+                                   f"{list(PF.turns_of(prefab))}"
+                                   + (f" ({prefab['turns_note']})" if prefab.get("turns_note") else ""), gate="turn")
+        if args.recipe_out:
+            if args.turn:
+                # a turn is the walked land turned, not a re-run of its rows: the recipe is the one [[prefab]] row,
+                # whose runner is this command's own pipeline
+                rows = [{"table": "prefab", "name": args.name, "cell": list(cell), "turn": int(args.turn)}]
+            else:
+                rows = PF.expand(prefab, cell)
+            Path(args.recipe_out).write_text(R.dumps(rows), encoding="utf-8")
+            print(f"wrote the placed recipe: {args.recipe_out} (compose it with world-fuse)")
+        if args.fingerprint:
+            PF.check_rows_on_map(prefab, cell)
+            if PF.stamped_nav(prefab):
+                near = PF.stock_land_near(prefab, cell, game=args.game)
+                if near:
+                    print(f"not a clean site: stock land within {PF.NAV_MARGIN:g}u of the footprint at {sorted(near)} "
+                          f"re-classes the island's sea (THE NAV MARGIN). Take an island prefab's fingerprint where "
+                          f"no stock land is near.", file=sys.stderr)
+                    return 1
+            st = PF.stage(prefab, cell, game=args.game)
+            print(f"fingerprint = \"{st['fingerprint']}\"")
+            if PF.stamped_nav(prefab):
+                print(f"fingerprint_cell = [{cell[0]}, {cell[1]}]")
+            print("footprint = [" + ", ".join(f"[{a}, {b}]" for a, b in st["footprint"]) + "]")
+            print("navigation: " + ("carried with the stock sea (fingerprinted)" if not PF.stamped_nav(prefab)
+                                    else "settled (the coast-nav stamp would change nothing)" if not st["nav"]
+                                    else f"NOT settled -- the stamp would still re-class {st['nav']}"))
+            if st["nav"]:
+                return 1
+            if prefab.get("fingerprint"):
+                same = st["fingerprint"] == prefab["fingerprint"]
+                print("the catalog entry: " + ("IDENTICAL" if same else "DIFFERENT -- the catalog names other land"))
+                return 0 if same else 1
+            return 0
+        if not args.mod_folder:
+            print("give --mod-folder (or --fingerprint / --recipe-out alone)", file=sys.stderr)
+            return 2 if not args.recipe_out else 0
+        rep = PF.place(args.name, cell, args.mod_folder, game=args.game, dry_run=args.dry_run,
+                       skip_mirror=args.skip_mirror, turn=args.turn)
+    except (PF.PrefabRefused, ValueError) as e:
+        refused = isinstance(e, PF.PrefabRefused)
+        print(f"REFUSED: {e}" if refused else f"world-prefab: {e}", file=sys.stderr)
+        if args.report_json:
+            # the World tab's verdict shape (every card reads it): the gate, the words, and WHERE as world points
+            where = [[64.0 * bx + 32.0, -(64.0 * by + 32.0)] for bx, by in (e.where if refused else ())]
+            Path(args.report_json).write_text(json.dumps({
+                "ok": False, "dry_run": bool(args.dry_run),
+                "refused": {"gate": e.gate if refused else "error", "message": str(e), "where": where,
+                            "blocks": [list(b) for b in (e.where if refused else ())]}}, indent=1), encoding="utf-8")
+        return 1 if refused else 2
+    if args.report_json:
+        Path(args.report_json).write_text(json.dumps({"ok": True, "refused": None, **rep}, indent=1),
+                                          encoding="utf-8")
+    if args.dry_run:
+        print("dry run: nothing written")
+    return 0
+
+
+def _world_prefab_save(args, PF) -> dict:
+    """``world-prefab NAME --save --from DRAFT|RECIPE [--steps 1,3]``: the chosen rows of a World-tab draft (its
+    applied steps, in order) or of a recipe TOML, saved as a new catalog prefab (``prefab.save``)."""
+    from pathlib import Path
+    from .world import draft as D
+    from .world import recipe as R
+    if not args.from_path:
+        raise PF.PrefabRefused("--save needs --from: a World-tab draft folder or a recipe TOML", gate="rows")
+    src = Path(args.from_path)
+    if src.is_dir():
+        if not D.is_draft(src):
+            raise PF.PrefabRefused(f"{src} is not a World-tab draft (save a recipe and pass the .toml)", gate="rows")
+        rows, what = D.recipe_rows(src), f"draft {src.name}"
+    else:
+        rows, what = R.loads(src.read_text(encoding="utf-8")), f"recipe {src.name}"
+    if args.steps:
+        try:
+            idx = [int(v) for v in args.steps.split(",")]
+        except ValueError:
+            raise PF.PrefabRefused(f"--steps is 1-based step numbers, comma-separated, not {args.steps!r}",
+                                   gate="rows") from None
+        bad = [i for i in idx if not 1 <= i <= len(rows)]
+        if bad or len(set(idx)) != len(idx):
+            raise PF.PrefabRefused(f"--steps {args.steps}: the {what} has steps 1-{len(rows)}", gate="rows")
+        idx = sorted(idx)                                # composed in the draft's own order, as it was made
+        rows = [rows[i - 1] for i in idx]
+        what += " steps " + ",".join(str(i) for i in idx)
+    return PF.save(args.name, rows, game=args.game, note=args.note or "", turns=not args.no_turns, source=what)
+
+
 def _cmd_world_donors(args: argparse.Namespace) -> int:
     """Print the read-only qualified-donor catalog (audit rec 13: the verdicts reach the
     invocable surface). The geometry modules keep their frozen literals; the drift test in
@@ -5821,7 +5960,7 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
         res = IN.carve_mountain(soup, max_apron_lift=args.max_apron_lift,
                                 gblend=args.gblend if args.gblend is not None else IN.MTN_GBLEND,
                                 foot_course_rects=fc_rects, rock_height=args.rock_height,
-                                rot_deg=args.rot, spread=args.spread,
+                                rot_deg=args.rot, spread=args.spread, prefab_frame=args.prefab_frame,
                                 center=(wx, wz) if exact else None,
                                 near=None if exact else (wx, wz), donor=donor_blocks, alcove=alcove,
                                 ground=args.ground, disc=args.disc, game=args.game)
@@ -9985,7 +10124,8 @@ def build_parser() -> argparse.ArgumentParser:
     imf.add_argument("--distance", type=float, default=3000.0,
                      help="camera distance (default 3000; smaller = closer/larger floor)")
     imf.add_argument("--foreground", action="append", default=None,
-                     help="a near-occluder cut-out PNG (full-canvas, alpha); repeatable. Bare path = always in "
+                     help="a near-occluder cut-out PNG: a copy of the image (or of the 384x448 frame) with "
+                          "everything but the object erased to transparent; repeatable. Bare path = always in "
                           "front of the actor; 'path@cx,cy' anchors it at its floor-contact canvas pixel so "
                           "occlusion flips there (walk in front = actor on top, walk behind = occluded)")
     imf.add_argument("--gateway", action="append", default=None,
@@ -10832,6 +10972,12 @@ def build_parser() -> argparse.ArgumentParser:
                           "GROUNDS scales it per family, e.g. desert ~1.6x). Only applies with --relief.")
     wis.add_argument("--relief-seed", type=float, default=None,
                      help="relief field seed (deterministic; default derives from the centre)")
+    wis.add_argument("--prefab-frame", action="store_true",
+                     help="THE PREFAB FRAME (opt-in; studies/overworld-editor/PREFABS.md): mint the SAME land, shifted, "
+                          "wherever the island is placed by whole 64u blocks -- the meadow decals shuffle in sorted "
+                          "cell order and the relief is read relative to the block holding the centre, its default "
+                          "seed from --seed. Needs --seed; not with --beach. Off = today's bytes, which every recipe "
+                          "on disk replays")
     wis.add_argument("--ground", choices=_ground_choices(), default="grass",
                      help="walkable ground family (byte-measured TRANSLATION LAWS): grass (default), "
                           "desert, snow, canyon are island-complete fills; scrub/brush/dunes are "
@@ -11031,6 +11177,40 @@ def build_parser() -> argparse.ArgumentParser:
                           "removed), and the bridge, where the party lands (what the Workspace's World tab reads). "
                           "The printed text is unchanged.")
     wrv.set_defaults(func=_cmd_world_river)
+
+    wpf = sub.add_parser("world-prefab",
+                         help="place a landmass PREFAB (world/data/prefabs.toml): a frozen island + carried-relief "
+                              "composition stamped on an anchor block by whole blocks, the prefab frame on, refused "
+                              "unless the staged land is the land its catalog fingerprint names "
+                              "(studies/overworld-editor/PREFABS.md). --list shows the catalog.")
+    wpf.add_argument("name", nargs="?", help="the prefab's catalog name")
+    wpf.add_argument("--list", action="store_true", help="list the catalog (name, status, blocks, rows)")
+    wpf.add_argument("--cell", metavar="BX,BY", help="the anchor block: the prefab's frame origin is its corner")
+    wpf.add_argument("--mod-folder", help="the FolderNames mod folder to place into (the World tab's draft, or a "
+                                          "live folder)")
+    wpf.add_argument("--turn", type=int, default=0, choices=(0, 90, 180, 270),
+                     help="place the walked land turned by a quarter turn: composed at its catalog site, held to the "
+                          "catalog, then every block turned (the 4u lattice and every tile kept lawful); the catalog's "
+                          "turns lists the turns a prefab allows")
+    wpf.add_argument("--dry-run", action="store_true",
+                     help="run the window check and the staged identity, write nothing into the folder")
+    wpf.add_argument("--fingerprint", action="store_true",
+                     help="stage the prefab at --cell and print its fingerprint + footprint (to author or re-check "
+                          "a catalog entry); writes nothing into any mod folder")
+    wpf.add_argument("--recipe-out", metavar="PATH",
+                     help="also write the placed rows as a world-fuse recipe TOML")
+    wpf.add_argument("--skip-mirror", action="store_true", help="don't auto-mirror the written overrides to Disc4")
+    wpf.add_argument("--save", action="store_true",
+                     help="SAVE AS PREFAB: freeze --from's rows (a base island or carried coast, then its relief) as a "
+                          "new catalog prefab NAME in your own catalog: composed with the prefab frame, fingerprinted at "
+                          "a clean site, proved at a second, its turns measured (a few minutes; writes no mod folder)")
+    wpf.add_argument("--from", dest="from_path", metavar="DRAFT|RECIPE",
+                     help="with --save: a World-tab draft folder (its applied steps) or a recipe TOML")
+    wpf.add_argument("--steps", metavar="I,J,...", help="with --save: which of --from's steps, 1-based (default all)")
+    wpf.add_argument("--note", help="with --save: a one-line note for the catalog entry")
+    wpf.add_argument("--no-turns", action="store_true", help="with --save: skip measuring the quarter turns")
+    wpf.add_argument("--report-json", metavar="PATH", help="write the verdict as JSON")
+    wpf.set_defaults(func=_cmd_world_prefab)
 
     wdn = sub.add_parser("world-donors",
                          help="print the read-only qualified-donor catalog for the world carry verbs "

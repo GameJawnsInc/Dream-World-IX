@@ -1,7 +1,8 @@
 # The nightly test gate — full-suite runs on master, off the critical path
 
-The full `ff9mapkit` pytest suite took ~45 min serial when the gate was built. It now takes about
-**3 h even at `-n 6`** (2026-11; see "The time budget"), and it degrades further when several
+The full `ff9mapkit` pytest suite took ~45 min serial when the gate was built. By 2026-11 it took
+**3.5 h at `-n 6`**, most of it a scheduling tail; `--dist worksteal` is predicted to bring it to
+about 2 h (see "The time budget"). It degrades further when several
 sessions run it concurrently (every install-gated test re-reads the same shared
 `StreamingAssets/p0data*.bin` bundles; the OS file cache thrashes — see memory
 `project-ff9-test-suite-perf`). The gate replaces "every session tails itself with a full run" with:
@@ -51,6 +52,7 @@ the floor while part of the suite silently isn't in it.
   "collected": 6947,
   "ruff_f": 109, "ruff_f_baseline": 109,   // pyflakes findings in the package: a RATCHET (only an increase is a verdict)
   "workers": 6,
+  "dist": "worksteal",          // the xdist scheduler (--dist; absent on rows before 2026-11-09, which ran xdist's `load`)
   "passed": 6947, "skipped": 15,
   "failed_ids": ["ff9mapkit/tests/test_x.py::test_y"],   // present when not green; error_ids for setup/teardown errors
   "completed": 6962,            // tests that reached an outcome (the results log's count)
@@ -118,11 +120,39 @@ and re-register. A run started by hand is not under the limit; the gate warns wh
 | 11-03 | 15,628 | 10,003 s |
 | 11-07 | 16,302 | killed at 98% at the 180 cap, so it needed ~184 min |
 | 11-08 | 16,535 | killed at 87% with 73 `F` marks (a red-heavy night runs longer) |
+| 11-09 | 16,729 | 12,425 s suite, complete: the first night with a results log (below) |
 
 Collection grew 26% from 10-15 to 11-03 while wall time grew 4.4×. The new tests cost far more than the
 old ones: the co-op stand-in families (`test_harness_netsync.py`, `test_coop_*.py`) run 150–550 s each.
-Since 10-24 wall time has grown about 250–290 s a night. **225 is a stopgap:** from 11-07's ~184 min it
-buys about 9 nights at that rate. It is also the most the 4 h task allows.
+Since 10-24 wall time has grown about 250–290 s a night. 225 was set as a stopgap, the most the 4 h
+task allows. **The scheduler change below is the structural fix.**
+
+**The overrun was the scheduler, not the work (2026-11-09).** The first complete results log:
+
+| | |
+|---|---|
+| Total setup + call time | 41,315 worker-s, so a perfect `-n 6` split is 6,886 s |
+| `worker_busy_s` | gw4 **12,397**; gw1 7,074; gw3 6,714; gw0 5,060; gw5 5,035; gw2 5,033 |
+| Suite wall | 12,425 s, which is gw4 |
+
+xdist's default `--dist load` refills a worker with up to (pending ÷ workers ÷ 2) **consecutive** tests
+and never takes them back (`xdist/scheduler/load.py`, `check_schedule`). The co-op files sort next to
+each other, so gw4 got `test_coop_world_{battle,follow,wait,walk}` as one block: 497 tests, ~12,250 s.
+The other five workers sat idle for the last 1.5–2 h. **The gate now runs `--dist worksteal`**
+(`DEFAULT_DIST`, `--dist` to override; recorded in the row as `dist`). Under it, an idle worker takes
+half the busiest worker's queue.
+
+- **Replayed, and the replay is calibrated.** A port of xdist 3.8's `load` and `worksteal` schedulers
+  fed that night's per-test times. Its `load` replay reproduces every worker's busy time within 4 s.
+  The same tests under `worksteal` finish in **6,989 s against 12,397 s** (−44%, about 1 h 30 min).
+- **Measured on the paced families.** A narrowed run took every 4th test of the paced families (1,070
+  tests) at `-n 6` with worksteal. The six workers were busy 1,380–1,484 s, against the 2.5× spread
+  above. Per-test times matched the nightly's (ratio 0.98), so spreading the paced tests across all
+  six workers costs them nothing.
+- Any scheduler that splits a module can run a test without its predecessor. One such order bug
+  surfaced: `test_coop_tab.py::test_start_hosting_after_the_cli_cure_keeps_the_fresh_code` fails alone
+  and passes only after `test_no_bare_background_sheet_on_any_widget`. If it reds a night, it is that
+  bug, not a regression.
 
 **What else the numbers say:**
 
@@ -136,12 +166,34 @@ buys about 9 nights at that rate. It is also the most the 4 h task allows.
   0.14 s alone and took 740 s. Both call `QApplication.setStyleSheet` app-wide, which repolishes every
   widget that earlier GUI tests left alive in that xdist worker. Fix the test or its cleanup (a Workspace
   task). A slice does not help, because each worker still accumulates its share of leaked widgets.
-- **A slice at the same `-n` makes things slower.** Each sequential pytest invocation adds its own
-  scheduling tail. A slice pays only at a different worker count. The candidate is the stand-in
-  families: alone, a `test_coop_world_wait` bench test used 0.47 cpu-seconds per wall-second, so half
-  its time is paced sleep. A higher `-n` for that slice has not been tried, because those tests are
-  paced by the wall clock and the co-op sweep already shows load flakes. Size it from one complete
-  night's `slowest_files` and `worker_busy_s` before changing anything.
+- **No higher-`-n` slice for the paced families: measured, no-go (2026-11-09).** The paced families are
+  every file that runs a real-time fake game, not only `test_harness_netsync.py` + `test_coop_*.py`
+  (23,289 s, 56% of the night). `test_harness.py`, `test_world_coop_harness.py` and
+  `test_world_diorama_harness.py` are paced too, and with them the families are 34,666 s, **84%**. The
+  rest of the suite needs only ~1,360 s of wall at `-n 6`. The "0.47 cpu-s per wall-s, half sleep"
+  figure counted one process, not the children each stand-in spawns. The machine-wide counter
+  (`typeperf \Processor(_Total)`) tells a different story. Two narrowed worksteal runs of the same
+  every-4th-test subset (1,070 tests):
+
+  | | `-n 6` | `-n 12` |
+  |---|---|---|
+  | Wall | 1,514 s | 1,104 s (−27%) |
+  | Per-test time | — | ×1.37 (heavy-test median ×1.43) |
+  | CPU, mean / p90 (6 cores, 12 threads) | 75% / 87% | 93% / 100% |
+  | Failures | 1 (the `test_coop_tab` order bug) | 7: that bug + **6 timing flakes** |
+
+  The paced tests are not half asleep: six of them already hold the box at 75%, and twelve saturate
+  it. Replayed for the whole night, a `-n 12` paced slice after a `-n 6` rest would save ~25 min over
+  worksteal alone. It would cost ~24 timing flakes a night (6 in a quarter-sample), and a ledger that
+  is red every morning defeats the gate. `-n 8` was not measured: `-n 6` already peaks at 87%, so it
+  would sit at the same knee. Re-open this only if worksteal nights near the cap again, and measure the
+  knee then (`-n 7`, `-n 8`, the same subset method).
+- **The 11-09 reds were load flakes plus one deployed-state red.** All 11 were re-run alone on clean
+  master. Ten passed, all paced timing tests: `test_coop_world_battle` ×4, `test_harness` ×3,
+  `test_coop_world_walk_t2`, `_t2_b`, and one `test_harness_netsync` test. The eleventh,
+  `test_worldview3d.py::test_gpu_matches_the_committed_bench_cameras`, read 0 tris: it reads Path D's
+  disc-9 bench from the install, and `FF9CustomMap-world` has held only `Disc1` and `Disc4` since
+  11-08 16:00.
 
 **On red — whose job is the fix?** The gate only detects; the responsibility rule is
 **first-reader triages**: the first session of the day that reads a red ledger must triage
@@ -279,26 +331,38 @@ Everything is idempotent; re-running any step is safe.
 - **Run time:** re-register with `--register-task --at 03:30` (or edit the trigger in Task
   Scheduler → "FF9 nightly test gate"). The trigger keeps a fixed UTC offset, so it moves an hour
   when the clocks change. The cap and the task limit are covered in "The time budget".
-- **Workers:** the task runs the script's defaults (`-n 6` — the measured sweet spot; `-n auto`
-  re-contends on disk, don't). That was measured on the old, disk-bound suite. The stand-in families
-  that now dominate are about half paced sleep, so re-measure before changing it ("The time budget"). To change permanently, edit `--workers`'s default in the script and
-  merge; the gate picks it up the next night. Falls back to serial automatically if xdist is missing.
+- **Workers:** the task runs the script's defaults: `-n 6` with `--dist worksteal`. Don't raise `-n`.
+  The paced families that are 84% of the suite already hold the 6-core box at 75% CPU at `-n 6`, and
+  at `-n 12` they saturate it and grow timing flakes ("The time budget"). Don't go back to xdist's
+  `load` either: it parks a block of slow neighbours on one worker. To change permanently, edit
+  `--workers`' or `DEFAULT_DIST`'s default in the script and merge; the gate picks it up the next
+  night. A narrowed run can pass its own `--dist` in `--pytest-args`; the last one wins. Falls back to
+  serial automatically if xdist is missing.
 - **Collect floor:** self-maintaining since Lane C (2026-08-23): the effective floor is 98% of the
   last full green's own `collected` (the ledger is the baseline), with the static `--collect-floor`
   as the bootstrap bound. The old rule here ("raise the default as the suite grows") was never
   executed and the fixed floor rotted to 77% of collection — do not reintroduce a manual number.
   A **deliberate** suite shrink beyond 2% will abort `collect-short`; run once with
   `--no-dynamic-floor` and say why in the merge message.
-- **Skip ceiling** (`--skip-ceiling`, default 32 — audit rec 18): the floor is structurally BLIND
+- **Skip ceiling** (`--skip-ceiling`, default 48 — audit rec 18): the floor is structurally BLIND
   to a module-level `skipif`, which still *collects* the family it silences — 56 coastmorph tests
   skipping en masse would read as a green ledger. A green run whose `skipped` exceeds the ceiling
-  gets the verdict `skip-long` (rc 1), which trips the standing RED-LEDGER-TRIAGE rule. Seeded at
-  ~2× the last green run's `skipped` (16 on 2026-08-04) so fixture-gated churn has headroom while
-  a silenced family (tens of skips) cannot hide. If `skipped` legitimately grows past ~half the
-  ceiling, re-seed the same way — do **not** raise it to make a `skip-long` pass without reading
-  WHICH tests skipped in the pytest log first. Proven live 2026-08-05: a narrowed run
-  (`--pytest-args`, verification only) with `--skip-ceiling 0` flipped the ledger to `skip-long`
-  (state restored after).
+  gets the verdict `skip-long` (rc 1), which trips the standing RED-LEDGER-TRIAGE rule.
+  **The ceiling is the baseline `skipped` plus 16 of headroom**, so fixture-gated churn has room
+  while any silenced family of 17 or more trips it. It was first seeded at 32 (~2× the 16 skips of
+  2026-08-04) and re-seeded to 48 on 2026-11-09, when the baseline had reached 32: 31 skips outside
+  the coop matrix below, plus 1 from the retired V-shore GPU bench, which skips by name since
+  7f495bd5. Re-seed as baseline + 16, not 2×: doubling a 32 baseline would let a 32-test family hide.
+  **A matrix skip is removed, not absorbed by raising the ceiling.** A parametrize combination
+  that does not apply should not be generated at all. From 2026-11-02, 45 such skips
+  in `test_coop_world_follow.py` (a fault family on a walk or duo leg that does not carry it) pushed
+  every full run to 75-76 skipped, so a zero-failure night still read `skip-long`; that file now
+  parametrizes over `T2_FAULT_REDS` / `DUO_FAULT_REDS` themselves. `test_opcodes_settextvar_expr.py`'s
+  6 `Null.SByte` skips are the same shape, if the margin is needed again. If `skipped` legitimately
+  climbs within ~8 of the ceiling, re-seed as baseline + 16. Do **not** raise it to make a
+  `skip-long` pass without reading WHICH tests skipped in the pytest log first. Proven live
+  2026-08-05: a narrowed run (`--pytest-args`, verification only) with `--skip-ceiling 0` flipped
+  the ledger to `skip-long` (state restored after).
 - **Lint ratchet** (`--no-lint-ratchet` to bypass for one run): `ruff check --select F` (pyflakes
   only — undefined names, unused imports/variables; style rules stay off, see `[tool.ruff]` in
   `ff9mapkit/pyproject.toml`) over the package, recorded as `ruff_f` in every run. A green full run
@@ -332,9 +396,12 @@ Everything is idempotent; re-running any step is safe.
 - **Stale lock** (`lock` present, no run live) → the runner detects a dead PID and steals it
   automatically; delete `.test-gate\lock` by hand only if it somehow persists.
 - **`timeout`** → read the row's `failed_ids`/`error_ids` first. A red-heavy night runs longer, so
-  triage those. Then compare `completed` with `collected`. If the run was close, the suite has
-  outgrown the cap: read "The time budget" before raising anything. Contention was measured at about
-  7% on the heaviest test family, so don't blame contention without numbers.
+  triage those. Then compare `completed` with `collected`. Before blaming the suite's size, read a
+  complete night's `worker_busy_s`: one worker far above the rest is a scheduling tail. 11-09's
+  12,397 s against ~5–7k s was the `load` scheduler parking a block of slow neighbours. If the workers
+  are even and the run was still close, the suite has outgrown the cap: read "The time budget" before
+  raising anything. Contention was measured at about 7% on the heaviest test family, so don't blame
+  contention without numbers.
 - **The task must never run concurrently with itself or a manual run** — it doesn't: the task is
   registered `IgnoreNew` and the runner exits gracefully when the lock is held.
 - **A live game bench refuses to start while the lock is held** — `tools/play.py` and

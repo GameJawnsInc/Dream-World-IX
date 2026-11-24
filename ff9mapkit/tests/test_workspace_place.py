@@ -169,6 +169,70 @@ def test_an_editable_fork_places_on_its_own_surface_despite_its_donor(app):
     assert d._source == ("real", 2507)
 
 
+def test_forget_surface_drops_a_projects_cached_room_and_only_that(app, tmp_path):
+    """A project surface is read from disk ONCE and then served from the cache for the whole
+    session -- Load returns the cached one. When the file's walkmesh or camera is rewritten (a
+    Trace regenerate), ``forget_surface`` is what makes the next Load read the new floor
+    (review finding T38; the shell calls it from the regenerate hook)."""
+    d, _ = _doc(app)
+    path = tmp_path / "ROOM.field.toml"
+    other = tmp_path / "OTHER.field.toml"
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)
+    key = (d._source, 0)
+    assert key[0] == ("project", str(path))
+    d._bundles[key] = dict(_bundle(), source=d._source)
+    d._bundles[(d._source, 1)] = dict(_bundle(), source=d._source, cam_index=1)   # every camera
+    d._bundles[(("project", str(other)), 0)] = dict(_bundle(), source=("project", str(other)))
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d.forget_surface(str(path).upper() if os.name == "nt" else path)   # a path, however it is cased
+    assert sorted(k[0] for k in d._bundles) == sorted([("project", str(other)), ("real", 351)])
+    d.on_load()                                        # ...so Load goes back to disk instead of
+    assert d._loading == key                           # handing over the stale cached surface
+
+
+def test_a_load_in_flight_when_the_file_changed_is_thrown_away(app, tmp_path):
+    """The loader started reading BEFORE the regenerate rewrote the files: its result is the old
+    room. It must not be cached or applied just because it lands after ``forget_surface``."""
+    d, _ = _doc(app)
+    path = tmp_path / "ROOM.field.toml"
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)
+    key = (d._source, 0)
+    d._loading = key                                   # a load of this project is in flight
+    d.forget_surface(path)
+    d._on_loaded(key, dict(_bundle(), source=d._source))   # ...and lands with the OLD files
+    assert key not in d._bundles and not d.canvas._surface_tris
+    assert "changed on disk" in d.status.text() and d.load_btn.isEnabled()
+    d._loader.start = lambda *a: None
+    d.load_btn.click()                                 # the load the author then asks for is good
+    d._on_loaded(key, dict(_bundle(), source=d._source))
+    assert key in d._bundles and d.canvas._surface_tris
+
+
+def test_a_stale_load_stays_in_flight_so_a_second_load_cannot_race_it(app, tmp_path):
+    """After a regenerate the shell re-feeds Place, which used to forget the load still running
+    and re-enable Load: a second loader for the same room could then start beside it, and
+    whichever of the two landed LAST was cached -- possibly the old room. Also: a stale load that
+    FAILS must not poison the next good one."""
+    d, _ = _doc(app)
+    path = tmp_path / "ROOM.field.toml"
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)
+    key = (d._source, 0)
+    d._loading = key
+    d.forget_surface(path)
+    d.show_none()
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)   # the shell's re-feed after the regenerate
+    assert d._loading == key                           # still in flight: on_load() will not start a twin
+    started = []
+    d._loader.start = lambda *a: started.append(a)
+    d.on_load()
+    assert started == []
+    d._on_load_failed(key, "the stale one died")
+    assert d._stale_load is None
+    d.on_load()
+    d._on_loaded(key, dict(_bundle(), source=d._source))   # the next good load is kept, not thrown away
+    assert key in d._bundles
+
+
 def test_a_field_with_no_file_on_disk_still_refuses(app):
     """The surface is resolved FROM THE FILE, so an unsaved doc has nothing to resolve. The
     refusal moved from provenance to that -- it did not disappear."""
@@ -447,6 +511,22 @@ def test_place_reword_routes_by_row(app, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _private_cache(tmp_path, monkeypatch):
+    """A project room's composited backdrop goes to the kit cache (finding P9): never the
+    developer's real one from a test."""
+    from ff9mapkit import provision
+    monkeypatch.setattr(provision, "cache_dir", lambda: tmp_path / "_kit_cache")
+
+
+@pytest.fixture(autouse=True)
+def _no_real_dialogs(monkeypatch):
+    """A drawn door with no target, and every drawn event, now ask at once (P27): no test may
+    ever open a real modal. Unless a test answers them itself, both dialogs are Cancelled."""
+    monkeypatch.setattr(P.PlaceDoc, "_ask_field_id", lambda self, cur: None)
+    monkeypatch.setattr(P.PlaceDoc, "_ask_message", lambda self, cur: None)
+
+
+@pytest.fixture(autouse=True)
 def _deterministic_qt_teardown(qt_drain):
     """Widgets die HERE, not in a forced GC pass (THE GC-CHILD LAW's teardown half)."""
     yield
@@ -509,3 +589,1609 @@ def test_a_scrolling_room_places_too(tmp_path):
     toml = next((tmp_path / "A").glob("*.field.toml"))
     b = PD.build_surface_from_project(toml)
     assert list(b["cam"].range) == [960, 448], f"Place resolved {list(b['cam'].range)}, not the scroll range"
+
+
+# ------------------------------------------------------------------ batch 2: the surface's freshness
+def _compose_room(tmp_path, name="A"):
+    """One real composed room on disk -> (its field.toml path, its parsed dict)."""
+    import tomllib
+    from ff9mapkit import floorplan as FP
+    plan = {"name": "D", "mod_folder": "FF9CustomMap", "id_base": 30700, "entry": name,
+            "rooms": [{"name": name, "poly": [[0, 0], [2400, 0], [2400, 1800], [0, 1800]]}],
+            "doors": []}
+    FP.compose_and_emit(plan, tmp_path, log=None)
+    toml = next((tmp_path / name).glob("*.field.toml"))
+    return toml, tomllib.loads(toml.read_text(encoding="utf-8"))
+
+
+def _wait(pred, ms=20000):
+    for _ in range(ms // 20):
+        if pred():
+            return True
+        QTest.qWait(20)
+    return pred()
+
+
+def _x_extent(tris):
+    xs = [v[0] for tr in tris for v in tr]
+    return round(min(xs)), round(max(xs))
+
+
+def test_load_rereads_a_project_room_that_changed_on_disk(app, tmp_path):
+    """Review finding P4. A PROJECT surface used to be read from disk once and then handed back
+    from the cache by every later "Load the room", so a walkmesh re-exported from Blender or
+    recomposed in Floorplan never reached Place: clicks kept raycasting the OLD floor. An explicit
+    Load of a project room now goes back to disk (it is cheap); a donor room stays cached."""
+    toml, data = _compose_room(tmp_path)
+    d, _ = _doc(app)
+    d.show_field("A", data, toml)
+    assert d._source[0] == "project"
+    d.load_btn.click()
+    assert _wait(lambda: d._bundle() is not None and d.canvas._surface_tris), d.status.text()
+    x0, x1 = _x_extent(d.canvas._surface_tris)
+    obj = toml.parent / "walkmesh.obj"                  # the floor re-exported at half its width
+    lines = []
+    for ln in obj.read_text(encoding="utf-8").splitlines():
+        if ln.startswith("v "):
+            _v, x, rest = ln.split(" ", 2)
+            ln = f"v {float(x) / 2} {rest}"
+        lines.append(ln)
+    obj.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    first = d._bundle()
+    d.load_btn.click()
+    _wait(lambda: d._bundle() is not first and d._loading is None)
+    got = _x_extent(d.canvas._surface_tris)
+    assert got == (round(x0 / 2), round(x1 / 2)), f"Load kept the old floor {got}, not the re-exported one"
+
+
+def test_a_same_named_room_in_another_file_does_not_keep_the_old_surface(app, tmp_path):
+    """Review finding P5. Every traced project is called PICTURE by default. "Same field" was
+    decided by that NAME, so opening another PICTURE kept the previous room's art and walkmesh
+    armed, and a click raycast against the OLD room was written into the NEW file's doc."""
+    d, calls = _doc(app)
+    one, two = tmp_path / "one" / "PICTURE.field.toml", tmp_path / "two" / "PICTURE.field.toml"
+    first, second = {"field": {"id": 30058}}, {"field": {"id": 30059}}
+    d.show_field("PICTURE", first, one)
+    d._bundles[(d._source, 0)] = dict(_bundle(), source=d._source)
+    d._apply_bundle(d._bundle(), refit=True)
+    QApplication.processEvents()
+    wpt = d.canvas.world_to_click((0.0, 1500.0))
+    pos = QPoint(round(wpt.x()), round(wpt.y()))
+    d.show_field("PICTURE", second, two)                 # the shell's feed for the other project
+    assert not d.canvas._place_mode and not d.canvas._surface_tris
+    QTest.mouseClick(d.canvas.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+    assert calls == [] and "npc" not in second
+    d.show_field("PICTURE", second, two)                 # a re-feed of the SAME file keeps its view
+    d._bundles[(d._source, 0)] = dict(_bundle(), source=d._source)
+    d._apply_bundle(d._bundle(), refit=True)
+    d.show_field("PICTURE", second, two)
+    assert d.canvas._place_mode and d.canvas._surface_tris
+
+
+def test_a_fork_that_gains_its_own_art_drops_the_donor_surface(app):
+    """Same name, same file, but the surface's SOURCE moved: the fork now ships its own [[layers]]
+    (an `import --editable` scene), so the donor's real room it was placed on is not its room."""
+    d, _ = _doc(app)
+    path = Path("C:/somewhere/FORK.field.toml")
+    d.show_field("FORK", {"field": {"source_field": 351}}, path)
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundle(), refit=True)
+    assert d.canvas._place_mode
+    d.show_field("FORK", {"field": {"source_field": 351},
+                          "layers": [{"image": "back.png", "z": 1000}]}, path)
+    assert d._source[0] == "project"
+    assert not d.canvas._place_mode and not d.canvas._surface_tris
+
+
+@pytest.mark.parametrize("a_ends", ["fails", "succeeds"])
+def test_a_late_load_of_the_previous_room_does_nothing_visible_here(app, tmp_path, monkeypatch, a_ends):
+    """Review finding P6. Load room A, switch to B and Load it, and only then A's load ends: A's
+    error used to be painted on B, and either ending re-enabled Load while B was still in flight
+    (a second click started a twin loader). Driven through the real loader thread."""
+    import threading
+    gate_a, gate_b, a_done = threading.Event(), threading.Event(), threading.Event()
+    a, b = tmp_path / "A.field.toml", tmp_path / "B.field.toml"
+
+    def fake(ref, ci=0):
+        if Path(ref) == a:
+            gate_a.wait(10)
+            a_done.set()
+            if a_ends == "fails":
+                raise RuntimeError("A blew up")
+        else:
+            gate_b.wait(10)
+        return dict(_bundle(), source=("project", str(ref)), cam_index=ci)
+
+    monkeypatch.setattr(P, "build_surface_from_project", fake)
+    d, _ = _doc(app)
+    d.show_field("A", {"field": {"id": 30058}}, a)
+    d.load_btn.click()
+    d.show_field("B", {"field": {"id": 30059}}, b)
+    d.load_btn.click()
+    b_key = (("project", str(b)), 0)
+    assert d._loading == b_key
+    gate_a.set()
+    assert a_done.wait(10)
+    QTest.qWait(300)                                     # A's queued result is delivered
+    assert "blew up" not in d.status.text()
+    assert d._loading == b_key and not d.load_btn.isEnabled(), "Load re-enabled while B is in flight"
+    assert not d.canvas._surface_tris
+    gate_b.set()
+    assert _wait(lambda: d._loading is None and d.canvas._surface_tris), d.status.text()
+    assert d.load_btn.isEnabled()
+
+
+def test_a_camera_left_mid_load_does_not_land_over_the_one_shown(app):
+    """Pick camera 1 (its load starts), go back to camera 0 (cached, shown at once): camera 1's
+    load then lands. It is cached for next time, but the canvas keeps showing camera 0."""
+    d, _ = _doc(app)
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    cam0 = dict(_bundle(), n_cams=2)
+    cam1 = dict(_bundle(tris=_flat_quad(x0=-50, x1=50)), n_cams=2, cam_index=1)
+    d._bundles[(("real", 351), 0)] = cam0
+    d._loader.start = lambda *a: None
+    d.load_btn.click()
+    assert d.cam_box.isVisible()
+    d.cam_box.setCurrentIndex(1)
+    assert d._loading == (("real", 351), 1)
+    d.cam_box.setCurrentIndex(0)
+    d._loader.loaded.emit((("real", 351), 1), cam1)
+    assert d.canvas._surface_tris == cam0["tris"]
+    assert d._bundles[(("real", 351), 1)]["tris"] == cam1["tris"] and d._loading is None and d.load_btn.isEnabled()
+
+
+def test_a_load_ending_after_the_field_closed_leaves_load_off(app, tmp_path):
+    d, _ = _doc(app)
+    path = tmp_path / "ROOM.field.toml"
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)
+    d._loader.start = lambda *a: None
+    d.load_btn.click()
+    key = d._loading
+    d.show_none()                                      # the project was closed mid-load
+    d._loader.loaded.emit(key, dict(_bundle(), source=key[0]))
+    assert not d.load_btn.isEnabled() and not d.canvas._surface_tris
+
+
+def test_a_stale_load_of_the_previous_room_says_nothing_on_the_next(app, tmp_path):
+    """A's load was marked stale (its files were rewritten) and the author moved on to B: when it
+    lands, B must not be told that ITS room changed on disk."""
+    d, _ = _doc(app)
+    a, b = tmp_path / "A.field.toml", tmp_path / "B.field.toml"
+    d.show_field("A", {"field": {"id": 30058}}, a)
+    d._loader.start = lambda *a: None
+    d.load_btn.click()
+    key = d._loading
+    d.forget_surface(a)
+    d.show_field("B", {"field": {"id": 30059}}, b)
+    d._loader.loaded.emit(key, dict(_bundle(), source=key[0]))
+    assert "changed on disk" not in d.status.text() and d.load_btn.isEnabled()
+    assert key not in d._bundles
+
+
+def _clamping_builder(n_cams_of):
+    """A stand-in for build_surface_from_project that clamps the camera like the real one."""
+    def fake(ref, ci=0):
+        n = n_cams_of[Path(ref).parent.name]
+        ci = max(0, min(int(ci), n - 1))
+        tris = _flat_quad(x0=-100 * (ci + 1), x1=100 * (ci + 1))
+        return dict(_bundle(tris=tris), source=("project", str(ref)), cam_index=ci, n_cams=n)
+    return fake
+
+
+def test_a_camera_picked_in_one_file_is_not_carried_to_another_of_its_name(app, tmp_path, monkeypatch):
+    """Review finding P29. The camera pick was remembered per member NAME: camera 1 picked in one
+    PICTURE was requested for the next PICTURE, which has one camera. The builder clamped it to 0,
+    the result never matched the pick, and "Load the room" never applied -- forever."""
+    n_cams = {"one": 2, "two": 1, "three": 2}
+    monkeypatch.setattr(P, "build_surface_from_project", _clamping_builder(n_cams))
+    d, _ = _doc(app)
+    one, two = tmp_path / "one" / "PICTURE.field.toml", tmp_path / "two" / "PICTURE.field.toml"
+    d.show_field("PICTURE", {"field": {"id": 30058}}, one)
+    d.load_btn.click()
+    assert _wait(lambda: d._loading is None and d.cam_box.isVisible()), d.status.text()
+    d.cam_box.setCurrentIndex(1)
+    assert _wait(lambda: d._loading is None and d.canvas._surface_tris
+                 and _x_extent(d.canvas._surface_tris) == (-200, 200)), d.status.text()
+    d.show_field("PICTURE", {"field": {"id": 30059}}, two)
+    d.load_btn.click()
+    assert _wait(lambda: d._loading is None and d.canvas._place_mode), d.status.text()
+    assert _x_extent(d.canvas._surface_tris) == (-100, 100)
+    three = tmp_path / "three" / "PICTURE.field.toml"   # two cameras too: it opens on ITS camera 0
+    d.show_field("PICTURE", {"field": {"id": 30060}}, three)
+    d.load_btn.click()
+    assert _wait(lambda: d._loading is None and d.canvas._place_mode), d.status.text()
+    assert _x_extent(d.canvas._surface_tris) == (-100, 100) and d.cam_box.currentIndex() == 0
+
+
+def test_a_camera_pick_the_room_no_longer_has_follows_the_clamp(app, tmp_path, monkeypatch):
+    """The same file, re-exported with fewer cameras: the pick is clamped with it, not stuck."""
+    n_cams = {"one": 2}
+    monkeypatch.setattr(P, "build_surface_from_project", _clamping_builder(n_cams))
+    d, _ = _doc(app)
+    one = tmp_path / "one" / "PICTURE.field.toml"
+    d.show_field("PICTURE", {"field": {"id": 30058}}, one)
+    d.load_btn.click()
+    assert _wait(lambda: d._loading is None and d.cam_box.isVisible()), d.status.text()
+    d.cam_box.setCurrentIndex(1)
+    assert _wait(lambda: d._loading is None and _x_extent(d.canvas._surface_tris) == (-200, 200))
+    n_cams["one"] = 1                                   # camera 1 is gone from the file
+    d.load_btn.click()
+    assert _wait(lambda: d._loading is None and d.canvas._place_mode
+                 and _x_extent(d.canvas._surface_tris) == (-100, 100)), d.status.text()
+    assert not d.cam_box.isVisible()
+    assert d._bundle()["n_cams"] == 1, "markers and regions still read the vanished camera's surface"
+
+
+def test_an_auto_walkmesh_under_camera_1_is_the_floor_the_build_ships(tmp_path):
+    """Review finding E4. The build frames an AUTO walkmesh with camera 0 (the primary camera
+    drives the walkmesh frame), but Place resolved it with the SELECTED camera: under camera 1 it
+    accepted clicks on a floor the game will not have. The floor is camera 0's under every
+    camera; the selected camera only draws it and casts the clicks."""
+    import re
+    from ff9mapkit import build as B
+    from ff9mapkit.scene import bgi
+    toml, _ = _compose_room(tmp_path)
+    txt = toml.read_text(encoding="utf-8")
+    cams = ('[[camera]]\nentry_settle = "auto"\npitch = 48.0\ndistance = 4482\nfov = 42.2\n\n'
+            '[[camera]]\npitch = 30.0\ndistance = 3000\nfov = 42.2\nyaw = 35\n')
+    txt = re.sub(r"\[camera\]\n(?:[^\[\n].*\n)*", cams + "\n", txt, count=1)
+    txt = txt.replace('[walkmesh]\nobj = "walkmesh.obj"', "[walkmesh]\nauto = true")
+    assert "auto = true" in txt and txt.count("[[camera]]") == 2
+    toml.write_text(txt, encoding="utf-8")
+    proj = B.FieldProject.load(str(toml))
+    shipped, _f = IF.mesh_world_tris(bgi.BgiWalkmesh.from_bytes(
+        B.resolve_walkmesh(proj, B.resolve_camera(proj))))
+    surf = P.build_surface_from_project(toml, 1)
+    assert surf["cam_index"] == 1 and surf["cam"].range == B.resolve_cameras(proj)[1].range
+    assert surf["tris"] == shipped, "Place's camera-1 floor is not the walkmesh the build ships"
+
+
+def _halve_walkmesh(toml):
+    obj = toml.parent / "walkmesh.obj"
+    lines = []
+    for ln in obj.read_text(encoding="utf-8").splitlines():
+        if ln.startswith("v "):
+            _v, x, rest = ln.split(" ", 2)
+            ln = f"v {float(x) / 2} {rest}"
+        lines.append(ln)
+    obj.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_coming_back_to_place_does_not_rearm_a_project_room_changed_on_disk(app, tmp_path):
+    """Review finding P4, after review. Only an explicit Load used to re-read a project room: the
+    shell's re-feed on coming back to the tab re-armed the CACHED floor, and a click outside the
+    re-exported walkmesh was written into the doc. Leaving the tab drops a project surface."""
+    toml, data = _compose_room(tmp_path)
+    d, calls = _doc(app)
+    d.show_field("A", data, toml)
+    d.load_btn.click()
+    assert _wait(lambda: d._bundle() is not None and d.canvas._surface_tris), d.status.text()
+    x0, x1 = _x_extent(d.canvas._surface_tris)
+    d.show_field("A", data, toml)                       # an edit re-feed while staying keeps it
+    assert d.canvas._place_mode and d.canvas._surface_tris
+    d.hide()                                            # the author goes to another tab...
+    assert not d.canvas._surface_tris and d._bundle() is None   # (nothing is kept while away)
+    _halve_walkmesh(toml)                               # ...and re-exports the floor
+    d.show()
+    d.show_field("A", data, toml)                       # the shell's re-feed on the way back
+    assert not d.canvas._place_mode and not d.canvas._surface_tris   # the OLD floor is never re-armed
+    # ...and the room they had loaded comes back by itself, read from disk again (no Load click)
+    assert _wait(lambda: d._loading is None and d.canvas._surface_tris), d.status.text()
+    assert _x_extent(d.canvas._surface_tris) == (round(x0 / 2), round(x1 / 2))
+
+
+def test_a_room_is_only_re_read_unasked_when_it_was_loaded_and_the_tab_is_showing(app, tmp_path):
+    """The automatic re-read on the way back has three guards, each with a reason: never for a
+    room the author did not load (a tab show reads no disk unasked), never while the tab is
+    hidden, and never again after a read of it FAILED (that one waits for a real click, or every
+    re-feed would retry it)."""
+    d, _ = _doc(app)
+    path = tmp_path / "ROOM.field.toml"
+    started = []
+    d._loader.start = lambda *key: started.append(key)
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)
+    assert started == []                               # never loaded by the author: nothing starts
+    d.load_btn.click()
+    key = (d._source, 0)
+    assert started == [key]
+    d._on_loaded(key, dict(_bundle(), source=d._source))
+    d.hide()
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)   # a re-feed while HIDDEN
+    assert started == [key]
+    d.show()
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)   # back on it, showing: read again
+    assert started == [key, key]
+    d._on_load_failed(key, "the file is gone")
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)
+    assert started == [key, key]                       # a failed read is not retried unasked
+    assert "Could not load" in d.status.text() or "Load the room" in d.status.text()
+
+
+def test_leaving_a_project_room_for_another_drops_its_surface(app, tmp_path):
+    """The other route of P4: a project opened again (or reselected) after its files changed."""
+    d, _ = _doc(app)
+    a, b = tmp_path / "A.field.toml", tmp_path / "B.field.toml"
+    d.show_field("A", {"field": {"id": 30058}}, a)
+    d._bundles[(d._source, 0)] = dict(_bundle(), source=d._source)
+    d._bundles[(("real", 351), 0)] = _bundle()          # a donor room stays: the install's
+    d.show_field("B", {"field": {"id": 30059}}, b)
+    d.show_field("A", {"field": {"id": 30058}}, a)
+    assert d._bundle() is None and not d.canvas._place_mode
+    assert (("real", 351), 0) in d._bundles
+
+
+def test_hiding_keeps_a_donor_room_armed(app):
+    d, _ = _doc(app)
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d.load_btn.click()
+    d.hide()
+    d.show()
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    assert d.canvas._place_mode and d.canvas._surface_tris
+
+
+def test_a_failed_reload_leaves_no_old_floor_armed(app, tmp_path):
+    """Review finding P4, after review. A re-Load that failed (a broken re-export) only wrote the
+    error: the old floor stayed cached and clickable, and the next re-feed hid the error."""
+    toml, data = _compose_room(tmp_path)
+    d, _ = _doc(app)
+    d.show_field("A", data, toml)
+    d.load_btn.click()
+    assert _wait(lambda: d._bundle() is not None and d.canvas._surface_tris), d.status.text()
+    (toml.parent / "walkmesh.obj").write_text("garbage\nf 1 2 3\n", encoding="utf-8")
+    d.load_btn.click()
+    assert _wait(lambda: d._loading is None and "Could not load" in d.status.text()), d.status.text()
+    assert not d.canvas._place_mode and not d.canvas._surface_tris and d._bundle() is None
+    d.show_field("A", data, toml)
+    assert not d.canvas._place_mode and not d.canvas._surface_tris
+
+
+@pytest.mark.parametrize("ends", ["succeeds", "fails"])
+def test_a_load_that_lands_after_a_glance_elsewhere_shows_on_its_room(app, tmp_path, ends):
+    """Review finding P6, after review. Load A, glance at B, come back to A: the switch forgot the
+    wait, and A's own result was then only cached -- the room stayed on "Load the room"."""
+    d, _ = _doc(app)
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    d._loader.start = lambda *a: None
+    d.load_btn.click()
+    key = d._loading
+    d.show_field("B", {"field": {"id": 30059}}, tmp_path / "B.field.toml")
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    assert d._loading is None
+    if ends == "succeeds":
+        d._loader.loaded.emit(key, _bundle())
+        assert d.canvas._place_mode and d.canvas._surface_tris
+    else:
+        d._loader.failed.emit(key, "RuntimeError: no install")
+        assert "no install" in d.status.text()
+    assert d.load_btn.isEnabled()
+
+
+def test_a_late_load_of_the_previous_room_is_not_shown_on_this_one(app, tmp_path):
+    """The other half of the P6 rule: a result for a room that is NOT on screen only caches."""
+    d, _ = _doc(app)
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    d._loader.start = lambda *a: None
+    d.load_btn.click()
+    key = d._loading
+    d.show_field("FORK2", {"field": {"source_field": 352}}, Path("C:/somewhere/FORK2.field.toml"))
+    d._loader.loaded.emit(key, _bundle())
+    assert not d.canvas._surface_tris and key in d._bundles
+    d._loader.failed.emit(key, "RuntimeError: late")
+    assert "late" not in d.status.text()
+
+
+def test_a_load_landing_after_the_field_closed_post_glance_is_not_shown(app, tmp_path):
+    """Load A, glance at B, back on A (the wait is forgotten), then close the field: A's result
+    must not be painted on the empty doc -- closing forgets the surface source too."""
+    d, _ = _doc(app)
+    a = tmp_path / "A.field.toml"
+    d.show_field("A", {"field": {"id": 30058}}, a)
+    d._loader.start = lambda *a: None
+    d.load_btn.click()
+    key = d._loading
+    d.show_field("B", {"field": {"id": 30059}}, tmp_path / "B.field.toml")
+    d.show_field("A", {"field": {"id": 30058}}, a)
+    d.show_none()
+    d._loader.loaded.emit(key, dict(_bundle(), source=key[0]))
+    assert not d.canvas._surface_tris and not d.canvas._place_mode and not d.load_btn.isEnabled()
+
+
+def test_load_of_a_donor_room_is_still_served_from_the_cache(app):
+    """The donor's real room comes from the install, which does not change mid-session."""
+    d, _ = _doc(app)
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(("real", 351), 0)] = _bundle()
+    started = []
+    d._loader.start = lambda *a: started.append(a)
+    d.load_btn.click()
+    assert started == [] and d.canvas._surface_tris
+
+
+# --------------------------------------------------------------- batch 2, the final review
+def _loaded_project_room(app, tmp_path):
+    """A project room the author loaded, with the loader replaced by a recorder (no thread)."""
+    d, _ = _doc(app)
+    path = tmp_path / "ROOM.field.toml"
+    started = []
+    d._loader.start = lambda *key: started.append(key)
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)
+    d.load_btn.click()
+    key = (d._source, 0)
+    d._on_loaded(key, dict(_bundle(), source=d._source))
+    assert started == [key] and d.canvas._surface_tris
+    return d, path, key, started
+
+
+def test_coming_back_to_the_tab_re_reads_the_room_without_any_re_feed(app, tmp_path):
+    """The shell usually re-feeds on a tab change, but the SHOW itself is what says "the author
+    is back": the room is read again on showEvent alone."""
+    d, _path, key, started = _loaded_project_room(app, tmp_path)
+    d.hide()
+    assert not d.canvas._surface_tris and key not in d._bundles
+    d.show()
+    QApplication.processEvents()                       # the deferred resume
+    assert started == [key, key]
+
+
+def test_a_load_that_lands_while_the_tab_is_hidden_is_not_kept(app, tmp_path):
+    """Load, leave before it lands: the result was cached and armed on the hidden tab, so the
+    way back found a cached floor and never re-read the files that changed meanwhile."""
+    d, _ = _doc(app)
+    path = tmp_path / "ROOM.field.toml"
+    started = []
+    d._loader.start = lambda *key: started.append(key)
+    d.show_field("ROOM", {"field": {"id": 30058}}, path)
+    d.load_btn.click()
+    key = (d._source, 0)
+    d.hide()                                           # the author leaves; the read is in flight
+    d._on_loaded(key, dict(_bundle(), source=d._source))
+    assert key not in d._bundles and not d.canvas._surface_tris and not d.canvas._place_mode
+    d.show()
+    QApplication.processEvents()
+    assert started == [key, key]                       # back on it: read again, from disk
+
+
+def test_a_room_that_comes_back_keeps_the_view_and_names_itself_plainly(app, tmp_path):
+    """A tab round trip is not a new room: the re-read must not reset the author's zoom and pan
+    (it did, on every return), and its status must not print a Python tuple."""
+    d, path, key, _started = _loaded_project_room(app, tmp_path)
+    refits = []
+    apply = d._apply_bundle
+    d._apply_bundle = lambda bundle, *, refit: (refits.append(refit), apply(bundle, refit=refit))[1]
+    d.canvas.repaint()                                 # the first paint runs the room's one fit ...
+    assert not d.canvas._fit_pending
+    d.canvas.scale(2.0, 2.0)                           # ... and THEN the author zooms in
+    d.canvas._zoom = 2.0
+    d.hide()
+    d.show()
+    QApplication.processEvents()
+    assert "('project'" not in d.status.text() and "ROOM" in d.status.text(), d.status.text()
+    d._on_loaded(key, dict(_bundle(), source=d._source))
+    assert refits == [False] and d.canvas._zoom == 2.0
+    d.load_btn.click()                                 # an explicit Load still fits the room
+    d._on_loaded(key, dict(_bundle(), source=d._source))
+    assert refits == [False, True]
+
+
+def test_minimising_the_window_does_not_drop_the_room(app, tmp_path):
+    """A minimised window is a SPONTANEOUS hide: nobody left the tab. Dropping the room there
+    threw away a half-drawn region quad and re-read the room for nothing."""
+    from PySide6.QtGui import QHideEvent
+
+    class _Minimised(QHideEvent):
+        def spontaneous(self):
+            return True
+
+    d, _path, key, started = _loaded_project_room(app, tmp_path)
+    d.canvas._pending_region = [(0.0, 600.0), (100.0, 600.0)]      # two corners of a quad, mid-draw
+    d.hideEvent(_Minimised())
+    assert key in d._bundles and d.canvas._surface_tris
+    assert d.canvas._pending_region == [(0.0, 600.0), (100.0, 600.0)]
+    assert started == [key]
+    d.hideEvent(QHideEvent())                          # ...whereas leaving the tab does drop it
+    assert key not in d._bundles and not d.canvas._surface_tris
+
+
+# --------------------------------------------------------------- batch 3
+def test_a_prop_placed_after_a_delete_never_reuses_a_live_name():
+    """Review finding P13. place_prop named by len(): two props, delete prop0, place again ->
+    two rows called prop1, which neither the tree nor the undo label could tell apart."""
+    data = {}
+    P.place_prop(data, 0, 0)
+    P.place_prop(data, 10, 10)
+    del data["prop"][0]
+    label = P.place_prop(data, 20, 20)
+    names = [p["name"] for p in data["prop"]]
+    assert len(set(names)) == len(names), names
+    assert data["prop"][-1]["name"] in label            # the undo label says WHICH prop
+
+
+def _regions_on(app, data, path="C:/somewhere/FORK.field.toml"):
+    d, calls = _doc(app)
+    d.show_field("FORK", data, Path(path))
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    d.tools.set_current("regions")
+    return d, calls
+
+
+@pytest.mark.parametrize("typed", ["", "   "])
+def test_set_message_refuses_a_blank_line(app, monkeypatch, typed):
+    """Review finding P10. Clearing the Set message box wrote message='' -- an event the build
+    accepts (the key is present) that shows nothing in-game. A blank line is refused, the old
+    words stay, and the status says why."""
+    data = {"field": {"source_field": 351},
+            "event": [{"name": "zone0", "message": "Watch your step.",
+                       "zone": [[0, 500], [100, 500], [100, 600], [0, 600]]}]}
+    d, calls = _regions_on(app, data)
+    monkeypatch.setattr(d, "_ask_message", lambda cur: typed)
+    d._on_region_reword(0)
+    assert calls == [] and data["event"][0]["message"] == "Watch your step."
+    assert "empty" in d.status.text() and d.status.property("state") == "warn"
+
+
+def test_mode_radios_explain_themselves_and_a_verbatim_refusal_does_not_stick(app):
+    """Review findings P15 + P23. The four mode radios had no tooltip, except the verbatim
+    refusal, which was set on Spawn/Arrival and never cleared: after any verbatim fork, an
+    ENABLED Spawn on an ordinary field still said its clicks would be ignored."""
+    d, _ = _doc(app)
+    tips = {k: d.mode_btns[k].toolTip() for k, _l in d.MODES}
+    assert all(tips.values()), tips                     # every radio says what it places
+    assert "entrance" in tips["arrival"] and "door" in tips["spawn"]
+    assert "Editor" in tips["npc"] and "Editor" in tips["prop"]
+    d.show_field("FORK", {"verbatim_eb": {"donor": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    assert "verbatim" in d.mode_btns["spawn"].toolTip()
+    d.show_field("NOVEL", {"field": {"id": 30058}}, Path("C:/somewhere/NOVEL.field.toml"))
+    assert d.mode_btns["spawn"].isEnabled()
+    assert {k: d.mode_btns[k].toolTip() for k, _l in d.MODES} == tips
+
+
+@pytest.mark.parametrize("mode", ["npc", "prop"])
+def test_an_npc_or_prop_drop_says_where_to_finish_it(app, mode):
+    """Review finding P23: the drop note now says where the new row gets its model and words."""
+    d, calls = _doc(app)
+    data = {"field": {"source_field": 351}}
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    d.mode_btns[mode].setChecked(True)
+    d._apply_hit({"xz": (0.0, 1500.0), "floor": 0})
+    assert len(calls) == 1 and "Editor" in d.status.text(), d.status.text()
+
+
+def test_regions_status_speaks_of_the_kind_being_drawn(app):
+    """Review finding E8: 'draw a event zone', and the gateway walk-out lesson shown while
+    drawing events."""
+    d, _ = _regions_on(app, {"field": {"source_field": 351}})
+    assert "a gateway zone" in d.status.text() and "walk-out" in d.status.text()
+    d.rkind_btns["event"].setChecked(True)             # the radio alone re-says it
+    assert "an event zone" in d.status.text(), d.status.text()
+    assert "walk-out" not in d.status.text()
+
+
+@pytest.mark.parametrize("to, warned", [(9005, True), (9000, True), (9012, True),
+                                        (8999, False), (9013, False), (351, False),
+                                        (4005, False), (30001, False)])
+def test_a_door_into_the_world_map_hole_warns_on_the_art(to, warned):
+    """Review finding P12. A target in the engine-reserved 9000-9012 hole built clean and
+    black-screens in-game; only to <= 0 warned. Judged by the band owner (pack.check_custom_id)
+    -- a REAL field id stays a legal target."""
+    data = {"gateway": [{"name": "door0", "to": to,
+                         "zone": [[0, 500], [100, 500], [100, 600], [0, 600]]}]}
+    (row,) = P.region_rows(data)
+    assert bool(row["warn"] and "world-map hole" in row["warn"]) is warned, row["warn"]
+
+
+def test_set_gateway_target_leaves_a_world_map_door_alone(app, monkeypatch):
+    """Review finding P12. The quad menu offered Set gateway target on a to="worldmap" door; its
+    integer dialog could not say "worldmap", and OK turned the door into a field warp."""
+    data = {"field": {"source_field": 351},
+            "gateway": [{"name": "out", "to": "worldmap",
+                         "zone": [[0, 500], [100, 500], [100, 600], [0, 600]]}]}
+    d, calls = _regions_on(app, data)
+    asked = []
+    monkeypatch.setattr(d, "_ask_field_id", lambda cur: asked.append(cur) or 100)
+    d._on_region_retarget(0)
+    assert asked == [] and calls == [] and data["gateway"][0]["to"] == "worldmap"
+    assert "world map" in d.status.text() and "Editor" in d.status.text(), d.status.text()
+
+
+def _layered_project(tmp_path):
+    """An `import --editable`-shaped project: a full-cover back layer per camera, and a tight
+    crop with its own position/size on camera 0 (extract._render_depth_groups writes exactly
+    this), plus an additive light layer."""
+    from PIL import Image
+    from ff9mapkit import build as B
+    proj_dir = tmp_path / "proj"
+    proj_dir.mkdir()
+    Image.new("RGBA", (384, 448), (200, 40, 40, 255)).save(proj_dir / "back0.png")
+    Image.new("RGBA", (384, 448), (40, 40, 200, 255)).save(proj_dir / "back1.png")
+    Image.new("RGBA", (32, 48), (40, 200, 40, 255)).save(proj_dir / "crop.png")
+    Image.new("RGBA", (384, 448), (255, 255, 255, 255)).save(proj_dir / "glow.png")
+    raw = {"field": {"id": 30990, "source_field": 2507},
+           "layers": [{"image": "back0.png", "z": 4000},
+                      {"image": "back1.png", "z": 4000, "camera": 1},
+                      {"image": "crop.png", "z": 100, "position": [200, 300], "size": [32, 48]},
+                      {"image": "glow.png", "z": 50, "shader": "PSX/FieldMap_Abr_1"}]}
+    toml = proj_dir / "EDIT.field.toml"
+    toml.write_text("", encoding="utf-8")
+    return B.FieldProject(raw, proj_dir, toml_path=toml), proj_dir
+
+
+def test_the_project_backdrop_honours_each_layers_place_and_camera(tmp_path, monkeypatch):
+    """Review findings P3 + P9. The composite resized the whole accumulator to each later layer
+    and pasted it at (0, 0): an editable fork showed one 32x48 crop stretched over the frame,
+    and camera 1's art painted over camera 0's. It also wrote .place_backdrop.png into the
+    author's project folder, one name for every camera."""
+    from PIL import Image
+    from ff9mapkit import provision
+    cache = tmp_path / "cache"
+    monkeypatch.setattr(provision, "cache_dir", lambda: cache)
+    project, proj_dir = _layered_project(tmp_path)
+    cam = guide.make_camera(26.0, 3000.0, fov_x_deg=42.0)
+    before = sorted(p.name for p in proj_dir.iterdir())
+    png0 = P._project_backdrop(project, cam, 0)
+    png1 = P._project_backdrop(project, cam, 1)
+    assert sorted(p.name for p in proj_dir.iterdir()) == before, "wrote into the project folder"
+    assert png0 and png1 and png0 != png1 and Path(png0).parent.parent == cache
+    im0, im1 = Image.open(png0).convert("RGBA"), Image.open(png1).convert("RGBA")
+    assert im0.size == (384, 448), im0.size                # the camera's frame, not the crop
+    assert im0.getpixel((10, 10)) == (200, 40, 40, 255)    # camera 0's own back layer
+    assert im0.getpixel((210, 320)) == (40, 200, 40, 255)  # the crop, at ITS position
+    assert im0.getpixel((190, 320)) == (200, 40, 40, 255)  # ...and only there
+    assert im1.getpixel((10, 10)) == (40, 40, 200, 255)    # camera 1 shows only its own art
+    assert im1.getpixel((210, 320)) == (40, 40, 200, 255)
+
+
+_SCENE_DOOR = [[500, 500], [600, 500], [600, 600], [500, 600]]
+
+
+def _blender_split(app):
+    """A Blender-split fork: the scene.toml owns [player] spawn, a door's zone, a scene-only
+    door and a scene-only NPC; the field.toml holds door0's logic only."""
+    data = {"field": {"source_field": 351},
+            "gateway": [{"name": "door0", "to": 4005}],
+            "event": [{"name": "zone0", "message": "hi",
+                       "zone": [[-300, 900], [-200, 900], [-200, 1000], [-300, 1000]]}]}
+    scene = {"player": {"spawn": [-100, 1400]},
+             "gateway": [{"name": "door0", "zone": _SCENE_DOOR},
+                         {"name": "door1", "to": 4007,
+                          "zone": [[700, 500], [800, 500], [800, 600], [700, 600]]}],
+             "npc": [{"name": "guard", "pos": [5, 1500]}]}
+    d, calls = _doc(app)
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"), scene=scene)
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    return d, calls, data, scene
+
+
+def test_place_shows_what_the_scene_toml_places_where_the_build_puts_it(app):
+    """Review finding P2. Place was fed only the field.toml, but the build overlays the sibling
+    scene.toml (scene wins per key): Blender's spawn, zones and NPCs were invisible, and the
+    field.toml's own values were drawn where the build does not put them."""
+    d, _calls, _data, _scene = _blender_split(app)
+    marks = {m["label"]: m["pos"] for m in d.canvas._markers}
+    assert any(lb.startswith("spawn") and "Blender" in lb for lb in marks), marks
+    assert any(lb.startswith("guard") and "Blender" in lb for lb in marks), marks
+    d.tools.set_current("regions")
+    by_name = {r["label"].split(" ")[0]: r for r in d.canvas._regions}
+    assert set(by_name) == {"door0", "door1", "zone0"}, by_name
+    assert by_name["door0"]["quad"] == [tuple(map(float, p)) for p in _SCENE_DOOR]
+    assert "Blender" in by_name["door0"]["label"] and "Blender" in by_name["door1"]["label"]
+    assert "Blender" not in by_name["zone0"]["label"]
+
+
+def test_place_refuses_to_move_or_delete_what_the_scene_owns(app, monkeypatch):
+    d, calls, data, _scene = _blender_split(app)
+    d.tools.set_current("regions")
+    i = {r["label"].split(" ")[0]: r["i"] for r in d.canvas._regions}
+    d._on_region_changed(i["door0"], [(510, 500), (610, 500), (610, 600), (510, 600)])
+    assert calls == [] and "zone" not in data["gateway"][0]
+    assert "Blender" in d.status.text() and d.status.property("state") == "warn"
+    for act in (lambda: d._on_region_deleted(i["door0"]),
+                lambda: d._on_region_deleted(i["door1"]),
+                lambda: d._on_region_retarget(i["door1"])):
+        monkeypatch.setattr(d, "_ask_field_id", lambda cur: 300)
+        act()
+        assert calls == [] and "Blender" in d.status.text(), d.status.text()
+    assert [g["name"] for g in data["gateway"]] == ["door0"]
+    monkeypatch.setattr(d, "_ask_field_id", lambda cur: 301)   # door0's TARGET is the field's
+    d._on_region_retarget(i["door0"])
+    assert data["gateway"][0]["to"] == 301 and len(calls) == 1
+    d._on_region_changed(i["zone0"], [(-310, 900), (-210, 900), (-210, 1000), (-310, 1000)])
+    assert data["event"][0]["zone"][0] == [-310, 900] and len(calls) == 2   # the field's own: live
+
+
+def test_place_never_mints_a_name_the_scene_uses_and_leaves_its_spawn_alone(app):
+    d, calls, data, _scene = _blender_split(app)
+    assert not d.mode_btns["spawn"].isEnabled()
+    assert "Blender" in d.mode_btns["spawn"].toolTip()
+    assert d.mode_btns["arrival"].isEnabled()           # the scene sets no arrival
+    d.mode_btns["npc"].setChecked(True)
+    d.tools.set_current("regions")
+    d._on_region_drawn([(-640.0, 900.0), (-540.0, 900.0), (-540.0, 1000.0), (-640.0, 1000.0)])
+    assert data["gateway"][-1]["name"] not in {"door0", "door1"}, data["gateway"]
+    d.mode_btns["spawn"].setChecked(True)               # a disabled radio is still settable in code:
+    d.tools.set_current("place")                        # the drop itself refuses too
+    d._apply_hit({"xz": (0.0, 1500.0), "floor": 0})
+    assert "spawn" not in data.get("player", {}) and "Blender" in d.status.text()
+
+
+def test_an_unnamed_blender_gateway_is_refused_not_crashed_on(app, monkeypatch):
+    """Review of P2: the add-on writes NO name= for a gateway (ops.py builds the dict without
+    one), so a scene-only row matched no scene name, was not refused, and move / rotate / delete /
+    Set target indexed the field list with data_index None -> TypeError."""
+    data = {"field": {"source_field": 351}}
+    scene = {"gateway": [{"zone": [[0, 600], [100, 600], [100, 700], [0, 700]]}],
+             "event": [{"zone": [[300, 600], [400, 600], [400, 700], [300, 700]]}]}
+    d, calls = _doc(app)
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"), scene=scene)
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    d.tools.set_current("regions")
+    rows = d._region_rows_cache
+    assert [r["data_index"] for r in rows] == [None, None], rows
+    assert all("Blender" in r["label"] for r in rows), [r["label"] for r in rows]
+    monkeypatch.setattr(d, "_ask_field_id", lambda cur: 300)
+    monkeypatch.setattr(d, "_ask_message", lambda cur: "hello")
+    gw = next(r["i"] for r in rows if r["kind"] == "gateway")
+    ev = next(r["i"] for r in rows if r["kind"] == "event")
+    for act in (lambda: d._on_region_changed(gw, [(10, 600), (110, 600), (110, 700), (10, 700)]),
+                lambda: d._on_region_changed(gw, [(100, 600), (100, 700), (0, 700), (0, 600)]),
+                lambda: d._on_region_deleted(gw),
+                lambda: d._on_region_retarget(gw),
+                lambda: d._on_region_reword(ev)):
+        act()
+        assert calls == [] and "Blender" in d.status.text(), d.status.text()
+    assert data == {"field": {"source_field": 351}}
+
+
+def test_a_scene_arrival_disables_arrival_and_the_drop_refuses(app):
+    """Review of P2: only a scene SPAWN was tested, so dropping 'arrival' from both guards
+    survived the suite -- and Place then wrote [[player.arrival]] the build discards."""
+    data = {"field": {"source_field": 351}}
+    d, calls = _doc(app)
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"),
+                 scene={"player": {"arrival": [{"entrance": 1, "pos": [0, 1400]}]}})
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    assert not d.mode_btns["arrival"].isEnabled()
+    assert "Blender" in d.mode_btns["arrival"].toolTip()
+    assert d.mode_btns["spawn"].isEnabled()             # the scene sets no spawn
+    d.mode_btns["arrival"].setChecked(True)             # settable in code: the drop refuses too
+    d._apply_hit({"xz": (0.0, 1500.0), "floor": 0})
+    assert "player" not in data and calls == [] and "Blender" in d.status.text()
+
+
+def test_the_shell_feeds_place_the_blender_scene(app, tmp_path, monkeypatch):
+    """Review finding P2, the shell half: _feed_place passed only fd.data, so the PlaceDoc never
+    learnt the scene.toml existed. Opened the way a user opens a Blender-split field."""
+    from ff9mapkit import prefs
+    from ff9mapkit.workspace import shell
+    monkeypatch.setattr(prefs, "_path", lambda: tmp_path / "prefs.json")
+    p = tmp_path / "X.field.toml"
+    p.write_text('[field]\nid = 30999\nname = "X"\narea = 11\nsource_field = 351\n',
+                 encoding="utf-8")
+    (tmp_path / "X.scene.toml").write_text("[player]\nspawn = [-100, 1400]\n", encoding="utf-8")
+    w = shell.Workspace(pick_palette("dark"))
+    try:
+        assert w.open_field(p)
+        w.tabs.setCurrentWidget(w.place_doc)            # fires _feed_place
+        QApplication.processEvents()
+        pd = w.place_doc
+        assert pd._member == "X" and pd._scene_player("spawn"), pd._scene
+        assert not pd.mode_btns["spawn"].isEnabled()
+        sc = tmp_path / "X.scene.toml"                   # a Blender re-export drops the spawn
+        sc.write_text('[[npc]]\nname = "guard"\npos = [5, 1500]\n', encoding="utf-8")
+        st = sc.stat()
+        os.utime(sc, (st.st_atime, st.st_mtime + 5))
+        w._feed_place()
+        assert pd.mode_btns["spawn"].isEnabled() and pd._scene_names("npc") == {"guard"}
+    finally:
+        w.hide()
+        w.deleteLater()
+
+
+def test_a_scene_that_carries_the_layers_places_on_the_fields_own_art(app):
+    d, _ = _doc(app)
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"),
+                 scene={"layers": [{"image": "back.png", "z": 1000}]})
+    assert d._source[0] == "project"
+
+
+@pytest.mark.parametrize("tool", ["place", "regions"])
+def test_with_a_fork_open_the_control_row_floors_at_its_wider_half(app, tool):
+    """Review finding P17. The control row was one non-wrapping QHBoxLayout: with a fork open
+    its SUM floored the window (1117/1273/1391px at 100/125/150%, measured natively), clipping
+    the Inspector at 1280 and crushing Load and the tool strip to '…' at 1024/125%. It is the
+    house SpillRow now -- the floor is the wider half -- and the field name elides. Relative
+    widths only (offscreen fonts are fiction); the absolute numbers were read natively with
+    tools/gui_snap.py (place:fork / place:regions: window floor 932/1043/1142)."""
+    from ff9mapkit.workspace import widgets
+    d, _ = _doc(app)
+    d.show_field("A_RATHER_LONG_FORK_NAME", {"field": {"source_field": 351}},
+                 Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    d.tools.set_current(tool)
+    QApplication.processEvents()
+    row = d.control_row
+    assert isinstance(row, widgets.SpillRow)
+    lead, tail = row._lead.minimumSizeHint().width(), row._tail.minimumSizeHint().width()
+    assert row.minimumSizeHint().width() == max(lead, tail), (row.minimumSizeHint(), lead, tail)
+    assert d.minimumSizeHint().width() < lead + tail     # the page no longer floors at the sum
+    fl = d.field_label
+    assert fl.minimumSizeHint().width() < fl.sizeHint().width()   # the name yields, elided
+    assert fl.toolTip() == fl.fullText() and "351" in fl.toolTip()
+
+
+_NATIVE_FIELD_LABEL_CHILD = r'''
+import json, sys, tempfile
+from pathlib import Path
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication
+app = QApplication([])
+print("QT-PLATFORM-UP", flush=True)     # the handshake: past here, a crash is a FAILURE, not a skip
+import ff9mapkit
+from ff9mapkit import prefs, provision
+_tmp = Path(tempfile.mkdtemp())          # never the developer's prefs or config
+prefs._path = lambda: _tmp / "prefs.json"
+provision._user_dir = lambda sub: _tmp / sub
+from ff9mapkit.editor import theme
+from ff9mapkit.workspace import placedoc as P, style
+pal = theme.pick_palette("mist")
+cut = []
+for scale in (100, 110, 125, 150):
+    app.setStyleSheet(style.qss(pal, "comfortable", scale))
+    d = P.PlaceDoc(pal, on_edit=lambda *a: None, scale=scale)
+    d.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+    d.show_field("PLACEDEMO", {"field": {"source_field": 351}}, Path("C:/x/PLACEDEMO.field.toml"))
+    d.resize(1600, 700)                  # room to spare: the label sits at its own hint
+    d.show()
+    app.processEvents(); app.processEvents()
+    fl = d.field_label
+    if fl.text() != fl.fullText():
+        cut.append(f"{scale}%: {fl.fullText()!r} -> {fl.text()!r} at w{fl.width()} "
+                   f"hint {fl.sizeHint().width()}")
+    d.hide()
+print(json.dumps({"platform": app.platformName(), "file": ff9mapkit.__file__, "cut": cut}))
+'''
+
+
+def test_the_field_name_is_whole_when_the_row_has_room_natively():
+    """Review of P17: ElideLabel's sizeHint is the ROUNDED advance while its elide measures the
+    fractional one, so at 150% the label got exactly its hint and read 'donor field #3...' with
+    ~550px free -- the one fact the line exists to show. Native platform only (offscreen widths
+    are fiction); the ElideButton twin is C17 in test_workspace_widgets.py."""
+    import json
+    import subprocess
+    import sys
+
+    pkg_root = Path(ff9mapkit.__file__).resolve().parent.parent
+    env = {k: v for k, v in os.environ.items() if k != "QT_QPA_PLATFORM"}
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["FF9MAPKIT_NO_THUMBS"] = "1"
+    r = subprocess.run([sys.executable, "-c", _NATIVE_FIELD_LABEL_CHILD], capture_output=True,
+                       timeout=300, env=env, cwd=str(pkg_root))
+    lines = r.stdout.decode("utf-8", "replace").strip().splitlines()
+    err = r.stderr.decode("utf-8", "replace")[-600:]
+    if "QT-PLATFORM-UP" not in lines:
+        pytest.skip(f"no native Qt platform here: {err}")
+    assert r.returncode == 0, f"the measuring child crashed AFTER Qt came up:\n{err}"
+    out = json.loads(lines[-1])
+    if out["platform"] in ("offscreen", "minimal"):
+        pytest.skip(f"no native font database ({out['platform']})")
+    assert Path(out["file"]).resolve().is_relative_to(pkg_root)
+    assert out["cut"] == [], "\n".join(out["cut"])
+
+
+def test_place_speaks_of_every_lane_not_only_forks(app):
+    """Review finding P22. Place serves novel, traced and composed fields too, but its empty
+    state sent the author off to fork something, and Load spoke only of a donor."""
+    d, _ = _doc(app)
+    for text in (d.status.text(), d.load_btn.toolTip()):
+        assert "fork one" not in text and "donor" not in text, text
+    assert "New Field" in d.status.text()
+    d.show_field("NOVEL", {"field": {"id": 30058}}, Path("C:/somewhere/NOVEL.field.toml"))
+    for text in (d.status.text(), d.load_btn.toolTip()):
+        assert "donor" not in text and "own" in text, text
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    for text in (d.status.text(), d.load_btn.toolTip()):
+        assert "#351" in text, text
+
+
+def test_a_bundled_example_refusal_names_the_gui_way_out(app):
+    """Review finding P22: the refusal mixed an ASCII '--' into Place's em-dash sentence and named
+    a CLI command. Place words its own way out; protected_reason (CLI + editor) is untouched."""
+    d, _ = _doc(app)
+    ex = Path(ff9mapkit.__file__).parent.parent / "examples" / "vivi-hut" / "hut_int.field.toml"
+    d.show_field("HUT", {"verbatim_eb": {"donor": 351}}, ex)
+    text = d.status.text()
+    assert "bundled example" in text and " -- " not in text and "`" not in text, text
+    assert "New Field" in text and "copy" in text, text
+
+
+def test_a_walk_out_rotate_is_undone_as_a_rotate(app, monkeypatch):
+    """Review finding E8: the rotate went through the generic reshape, so Undo read 'reshape
+    gateway zone' -- the same as a corner drag. Driven through the quad's own menu."""
+    import types
+
+    class _FakeMenu:                                    # the backdrop tests' seam: exec() returns
+        def __init__(self, parent=None):                # the walk-out rotate, no popup
+            self.acts = []
+
+        def addAction(self, text):
+            tok = types.SimpleNamespace(text=text)
+            self.acts.append(tok)
+            return tok
+
+        def exec(self, pos):
+            return next(a for a in self.acts if a.text.startswith("Walk-out"))
+
+    data = {"field": {"source_field": 351},
+            "gateway": [{"name": "door0", "to": 4005,
+                         "zone": [[0, 500], [100, 500], [100, 600], [0, 600]]}]}
+    d, calls = _regions_on(app, data)
+    monkeypatch.setattr("PySide6.QtWidgets.QMenu", _FakeMenu)
+    d.canvas._region_menu(0, QPoint(0, 0))
+    assert data["gateway"][0]["zone"][0] == [100, 500]          # the corners did rotate
+    assert calls == [("FORK", "rotate walk-out edge of door0")], calls
+    d._on_region_changed(0, [(10, 500), (110, 500), (110, 600), (10, 600)])   # a body drag
+    assert calls[-1] == ("FORK", "reshape gateway door0 zone"), calls
+    data["gateway"][0]["zone"] = [[0, 500], [100, 500], [100, 600], [0, 600], [0, 600]]
+    assert P.move_zone(data, "gateway", 0, [(100, 500), (100, 600), (0, 600), (0, 500)]) \
+        == "rotate walk-out edge of door0"              # the stored doubled form rotates too
+
+
+# --------------------------------------------------------------- batch 3, the final review
+def test_the_blender_refusals_speak_in_words_not_toml_keys(app, tmp_path):
+    """The refusals for a Blender-owned row printed the raw key (\"door0's to comes from the
+    scene.toml\", '[player] spawn comes from...') and called an unnamed zone 'this one'."""
+    d, _ = _doc(app)
+    assert "door0's target" in d._scene_refusal(
+        {"scene": {"name": "door0", "to": 4005}, "data_index": 0}, "to")
+    assert "'s to " not in d._scene_refusal(
+        {"scene": {"name": "door0", "to": 4005}, "data_index": 0}, "to")
+    assert "this zone" in d._scene_refusal({"scene": None, "data_index": None}, "zone")
+    for key in ("spawn", "arrival"):
+        words = d._blender_says(d._PLAYER_WORDS[key])
+        assert "[player]" not in words and "scene wins" not in words, words
+
+
+def test_the_regions_status_names_what_is_drawn(app, tmp_path):
+    """The canvas no longer numbers a finished quad's corners, and the status still said
+    'corners 0\u21921 = the walk-out edge'; it also called one thing a zone, a region and a quad
+    in a single line."""
+    d, _ = _doc(app)
+    d.show_field("FORK", {"field": {"source_field": 351},
+                          "gateway": [{"name": "door0", "to": 4005,
+                                       "zone": [[-300, 900], [300, 900], [300, 1500], [-300, 1500]]}]},
+                 Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    d.tools.set_current("regions")
+    d.rkind_btns["gateway"].setChecked(True)
+    QApplication.processEvents()
+    text = d.status.text()
+    assert "walk-out" in text and "first two corners" in text, text
+    assert "corners 0" not in text and "quad" not in text and "region" not in text, text
+    assert "1 zone" in text, text
+
+
+def test_a_world_map_id_warning_and_door_read_plainly(app, tmp_path):
+    """The reserved-id warning quoted the engine's table names, and the world-map door refusal
+    printed a Python repr."""
+    row = P.region_rows({"gateway": [{"name": "d", "to": 9005,
+                                      "zone": [[-300, 900], [300, 900], [300, 1500], [-300, 1500]]}]})[0]
+    assert "world-map hole" in row["warn"]
+    assert "EventDB" not in row["warn"] and "EVT_" not in row["warn"], row["warn"]
+    d, _ = _doc(app)
+    data = {"field": {"source_field": 351},
+            "gateway": [{"name": "out", "to": "worldmap",
+                         "zone": [[-300, 900], [300, 900], [300, 1500], [-300, 1500]]}]}
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(("real", 351), 0)] = _bundle()
+    d._apply_bundle(d._bundles[(("real", 351), 0)], refit=True)
+    d.tools.set_current("regions")
+    QApplication.processEvents()
+    d._on_region_retarget(0)
+    assert "world map" in d.status.text() and "'worldmap'" not in d.status.text(), d.status.text()
+
+
+def test_each_place_tool_says_the_shape_it_draws(app):
+    """Markers speak their kind by shape (P25), and nothing in the app said which shape is
+    which: the tool's own tooltip does."""
+    d, _ = _doc(app)
+    for key, shape in (("npc", "circle"), ("prop", "square"), ("spawn", "triangle"),
+                       ("arrival", "diamond")):
+        assert shape in d.mode_btns[key].toolTip(), (key, d.mode_btns[key].toolTip())
+
+
+def test_the_place_regions_tool_says_zone_and_how_to_cancel(app):
+    d, _ = _doc(app)
+    tip = d.tools.button("regions").toolTip()
+    assert "zones" in tip and "quad" not in tip and "Esc" in tip, tip
+
+
+# --------------------------------------------------------------- batch 4: empty zones (P11)
+@pytest.mark.parametrize("zone, empty", [
+    ([[0, 500], [100, 500], [200, 500], [300, 500]], True),          # four corners in a line
+    ([[50, 500], [50, 500], [50, 500], [50, 500]], True),            # all on one spot
+    ([[0, 500], [100, 500], [100, 600], [0, 600]], False),           # an ordinary zone
+    ([[0, 500], [100, 500], [0, 600], [100, 600]], False),           # a bowtie: its signed area
+])                                                                    # cancels, yet the fan fires
+def test_a_zone_with_no_area_warns_that_it_can_never_fire(zone, empty):
+    """P11: the fan audit is vacuous on a degenerate zone (no interior to judge), so four
+    collinear or coincident corners passed clean -- a trigger that can never fire."""
+    for kind, row in (("gateway", {"name": "d", "to": 4005, "zone": zone}),
+                      ("event", {"name": "z", "message": "hi", "zone": zone})):
+        (r,) = P.region_rows({kind: [row]})
+        said = bool(r["warn"] and "never fire" in r["warn"])
+        assert said is empty, (kind, zone, r["warn"])
+
+
+# --------------------------------------------------------------- batch 4: the crumb (P31)
+def test_the_crumb_names_the_surface_like_its_siblings(app):
+    """P31: Behavior and Cutscene read 'Behavior — X' / 'Cutscene — X'; Place read the bare
+    member name, like the Editor's field crumb."""
+    d, _ = _doc(app)
+    assert d.crumb_label() == "Place"
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    assert d.crumb_label() == "Place — FORK"
+
+
+# --------------------------------------------------------------- batch 4: ask at the draw (P27)
+_Q = [(-200.0, 800.0), (200.0, 800.0), (200.0, 1200.0), (-200.0, 1200.0)]
+
+
+def test_a_door_drawn_without_a_target_asks_for_it_in_the_same_step(app, monkeypatch):
+    """P27: a door drawn while 'to field' showed '?' was written to=0 and had to be repaired by a
+    right-click. The draw asks now; the answer and the zone are ONE undo step, and a reserved
+    world-map id still warns on the art (region_rows judges every route)."""
+    d, calls = _regions_on(app, {"field": {"source_field": 351}})
+    asked = []
+    monkeypatch.setattr(d, "_ask_field_id", lambda cur: asked.append(cur) or 9005)
+    d._on_region_drawn(_Q)
+    assert asked == [0] and calls == [("FORK", "draw gateway door0 -> 9005")], calls
+    assert d._data["gateway"][0]["to"] == 9005
+    assert "world-map hole" in d.canvas._regions[0]["warn"]
+    asked.clear()
+    d.gw_to.setValue(4005)                              # a target in the box: nothing to ask
+    d._on_region_drawn([(x + 500, z) for x, z in _Q])
+    assert asked == [] and d._data["gateway"][1]["to"] == 4005
+
+
+def test_a_cancelled_door_target_keeps_todays_flagged_placeholder(app):
+    d, calls = _regions_on(app, {"field": {"source_field": 351}})
+    d._on_region_drawn(_Q)                              # (the fixture's dialogs Cancel)
+    assert len(calls) == 1 and d._data["gateway"][0]["to"] == 0
+    assert "NO TARGET" in d.canvas._regions[0]["warn"]
+
+
+@pytest.mark.parametrize("typed, kept", [("Mind the gap.", "Mind the gap."), ("  ", "..."),
+                                         (None, "...")])
+def test_a_drawn_event_asks_for_its_words_and_a_blank_line_is_still_refused(app, monkeypatch,
+                                                                             typed, kept):
+    d, calls = _regions_on(app, {"field": {"source_field": 351}})
+    d.rkind_btns["event"].setChecked(True)
+    asked = []
+    monkeypatch.setattr(d, "_ask_message", lambda cur: asked.append(cur) or typed)
+    d._on_region_drawn(_Q)
+    assert asked == [""] and len(calls) == 1, calls
+    assert d._data["event"][0]["message"] == kept
+    if typed is not None and not typed.strip():         # the blank-line rule holds on this route
+        assert "empty" in d.status.text() and d.status.property("state") == "warn"
+
+
+def test_a_field_swapped_while_the_draw_asks_gets_nothing(app, monkeypatch):
+    """The dialog is modal and the shell can re-feed under it: the answer belongs to the field it
+    was asked for, never to the one that is open when it comes back."""
+    d, calls = _regions_on(app, {"field": {"source_field": 351}})
+    other = {"field": {"source_field": 351}}
+
+    def swap(cur):
+        d.show_field("OTHER", other, Path("C:/somewhere/OTHER.field.toml"))
+        return 4005
+    monkeypatch.setattr(d, "_ask_field_id", swap)
+    d._on_region_drawn(_Q)
+    assert calls == [] and "gateway" not in other
+
+
+def test_a_zone_dropped_because_the_field_reloaded_says_so(app, monkeypatch):
+    """Final review of P27: the same guard fires when the SAME field is re-fed under the dialog
+    (a regenerate or a revert finishing). The four corners and the typed line went without a
+    word; the status now says the zone was not drawn."""
+    import copy
+    data = {"field": {"source_field": 351}}
+    d, calls = _regions_on(app, data)
+    d.rkind_btns["event"].setChecked(True)
+
+    def refeed(cur):
+        d.show_field("FORK", copy.deepcopy(data), Path("C:/somewhere/FORK.field.toml"))
+        return "The door is locked."
+    monkeypatch.setattr(d, "_ask_message", refeed)
+    d._on_region_drawn(_Q)
+    assert calls == []
+    assert "The field changed while you answered" in d.status.text()
+    assert "not drawn" in d.status.text()
+    assert d.status.property("state") == "warn"
+
+
+def test_a_zone_dropped_because_another_field_opened_does_not_say_reloaded(app, monkeypatch):
+    """The same guard fires when ANOTHER field opens under the prompt (a first Generate handing
+    its project to the shell). 'The field reloaded ... draw it again' was untrue there: the
+    sentence is one that holds in both cases."""
+    d, calls = _regions_on(app, {"field": {"source_field": 351}})
+    d.rkind_btns["event"].setChecked(True)
+
+    def swap(cur):
+        d.show_field("OTHER", {"field": {"source_field": 351}},
+                     Path("C:/somewhere/OTHER.field.toml"))
+        return "The door is locked."
+    monkeypatch.setattr(d, "_ask_message", swap)
+    d._on_region_drawn(_Q)
+    said = d.status.text()
+    assert calls == [] and "not drawn" in said
+    assert "reloaded" not in said and "draw it again" not in said, said
+
+
+def test_the_gateway_prompt_names_no_repository_path():
+    """The target prompt now opens on every door drawn without a target (P27); it pointed a
+    first-time author at reference/field-manifest.tsv, a file an installed kit does not have."""
+    from ff9mapkit.workspace.placedoc import PlaceDoc
+    assert "field id" in PlaceDoc._FIELD_ID_PROMPT
+    assert "manifest" not in PlaceDoc._FIELD_ID_PROMPT and ".tsv" not in PlaceDoc._FIELD_ID_PROMPT
+
+
+def test_the_gateway_dialog_shows_that_prompt(app):
+    """...and the dialog the author sees is built with it (the constant alone proved nothing)."""
+    d, _calls = _regions_on(app, {"field": {"source_field": 351}})
+    dlg = d._field_id_dialog(4005)
+    try:
+        assert dlg.labelText() == d._FIELD_ID_PROMPT
+        assert dlg.intValue() == 4005
+    finally:
+        dlg.deleteLater()
+
+
+# --------------------------------------------------------------- batch 4: stacked floors (P7)
+def test_the_stacked_floor_chooser_lists_each_floor_once_and_says_what_it_records(app, monkeypatch):
+    """P7: a click on a triangle edge listed the same floor twice, and the menu read 'floor 1 ·
+    height -300' as if the floor were recorded. Only the plan spot (x, z) is stored -- where the
+    click meets that floor -- and the game finds the height there."""
+    import types
+    data = {"field": {"source_field": 351}}
+    d, calls = _placed(app, data)
+    up = {"xz": (0.0, 1500.0), "pos": (0.0, -300.0, 1500.0), "floor": 1, "tri": 2, "s": 1.0}
+    low = {"xz": (0.0, 721.0), "pos": (0.0, 0.0, 721.0), "floor": 0, "tri": 0, "s": 2.0}
+    low2 = dict(low, tri=1)                             # the same floor, through the shared edge
+    seen = []
+
+    class _FakeMenu:
+        def __init__(self, parent=None):
+            self.acts = []
+
+        def addAction(self, text):
+            tok = types.SimpleNamespace(text=text, setEnabled=lambda on: None)
+            self.acts.append(tok)
+            return tok
+
+        def addSeparator(self):
+            pass
+
+        def exec(self, pos):
+            seen.extend(a.text for a in self.acts)
+            return self.acts[-1]                        # the floor behind
+
+    monkeypatch.setattr(P, "QMenu", _FakeMenu)
+    d._on_surface_clicked(dict(low, stacked=[low, low2]))   # one floor twice: no question at all
+    assert seen == [] and len(calls) == 1
+    d._on_surface_clicked(dict(up, stacked=[up, low, low2]))
+    picks = [t for t in seen if "floor" in t]
+    assert len(picks) == 2, seen                        # floor 1, floor 0 -- each once
+    assert any("height" in t and "game" in t for t in seen), seen
+    assert data["npc"][-1]["pos"] == [0, 721] and len(calls) == 2
+    assert "only the spot" in d.status.text(), d.status.text()
+    seen.clear()                                        # a mesh with no floor ids: two crossings
+    a, b = dict(up, floor=None), dict(low, floor=None)  # are two surfaces, never merged into one
+    d._on_surface_clicked(dict(a, stacked=[a, b]))
+    assert len([t for t in seen if "floor" in t]) == 2, seen
+
+
+# --------------------------------------------------------------- batch 4: the refused state (P19)
+def test_a_refused_field_shows_why_in_place_of_an_empty_canvas(app):
+    """P19: on a bundled example the tab kept a large empty canvas frame with its zoom pill, and
+    the one signal was the warn line under it. The canvas gives way to a centred, quiet message
+    that says why nothing can be placed and the way out; a placeable field brings it back."""
+    d, _ = _doc(app)
+    ex = Path(ff9mapkit.__file__).parent.parent / "examples" / "vivi-hut" / "hut_int.field.toml"
+    d.show_field("HUT", {"verbatim_eb": {"donor": 351}}, ex)
+    QApplication.processEvents()
+    assert not d.canvas.isVisibleTo(d)
+    msg = d.refused_msg
+    assert msg.isVisibleTo(d) and msg.property("role") == "muted"
+    assert "bundled example" in msg.text() and "New Field" in msg.text(), msg.text()
+    assert msg.alignment() & Qt.AlignmentFlag.AlignHCenter and msg.wordWrap()
+    assert not d.status.isVisibleTo(d)                  # said once, not twice
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    QApplication.processEvents()
+    assert d.canvas.isVisibleTo(d) and not msg.isVisibleTo(d) and d.status.isVisibleTo(d)
+
+
+# --------------------------------------------------------------- batch 4: the loading line (P14)
+def test_the_loading_line_names_the_room_in_words(app):
+    """P14: the status while a room loads printed the request's raw source tuple (fixed when the
+    bundle key gained its source, batch 2 -- fenced here), still said 'camera 0' on a room with one
+    camera, and said 'extracting + compositing' over a field's own files, which are only read."""
+    d, _ = _doc(app)
+    d._loader.start = lambda *a: None
+    d.show_field("FORK", {"field": {"source_field": 351}}, Path("C:/somewhere/FORK.field.toml"))
+    d.on_load()
+    real = d.status.text()
+    d._loading = None
+    d.show_field("NOVEL", {"field": {"id": 30058}}, Path("C:/somewhere/NOVEL.field.toml"))
+    d.on_load()
+    own = d.status.text()
+    for text in (real, own):
+        assert "('" not in text and "camera 0" not in text and "\\" not in text, text
+    assert "donor field #351" in real, real
+    assert "NOVEL" in own and "extract" not in own and "composit" not in own, own
+    d._loading = None
+    d._sync_cam_box(3)                                  # a multi-camera room says which angle
+    d._cam_pick[d._source] = 2
+    d.on_load()
+    assert "camera 2" in d.status.text(), d.status.text()
+
+
+# --------------------------------------------------------------- batch 4: placed markers (P16)
+def _send(c, kind, canvas_pt, buttons=None):
+    """One mouse event at a CANVAS point, delivered the way Qt delivers it (sendEvent)."""
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QMouseEvent
+    t = {"press": QEvent.Type.MouseButtonPress, "move": QEvent.Type.MouseMove,
+         "release": QEvent.Type.MouseButtonRelease}[kind]
+    vp = c.viewport()
+    wpt = c.viewportTransform().map(QPointF(*canvas_pt))
+    pos = QPointF(round(wpt.x()), round(wpt.y()))
+    left = Qt.MouseButton.LeftButton
+    if buttons is None:
+        buttons = left if kind != "release" else Qt.MouseButton.NoButton
+    btn = Qt.MouseButton.NoButton if kind == "move" else left
+    QApplication.sendEvent(vp, QMouseEvent(t, pos, QPointF(vp.mapToGlobal(pos.toPoint())), btn,
+                                           buttons, Qt.KeyboardModifier.NoModifier))
+
+
+def _placed(app, data, scene=None, path="C:/somewhere/FORK.field.toml"):
+    d, calls = _doc(app)
+    d.show_field("FORK", data, Path(path), scene=scene)
+    d._bundles[(d._source, 0)] = dict(_bundle(), source=d._source)
+    d._apply_bundle(d._bundles[(d._source, 0)], refit=True)
+    QApplication.processEvents()
+    return d, calls
+
+
+def _px(d, x, z):
+    return IF.world_point_to_click(d.canvas.camera(), (x, 0.0, z))
+
+
+def _hit(x, z):
+    row = {"xz": (x, z), "pos": (x, 0.0, z), "floor": 0, "tri": 0, "s": 1.0}
+    return dict(row, stacked=[row])
+
+
+def test_a_click_on_a_placed_marker_never_drops_a_second_one(app):
+    """P16: the marker was inert, so a click on it raycast the floor beneath it and appended a
+    SECOND NPC on top of the first. It places nothing now, and says how to move or delete it."""
+    data = {"field": {"source_field": 351}, "npc": [{"name": "A", "pos": [0, 1500]}]}
+    d, calls = _placed(app, data)
+    p = _px(d, 0, 1500)
+    _send(d.canvas, "press", p)
+    _send(d.canvas, "release", p)
+    assert calls == [] and len(data["npc"]) == 1, data["npc"]
+    assert "drag" in d.status.text() and "A" in d.status.text(), d.status.text()
+
+
+def test_dragging_a_marker_moves_that_row_in_one_undo_step(app):
+    data = {"field": {"source_field": 351},
+            "npc": [{"name": "A", "pos": [0, 1500]}, {"name": "B", "pos": [-400, 1000]}]}
+    d, calls = _placed(app, data)
+    _send(d.canvas, "press", _px(d, 0, 1500))
+    _send(d.canvas, "move", _px(d, 200, 1200))
+    _send(d.canvas, "release", _px(d, 200, 1200))
+    assert len(calls) == 1 and calls[0] == ("FORK", "move NPC A"), calls
+    x, z = data["npc"][0]["pos"]
+    assert math.hypot(x - 200, z - 1200) < 10, data["npc"][0]
+    assert data["npc"][1]["pos"] == [-400, 1000] and len(data["npc"]) == 2
+    mira = next(m for m in d.canvas._markers if m["label"] == "A")
+    assert math.hypot(mira["pos"][0] - x, mira["pos"][2] - z) < 1e-6   # drawn where it now is
+
+
+def test_a_marker_gesture_writes_the_row_it_was_drawn_from_not_its_old_index(app):
+    """Two NPCs share a name, and the first is removed in the Editor before Place is re-fed:
+    the marker for the second still writes THAT row (by identity), and the marker for the
+    removed one refuses instead of landing on whatever now sits at its index."""
+    def stale():
+        data = {"field": {"source_field": 351},
+                "npc": [{"name": "A", "pos": [0, 1500]}, {"name": "A", "pos": [-400, 1000]}]}
+        d, calls = _placed(app, data)
+        second = data["npc"][1]
+        del data["npc"][0]                               # the Editor's delete, no re-feed yet
+        return d, calls, data, second
+
+    d, calls, data, second = stale()
+    d._on_marker_moved(1, _hit(100.0, 1100.0))
+    assert second["pos"] == [100, 1100] and len(calls) == 1
+    for gesture in (lambda d: d._on_marker_moved(0, _hit(300.0, 1300.0)),
+                    lambda d: d._on_marker_deleted(0)):
+        d, calls, data, second = stale()
+        gesture(d)
+        assert data["npc"] == [{"name": "A", "pos": [-400, 1000]}] and calls == []
+        assert "no longer" in d.status.text() and d.status.property("state") == "warn"
+
+
+def test_deleting_a_marker_removes_that_row_and_the_spawn_stays(app):
+    data = {"field": {"source_field": 351}, "prop": [{"name": "prop0", "prop": "barrel",
+                                                      "pos": [0, 1500]}],
+            "player": {"spawn": [100, 1200]}}
+    d, calls = _placed(app, data)
+    i_prop = next(k for k, m in enumerate(d.canvas._markers) if m["kind"] == "prop")
+    i_spawn = next(k for k, m in enumerate(d.canvas._markers) if m["kind"] == "spawn")
+    d._on_marker_deleted(i_spawn)
+    assert data["player"]["spawn"] == [100, 1200] and calls == []
+    assert "spawn" in d.status.text() and "move" in d.status.text(), d.status.text()
+    d._on_marker_deleted(i_prop)
+    assert data["prop"] == [] and calls == [("FORK", "delete prop prop0")], calls
+    d._on_marker_moved(next(k for k, m in enumerate(d.canvas._markers) if m["kind"] == "spawn"),
+                       _hit(-100.0, 1300.0))
+    assert data["player"]["spawn"] == [-100, 1300] and calls[-1] == ("FORK", "move spawn")
+
+
+def test_a_marker_blender_or_a_verbatim_fork_owns_refuses_to_move(app):
+    scene = {"npc": [{"name": "guard", "pos": [5, 1500]}, {"name": "ghost", "pos": [-200, 1200]}]}
+    data = {"field": {"source_field": 351}, "npc": [{"name": "guard", "preset": "vivi"}]}
+    d, calls = _placed(app, data, scene=scene)
+    for m_label in ("guard", "ghost"):
+        i = next(k for k, m in enumerate(d.canvas._markers) if m["label"].startswith(m_label))
+        d._on_marker_moved(i, _hit(0.0, 1000.0))
+        assert calls == [] and "Blender" in d.status.text(), d.status.text()
+        d._on_marker_deleted(i)
+        assert calls == [] and "Blender" in d.status.text(), d.status.text()
+    assert data["npc"] == [{"name": "guard", "preset": "vivi"}]
+    vdata = {"verbatim_eb": {"donor": 351}, "player": {"spawn": [0, 1500],
+                                                       "arrival": [{"entrance": 1, "pos": [0, 1200]}]}}
+    d, calls = _placed(app, vdata)
+    for k in range(len(d.canvas._markers)):
+        d._on_marker_moved(k, _hit(100.0, 1000.0))
+        assert calls == [] and "verbatim" in d.status.text(), d.status.text()
+    assert vdata["player"] == {"spawn": [0, 1500], "arrival": [{"entrance": 1, "pos": [0, 1200]}]}
+
+
+@pytest.mark.parametrize("case", ["verbatim", "blender"])
+def test_a_marker_place_always_refuses_offers_no_drag_or_delete(app, case):
+    """Review of P16: a verbatim fork's spawn (`import --verbatim` writes one) and a Blender NPC
+    wore the grab cursor, said 'drag to move it', and offered Delete -- each refused in turn.
+    The feed now carries the refusal: no grab cursor, the tooltip and a click say why."""
+    if case == "verbatim":
+        data, scene, word = ({"verbatim_eb": {"donor": 351}, "field": {"id": 30500},
+                              "player": {"spawn": [0, 1500]}}, None, "verbatim")
+    else:
+        data, scene, word = ({"field": {"source_field": 351},
+                              "npc": [{"name": "guard", "preset": "vivi"}]},
+                             {"npc": [{"name": "guard", "pos": [0, 1500]}]}, "Blender")
+    d, calls = _placed(app, data, scene=scene)
+    assert len(d.canvas._markers) == 1 and d.canvas._markers[0]["locked"]
+    glyphs = [k for k in d.canvas._kids if k.data(2) == "marker"]
+    assert glyphs and not any(k.hasCursor() for k in glyphs)
+    tips = " ".join(k.toolTip() for k in glyphs)
+    assert word in tips and "drag" not in tips, tips
+    p = _px(d, 0, 1500)
+    _send(d.canvas, "press", p)
+    _send(d.canvas, "release", p)
+    text = d.status.text()
+    assert word in text and "drag it" not in text and "Nothing was added" in text, text
+    assert calls == [] and d.status.property("state") == "warn"
+    d._on_marker_clicked(5)                              # (a stale index says nothing)
+
+
+def test_a_movable_spawn_says_drag_and_never_offers_delete(app):
+    data = {"field": {"source_field": 351}, "player": {"spawn": [0, 1500]}}
+    d, calls = _placed(app, data)
+    m = d.canvas._markers[0]
+    assert not m["locked"] and m["keep"]
+    p = _px(d, 0, 1500)
+    _send(d.canvas, "press", p)
+    _send(d.canvas, "release", p)
+    assert "drag it to move it." in d.status.text() and "delete" not in d.status.text()
+    assert d.status.text().startswith("That is the spawn point,"), d.status.text()
+
+
+def test_a_marker_dropped_off_the_floor_says_so_and_a_stack_asks(app, monkeypatch):
+    data = {"field": {"source_field": 351}, "npc": [{"name": "A", "pos": [0, 1500]}]}
+    d, calls = _placed(app, data)
+    _send(d.canvas, "press", _px(d, 0, 1500))
+    _send(d.canvas, "move", (4.0, 4.0))
+    _send(d.canvas, "release", (4.0, 4.0))
+    assert calls == [] and data["npc"][0]["pos"] == [0, 1500]
+    assert "back where it was" in d.status.text() and d.status.property("state") == "warn"
+    asked = []
+    monkeypatch.setattr(d, "_choose_hit", lambda rows: asked.append(rows) or rows[1])
+    low = {"xz": (10.0, 1000.0), "pos": (10.0, 0.0, 1000.0), "floor": 0, "tri": 0, "s": 2.0}
+    up = {"xz": (20.0, 1100.0), "pos": (20.0, -300.0, 1100.0), "floor": 1, "tri": 2, "s": 1.0}
+    d._on_marker_moved(0, dict(up, stacked=[up, low]))
+    assert asked and data["npc"][0]["pos"] == [10, 1000] and len(calls) == 1
+
+
+# --------------------------------------------------------------- batch 5: Open in the Editor
+class _FakeMenu:
+    """A QMenu stand-in: records its entries; exec() returns the one whose text starts with
+    ``pick`` (None: nothing chosen)."""
+    pick = None
+    shown = []
+
+    def __init__(self, parent=None):
+        self.acts = []
+        _FakeMenu.shown.append(self.acts)
+
+    def addAction(self, text):
+        import types
+        tok = types.SimpleNamespace(text=text)
+        self.acts.append(tok)
+        return tok
+
+    def exec(self, pos):
+        return next((a for a in self.acts if _FakeMenu.pick and a.text.startswith(_FakeMenu.pick)),
+                    None)
+
+
+def _right_click(d, x, z, pick, monkeypatch):
+    from PySide6.QtGui import QContextMenuEvent
+    monkeypatch.setattr("PySide6.QtWidgets.QMenu", _FakeMenu)
+    _FakeMenu.pick, _FakeMenu.shown = pick, []
+    c = d.canvas
+    w = c.viewportTransform().map(QPointF(*_px(d, x, z)))
+    pos = QPoint(round(w.x()), round(w.y()))
+    c.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Reason.Mouse, pos, c.mapToGlobal(pos)))
+    return [[a.text for a in acts] for acts in _FakeMenu.shown]
+
+
+def test_a_markers_menu_opens_its_row_in_the_editor(app, monkeypatch):
+    """Leftover of P16: a marker's menu had Delete but no way to the row's Editor form. With a
+    shell to ask (``on_open``), it offers Open in the Editor, keyed to the ROW the marker was drawn
+    from (by identity: an Editor delete since the feed moves it to its new index); the spawn, which
+    has no Delete, gets a menu for it too; a locked marker still has no menu."""
+    opened = []
+    d, calls = _doc(app)
+    d.on_open = lambda member, key: opened.append((member, key))
+    data = {"field": {"source_field": 351},
+            "npc": [{"name": "A", "pos": [-400, 1000]}, {"name": "B", "pos": [0, 1500]}],
+            "player": {"spawn": [300, 1800]}}
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(d._source, 0)] = dict(_bundle(), source=d._source)
+    d._apply_bundle(d._bundles[(d._source, 0)], refit=True)
+    QApplication.processEvents()
+    assert _right_click(d, 0, 1500, "Open", monkeypatch) == [["Open in the Editor", "Delete B"]]
+    assert opened == [("FORK", "npc:1")] and calls == []
+    del data["npc"][0]                                   # the Editor's delete, no re-feed yet
+    _right_click(d, 0, 1500, "Open", monkeypatch)
+    assert opened[-1] == ("FORK", "npc:0")               # still B, at the index B has now
+    _right_click(d, -400, 1000, "Open", monkeypatch)     # A is gone: refused, said
+    assert len(opened) == 2 and "no longer" in d.status.text()
+    assert _right_click(d, 300, 1800, "Open", monkeypatch) == [["Open in the Editor"]]
+    assert opened[-1] == ("FORK", "player")
+    tips = " ".join(k.toolTip() for k in d.canvas._kids if k.data(2) == "marker")
+    assert "right-click" in tips
+    d.canvas.marker_clicked.emit(2)                      # a click on the spawn names the way
+    assert "open it in the Editor" in d.status.text() and "delete" not in d.status.text()
+    locked = {"field": {"source_field": 351}, "npc": [{"name": "guard", "preset": "vivi"}]}
+    d.show_field("FORK2", locked, Path("C:/somewhere/FORK2.field.toml"),
+                 scene={"npc": [{"name": "guard", "pos": [0, 1500]}]})
+    d._bundles[(d._source, 0)] = dict(_bundle(), source=d._source)
+    d._apply_bundle(d._bundles[(d._source, 0)], refit=True)
+    assert _right_click(d, 0, 1500, "Open", monkeypatch) == []   # a locked marker: no menu
+    assert len(opened) == 3
+
+
+def test_without_a_shell_a_marker_offers_no_open(app, monkeypatch):
+    data = {"field": {"source_field": 351}, "npc": [{"name": "A", "pos": [0, 1500]}],
+            "player": {"spawn": [300, 1800]}}
+    d, calls = _placed(app, data)
+    assert _right_click(d, 0, 1500, None, monkeypatch) == [["Delete A"]]
+    assert _right_click(d, 300, 1800, None, monkeypatch) == []
+
+
+def test_open_in_the_editor_lands_on_the_rows_form(app, tmp_path, monkeypatch):
+    """The shell wires ``on_open`` to the routine an Undo already uses to land on a row: the
+    Editor tab, the tree row selected, its form mounted."""
+    from ff9mapkit import prefs
+    from ff9mapkit.workspace import shell
+    monkeypatch.setattr(prefs, "_path", lambda: tmp_path / "prefs.json")
+    p = tmp_path / "X.field.toml"
+    p.write_text('[field]\nid = 30999\nname = "X"\narea = 11\nsource_field = 351\n\n'
+                 '[[npc]]\nname = "A"\npos = [-400, 1000]\n\n[[npc]]\nname = "B"\npos = [0, 1500]\n',
+                 encoding="utf-8")
+    w = shell.Workspace(pick_palette("dark"))
+    try:
+        assert w.open_field(p)
+        w.tabs.setCurrentWidget(w.place_doc)
+        QApplication.processEvents()
+        pd = w.place_doc
+        pd._bundles[(pd._source, 0)] = dict(_bundle(), source=pd._source)
+        pd._apply_bundle(pd._bundles[(pd._source, 0)], refit=True)
+        QApplication.processEvents()
+        _right_click(pd, 0, 1500, "Open", monkeypatch)
+        QApplication.processEvents()
+        assert w.tabs.currentWidget() is w.doc_scroll
+        assert w._payload(w.tree.currentItem())[2] == "npc:1"
+        ctx = w._save_ctx
+        assert ctx and ctx["member"] == "X" and ctx["key"] == "npc:1", ctx
+    finally:
+        w.hide()
+        w.deleteLater()
+
+
+def test_open_in_the_editor_reaches_a_never_expanded_campaign_member(app, tmp_path, monkeypatch):
+    """A campaign member's rows load lazily on expand. Selecting the member (not expanding it) and
+    opening a marker must still land on that marker's row, not fall back to the Field form."""
+    from ff9mapkit import prefs
+    from ff9mapkit import campaign as C
+    from ff9mapkit.workspace import shell
+    monkeypatch.setattr(prefs, "_path", lambda: tmp_path / "prefs.json")
+    root = tmp_path / "demo"
+    root.mkdir()
+    mem = [C.Member(100, 30100, "GLADE", "borrow", 11, "", "GLADE/GLADE.field.toml", False),
+           C.Member(101, 30101, "TRAIL", "borrow", 11, "", "TRAIL/TRAIL.field.toml", False)]
+    plan = C.CampaignPlan(name="Demo", mod_folder="M", id_base=30100, flag_base=C.FIRST_SAFE_FLAG,
+                          flags_per_field=64, entry_name="GLADE", entry_entrance=0,
+                          members=mem, edges=[], seams=[])
+    (root / "campaign.toml").write_text(C.render_campaign_toml(plan), encoding="utf-8")
+    for nm, fid in (("GLADE", 30100), ("TRAIL", 30101)):
+        (root / nm).mkdir()
+        (root / nm / f"{nm}.field.toml").write_text(
+            f'[field]\nid = {fid}\nname = "{nm}"\narea = 11\nsource_field = 351\n\n'
+            '[[npc]]\nname = "A"\npos = [-400, 1000]\n\n[[npc]]\nname = "B"\npos = [0, 1500]\n',
+            encoding="utf-8")
+    w = shell.Workspace(pick_palette("dark"))
+    try:
+        assert w.open_campaign(root / "campaign.toml")
+        mi = w._member_items["TRAIL"]
+        w.tree.setCurrentItem(mi)
+        QApplication.processEvents()
+        assert w._payload(mi.child(0))[0] == "__lazy__"      # the case under test: never expanded
+        w.tabs.setCurrentWidget(w.place_doc)
+        QApplication.processEvents()
+        pd = w.place_doc
+        assert pd._member == "TRAIL"
+        pd._bundles[(pd._source, 0)] = dict(_bundle(), source=pd._source)
+        pd._apply_bundle(pd._bundles[(pd._source, 0)], refit=True)
+        QApplication.processEvents()
+        _right_click(pd, 0, 1500, "Open", monkeypatch)
+        QApplication.processEvents()
+        assert w.tabs.currentWidget() is w.doc_scroll
+        assert w._payload(w.tree.currentItem())[2] == "npc:1"
+        ctx = w._save_ctx
+        assert ctx and ctx["member"] == "TRAIL" and ctx["key"] == "npc:1", ctx
+    finally:
+        w.hide()
+        w.deleteLater()
+
+
+# --------------------------------------------------------------- batch 5, after its final review
+def test_a_zone_only_blender_owns_is_fed_to_the_canvas_locked(app):
+    """Final review of batch 5: a door that exists only in the Blender scene.toml is refused on
+    every gesture (move, rotate, delete, retarget), yet in the Regions tool it wore the grab
+    cursor, four corner handles and the Delete menu -- and the new Delete key reached it. It is
+    fed locked; a field row whose zone the scene sets can still be retargeted, so it is not."""
+    d, calls, _data, _scene = _blender_split(app)
+    d.tools.set_current("regions")
+    QApplication.processEvents()
+    rows = {r["label"].split(" ")[0]: r for r in d.canvas._regions}
+    only, shared = rows["door1"], rows["door0"]
+    assert only.get("locked") and "Blender" in only["locked"]
+    assert not shared.get("locked")
+    c = d.canvas
+    assert not c._region_items[only["i"]].hasCursor()
+    assert not [k for k in c._region_handle_items if k[0] == only["i"]]
+    assert len([k for k in c._region_handle_items if k[0] == shared["i"]]) == 4
+    assert calls == []

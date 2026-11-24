@@ -30,6 +30,340 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - The mint id box clipped its digits at the larger text sizes.
 - A version bump of the preview renderer left the whole previous generation of preview files on disk.
 
+### Added — Save as prefab: grow the catalog from your own landmasses
+- **World tab → Edit the map → Save the draft as a prefab…** freezes an island (or a carried coast) in your draft,
+  with the forest, mountain and hill on it, as a prefab of your own. Tick the steps, name it, Save. It takes a minute
+  or two and changes nothing in the draft or the game; then **Add a prefab** offers it, marked new until you walk it.
+- **`world-prefab NAME --save --from DRAFT|RECIPE [--steps 1,3]`** does the same from the command line. The prefab
+  is built outside the install, checked at a clean site, checked again at a second site to prove it is the same land
+  wherever it goes, and each quarter turn is measured. It refuses, saving nothing, when any check fails.
+- Your prefabs live in your own catalog (`prefabs.toml` in the kit's settings folder, beside your preferences), read
+  after the kit's: one list, and a name can be used only once.
+
+### Added — turned prefabs: four looks from one walked landmass
+- **`world-prefab NAME --cell BX,BY --turn 90|180|270`** places a prefab turned by a quarter turn. It is the same
+  walked land, turned whole, never a new island: the prefab is built at its catalog site, checked against its
+  fingerprint, then turned block by block and written, and the written land must be exactly the catalog's land with
+  that turn applied. Turning by quarter turns keeps every ground and sea tile one the game already draws.
+- **Seven of the eight prefabs turn** (`desert-peak-isle`, `meadow-grove-isle`, `snow-ridge-isle`,
+  `desert-scrub-isle`, `comma-isle`, `crystal-reef`, `terminus-pair`). `beach-chain` stays at turn 0: the Chocobo's Lagoon object on it cannot turn, and the command
+  refuses to turn it.
+- **The World tab's Add a prefab card has a Turn picker** beside the prefab. It appears only for a prefab that turns.
+  The ghost shows the turned land, and the step's recipe row carries the turn.
+- A turn has not been walked in game until you walk it: the card and the command say so. The desert peak isle turned
+  90 has been walked in game.
+
+### Added — World tab: "Add a prefab", a whole landmass in one click
+- **Edit the map → Add a prefab** places a catalog prefab where you click: pick it, see its land as a ghost on the
+  ocean, and the card checks it with `world-prefab` (about half a minute: the prefab is built outside the install
+  and held to the land its catalog names). Accept puts it in your draft as one step, and one Undo takes the whole
+  landmass back. A placed prefab can be opened again from the recipe bar like any other step, and saved recipes
+  carry it as a `[[prefab]]` row.
+
+### Added — landmass prefabs: a whole island in one command
+- **`world-prefab NAME --cell BX,BY --mod-folder F`** places a landmass from the new catalog
+  (`world/data/prefabs.toml`): an island plus the mountain, forest or hill carried onto it, as one unit, on the
+  block you name. It builds the prefab in a staging folder first and refuses, writing nothing, unless that land
+  is the land the catalog's fingerprint names. It also refuses when your folder already holds land it would cover
+  or read, or when another installed folder has land in its footprint. `--list` shows the catalog, `--dry-run`
+  checks without writing, `--recipe-out` saves the placed rows as a `world-fuse` recipe, and `--fingerprint`
+  takes a new entry's fingerprint.
+- **Eight prefabs, every one walked in game:** `desert-peak-isle`, `meadow-grove-isle` (a meadow island with a forest
+  and a hill), `snow-ridge-isle` (a two-lobe snow island with the coastal snow ridge and its inlet) and
+  `desert-scrub-isle` (a desert island with the scrub crag and its walled canopy), and the four walked stock carry
+  units as prefabs: `comma-isle`, `crystal-reef`, `terminus-pair` and `beach-chain` (real beaches).
+- **Placement reaches across the x seam and beside stock land.** Near stock land the island's sea is re-classed for
+  boats by the coast-nav stamp; placement then checks the island against a reference copy built at the catalog's
+  clean site, and requires the stamp to have settled those classes. The disc-4 copy is checked too.
+
+### Added — the prefab frame: the same island wherever you place it
+- **`--prefab-frame`** on `world-island` and `world-mountain`, and `prefab_frame = true` on their `world-fuse`
+  rows: an island and its carried relief, moved by whole 64u blocks, write the same bytes at the new site, so one
+  in-game walk of a landmass stands for every place it can go. It is the groundwork for landmass prefabs
+  (`studies/overworld-editor/PREFABS.md`). It needs `--seed` and does not combine with `--beach`. Off (the
+  default), every mint and carry writes exactly what it did before, so saved recipes replay unchanged.
+
+### Fixed — Trace, Place and the Editor: ways to lose work
+- **A Trace regenerate no longer deletes doors and zones drawn in the Place tab.** On a project traced with no
+  regions, the first region a session added made the regenerate take Place's `door0` / `zone0` for an old
+  generator's rows and delete them, with one "removed" line in Output as the only notice. Only a `traced_` row is
+  ever deleted now. A project made before 1.0.0b20 keeps its old `door0` / `zone0` rows: one whose exact quad the
+  run draws again is renamed to its `traced_` twin (listed under "retook"), the rest stay as your own rows, and
+  reopening such a project's `field.toml` no longer pulls them into the Trace session.
+- **A regenerate now says what it takes from a traced door or zone.** A `traced_` row is regenerated whole, so a
+  target changed in Place, or a reward or flag gate added to it in the Editor, was replaced with no notice. Each
+  value and key that goes is now named under "retook". (Keep such keys on a row of your own: any door or zone
+  without the `traced_` name is never touched.)
+- **Two photos with the same file name no longer share a project folder.** The Trace tab's first Generate wrote to
+  `<photo name>-field` whatever was already there, so a second `image.png` or `IMG_0001.jpg` replaced the first
+  project's art, floor and session record — and merged into its `field.toml` when both kept the default name. A
+  photo opened fresh now never writes into a folder that already holds a project, not even its own: it goes to
+  `<photo name>-field-2` (then `-3`, ...) and the status line says so. To update a project, open its `field.toml`
+  or `.trace.json`.
+- **Regenerating from Trace no longer leaves a stale copy of the project open.** A regenerate rewrote the open
+  project's `field.toml` and the window kept its old copy, so the next Save All wrote the old file back: the doors,
+  events and camera the regenerate added were gone, while its new floor stayed. When a regenerate finishes, the
+  window now reloads the project if its file changed (the undo history for that field goes with the old copy) and
+  the Behavior, Cutscene and Place tabs drop the old floor. Generate refuses while the open project has unsaved
+  edits and says to Save All first; edits made while the job ran are kept or dropped only on your answer; a save
+  that lands while the job runs is reported instead of silently winning or losing.
+- **A traced project can no longer be regenerated into a second file.** Changing the Name box of an open Trace
+  project (or renaming the field in the Editor) and regenerating wrote a second `field.toml` beside the first, over
+  the same floor and art. Generate now refuses while the folder holds another field's file, and names it.
+- **An Editor form can no longer write into the wrong row after an edit in the Place tab.** With an unsaved change
+  typed into a gateway, event or NPC form, deleting an earlier row of the same kind in Place made the next click
+  write the form over a different row: one destroyed, another doubled. The form's Save, Delete and Reset buttons
+  aimed at the same wrong row, and a zone dragged in Place could be written back to its old shape. A form now
+  follows its own row wherever it moves; opening the Behavior, Cutscene or Place tab first commits what you typed
+  (one Undo step; a value that cannot be read keeps you on the form, and Problems says why); and a form left open
+  behind those tabs is rebuilt when they change its row.
+
+### Fixed — Cutscene tab: the step editor, the staging check, and checks that disagreed with the build
+- **The step editor's Apply writes only to the step it was opened on.** After an Undo, a scene removed in the Editor
+  tree, or a scene added at its position, Apply could overwrite a different step or land in another scene. If the
+  step is gone, Apply now says so and writes nothing. Dragging the open step's target on the stage (or adding or
+  removing a waypoint) updates the editor, so a later Apply keeps it.
+- **"Check the staging" always reads the saved walkmesh.** It could judge a floor that had since been regenerated or
+  re-exported, or another project's floor when two fields shared a name; Behavior's "Sweep routes" had the same fault.
+  Closing the project clears the old result, a check whose walkmesh fails to load no longer leaves an old checkmark
+  standing, and Undo, Redo and edits in other tabs re-check an armed staging.
+- **A staging problem is drawn only on its own scene**, not on whichever scene is selected.
+- **A Window style typed as a number** (for example 128) is saved as a number, so applying the step no longer breaks
+  the build.
+- **"Set flag" takes a flag name** as well as an index. PROBLEMS now warns about an index in a reserved,
+  save-corrupting band and about a name neither the field nor its campaign defines; both used to pass every check in
+  the Workspace.
+- **The wrap preview and the storyboard show the line the game will display**: the speaker's name line, the quotes,
+  colour markup, and a typed `\n` as a line break.
+- **"Pick on the stage" shows when it is armed** (the button stays pressed, the stage shows a crosshair) and ends
+  with its step, so it can no longer capture a later drag.
+- **Scene-bar buttons show their whole label** ("+ Step", not "+ St…") at the default window size.
+
+### Fixed — Place tab: the room on screen is the room on disk
+- **A traced or composed room is read from disk again** whenever you come back to the Place tab or to that room, and
+  on every "Load the room". It used to be read once per session, so clicks could land on a floor that no longer
+  existed. A room you had loaded comes back by itself, keeping your zoom; a failed read leaves no old floor
+  clickable. Donor rooms (forks of real fields) stay cached.
+- **Two fields with the same name are no longer confused** (every traced project is called PICTURE by default): the
+  previous room's art and floor are not left clickable over the new one, and a camera picked for one no longer
+  leaves the other stuck on "Loading".
+- **A room's late load never shows on another room**, and never re-enables Load mid-flight.
+- **Under camera 1 or later**, a room with an auto-framed walkmesh shows the floor the build ships.
+
+### Fixed — Trace tab and the job runner
+- **Regenerate keeps the Editor's Field-form settings** (location, title, text block, borrowed background). Only the
+  id, name and area are the generator's.
+- **A finished Generate is no longer reported "failed"** because of an arrow, Japanese text or a non-Latin folder
+  name. Every job the Workspace runs now reads and writes UTF-8.
+- **Ctrl+Z on the Trace and Floorplan tabs undoes that tab's own last gesture.** It used to undo an unrelated field
+  edit and jump to another tab.
+- **A failed first Generate no longer leaves the tab set to "Regenerate — in place"**, and the status line now says
+  how each Generate ended.
+
+### Fixed — Place tab: fields exported from Blender, layered art, and small traps
+- **A field exported from Blender shows where the build puts things.** Place now reads the field's `scene.toml`; it
+  used to ignore it, so Blender's spawn, zones and NPCs were missing from the art. They appear where the build will put
+  them, marked "(Blender)". Place refuses to move, retarget, reword or delete anything Blender owns (a change made
+  here would be discarded by the build) and says to change it in Blender and re-export. A gateway or event with no
+  name, which is how the add-on writes them, is handled the same way. New doors, zones and NPCs never take a name the
+  scene already uses.
+- **A field with its own layered art** (for example an `import --editable` fork) shows each layer at its real
+  position, size and camera. Place no longer writes a `.place_backdrop.png` into the project folder.
+- **A prop placed after another was deleted gets its own name** instead of reusing a live one.
+- **"Set message" refuses an empty line.** "Set gateway target" leaves a world-map door alone instead of turning it
+  into a field warp, and a door aimed at the reserved world-map ids (9000-9012) shows a warning on the art.
+- **The control row wraps onto a second line** instead of pushing the window wider, and the field name shows in full
+  whenever there is room (it was cut to "donor field #3…" at 110% and 150% text size).
+- **The Inspector's Contents list follows Place**: a drop, and an Undo or Redo of one, update the tally at once.
+- **Tooltips and wording.** NPC, Prop, Spawn and Arrival each say what they place and the shape it is drawn as. The
+  verbatim-fork warning no longer sticks to Spawn and Arrival after you open an ordinary field. After a drop, the
+  status says where to give the NPC or prop its model and words. The empty state and the Load prompt cover every kind
+  of field, not only forks, and a bundled example says how to get an editable copy from inside the app. The Regions
+  status names the kind of zone being drawn and shows the walk-out tip only for gateways.
+
+### Changed — Trace and Place canvas: readable on any art, and clicks that do what the cursor says
+- **Labels, handles and lines stay readable on any background art, in every theme.** Labels sit on small plates,
+  handles carry a light-and-dark outline, and lines ride a contrasting casing. Labels move aside instead of piling up,
+  stay beside what they name, and never leave the view.
+- **Placed content is told apart by shape**: a circle for an NPC, a square for a prop, a box for a chest, a triangle
+  for the spawn, a diamond for an arrival. An invalid floor point or contact is drawn hollow with a ✕. Finished zones
+  no longer number their corners; a gateway's walk-out edge is the thick edge with the arrow.
+- **The canvas re-fits when its space changes** (a row wrapping, the cut-out strip appearing, the window resized)
+  until you zoom yourself. A zoom you set is kept, and Ctrl+0 fits exactly as the first view did.
+- **The hint in the corner says what a click does in the current tool**, stays in its corner while you pan, and gets
+  out of the way after your first click.
+- **Ctrl+scroll zoom follows how far you scroll**, so precision touchpads zoom smoothly, and a sideways wheel no
+  longer zooms out.
+- **Esc cancels a drag.** A drag whose mouse release was lost (to a right-click menu, for example) ends instead of
+  following the pointer.
+- **A click is a click.** In Regions, a click inside an existing zone starts a new one; in Cut-outs, a click on an
+  attached snip marks a new contact; snips show the move cursor only where they can be dragged. A label is never a
+  grab handle, and right-clicking a zone's label opens that zone's menu.
+- **The Trace Regions tool keeps the traced floor outline in view**, so doors can be put on the walkable edge.
+- **Disabled tool buttons, and the radio buttons and checkboxes beside them, look disabled.** Their labels used to
+  stay at full contrast.
+
+### Fixed — Trace tab: unsaved work, names and ids, phone photos, and a window that fits
+- **Closing the app, opening another image, or loading the open field asks first** when the Trace tab holds work the
+  last Generate has not written, including an Undo taken after a Generate. "Upgrade & restart" asks once, and starts
+  the updater only after the close is accepted.
+- **Phone photos open the right way up, and 16-bit images are no longer a white rectangle**, on the canvas and in the
+  built art. A project traced before this change on a photo that carries a camera orientation tag reopens from the
+  project's own art, so the floor stays where it was drawn, and the status says so.
+- **A project whose photo was moved or deleted reopens from its own art**, with a warning naming the missing photo. A
+  project with a missing or broken walkmesh is refused before anything changes on screen, and the automatic offer says
+  why it did not load a field.
+- **Opening a new photo names the field after the photo** and never carries over the Field id of the project you just
+  generated, so a second room cannot replace the first in the game.
+- **A new field name with characters other than letters, digits and underscores is refused before anything is
+  written**; an existing project keeps the name it has. A zone drawn too far up the photo for the game's coordinate
+  range is refused at the click.
+- **Clear empties only what the active tool owns** (the floor, the cut-outs or the regions) as one Undo step; its
+  tooltip says which.
+- **The status line wraps, and the warning you need to act on comes first** instead of being cut off at the right
+  edge. A region hidden by a pitch change tells you to slide the pitch back, not to right-click a zone that is not on
+  the canvas.
+- **The tab no longer pushes the window wider than a 1280-pixel screen at 150% text size.** The cut-out strip, Undo
+  and Clear share the tools row when there is room.
+- **Cut-out entries lead with what matters** (whether one still needs its PNG, whether it is a snip); hover an entry
+  for its contact point and depth.
+- **After Generate, the next step points to Deploy (F9)** instead of a terminal command. Generate says so when another
+  job is still running, and an event drawn with an empty message box says it has no words yet.
+- **`image-field` command**: `--id` is checked against the custom field-id band before anything is built, and the
+  deploy hint prints the id you gave (it always printed 30058) with the path quoted.
+
+### Fixed — Cutscene tab: typing that vanished, checks that disagreed with the build, lists you could not read
+- **A step with typing that was not applied is no longer thrown away** by the row buttons, + Step, another row's
+  pencil, or selecting, adding, duplicating or deleting a scene. The editor says to Apply or Close first, right under
+  its Apply and Close buttons. A step you open and leave alone never blocks.
+- **Values typed in Scene settings survive** a tab switch, a drag on the stage, an undo of something else and a theme
+  change. Adding or removing a scene rebuilds the form.
+- **PROBLEMS agrees with the build for scenes with a cast.** It flags a step that cannot run with the previous beat,
+  one actor twice in the same beat, an untagged step in a cast of two or more, a scene with no steps, and an unknown
+  window tail or style. It no longer flags a `player` step outside the cast, which the build accepts. A scene it
+  cannot finish checking says so. Animation names are checked by "Check the staging" and by the build.
+- **Duplicate Scene no longer copies a pinned once-flag**, and PROBLEMS flags two play-once scenes that share one.
+- **A line with `signal = "+"` or `signal = true` opens and applies** in the step editor; the field takes +, a
+  number, or blank.
+- **Opening a step keeps its Apply and Close buttons and the row being edited in view.** An error from Apply is
+  shown under those buttons.
+- **The scene list shows what tells scenes apart first** ("#0 · beat 100" over "3 steps · cast 2") and shortens a row
+  with an ellipsis instead of cutting it off above a sideways scrollbar. Hover a row for the whole line.
+- **The staging problems list shows the whole sentence.** Click a problem, or press Enter on it, to go to its scene
+  and step; the stage scrolls to where the walk stalls without changing your zoom. "Check the staging" does the same
+  for the scene you are on.
+- **The storyboard clears when a scene loses its last step**, and its "(no line this beat)" placeholder is a quiet
+  caption.
+- **Undo and Redo of adding, duplicating or deleting a scene select the scene that changed.**
+- "Runs with the previous beat" is available on the second line of a scene you start from empty.
+
+### Changed — Place tab: move and delete what you placed
+- **Drag a placed NPC, prop, chest, spawn or arrival to move it** (one Undo step), and right-click one to delete it.
+  Clicking one no longer drops a second item on top of it. A drop off the walkable floor, Esc, or a lost mouse
+  release puts it back, and a drop off the floor says why.
+- **A marker Place cannot change** (the spawn or an arrival on a verbatim fork, an NPC placed in Blender) is drawn
+  greyed, shows no move cursor, and says why when you hover or click it. The spawn can be moved but not deleted.
+- **Drawing a gateway with no target, or an event zone, asks for the target or the message straight away.** Cancel
+  keeps the marked placeholder, and a blank message is still refused.
+- **On a field it cannot edit** (a bundled example, an installed copy), the tab shows a message saying why and what
+  to do, instead of an empty frame.
+- **Where floors overlap**, the chooser lists each floor once and explains that only the spot is stored; the game
+  finds the height there.
+- **A zone whose corners lie in a line or on one spot warns that it can never fire** (Place and Trace).
+- **A zone the tab refuses snaps back on the art** instead of staying where you let go (Place and Trace), and a floor
+  vertex dragged above the horizon on the Trace tab is refused like a click there.
+- While a room loads, the status names it plainly. The breadcrumb reads "Place — <field>", like Behavior and
+  Cutscene.
+
+### Fixed — Trace tab: floors the build could not walk, the spawn point, and cut-outs
+- **A floor outline whose sides cross, or with a gap too narrow to walk through, is refused at the Generate button**
+  with the vertex named, and nothing is written. Before, the walkmesh silently covered floor you never traced. The
+  dashed walk edge on the photo is the edge the build cuts: a very sharp tip is trimmed instead of being thrown far
+  across the room. A session saved with such an outline still opens so you can fix it.
+- **An L- or U-shaped floor puts the player's spawn point on the floor.**
+- **Regenerate keeps a spawn point you placed in the Place tab** while the new floor still covers it. After a
+  regenerate the status says what it took: a spawn point that moved, a row you wrote by hand that went, or something
+  you added to a traced door or zone. A project generated before this version takes the generator's spawn point one
+  more time, and says so.
+- **A cut-out PNG made at the full 384x448 frame (or a whole multiple of it) lines up with the photo** instead of
+  shrinking to a small piece. The cut-out wording says what to make: a copy of the photo with everything but the
+  object erased, or a crop of the object to drag into place.
+- **Trace says so when a cut-out cannot be read, or when Generate cannot write a placed cut-out beside the photo**,
+  warns when a cut-out has no transparent pixels (it would hide the character everywhere behind it), and previews a
+  file named "...@2x.png" at its real size.
+- **An event message that starts with a dash** (such as "-Stop!") no longer makes Generate fail.
+- **When the horizon is above the picture, Trace says how far**, next to the Pitch slider and on the picture's top
+  edge.
+- **The "Load <field>" button follows the field you select in the tree.** The Undo tooltip says a pitch change is not
+  undone, and a zone reshape the tab refuses says why.
+
+### Added — Place and Trace work from the keyboard
+- **Tab into the art and aim a crosshair with the arrow keys** (hold Shift to move one pixel). Enter or Space clicks
+  there, Shift+F10 or the Menu key opens the menu of what is under it, and Delete deletes it. The keys run the same
+  code as the mouse, so whatever a click would refuse there is refused in the same words.
+- **A key acts only where you can see it.** If you zoomed or panned and the crosshair is off screen, the first press
+  brings it back and changes nothing. Holding a key clicks once; only the arrows repeat.
+- The hint in the corner lists the keys when you reach the canvas from the keyboard, and the crosshair shows only
+  after an arrow key, so mouse users never see it. Moving a thing by keyboard is delete, then place: there is no
+  keyboard dragging yet.
+- **Handles, markers and zone corners grow with the text size**, like the labels beside them, and so does the area
+  you can grab.
+- **A placed marker's right-click menu has "Open in the Editor"**, which selects its row and opens its form.
+- A zone that exists only in a Blender scene.toml no longer looks draggable on Place: it is drawn greyed, with no
+  handles or menu, and says why.
+
+### Added — Trace tab: the project's own doors, a session summary, Detect floor
+- **Trace shows the doors and zones the project already has** (drawn in Place or written by hand), greyed and marked
+  "(project)", so a new door is not drawn over one blind. A traced door that overlaps one is warned about. Trace
+  never moves, changes or deletes them, and says where you can.
+- **Traced doors and zones are named on the canvas the way Generate writes them** ("traced_door0"), so one cannot be
+  mistaken for a "door0" made in Place.
+- **The Inspector sums up the session**: the photo, the pitch, the floor and its size in game units, the cut-outs and
+  zones with their warnings, the project folder, whether the last Generate has seen every change, and the next step.
+  The status line under the canvas now shows only what needs your attention.
+- **Detect floor** lays a starting outline from the photo's colours on an empty floor, as one Undo step; drag it onto
+  the floor's real edges.
+- **An empty Trace tab asks you to open or drop a photo**, and a photo dropped on the window opens in Trace (it asks
+  first if traced work would be replaced). "Trace a photo…" sits beside New Field in the Field menu and in the
+  command list (Ctrl+K).
+- **A Generate you stop says "stopped", not "failed".** The next step no longer tells you to press Deploy (F9) when
+  the Editor has a different field open; it says to open this field first.
+
+### Changed — Cutscene tab: room for the stage, a step list you can drive from the keyboard, plainer words
+- **The step list takes only the height its steps need** (up to half), so the stage gets the rest. A split you drag
+  is kept, and opening a step or Scene settings still gets room. The stage re-fits when its pane changes size,
+  unless you have zoomed.
+- **The Problems / Staging column fits the Inspector at 150% text size** instead of being cut off at the window
+  edge. Its buttons are now "Check staging" and "Open .toml".
+- **A name label on the stage never sits on a marker** (Cutscene and Behavior).
+- **The selected step is highlighted**, also in storyboard mode, and **the step list works from the keyboard**: Tab
+  reaches each step, Up and Down select, Enter opens the step, and after Move, Duplicate or Remove the keyboard stays
+  on that step's button. The step editor's Tab order runs through its fields before Apply and Close.
+- **A step with unapplied typing is also kept when you click its own pencil or press Enter on it**; the editor asks
+  you to Apply or Close.
+- Step buttons are at least 24 pixels tall, and Move up on the first step and Move down on the last are disabled.
+- **Every Editor form field has a name a screen reader can say.**
+- **The storyboard's unit is now a "moment"** ("moment 1 of 2", "Runs together with the previous step"). "Beat" means
+  only the story position a scene is gated to.
+- A step's speaker is shown by name in the step list. Deleting a scene says what went and that Ctrl+Z restores it.
+  Scene settings help is in plain words. The first-run banner says "Your field is ready" for any field.
+
+### Fixed — Inspector
+- Switching straight from the Cutscene tab to Behavior no longer leaves the ordinary Inspector card showing under
+  Behavior's column.
+
+### Fixed — build checks for cutscenes: a shared once-flag is refused, one message per problem, plainer words
+- **Two play-once scenes that would use the same once-flag are refused by the build**, and flagged in the Cutscene
+  tab, naming both scenes and the flag. Before, whichever played first set the flag and the other never played, with
+  no warning. The check judges the flag each scene is really compiled with: a pinned number, a flag name, or the one
+  the build picks.
+- **A bad `tail` on a cutscene step is reported once**, and in a field with several scenes the message says which
+  scene ("[cutscene] #1 step 0 ..."). The same label is on a bad window style or window id.
+- **Problems in a scene with a cast are written in plain words**, the same in the build's output and in the Cutscene
+  tab. They name the step, the offending name and the cast, and say what to do: "step 2: 'Mira' is not in the cast
+  (Cid, Vivi) -- add 'Mira' to the cast (actors), or give the step to a cast member or "player"".
+- Cutscene tab: PROBLEMS judges a cast scene's tail the way the build does, on every step.
+
 ### Changed — World tab: faster, and the window no longer freezes while it works
 - **Undo, Redo and every Accept no longer reload the whole 3D map.** Only the blocks whose files changed are drawn
   again: Undo and Redo come back in under a second (8-11 s before), a forest Accept in about 5 s (22-25 s).

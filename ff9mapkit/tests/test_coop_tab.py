@@ -20,6 +20,9 @@ from PySide6.QtWidgets import QApplication, QPushButton, QWidget               #
 
 from ff9mapkit.editor import theme                                             # noqa: E402
 from ff9mapkit.workspace import style, widgets                                 # noqa: E402
+# The by-name find_game_path binders this file runs END TO END, imported at collection -- before any fixture or
+# test pins config.find_game_path, so no pinned window can be their first import (see the coop fixture).
+from ff9mapkit import cli as _cli, coop as _kit                                # noqa: E402,F401
 
 
 @pytest.fixture(scope="module")
@@ -117,17 +120,37 @@ def coop(app, tmp_path_factory):
     store = tmp_path_factory.mktemp("coop_fixture_prefs")
     mp.setattr(prefs, "_path", lambda: store / "prefs.json")
     # ...and the GAME: construction runs refresh_status, which would read the developer's real install
-    # (and paint their real [Netsync] SessionCode into the code field). Raise -- the REAL no-game
-    # failure mode (find_game_path raises ConfigError; it never returns None) -- so every test starts
+    # (and paint their real [Netsync] SessionCode into the code field). Close every fall-through of the
+    # REAL find_game_path so it raises its real ConfigError (it never returns None) -- every test starts
     # from a deterministic nogame state and re-pins what it needs.
-    mp.setattr(cfg, "find_game_path",
-               lambda *_a, **_k: (_ for _ in ()).throw(cfg.ConfigError("pinned: no game")))
+    # NEVER REPLACE THE FUNCTION here: coop, cli and deploy bind it by name (`from .config import
+    # find_game_path`), a narrow run first imports them while this Workspace builds, and a stand-in bound
+    # then outlives mp.undo() for the whole process -- an explicit `--game` died 'no game' unless an
+    # earlier test had built a Workspace unpinned (fenced by test_the_no_game_pin_freezes_into_no_module).
+    mp.delenv("FF9_GAME_PATH", raising=False)
+    mp.setattr(cfg, "_read_user_config", lambda: {})
+    for name in ("_registry_candidates", "_steam_library_candidates", "_fallback_candidates"):
+        mp.setattr(cfg, name, lambda: [])
     win = S.Workspace(S.pick_palette("dark"))
     yield win.coop_doc
     win.close()
     win.deleteLater()
     _settle(app)
     mp.undo()
+
+
+def test_the_no_game_pin_freezes_into_no_module(coop):
+    """The fixture's no-game state is the REAL find_game_path finding nothing, never a stand-in. coop, cli and deploy
+    copy the function at first import (`from .config import find_game_path`), and a narrow run first imports them
+    while the fixture builds its Workspace: the old raising stand-in froze into all three for the rest of the process,
+    so both end-to-end kit tests below passed only after an earlier test had built a Workspace unpinned."""
+    from ff9mapkit import cli, config as cfg, coop as kit, deploy
+    assert cfg.find_game_path.__module__ == "ff9mapkit.config" and cfg.find_game_path.__name__ == "find_game_path", (
+        "the coop fixture replaced find_game_path -- a module first imported under it keeps the stand-in for good")
+    for mod in (cli, kit, deploy):
+        assert mod.find_game_path is cfg.find_game_path, f"{mod.__name__} holds a frozen find_game_path pin"
+    with pytest.raises(cfg.ConfigError):                 # ...and the pin holds: no fall-through to the real install
+        cfg.find_game_path(None)
 
 
 def test_the_ghost_combo_items_fit_its_closed_box(coop):

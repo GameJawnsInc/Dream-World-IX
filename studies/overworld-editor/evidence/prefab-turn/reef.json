@@ -1,0 +1,212 @@
+[
+ {
+  "name": "crystal-reef",
+  "cell": [
+   11,
+   1
+  ],
+  "turn": 90,
+  "footprint": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "blocks": 4,
+  "identity": "clean site: the catalog's land turned 90, the full fingerprint",
+  "beside_stock_land": [],
+  "ground_samples": 4096,
+  "ground_mismatches": 0,
+  "ground_mismatch_examples": [],
+  "control_wrong_map_mismatches": 3094,
+  "height_or_part_mismatches": 0,
+  "seconds": 8.0
+ },
+ {
+  "name": "crystal-reef",
+  "cell": [
+   11,
+   1
+  ],
+  "turn": 180,
+  "footprint": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "blocks": 4,
+  "identity": "clean site: the catalog's land turned 180, the full fingerprint",
+  "beside_stock_land": [],
+  "ground_samples": 4096,
+  "ground_mismatches": 0,
+  "ground_mismatch_examples": [],
+  "control_wrong_map_mismatches": 3094,
+  "height_or_part_mismatches": 0,
+  "seconds": 4.6
+ },
+ {
+  "name": "crystal-reef",
+  "cell": [
+   11,
+   1
+  ],
+  "turn": 270,
+  "footprint": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "blocks": 4,
+  "identity": "clean site: the catalog's land turned 270, the full fingerprint",
+  "beside_stock_land": [],
+  "ground_samples": 4096,
+  "ground_mismatches": 0,
+  "ground_mismatch_examples": [],
+  "control_wrong_map_mismatches": 3094,
+  "height_or_part_mismatches": 0,
+  "seconds": 4.9
+ },
+ {
+  "name": "crystal-reef",
+  "cell": [
+   2,
+   16
+  ],
+  "turn": 90,
+  "footprint": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "blocks": 4,
+  "identity": "clean site: the catalog's land turned 90, the full fingerprint",
+  "beside_stock_land": [],
+  "ground_samples": 4096,
+  "ground_mismatches": 0,
+  "ground_mismatch_examples": [],
+  "control_wrong_map_mismatches": 3094,
+  "height_or_part_mismatches": 0,
+  "seconds": 5.0
+ },
+ {
+  "name": "crystal-reef",
+  "cell": [
+   2,
+   16
+  ],
+  "turn": 180,
+  "footprint": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "blocks": 4,
+  "identity": "clean site: the catalog's land turned 180, the full fingerprint",
+  "beside_stock_land": [],
+  "ground_samples": 4096,
+  "ground_mismatches": 0,
+  "ground_mismatch_examples": [],
+  "control_wrong_map_mismatches": 3094,
+  "height_or_part_mismatches": 0,
+  "seconds": 4.7
+ },
+ {
+  "name": "crystal-reef",
+  "cell": [
+   2,
+   16
+  ],
+  "turn": 270,
+  "footprint": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "blocks": 4,
+  "identity": "clean site: the catalog's land turned 270, the full fingerprint",
+  "beside_stock_land": [],
+  "ground_samples": 4096,
+  "ground_mismatches": 0,
+  "ground_mismatch_examples": [],
+  "control_wrong_map_mismatches": 3094,
+  "height_or_part_mismatches": 0,
+  "seconds": 4.6
+ }
+]

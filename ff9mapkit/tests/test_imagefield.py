@@ -112,6 +112,156 @@ def test_build_image_field_end_to_end(tmp_path):
     assert min(xs) <= man["spawn"][0] <= max(xs) and min(zs) <= man["spawn"][1] <= max(zs)
 
 
+def _src(tmp_path):
+    from PIL import Image
+    Image.new("RGB", (384, 448), (90, 80, 70)).save(tmp_path / "src.png")
+    return tmp_path / "src.png"
+
+
+def _px(world, pitch=26.0):
+    """World floor points -> the canvas pixels the tab would have clicked (default rig)."""
+    cam = guide.make_camera(pitch, IF.DEFAULT_DISTANCE, fov_x_deg=IF.DEFAULT_FOV,
+                            range_wh=(IF.CANVAS_W, IF.CANVAS_H))
+    return [C.to_canvas((x, 0.0, z), cam) for (x, z) in world]
+
+
+def _inside(p, poly):
+    """Even-odd point-in-polygon (test-side, independent of the module's)."""
+    x, z = p
+    hit = False
+    for i in range(len(poly)):
+        (x1, z1), (x2, z2) = poly[i], poly[(i + 1) % len(poly)]
+        if (z1 > z) != (z2 > z) and x < x1 + (z - z1) * (x2 - x1) / (z2 - z1):
+            hit = not hit
+    return hit
+
+
+def _obj_verts(path):
+    return [(float(p[1]), float(p[3])) for p in
+            (ln.split() for ln in path.read_text().splitlines() if ln.startswith("v "))]
+
+
+def test_a_crossed_floor_outline_is_refused_before_anything_is_written(tmp_path):
+    """Finding T5: a bowtie (an outline whose sides cross) triangulated over its whole hull, so the
+    walkmesh covered floor the author never traced. Refused, naming the sides, with nothing written."""
+    pytest.importorskip("PIL")
+    bowtie = [(100, 300), (280, 440), (280, 300), (100, 440)]
+    with pytest.raises(IF.ImageFieldError, match=r"from vertex 0 to 1 crosses the side from vertex 2 to 3"):
+        IF.build_image_field(_src(tmp_path), bowtie, tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+
+
+def test_the_outline_check_is_one_rule_for_the_tab_and_the_build():
+    assert IF.outline_problem([(100, 300), (280, 300), (280, 440), (100, 440)]) is None
+    assert "crosses" in IF.outline_problem([(100, 300), (280, 440), (280, 300), (100, 440)])
+    # a corner resting exactly on a side that is not its own is not a simple outline either
+    assert "crosses" in IF.outline_problem([(0, 0), (100, 0), (100, 100), (50, 0), (0, 100)])
+    # an outline that walks back along itself encloses nothing on that stretch
+    assert "doubles back" in IF.outline_problem([(0, 0), (100, 0), (50, 0), (50, 100)])
+    assert "no floor" in IF.outline_problem([(0, 0), (100, 0), (200, 0)])
+    # a clicked-twice corner is not a crossing (the build drops the duplicate)
+    assert IF.outline_problem([(0, 0), (100, 0), (100, 0), (100, 100), (0, 100)]) is None
+
+
+def test_a_notch_too_narrow_for_the_walk_margin_is_refused_naming_its_vertex(tmp_path):
+    """Finding T4: grown by the 48u walk margin, the walls of a 60u slit cross, and the ear-clipper
+    emitted overlapping triangles. Refused before any write, naming where."""
+    pytest.importorskip("PIL")
+    u = [(-600, 800), (600, 800), (600, 2000), (30, 2000), (30, 1000), (-30, 1000),
+         (-30, 2000), (-600, 2000)]
+    assert IF.outline_problem(u) is None               # the outline itself is legal
+    with pytest.raises(IF.ImageFieldError, match=r"too narrow near vertex [3-6]\b"):
+        IF.build_image_field(_src(tmp_path), _px(u), tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+    wide = [(-600, 800), (600, 800), (600, 2000), (200, 2000), (200, 1000), (-200, 1000),
+            (-200, 2000), (-600, 2000)]
+    IF.build_image_field(_src(tmp_path), _px(wide), tmp_path / "ok")   # a 400u notch builds
+    # a sharp V cut into the floor: its inner corner's miter is long but correct (only a CONVEX
+    # corner is bevelled; a bevel there would cross the walls and refuse a buildable floor)
+    v = [(-800, 800), (800, 800), (800, 2400), (300, 2400), (0, 1200), (-300, 2400), (-800, 2400)]
+    IF.build_image_field(_src(tmp_path), _px(v), tmp_path / "v")
+
+
+def test_a_sharp_tip_is_bevelled_not_thrown_across_the_room(tmp_path):
+    """Finding T4: the miter had no limit -- a 5 degree tip moved 1100 world units. Every walkmesh
+    vertex now stays within the miter limit of the traced floor."""
+    pytest.importorskip("PIL")
+    half = math.radians(2.5)
+    tip = [(-100, 900), (100, 900), (0, 900 + 100 / math.tan(half))]
+    IF.build_image_field(_src(tmp_path), _px(tip), tmp_path / "out")
+    reach = IF.MITER_LIMIT * IF.COLLISION_OUTSET + 1e-3
+    for v in _obj_verts(tmp_path / "out" / "walkmesh.obj"):
+        assert min(math.hypot(v[0] - p[0], v[1] - p[1]) for p in tip) <= reach, v
+
+
+def test_a_bevel_that_would_cross_the_ring_falls_back_to_the_unlimited_grow(tmp_path):
+    """Review of T4: a sharp convex tip beside a sharp reflex corner on a short side -- the
+    bevel's two points pass the neighbouring miter point and the bevelled ring crosses itself,
+    where the unlimited grow (what every earlier build shipped) tiles cleanly. Nothing there is
+    narrow, so the floor builds; only a floor whose UNLIMITED grow crosses is refused."""
+    pytest.importorskip("PIL")
+    from ff9mapkit.floorplan import segments_cross
+    floor = [(309, 320), (301, 329), (323, 323), (264, 363), (247, 383), (192, 249), (260, 255)]
+    world = IF.unproject_floor(guide.make_camera(26.0, IF.DEFAULT_DISTANCE,
+                                                 fov_x_deg=IF.DEFAULT_FOV), floor)
+    bevelled = IF.outset_polygon(IF._drop_repeats(world), IF.COLLISION_OUTSET,
+                                 miter_limit=IF.MITER_LIMIT)
+    m = len(bevelled)
+    assert any(segments_cross(bevelled[i], bevelled[(i + 1) % m], bevelled[j],
+                              bevelled[(j + 1) % m])
+               for i in range(m) for j in range(i + 2, m) if not (i == 0 and j == m - 1)), \
+        "the fixture must be one whose bevelled ring crosses"
+    man = IF.build_image_field(_src(tmp_path), floor, tmp_path / "out")
+    assert man["faces"] >= 5
+
+
+def test_a_doubled_click_is_dropped_and_every_corner_is_still_grown(tmp_path):
+    """Finding T4: a consecutive duplicate vertex (the CLI --floor, the toml inversion) left that
+    corner un-grown -- a zero-length edge has no normal."""
+    pytest.importorskip("PIL")
+    floor = [(130, 140), (254, 140), (254, 140), (364, 440), (20, 440)]
+    IF.build_image_field(_src(tmp_path), floor, tmp_path / "out")
+    verts = _obj_verts(tmp_path / "out" / "walkmesh.obj")
+    assert len(verts) == 4
+    world = IF.unproject_floor(guide.make_camera(26.0, IF.DEFAULT_DISTANCE,
+                                                 fov_x_deg=IF.DEFAULT_FOV), floor)
+    assert all(min(math.hypot(v[0] - p[0], v[1] - p[1]) for p in world) > 40 for v in verts)
+
+
+def test_overlapping_walkmesh_triangles_are_refused(tmp_path, monkeypatch):
+    """The last guard of T4: whatever the cause, triangles whose areas sum past the grown floor's
+    own area overlap -- the build refuses rather than ship floor twice."""
+    pytest.importorskip("PIL")
+    real = IF.triangulate
+
+    def doubled(poly):
+        pts, faces = real(poly)
+        return pts, faces + faces[:1]
+    monkeypatch.setattr(IF, "triangulate", doubled)
+    with pytest.raises(IF.ImageFieldError, match="overlap"):
+        IF.build_image_field(_src(tmp_path), [(130, 140), (254, 140), (364, 440), (20, 440)],
+                             tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+
+
+def test_the_spawn_lies_on_an_l_or_u_shaped_floor(tmp_path):
+    """Finding T3: the spawn was the vertex mean, which lies off an L or a U -- the player started
+    off the floor. A convex floor keeps the mean exactly (no generated value moves)."""
+    pytest.importorskip("PIL")
+    L = [(-900, 800), (900, 800), (900, 1100), (-600, 1100), (-600, 2600), (-900, 2600)]
+    U = [(-900, 800), (900, 800), (900, 2400), (600, 2400), (600, 1100), (-600, 1100),
+         (-600, 2400), (-900, 2400)]
+    for name, poly in (("L", L), ("U", U)):
+        mean = (sum(p[0] for p in poly) / len(poly), sum(p[1] for p in poly) / len(poly))
+        assert not _inside(mean, poly), f"{name}: the fixture must put the mean off the floor"
+        man = IF.build_image_field(_src(tmp_path), _px(poly), tmp_path / name)
+        assert _inside(man["spawn"], man["world_floor"]), (name, man["spawn"])
+    quad = [(130, 140), (254, 140), (364, 440), (20, 440)]
+    man = IF.build_image_field(_src(tmp_path), quad, tmp_path / "quad")
+    w = man["world_floor"]
+    assert man["spawn"] == (sum(p[0] for p in w) / 4, sum(p[1] for p in w) / 4)
+
+
 def test_build_rejects_int16_overflow(tmp_path):
     pytest.importorskip("PIL")
     from PIL import Image
@@ -120,6 +270,125 @@ def test_build_rejects_int16_overflow(tmp_path):
     floor = [(130, 140), (254, 140), (364, 440), (20, 440)]
     with pytest.raises(IF.ImageFieldError, match="Int16"):
         IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", distance=80000)
+
+
+@pytest.mark.parametrize("name", ['A"B', "Q?X", "sub/dir", "has space", "", "../up"])
+def test_a_bad_field_name_is_refused_before_anything_is_written(tmp_path, name):
+    """Finding T7: the name is the toml's FILE name and its [field] name. It was never checked:
+    walkmesh.obj and art/ were written, then the toml write raised an OSError the CLI did not
+    catch (a traceback, and on a regenerate a new floor under the old toml)."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    Image.new("RGB", (384, 448), (90, 80, 70)).save(tmp_path / "src.png")
+    floor = [(130, 140), (254, 140), (364, 440), (20, 440)]
+    with pytest.raises(IF.ImageFieldError, match="letters, digits"):
+        IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name=name)
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_zone_beyond_the_int16_world_is_refused_before_anything_is_written(tmp_path):
+    """Finding T9: the floor was bound-checked but gateway/event corners were not. A door drawn in
+    the top rows of the photo at the default pitch un-projects past |z| 32767; Generate wrote it
+    and the build failed later with a struct.error far from the cause."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    Image.new("RGB", (384, 448), (90, 80, 70)).save(tmp_path / "src.png")
+    floor = [(130, 200), (254, 200), (364, 440), (20, 440)]
+    for kw in ({"gateways": ["4005@60,2;140,2;140,30;60,30"]},
+               {"events": ["hi@60,2;140,2;140,30;60,30"]}):
+        with pytest.raises(IF.ImageFieldError, match="Int16"):
+            IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", **kw)
+        assert not (tmp_path / "out").exists()
+    IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out",   # in bound: built
+                         gateways=["4005@60,300;140,300;140,330;60,330"])
+
+
+def test_the_cli_band_checks_the_id_and_its_deploy_hint_names_it(tmp_path, capsys):
+    """Finding T18: the success print hard-coded '--id 30058' whatever --id was, so a copied hint
+    deployed into somebody else's scratch slot; and --id was never band-checked (9000-9012, real
+    ids and ids past 32767 all generated). The path in the hint is quoted (T22: spaces)."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    from ff9mapkit import cli
+    (tmp_path / "my photos").mkdir()
+    src = tmp_path / "my photos" / "src.png"
+    Image.new("RGB", (384, 448), (90, 80, 70)).save(src)
+    base = ["image-field", str(src), "--floor", "130,140 254,140 364,440 20,440", "--name", "ROOM"]
+    for bad in ("9005", "100", "40000"):
+        out = tmp_path / f"bad{bad}"
+        assert cli.main(base + ["--out", str(out), "--id", bad]) == 2
+        assert not out.exists()
+        assert bad in capsys.readouterr().err
+    out = tmp_path / "my photos" / "room-field"
+    assert cli.main(base + ["--out", str(out), "--id", "30777"]) == 0
+    said = capsys.readouterr().out
+    assert "30058" not in said and "--id 30777" in said and "Warp 30777" in said
+    assert f'"{out / "ROOM.field.toml"}"' in said
+
+
+def _sideways_phone_photo(path):
+    """An 800x400 JPEG stored landscape with EXIF Orientation=6 (a portrait phone shot): every
+    photo viewer shows it 400x800. Left half red, right half blue, so a rotation is visible."""
+    from PIL import Image
+    im = Image.new("RGB", (800, 400), (200, 30, 30))
+    im.paste((30, 30, 200), (400, 0, 800, 400))
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    im.save(path, exif=exif, quality=95)
+    return path
+
+
+def _grey16(path):
+    """A 16-bit greyscale PNG (mode I;16): a horizontal gradient whose 8-bit mean is ~95."""
+    import numpy as np
+    from PIL import Image
+    row = np.linspace(0, 48000, 384, dtype=np.uint16)
+    Image.fromarray(np.tile(row, (448, 1))).save(path)
+    assert Image.open(path).mode.startswith("I")       # the premise: really a 16-bit image
+    return path
+
+
+def test_the_photo_is_read_upright_and_16_bit_is_not_white(tmp_path):
+    """Findings T19 + E11: every ingest did Image.open(p).convert('RGB'), which ignores EXIF
+    orientation (a phone photo traced and shipped sideways) and clamps 16-bit samples to 255
+    (a white rectangle, canvas and shipped art alike). open_rgb is the one reader."""
+    pytest.importorskip("PIL")
+    pytest.importorskip("numpy")
+    import numpy as np
+    from PIL import Image
+    im = IF.open_rgb(_sideways_phone_photo(tmp_path / "phone.jpg"))
+    assert im.mode == "RGB" and im.size == (400, 800)  # upright, as every viewer shows it
+    g = IF.open_rgb(_grey16(tmp_path / "grey16.png"))
+    assert g.mode == "RGB" and 80 < float(np.asarray(g).mean()) < 110
+
+
+def test_every_photo_ingest_spends_the_one_reader():
+    """The call-site law: the build, the auto floor-seed and the HTML tracer each read the source
+    photo; a site that goes back to Image.open(...).convert('RGB') reopens T19/E11 silently."""
+    import inspect
+    for fn in (IF.build_image_field, IF.auto_floor, IF.write_trace_html):
+        src = inspect.getsource(fn)
+        assert "open_rgb(image_path)" in src, fn.__name__
+        assert "Image.open(image_path)" not in src, fn.__name__
+
+
+def test_the_build_ships_the_photo_the_way_the_tab_shows_it(tmp_path):
+    pytest.importorskip("PIL")
+    pytest.importorskip("numpy")
+    import numpy as np
+    from PIL import Image, ImageOps
+    floor = [(130, 200), (254, 200), (364, 440), (20, 440)]
+    phone = _sideways_phone_photo(tmp_path / "phone.jpg")
+    upright = tmp_path / "upright.png"
+    ImageOps.exif_transpose(Image.open(phone)).save(upright)
+    IF.build_image_field(phone, floor, tmp_path / "a")
+    IF.build_image_field(upright, floor, tmp_path / "b")
+    a = np.asarray(Image.open(tmp_path / "a" / "art" / "base.png"), dtype=np.int16)
+    b = np.asarray(Image.open(tmp_path / "b" / "art" / "base.png"), dtype=np.int16)
+    assert np.abs(a - b).max() <= 2                    # the same pixels (JPEG decode aside)
+    IF.build_image_field(_grey16(tmp_path / "g.png"), floor, tmp_path / "g")
+    base = np.asarray(Image.open(tmp_path / "g" / "art" / "base.png"))
+    assert float(base.mean()) < 200                    # not the white rectangle
 
 
 # ---------------------------------------------------------------- anchored occluders (contact -> Z)
@@ -544,7 +813,9 @@ def _hand_author(toml_path):
     """What a Place-tab session (or a hand editor) adds to a generated project."""
     text = toml_path.read_text(encoding="utf-8")
     lines = text.splitlines()
-    lines.insert(1, "text_block = 30058")             # a bare key must precede [field]
+    # under [field], where the Editor's Field form writes it and build.py reads it (finding T2:
+    # the fixture once put it top-level, a place nothing writes, so the wipe went unseen)
+    lines.insert(lines.index("[field]") + 1, "text_block = 30058")
     text = "\n".join(lines) + "\n" + (
         '\n[[npc]]\nname = "mist_porter"\npreset = "vivi"\npos = [0, 1500]\n'
         '\n[[gateway]]\nname = "west_gate"\nto = 301\nzone = [[-500, 900], [-400, 900], '
@@ -565,7 +836,7 @@ def test_regenerate_preserves_hand_authored_content(tmp_path):
                                 gateways=["4005@60,300;140,300;140,330;60,330"],
                                 events=["It creaks.@200,340;300,340;300,380;200,380"])
     data = tomllib.loads(toml.read_text(encoding="utf-8"))
-    assert data["text_block"] == 30058
+    assert data["field"]["text_block"] == 30058
     assert data["npc"][0]["name"] == "mist_porter" and data["npc"][0]["pos"] == [0, 1500]
     assert data["music"]["song"] == 39
     names = [g["name"] for g in data["gateway"]]
@@ -574,7 +845,106 @@ def test_regenerate_preserves_hand_authored_content(tmp_path):
     assert data["event"][0]["name"] == "traced_zone0"
     kept = "\n".join(man2["kept"])
     assert "west_gate" in kept and "[[npc]]" in kept and "[music]" in kept
-    assert "painted_arch" in kept and "text_block" in kept
+    assert "painted_arch" in kept and "[field].text_block" in kept
+
+
+def test_the_editors_field_form_keys_ride_through_a_regenerate(tmp_path):
+    """[field] merges PER KEY (finding T2): the generator owns id/name/area, while the Editor's
+    Field form writes location, title, text_block and borrow_bg into the same table -- and a
+    wholesale band erased them, reporting only 'retaken: field'. Driven through FieldDoc, the
+    Editor's own model, so the keys sit exactly where the form saves them."""
+    pytest.importorskip("PIL")
+    import tomllib
+    from ff9mapkit.editor.model import FieldDoc
+    toml, floor, _man = _merge_project(tmp_path)
+    doc = FieldDoc.load(toml)
+    doc.field.update({"location": "Mog's Hut", "title": "my notes", "text_block": 30058,
+                      "hide_area_title": True})
+    doc.save()
+    man2 = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                                gateways=["4005@60,300;140,300;140,330;60,330"],
+                                events=["It creaks.@200,340;300,340;300,380;200,380"])
+    field = tomllib.loads(toml.read_text(encoding="utf-8"))["field"]
+    assert field["location"] == "Mog's Hut" and field["title"] == "my notes"
+    assert field["text_block"] == 30058 and field["hide_area_title"] is True
+    assert (field["id"], field["name"], field["area"]) == (4003, "MERGE", 11)
+    kept = man2["kept"]
+    for k in ("location", "title", "text_block", "hide_area_title"):
+        assert f"[field].{k}" in kept
+    assert not [r for r in man2["retaken"] if r.startswith("field")]   # untouched: no retake
+
+
+def test_a_hand_changed_generator_field_key_is_retaken_by_name(tmp_path):
+    """id/name/area stay the generator's: a hand-changed one is overwritten by the session and
+    named key by key in retaken, beside the hand keys that rode through."""
+    pytest.importorskip("PIL")
+    import tomllib
+    from ff9mapkit.editor.model import FieldDoc
+    toml, floor, _man = _merge_project(tmp_path)
+    doc = FieldDoc.load(toml)
+    doc.field.update({"area": 12, "location": "Dali"})
+    doc.save()
+    man2 = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                                gateways=["4005@60,300;140,300;140,330;60,330"],
+                                events=["It creaks.@200,340;300,340;300,380;200,380"])
+    field = tomllib.loads(toml.read_text(encoding="utf-8"))["field"]
+    assert field["area"] == 11 and field["location"] == "Dali"
+    assert [r for r in man2["retaken"] if r.startswith("field")] == ["field.area"]
+
+
+def test_a_kept_borrow_bg_keeps_the_area_it_names_its_donor_with():
+    """Review of T2: borrow_bg resolves TOGETHER with area (FBG_N<area>_<borrow>). Keeping the
+    borrow while re-taking area = 11 wrote a pair that names a different (or no) donor."""
+    import tomllib
+    gen = ('# x\n[field]\nid = 4003\nname = "M"\narea = 11\n\n[camera]\npitch = 30\n\n'
+           '[player]\nspawn = [0, 0]\n')
+    text, kept, retaken, _removed = IF.merge_project_toml(
+        gen, {"field": {"id": 4003, "name": "M", "area": 52, "borrow_bg": "B12"}})
+    field = tomllib.loads(text)["field"]
+    assert (field["area"], field["borrow_bg"]) == (52, "B12")
+    assert "field.area" not in retaken and "[field].area" in kept
+    # without a borrow, area stays the generator's (the rule above)
+    text, _k, retaken, _r = IF.merge_project_toml(
+        gen, {"field": {"id": 4003, "name": "M", "area": 52, "location": "Dali"}})
+    assert tomllib.loads(text)["field"]["area"] == 11 and "field.area" in retaken
+
+
+def test_a_moved_generated_field_block_fails_loudly_not_silently():
+    """If the generator's [field] lines ever change shape, the per-key merge must refuse --
+    the quiet alternative is a regenerate that drops the Editor's keys again (T2)."""
+    gen = '# x\n[field]\nid = 4003\narea = 11\nname = "M"\n\n[player]\nspawn = [0, 0]\n'
+    with pytest.raises(IF.ImageFieldError, match=r"\[field\] block"):
+        IF.merge_project_toml(gen, {"field": {"id": 4003, "name": "M", "area": 11,
+                                              "location": "Dali"}})
+
+
+# ---------------------------------------------------------------------------- the CLI's report (E10)
+def test_a_complete_build_is_not_reported_failed_on_a_cp1252_pipe(tmp_path):
+    """Finding E10: the CLI prints its report AFTER every file is written, and an arrow in an event
+    message raised UnicodeEncodeError on a cp1252 stdout -- exit 1 for a complete project, so the
+    Workspace said 'failed'. A REAL subprocess under a forced cp1252 stdout (the Workspace's pipe on
+    a Western Windows locale; forced so the fence holds on a UTF-8 host too)."""
+    pytest.importorskip("PIL")
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    import ff9mapkit
+    from PIL import Image
+    Image.new("RGB", (384, 448), (90, 80, 70)).save(tmp_path / "src.png")
+    env = dict(os.environ, PYTHONIOENCODING="cp1252")
+    env.pop("PYTHONUTF8", None)
+    pkg_root = Path(ff9mapkit.__file__).resolve().parent.parent
+    r = subprocess.run(
+        [sys.executable, "-m", "ff9mapkit", "image-field", str(tmp_path / "src.png"),
+         "--floor", "130,140 254,140 364,440 20,440", "--out", str(tmp_path / "out"),
+         "--name", "ARROW", "--event-zone", "Go → north@200,340;300,340;300,380;200,380"],
+        cwd=pkg_root, env=env, capture_output=True, timeout=120)
+    assert (tmp_path / "out" / "ARROW.field.toml").is_file()      # the project IS complete...
+    out = r.stdout.decode("cp1252", "replace") + r.stderr.decode("cp1252", "replace")
+    assert r.returncode == 0, out
+    assert "synthesized ARROW" in out and "Deploy + walk it" in out   # ...and the report finished
 
 
 def test_regenerate_deletes_its_own_stale_doors_and_keeps_yours(tmp_path):
@@ -607,13 +977,15 @@ def test_a_place_drawn_door0_on_a_current_project_is_preserved(tmp_path):
                          gateways=["4005@60,300;140,300;140,330;60,330"])
     data = tomllib.loads(toml.read_text(encoding="utf-8"))
     assert [g["name"] for g in data["gateway"]] == ["traced_door0", "door0"]
-    assert IF.is_generated_region(data, "gateway", "traced_door0")
-    assert not IF.is_generated_region(data, "gateway", "door0")
+    assert IF.is_generated_region("gateway", "traced_door0")
+    assert not IF.is_generated_region("gateway", "door0")
 
 
 def test_legacy_door_rows_are_claimed_once_not_duplicated(tmp_path):
-    """A pre-prefix project's own door0/zone0 rows (no traced_ row anywhere) are the
-    generator's -- the first merged regenerate replaces them instead of doubling them."""
+    """A pre-prefix project's own door0 row is replaced by its traced_ twin when the run
+    re-emits the same quad -- not doubled. Its zone0, which this run does NOT re-emit, is
+    KEPT: nothing distinguishes it from a zone the Place tab drew, and an unprovable row is
+    never deleted (it used to be, and that same rule ate real Place rows -- finding T1)."""
     pytest.importorskip("PIL")
     import tomllib
     toml, floor, _man = _merge_project(tmp_path)
@@ -623,16 +995,17 @@ def test_legacy_door_rows_are_claimed_once_not_duplicated(tmp_path):
         g["name"] = f"door{i}"
     for i, e in enumerate(data["event"]):
         e["name"] = f"zone{i}"
-    assert IF.is_generated_region(data, "gateway", "door0")      # the legacy claim
+    assert not IF.is_generated_region("gateway", "door0")        # a name alone proves nothing
     from ff9mapkit.editor import model as _model
     toml.write_text(_model.dumps(dict(data, npc=[{"name": "keeper", "preset": "vivi",
                                                   "pos": [0, 1500]}])),
                     encoding="utf-8", newline="\n")
-    IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
-                         gateways=["4005@60,300;140,300;140,330;60,330"])
+    man = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                               gateways=["4005@60,300;140,300;140,330;60,330"])
     data2 = tomllib.loads(toml.read_text(encoding="utf-8"))
-    assert [g["name"] for g in data2["gateway"]] == ["traced_door0"]   # claimed, not doubled
-    assert [e["name"] for e in data2.get("event", [])] == []
+    assert [g["name"] for g in data2["gateway"]] == ["traced_door0"]   # replaced, not doubled
+    assert [e["name"] for e in data2.get("event", [])] == ["zone0"]    # unprovable -> kept
+    assert "[[event]] zone0" in man["kept"] and man["removed"] == []
     assert data2["npc"][0]["name"] == "keeper"
 
 
@@ -664,9 +1037,9 @@ def test_regenerate_refuses_an_unparseable_project_before_writing_anything(tmp_p
     assert _tree(tmp_path / "out") != before          # anti-vacuity: the inputs DO move bytes
 
 
-def test_player_spawn_is_generator_owned_and_the_retake_is_said_out_loud(tmp_path):
-    """[player].spawn regenerates (the session's centroid wins) -- but a hand-moved spawn is
-    REPORTED via retaken, never silently reverted."""
+def test_a_spawn_that_is_not_a_floor_point_is_retaken_and_said_out_loud(tmp_path):
+    """A spawn the file holds that is not an (x, z) point is replaced by the generator's -- and
+    REPORTED via retaken, never silently. (A real point on the floor is kept: finding E13.)"""
     pytest.importorskip("PIL")
     import tomllib
     toml, floor, _man = _merge_project(tmp_path)
@@ -678,7 +1051,161 @@ def test_player_spawn_is_generator_owned_and_the_retake_is_said_out_loud(tmp_pat
                                 events=["It creaks.@200,340;300,340;300,380;200,380"])
     data = tomllib.loads(toml.read_text(encoding="utf-8"))
     assert data["player"]["spawn"] != moved            # the centroid is re-derived
-    assert "player.spawn" in man2["retaken"]
+    assert "player.spawn (it was not a floor position)" in man2["retaken"]
+
+
+def _set_spawn(toml, x, z):
+    import re
+    text = re.sub(r"spawn = \[-?\d+, -?\d+\]", f"spawn = [{x}, {z}]",
+                  toml.read_text(encoding="utf-8"), count=1)
+    toml.write_text(text, encoding="utf-8", newline="\n")
+
+
+def _regen_merge(tmp_path, floor):
+    return IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                                gateways=["4005@60,300;140,300;140,330;60,330"],
+                                events=["It creaks.@200,340;300,340;300,380;200,380"])
+
+
+def test_a_spawn_placed_on_the_floor_survives_a_regenerate(tmp_path):
+    """Finding E13: the Place tab writes [player] spawn, and every Regenerate moved it back to the
+    generator's choice. A spawn already in the file is kept while it still lies on the new floor."""
+    pytest.importorskip("PIL")
+    import tomllib
+    toml, floor, man = _merge_project(tmp_path)
+    w = man["world_floor"]
+    x, z = int(0.7 * w[2][0] + 0.3 * w[0][0]), int(0.7 * w[2][1] + 0.3 * w[0][1])
+    _set_spawn(toml, x, z)
+    nudged = [(132, 142)] + floor[1:]                  # a floor tweak in Trace
+    man2 = _regen_merge(tmp_path, nudged)
+    assert tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"] == [x, z]
+    assert "player.spawn" not in " ".join(man2["retaken"])
+    assert any("spawn" in k for k in man2["kept"])
+    assert man2["spawn"] == (x, z)                     # the report names the spawn the file has
+
+
+def test_a_regenerate_that_fails_after_the_walkmesh_never_freezes_the_spawn(tmp_path,
+                                                                            monkeypatch):
+    """Final review of E13's stamp: the walkmesh (and the stamp in it) is written before the art
+    and the field.toml. A write that failed in between left the NEW stamp beside the OLD toml
+    spawn, so every later regenerate read the generator's own stale spawn as one the author
+    placed and kept it for good. A failed write takes the stamp back out, and the next
+    regenerate falls back to the rule for a project with none."""
+    pytest.importorskip("PIL")
+    import tomllib
+    from pathlib import Path as _P
+    toml, _floor, _man = _merge_project(tmp_path)
+    first = tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"]
+    wider = [(40, 140), (340, 140), (380, 446), (4, 446)]
+    real = _P.write_text
+
+    def locked(self, *a, **k):
+        if self.name.endswith(".field.toml"):
+            raise PermissionError("locked by another program")
+        return real(self, *a, **k)
+    monkeypatch.setattr(_P, "write_text", locked)
+    with pytest.raises(PermissionError):
+        _regen_merge(tmp_path, wider)
+    monkeypatch.setattr(_P, "write_text", real)
+    assert tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"] == first
+    # the stamp is put back to what it WAS: the old stamp and the old toml are a pair the next
+    # regenerate can judge (taking it out altogether made that regenerate overwrite a spawn the
+    # author had placed -- the second review of this fix)
+    assert IF.generated_spawn(tmp_path / "out") == first, "the stamp is ahead of the field.toml"
+    man2 = _regen_merge(tmp_path, wider)
+    now = tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"]
+    assert now != first and now == [round(man2["spawn"][0]), round(man2["spawn"][1])]
+    assert IF.generated_spawn(tmp_path / "out") == now
+    assert not any("spawn" in k for k in man2["kept"] + man2["retaken"])
+
+
+def test_a_placed_spawn_survives_a_regenerate_that_failed_first(tmp_path, monkeypatch):
+    """The other half of the same failure: the author PLACED the spawn, a regenerate failed after
+    the walkmesh was written, and the next regenerate must still keep the author's spawn."""
+    pytest.importorskip("PIL")
+    import tomllib
+    from pathlib import Path as _P
+    toml, floor, man = _merge_project(tmp_path)
+    w = man["world_floor"]
+    mine = [int(0.5 * (w[2][0] + w[3][0])), int(0.5 * (w[2][1] + w[3][1])) + 40]   # near the front
+    assert IF.point_in_polygon(mine, w)
+    _set_spawn(toml, *mine)
+    real = _P.write_text
+
+    def locked(self, *a, **k):
+        if self.name.endswith(".field.toml"):
+            raise PermissionError("locked by another program")
+        return real(self, *a, **k)
+    monkeypatch.setattr(_P, "write_text", locked)
+    with pytest.raises(PermissionError):
+        _regen_merge(tmp_path, floor)
+    monkeypatch.setattr(_P, "write_text", real)
+    man2 = _regen_merge(tmp_path, floor)
+    assert tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"] == mine
+    assert any(k.startswith("[player].spawn") for k in man2["kept"]), man2["kept"]
+
+
+def test_the_first_error_is_the_one_raised_when_the_stamp_cannot_be_put_back(tmp_path, monkeypatch):
+    """If the folder is locked as a whole, putting the stamp back fails too: the author must still
+    see the FIRST error (the write that failed), not the clean-up's."""
+    pytest.importorskip("PIL")
+    from pathlib import Path as _P
+    toml, floor, _man = _merge_project(tmp_path)
+    real = _P.write_text
+    seen = []
+
+    def locked(self, *a, **k):
+        if self.name.endswith(".field.toml"):
+            seen.append("toml")
+            raise PermissionError("the field.toml is locked")
+        if self.name == "walkmesh.obj" and seen:
+            raise PermissionError("the walkmesh is locked now too")
+        return real(self, *a, **k)
+    monkeypatch.setattr(_P, "write_text", locked)
+    with pytest.raises(PermissionError, match="field.toml is locked"):
+        _regen_merge(tmp_path, floor)
+
+
+def test_the_generators_own_spawn_follows_a_reshaped_floor(tmp_path):
+    """Review of E13: keeping every spawn on the floor froze the generator's own centroid -- an
+    author who widened the floor kept the small floor's start point, reported as 'kept'. The
+    spawn the last generate wrote (stamped in its walkmesh.obj) is re-derived, and names nothing;
+    a project with no stamp (built before it) takes the generator's spawn as it always did."""
+    pytest.importorskip("PIL")
+    import tomllib
+    toml, floor, man = _merge_project(tmp_path)
+    first = tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"]
+    assert IF.generated_spawn(tmp_path / "out") == first
+    wider = [(40, 140), (340, 140), (380, 446), (4, 446)]    # covers the old floor
+    man2 = _regen_merge(tmp_path, wider)
+    now = tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"]
+    assert now != first and now == [round(man2["spawn"][0]), round(man2["spawn"][1])]
+    assert IF.point_in_polygon(first, man2["world_floor"])   # the old one WAS still on it
+    assert not any("spawn" in k for k in man2["kept"] + man2["retaken"])
+    assert IF.generated_spawn(tmp_path / "out") == now
+    # no stamp: the old rule, said
+    obj = tmp_path / "out" / "walkmesh.obj"
+    obj.write_text("".join(ln for ln in obj.read_text(encoding="utf-8").splitlines(True)
+                           if "generated spawn" not in ln), encoding="utf-8", newline="\n")
+    assert IF.generated_spawn(tmp_path / "out") is None
+    _set_spawn(toml, now[0] + 7, now[1])
+    man3 = _regen_merge(tmp_path, wider)
+    assert tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"] == now
+    assert "player.spawn" in man3["retaken"]
+
+
+def test_a_spawn_the_new_floor_no_longer_covers_is_retaken_and_said_so(tmp_path):
+    pytest.importorskip("PIL")
+    import tomllib
+    toml, floor, man = _merge_project(tmp_path)
+    w = man["world_floor"]
+    x, z = int(0.9 * w[0][0] + 0.1 * w[2][0]), int(0.9 * w[0][1] + 0.1 * w[2][1])   # the far end
+    _set_spawn(toml, x, z)
+    shorter = [(130, 300), (254, 300)] + floor[2:]     # the far half traced away
+    man2 = _regen_merge(tmp_path, shorter)
+    spawn = tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"]
+    assert spawn != [x, z] and spawn == [round(man2["spawn"][0]), round(man2["spawn"][1])]
+    assert any(r.startswith("player.spawn") and "off the new floor" in r for r in man2["retaken"])
 
 
 def test_place_authored_arrivals_ride_through_a_regenerate(tmp_path):
@@ -726,9 +1253,211 @@ def test_a_no_regions_regenerate_never_claims_place_rows(tmp_path):
         assert man["removed"] == []
 
 
+_PLACE_ROWS = (
+    '\n[[gateway]]\nname = "door0"\nto = 301\nzone = [[-500, 900], [-400, 900], '
+    '[-400, 1000], [-500, 1000]]\n'
+    '\n[[event]]\nname = "zone0"\nmessage = "..."\nzone = [[100, 900], [200, 900], '
+    '[200, 1000], [100, 1000]]\n')
+
+
+@pytest.mark.parametrize("regions", [
+    {"events": ["It creaks.@200,340;300,340;300,380;200,380"]},
+    {"gateways": ["4005@60,300;140,300;140,330;60,330"]},
+    {"gateways": ["4005@60,300;140,300;140,330;60,330"],
+     "events": ["It creaks.@200,340;300,340;300,380;200,380"]},
+], ids=["first-event", "first-gateway", "both"])
+def test_the_first_region_a_session_adds_never_deletes_a_place_row(tmp_path, regions):
+    """THE TRANSITION the no-regions gate left open (review finding T1): trace a floor and
+    generate with NO regions, draw a door and a zone in the Place tab (it mints door0/zone0),
+    then add the session's FIRST region and regenerate. The file had no traced_ row, so it read
+    as a pre-prefix project and the hand rows were claimed and deleted. A row the generator
+    cannot PROVE it emitted is never deleted — whatever the session does next."""
+    pytest.importorskip("PIL")
+    import tomllib
+    from PIL import Image
+    Image.new("RGB", (384, 448), (90, 80, 70)).save(tmp_path / "src.png")
+    floor = [(130, 140), (254, 140), (364, 440), (20, 440)]
+    IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE")
+    toml = tmp_path / "out" / "MERGE.field.toml"
+    toml.write_text(toml.read_text(encoding="utf-8") + _PLACE_ROWS, encoding="utf-8", newline="\n")
+    for _ in range(2):                                 # the first regenerate with regions, and the next
+        man = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                                   **regions)
+        data = tomllib.loads(toml.read_text(encoding="utf-8"))
+        assert "door0" in [g["name"] for g in data["gateway"]]
+        assert "zone0" in [e["name"] for e in data["event"]]
+        assert next(g for g in data["gateway"] if g["name"] == "door0")["to"] == 301
+        assert man["removed"] == []
+        assert "[[gateway]] door0" in man["kept"] and "[[event]] zone0" in man["kept"]
+
+
+def test_a_pre_prefix_row_is_renamed_only_when_the_run_re_emits_its_exact_quad(tmp_path):
+    """The one thing that still proves a door0 is the OLD generator's: this run emits the very
+    same quad again (a b18/b19 project reopened from its sidecar regenerates px-exact). Then the
+    row is replaced by its traced_ twin — said out loud in retaken, never doubled. A pre-prefix
+    row whose quad the run does NOT re-emit stays: indistinguishable from a Place row, so kept."""
+    pytest.importorskip("PIL")
+    import tomllib
+    toml, floor, _man = _merge_project(tmp_path)       # one gateway + one event, traced_ names
+    data = tomllib.loads(toml.read_text(encoding="utf-8"))
+    data["gateway"][0]["name"] = "door0"               # the pre-prefix shape of the SAME rows
+    data["event"][0]["name"] = "zone0"
+    from ff9mapkit.editor import model as _model
+    toml.write_text(_model.dumps(data), encoding="utf-8", newline="\n")
+    man = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                               gateways=["4005@60,300;140,300;140,330;60,330"],
+                               events=["It creaks.@200,340;300,340;300,380;200,380"])
+    data2 = tomllib.loads(toml.read_text(encoding="utf-8"))
+    assert [g["name"] for g in data2["gateway"]] == ["traced_door0"]      # renamed, not doubled
+    assert [e["name"] for e in data2["event"]] == ["traced_zone0"]
+    assert man["removed"] == []                        # nothing was lost, so nothing is "removed"
+    retaken = "\n".join(man["retaken"])
+    assert "door0" in retaken and "traced_door0" in retaken
+    assert "zone0" in retaken and "traced_zone0" in retaken
+    retaken.encode("cp1252")                           # the CLI prints these under a cp1252 pipe
+
+
+_GW = "4005@60,300;140,300;140,330;60,330"
+_EV = "It creaks.@200,340;300,340;300,380;200,380"
+
+
+def _rewrite(toml, edit):
+    """Load the project's toml, let ``edit(data)`` change it, write it back the Editor's way."""
+    import tomllib
+    from ff9mapkit.editor import model as _model
+    data = tomllib.loads(toml.read_text(encoding="utf-8"))
+    edit(data)
+    toml.write_text(_model.dumps(data), encoding="utf-8", newline="\n")
+
+
+def _regen(tmp_path, floor, **kw):
+    import tomllib
+    man = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE", **kw)
+    return man, tomllib.loads((tmp_path / "out" / "MERGE.field.toml").read_text(encoding="utf-8"))
+
+
+def test_the_twin_rename_is_fenced_on_every_side(tmp_path):
+    """The rename may only ever take a PRE-PREFIX-NAMED row of the SAME KIND on a file with NO
+    traced_ row. Each guard, loosened, deletes a row somebody drew -- so each has a row here."""
+    pytest.importorskip("PIL")
+    toml, floor, _man = _merge_project(tmp_path)       # traced_door0 + traced_zone0
+
+    # (1) a CURRENT project (it has traced_ rows): a Place door0 on the traced door's exact quad
+    _rewrite(toml, lambda d: d["gateway"].append(dict(d["gateway"][0], name="door0", to=301)))
+    man, data = _regen(tmp_path, floor, gateways=[_GW], events=[_EV])
+    assert [(g["name"], g["to"]) for g in data["gateway"]] == [("traced_door0", 4005), ("door0", 301)]
+    assert man["removed"] == []
+
+    # (2)-(4) a PRE-PREFIX file: only door<N>/zone<N> of the right kind are candidates
+    def legacy(d):
+        quad = d["gateway"][0]["zone"]
+        d["gateway"] = [dict(d["gateway"][0], name="west_gate", to=11),
+                        dict(d["gateway"][0], name="door_west", to=12)]
+        d["event"] = [{"name": "zone0", "message": "mine", "zone": quad}]   # an EVENT on the door's quad
+    _rewrite(toml, legacy)
+    man, data = _regen(tmp_path, floor, gateways=[_GW])
+    assert sorted(g["name"] for g in data["gateway"]) == ["door_west", "traced_door0", "west_gate"]
+    assert [e["name"] for e in data["event"]] == ["zone0"] and man["removed"] == []
+
+
+def test_a_pre_prefix_row_stored_with_a_doubled_last_vertex_is_still_its_twin(tmp_path):
+    """The IsInQuad-safe stored form repeats the last corner; it is the same quad."""
+    pytest.importorskip("PIL")
+    toml, floor, _man = _merge_project(tmp_path)
+
+    def legacy(d):
+        g = d["gateway"][0]
+        d["gateway"] = [dict(g, name="door0", zone=g["zone"] + [g["zone"][-1]])]
+        d.pop("event")
+    _rewrite(toml, legacy)
+    _man2, data = _regen(tmp_path, floor, gateways=[_GW])
+    assert [g["name"] for g in data["gateway"]] == ["traced_door0"]
+
+
+def test_a_pre_prefix_door_is_still_recognized_after_the_pitch_is_changed(tmp_path):
+    """The old row's quad was written through the camera the FILE records. Through the new
+    camera alone the same pixels land elsewhere: the twin was missed and the old door stayed as
+    a second, live gateway at its old spot (the adversarial pass's regression on the T1 fix)."""
+    pytest.importorskip("PIL")
+    toml, floor, _man = _merge_project(tmp_path)
+
+    def legacy(d):
+        d["gateway"][0]["name"] = "door0"
+        d["event"][0]["name"] = "zone0"
+    _rewrite(toml, legacy)
+    man, data = _regen(tmp_path, floor, gateways=[_GW], events=[_EV], pitch=30.0)
+    assert [g["name"] for g in data["gateway"]] == ["traced_door0"]      # one door, not two
+    assert [e["name"] for e in data["event"]] == ["traced_zone0"]
+    assert data["camera"]["pitch"] == 30 and man["removed"] == []
+
+
+def test_what_a_regenerate_takes_from_a_traced_row_is_said_out_loud(tmp_path):
+    """A traced row is regenerated WHOLE. A retarget made in Place and a reward added in the
+    Editor used to vanish silently; both are now named. (They are deliberately NOT carried over:
+    see the next test.)"""
+    pytest.importorskip("PIL")
+    toml, floor, _man = _merge_project(tmp_path)
+
+    def author(d):
+        d["event"][0].update(give_item=[236, 1], message="MY OWN WORDS")
+        d["gateway"][0].update(to=2222, requires_flag="met_cid")
+    _rewrite(toml, author)
+    man, data = _regen(tmp_path, floor, gateways=[_GW], events=[_EV])
+    assert data["event"][0] == {k: v for k, v in data["event"][0].items() if k in ("name", "message", "zone")}
+    assert data["event"][0]["message"] == "It creaks." and data["gateway"][0]["to"] == 4005
+    retaken = "\n".join(man["retaken"])
+    assert "traced_door0.to (was 2222" in retaken and "traced_zone0.message" in retaken
+    assert "traced_zone0.give_item (a hand-added key, dropped" in retaken
+    assert "traced_door0.requires_flag (a hand-added key, dropped" in retaken
+    retaken.encode("cp1252")
+    man2, _data2 = _regen(tmp_path, floor, gateways=[_GW], events=[_EV])
+    assert not [r for r in man2["retaken"] if "traced_" in r]             # said once, not forever
+
+
+def test_a_hand_key_is_never_grafted_onto_the_door_that_inherits_the_name(tmp_path):
+    """traced_ names are POSITIONAL. Delete session door A and door B becomes traced_door0: A's
+    reward and flag gate must not land on B's quad (the second adversarial pass's catch on a
+    follow-up that carried such keys over by name)."""
+    pytest.importorskip("PIL")
+    door_b = "4007@250,300;330,300;330,330;250,330"
+    toml, floor, _man = _merge_project(tmp_path, gateways=(_GW, door_b))
+    _rewrite(toml, lambda d: d["gateway"][0].update(reward={"item": "Elixir"}, requires_flag=9000))
+    man, data = _regen(tmp_path, floor, gateways=[door_b])                 # door A deleted in the session
+    assert len(data["gateway"]) == 1
+    row = data["gateway"][0]
+    assert (row["name"], row["to"]) == ("traced_door0", 4007)
+    assert "reward" not in row and "requires_flag" not in row
+    assert any("traced_door0.reward" in r and "dropped" in r for r in man["retaken"])
+
+
+def test_only_one_pre_prefix_row_can_take_a_traced_name(tmp_path):
+    """A pitch change gives a region TWO quads a pre-prefix row could sit on: the one under the
+    file's old camera and the one under the new. Two rows, one on each, must not both be claimed
+    as the same door -- one is renamed, the other is somebody's and stays exactly as it was."""
+    pytest.importorskip("PIL")
+    import tomllib
+    toml, floor, _man = _merge_project(tmp_path, gateways=(_GW,))
+    old_quad = tomllib.loads(toml.read_text(encoding="utf-8"))["gateway"][0]["zone"]
+    _man30, data30 = _regen(tmp_path, floor, gateways=[_GW], pitch=30.0)   # learn the new-camera quad
+    new_quad = data30["gateway"][0]["zone"]
+    assert new_quad != old_quad
+
+    def legacy(d):                                     # back to the pitch-26 file, pre-prefix shape
+        d["camera"]["pitch"] = 26
+        d["gateway"] = [{"name": "door0", "to": 4005, "zone": old_quad},
+                        {"name": "door1", "to": 4999, "zone": new_quad, "note": "mine"}]
+        d.pop("event", None)
+    _rewrite(toml, legacy)
+    man, data = _regen(tmp_path, floor, gateways=[_GW], pitch=30.0)
+    rows = {g["name"]: g for g in data["gateway"]}
+    assert sorted(rows) == ["door1", "traced_door0"]
+    assert rows["door1"] == {"name": "door1", "to": 4999, "zone": new_quad, "note": "mine"}
+    assert man["removed"] == []
+
+
 def test_claimed_and_stale_rows_are_named_in_removed(tmp_path):
     """Deletion is REPORTED, never silent (floorplan.merge_room's own contract): a stale
-    traced_ door dropped from the session and a legacy-claimed door0 both land in removed,
+    traced_ door and a traced_ zone dropped from the session both land in removed,
     and the manifest carries the list the CLI prints."""
     pytest.importorskip("PIL")
     toml, floor, _man = _merge_project(
@@ -738,3 +1467,76 @@ def test_claimed_and_stale_rows_are_named_in_removed(tmp_path):
                                gateways=["4005@60,300;140,300;140,330;60,330"])
     assert "[[gateway]] traced_door1" in man["removed"]
     assert "[[event]] traced_zone0" in man["removed"]  # the session dropped its event too
+
+
+# --------------------------------------------------------------- batch 3, the final review
+def test_an_existing_project_keeps_its_name_through_a_regenerate(tmp_path):
+    """The name rule (T7) guards the mint of a new <name>.field.toml. A project built before the
+    rule may be named attic-room; refusing its own name made it impossible to regenerate. A NEW
+    file under such a name is still refused before anything is written."""
+    from pathlib import Path
+
+    from PIL import Image
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (800, 600), (90, 80, 70)).save(photo)
+    floor = [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)]
+    out = tmp_path / "proj"
+    made = Path(IF.build_image_field(photo, floor, out, name="ATTIC", field_id=30779)["toml"])
+    old = made.with_name("attic-room.field.toml")
+    old.write_text(made.read_text(encoding="utf-8").replace('name = "ATTIC"', 'name = "attic-room"'),
+                   encoding="utf-8")
+    made.unlink()
+    moved = [(120.0, 210.0)] + floor[1:]
+    man = IF.build_image_field(photo, moved, out, name="attic-room", field_id=30779)
+    assert Path(man["toml"]) == old and old.is_file()
+    with pytest.raises(IF.ImageFieldError, match="letters, digits and underscores"):
+        IF.build_image_field(photo, floor, tmp_path / "fresh", name="attic-room", field_id=30779)
+    assert not (tmp_path / "fresh").exists()
+
+
+def test_exif_turned_reads_the_orientation_tag(tmp_path):
+    from PIL import Image
+    plain = tmp_path / "plain.png"
+    Image.new("RGB", (8, 6)).save(plain)
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    turned = tmp_path / "turned.jpg"
+    Image.new("RGB", (8, 6)).save(turned, exif=exif)
+    exif[0x0112] = 1
+    upright = tmp_path / "upright.jpg"
+    Image.new("RGB", (8, 6)).save(upright, exif=exif)
+    assert IF.exif_turned(turned) is True
+    assert IF.exif_turned(plain) is False and IF.exif_turned(upright) is False
+    assert IF.exif_turned(tmp_path / "gone.jpg") is False
+
+
+@pytest.mark.parametrize("name", ["x/../PHONE", "x\\..\\PHONE", "./PHONE"])
+def test_a_name_carrying_a_path_is_never_past_the_name_rule(tmp_path, name):
+    """The exemption 'this name already names a file' was asked of the PATH: 'x/../PHONE'
+    resolves to the existing PHONE.field.toml, skipped the rule, and was written into the
+    project as its name (the backslash form died in the TOML parser instead -- the crash the rule
+    exists to stop). Only a bare name can be an existing project's name."""
+    from PIL import Image
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (800, 600), (90, 80, 70)).save(photo)
+    floor = [(130.0, 200.0), (254.0, 200.0), (364.0, 440.0), (20.0, 440.0)]
+    out = tmp_path / "proj"
+    IF.build_image_field(photo, floor, out, name="PHONE", field_id=30779)
+    before = {q.name: q.read_bytes() for q in out.rglob("*") if q.is_file()}
+    with pytest.raises(IF.ImageFieldError, match="letters, digits and underscores"):
+        IF.build_image_field(photo, floor, out, name=name, field_id=30779)
+    assert {q.name: q.read_bytes() for q in out.rglob("*") if q.is_file()} == before
+
+
+# --------------------------------------------------------------- batch 5, the second review
+def test_a_hand_row_with_an_infinite_corner_survives_a_regenerate(tmp_path):
+    """The merge keys every hand row by its zone; an inf corner raised OverflowError there too.
+    The row is none of the generator's: it is kept, byte for byte."""
+    pytest.importorskip("PIL")
+    toml, floor, _man = _merge_project(tmp_path)
+    row = ('\n[[gateway]]\nname = "far"\nto = 301\n'
+           'zone = [[0, 900], [inf, 900], [inf, 1000], [0, 1000]]\n')
+    toml.write_text(toml.read_text(encoding="utf-8") + row, encoding="utf-8")
+    _regen_merge(tmp_path, floor)
+    text = toml.read_text(encoding="utf-8")
+    assert 'name = "far"' in text and "inf" in text

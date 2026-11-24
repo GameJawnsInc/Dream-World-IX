@@ -362,6 +362,39 @@ def test_the_suite_cap_fits_inside_the_scheduled_tasks_limit():
     assert "default=DEFAULT_TIMEOUT_MIN" in _SRC
 
 
+def test_the_suite_runs_under_worksteal_and_a_narrowed_run_can_override_it():
+    """THE SCHEDULING TAIL (2026-11-09): xdist's default ``load`` handed gw4 the adjacent test_coop_world_* files as one
+    consecutive block and never took them back -- gw4 busy 12,397 s, the other five 5,033-7,074 s, the night 3.5 h. A
+    replay of that night's per-test times gives 6,989 s under ``worksteal``. main() must SPEND the default (a scheduler
+    named only in argparse is a wish), record it in the ledger row, and put it BEFORE --pytest-args so a narrowed run's
+    own --dist still wins."""
+    assert ng.DEFAULT_DIST == "worksteal"
+    assert "default=DEFAULT_DIST" in _SRC
+    assert 'cmd += ["--dist", args.dist]' in _SRC and 'entry["dist"] = args.dist' in _SRC
+    assert _SRC.index('cmd += ["--dist", args.dist]') < _SRC.index("cmd += shlex.split(args.pytest_args)"), \
+        "--dist must precede the caller's --pytest-args, or a narrowed run could not pick its own scheduler"
+
+
+@pytest.mark.skipif(importlib.util.find_spec("xdist") is None, reason="needs pytest-xdist")
+def test_the_results_log_keeps_each_workers_time_under_worksteal(tmp_path):
+    """The per-worker profile (``worker_busy_s``) is what showed the tail; it must survive the scheduler change. A real
+    pytest under ``--dist worksteal`` with the plugin loaded the gate's way: every test is recorded with its worker."""
+    suite, state = tmp_path / "suite", tmp_path / "state"
+    suite.mkdir()
+    state.mkdir()
+    (suite / "test_ws.py").write_text(
+        "import time, pytest\n@pytest.mark.parametrize('i', range(8))\ndef test_t(i): time.sleep(0.2)\n", encoding="utf-8")
+    env = dict(os.environ)
+    results = state / "r.results.jsonl"
+    cmd = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--dist", ng.DEFAULT_DIST, "-n", "2",
+           str(suite / "test_ws.py")] + ng.plugin_args(results, env, _quiet)
+    assert ng.run(cmd, _quiet, cwd=suite, env=env, timeout=120, tee_to=tmp_path / "run.log") == 0, \
+        (tmp_path / "run.log").read_text(encoding="utf-8", errors="replace")
+    got = ng.parse_results(results)
+    assert got["finished"] is True and got["passed"] == 8 and got["completed"] == 8
+    assert set(got["worker_busy_s"]) <= {"gw0", "gw1"} and sum(got["worker_busy_s"].values()) >= 1
+
+
 def test_main_names_failures_on_both_paths():
     # the helpers existing is not the fix -- main() must load the plugin into the SUITE command, read the log in the
     # timeout branch (where the summary never printed), and also on a complete run

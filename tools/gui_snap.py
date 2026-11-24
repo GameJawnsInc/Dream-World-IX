@@ -275,7 +275,7 @@ def snap_coop(ctx: _Ctx, state: str) -> None:
 
 # --------------------------------------------------------------------------------------- world states
 WORLD_STATES = ("guide", "nogame", "atlas", "3d", "3d-forest", "3d-mountain", "3d-step", "3d-sink", "3d-coast", "3d-island", "3d-transplant",
-                "3d-river", "3d-hill")
+                "3d-river", "3d-hill", "3d-prefab")
 # "3d-live" reads the REAL install's blocks (read-only) to show the true look; it is never in `all`, because a
 # surface that depends on the developer's machine cannot be a pinned review state.
 WORLD_EXTRA_STATES = ("3d-live",)
@@ -930,6 +930,90 @@ def _snap_world_transplant(ctx: _Ctx, win) -> None:
         V.load_scene = orig
 
 
+def _snap_world_prefab(ctx: _Ctx, win) -> None:
+    """Rung P3: the prefab card on the pinned 3D page -- the shipped catalog in the picker, an INVENTED land (an island
+    fan with a rock cone on it; the surface never reads the install) placed on an open anchor east of the synthetic
+    island -- (23,18): its footprint and ring clear of the island's land, a site the real card accepts (review P3: the
+    first anchor overlapped the island with the laws switched off) -- passing its check at a clean site; then a
+    refusal named by its gate (the identity check), one row up."""
+    import math
+    import shutil as _sh
+    import numpy as np
+    from ff9mapkit.workspace import worldview3d as V
+    seams, _runner = _mountain_seams()
+    cx, cz = 32.0, -32.0                                  # anchor (0,0)'s middle block centre (frame origin (0,-64))
+    ring = [(cx + 52 * math.cos(a) + 6 * math.sin(3 * a), cz + 44 * math.sin(a)) for a in
+            np.linspace(0, 2 * math.pi, 40)[:-1]]
+    isle = [[(cx, 3.2, cz), (ring[k][0], 3.2, ring[k][1]), (ring[(k + 1) % 39][0], 3.2, ring[(k + 1) % 39][1])]
+            for k in range(39)]
+    peak = [(cx - 8.0, 14.5, cz + 4.0)]
+    cone = [[peak[0], (cx - 8 + 18 * math.cos(a), 3.4, cz + 4 + 14 * math.sin(a)),
+             (cx - 8 + 18 * math.cos(b), 3.4, cz + 4 + 14 * math.sin(b))]
+            for a, b in zip(np.linspace(0, 2 * math.pi, 13)[:-1], np.linspace(0, 2 * math.pi, 13)[1:])]
+    land = np.array(isle + cone, dtype=np.float64)
+    state = {"refuse": False}
+
+    class Scripted:
+        def start(self, argv, cwd, done):
+            cell = [int(v) for v in argv[argv.index("--cell") + 1].split(",")]
+            if state["refuse"]:
+                v = {"ok": False, "dry_run": True, "refused": {
+                    "gate": "identity", "message": "prefab 'desert-peak-isle' staged on (21, 18) is NOT the land its "
+                    "catalog entry names: a verb it rides changed its bytes -- a regression to find; nothing written",
+                    "where": []}}
+            else:
+                v = {"ok": True, "dry_run": "--dry-run" in argv, "refused": None, "written": None,
+                     "identity": "clean site: the full fingerprint",
+                     "blocks": [[cell[0] + dx, cell[1] + dy] for dx in (-1, 0, 1) for dy in (-1, 0, 1)],
+                     "center": [64.0 * cell[0] + 32.0, -(64.0 * cell[1] + 32.0)]}
+            Path(argv[argv.index("--report-json") + 1]).write_text(json.dumps(v), encoding="utf-8")
+            done(0 if v["ok"] else 1, "")
+
+        def kill(self):
+            pass
+
+        def busy(self):
+            return False
+    doc = win.world_doc
+    drafts = _SCRATCH / "world_drafts"
+    _sh.rmtree(drafts, ignore_errors=True)
+    doc._drafts_root, doc._prefab_runner = drafts, Scripted()
+    doc._prefab_seams = {"ghost_fn": lambda p: land, "ocean_fn": lambda: set(), "soup_fn": seams["soup_fn"],
+                         "stack_fn": lambda: [], "sync": True}
+    orig = V.load_scene
+    V.load_scene = lambda site, **_k: _synthetic_world_scene()
+    try:
+        doc.set_view_mode("3d", sync=True)
+        pt = doc.open_prefab(sync=True)
+        pt._occupied_in = lambda blocks, stack: {}
+        pt.prefab_box.setCurrentIndex(pt.prefab_box.findData("desert-peak-isle"))
+        pt.place(1504.0, -1184.0, 0.0)
+        pt._timer.stop()
+        pt._check()
+        view = doc._view3d.view
+        if view is not None:
+            view.focus(1460.0, -1184.0, dist=320.0, y=0.0)
+            view.camera.yaw, view.camera.pitch = 20.0, 45.0
+            view.update()
+        _settle(12)
+        _grab(ctx, "world-3d-prefab", win)
+        # rung P5: the same prefab turned 90 -- the ghost laid down turned, the Turn picker showing
+        if pt.turn_box.findData(90) >= 0:
+            pt.turn_box.setCurrentIndex(pt.turn_box.findData(90))
+            pt._timer.stop()
+            pt._check()
+            _settle(12)
+            _grab(ctx, "world-3d-prefab-turned", win)
+        state["refuse"] = True
+        pt.place(1504.0, -1120.0, 0.0)
+        pt._timer.stop()
+        pt._check()
+        _settle(12)
+        _grab(ctx, "world-3d-prefab-refused", win)
+    finally:
+        V.load_scene = orig
+
+
 def _snap_world_river(ctx: _Ctx, win) -> None:
     """Rung C5: the river card on the pinned 3D page -- an invented river (a ribbon of land in a ringed island) read
     where it stands, moved one block south beside the synthetic island, passing its check."""
@@ -1195,6 +1279,10 @@ def snap_world(ctx: _Ctx, state: str) -> None:
             return
         if state == "3d-transplant":
             _snap_world_transplant(ctx, win)
+            _close(win)
+            return
+        if state == "3d-prefab":
+            _snap_world_prefab(ctx, win)
             _close(win)
             return
         if state == "3d-river":
@@ -1834,23 +1922,27 @@ def snap_script(ctx: _Ctx, state: str) -> None:
 BEHAVIOR_STATES = ("guide", "bare", "wizard", "branchwiz", "doc", "compiled", "edit",
                    "stage", "sweep", "siege", "sim")
 
-TRACE_STATES = ("bare", "traced", "contacts", "regions")
+TRACE_STATES = ("bare", "traced", "contacts", "regions", "horizon", "keys")
 
 
 def snap_trace(ctx: _Ctx, state: str) -> None:
     """The Trace tab (click-authoring Rungs 1+2+4): the empty on-ramp ('bare' — the teach caption
-    + the bare canvas frame with its horizon), the synthetic proof room loaded with a traced
-    floor polygon and its +48u outset ring ('traced'), that room with the PILLAR marked as a
-    foreground cut-out at its in-game-proven contact (230,320) -> z 1073 ('contacts' — the strip
-    + the anchored marker), or the Regions tool with a drawn gateway + a law-warned event zone
-    ('regions'). The photo + polygon come from test_imagefield's _paint_room — ONE owner for the
-    fixture art (kit-painted, zero Square-Enix bytes)."""
+    + the bare canvas frame; at the default pitch the horizon sits just ABOVE the frame, so only
+    its top-edge mark shows), the synthetic proof room loaded with a traced floor polygon and its
+    +48u outset ring ('traced'), that room with the PILLAR marked as a foreground cut-out at its
+    in-game-proven contact (230,320) -> z 1073 ('contacts' — the strip + the anchored marker), the
+    Regions tool with a drawn gateway + a law-warned event zone ('regions'), the traced room at
+    pitch 12, where the dashed horizon line and its label lie INSIDE the frame and the back
+    vertices fall above it ('horizon'), or the traced room reached from the keyboard: the canvas
+    focused by Tab, its pill naming the keys and the crosshair aimed by the arrows ('keys'). The
+    photo + polygon come from test_imagefield's _paint_room — ONE owner for the fixture art
+    (kit-painted, zero Square-Enix bytes)."""
     if state not in TRACE_STATES:
         raise ValueError(f"unknown trace state {state!r} (know: {', '.join(TRACE_STATES)})")
     win = _make_win(ctx)
     win.tabs.setCurrentWidget(win.trace_doc)
     _settle(4)
-    if state in ("traced", "contacts", "regions"):
+    if state in ("traced", "contacts", "regions", "horizon", "keys"):
         import importlib.util
         p = REPO / "ff9mapkit" / "tests" / "test_imagefield.py"
         spec = importlib.util.spec_from_file_location("_trace_fixture", p)
@@ -1887,21 +1979,41 @@ def snap_trace(ctx: _Ctx, state: str) -> None:
         td._on_region_drawn([_if.click_to_world(cam, p) for p in   # a bowtie: the spill wash
                              [(220.0, 380.0), (330.0, 380.0), (220.0, 430.0), (330.0, 430.0)]])
         _settle(6)
+    if state == "horizon":
+        win.trace_doc.pitch.setValue(12)               # through the slider, as the author does
+        _settle(6)
+    if state == "keys":
+        from PySide6.QtCore import Qt as _Qt
+        from PySide6.QtTest import QTest
+        cv = win.trace_doc.canvas
+        win.activateWindow()
+        cv.setFocus(_Qt.FocusReason.TabFocusReason)
+        _settle(4)
+        for key, n in ((_Qt.Key.Key_Down, 7), (_Qt.Key.Key_Left, 9)):   # aimed by the arrows alone
+            for _ in range(n):
+                QTest.keyClick(cv, key)
+        _settle(6)
     _grab(ctx, f"trace-{state}", win)
     _grab(ctx, f"trace-{state}-canvas", win.trace_doc.canvas)   # the SUBJECT, not just the window
-    _close(win)
+    with _no_modals():                                 # a traced, un-generated session now asks
+        _close(win)                                    # before the window closes (finding T25)
 
 
-PLACE_STATES = ("bare", "fork", "refused", "regions")
+PLACE_STATES = ("bare", "fork", "refused", "regions", "multicam")
 
 
 def snap_place(ctx: _Ctx, state: str) -> None:
     """The Place tab (click-authoring Rung 3c/4): the empty on-ramp ('bare'), a fork member with
     a loaded surface + placed content ('fork' — kit-painted stand-in art + a synthetic flat quad,
-    so the snap needs no install; the REAL donor surface arrives through the user's own Load),
-    a bundled example refusing placement outright ('refused'), or the Regions tool with all
-    three zone-law renders on the art ('regions' — a gateway's walk-out edge, a TREADQUAD
-    overlap warn, and a non-convex quad's over-trigger spill wash)."""
+    so the snap needs no install; the REAL donor surface arrives through the user's own Load;
+    one NPC, Bram, is placed in the field's Blender scene.toml, so its marker is the greyed,
+    LOCKED one Place refuses to move), a bundled example refusing placement outright
+    ('refused'), the Regions tool with all three zone-law renders on the art ('regions' — a
+    gateway's walk-out edge, a TREADQUAD overlap warn, and a non-convex quad's over-trigger spill
+    wash), or that fork as a two-camera room placed under its SECOND camera ('multicam' — the
+    Camera chooser shown, the floor and markers seen from a steeper angle; the stand-in art is
+    camera 0's photo, so under camera 1 the footprint does not sit on it -- a real multi-camera
+    room brings each camera's own art)."""
     if state not in PLACE_STATES:
         raise ValueError(f"unknown place state {state!r} (know: {', '.join(PLACE_STATES)})")
     # 'fork' deliberately ends with an UNSAVED placed prop, so win.close() would fire the
@@ -1913,12 +2025,17 @@ def snap_place(ctx: _Ctx, state: str) -> None:
 def _snap_place_body(ctx: _Ctx, state: str) -> None:
     win = _make_win(ctx)
     if state == "refused":
+        # the way a user reaches it: open the bundled example through the window, then Place
+        # (staged with show_field alone, the tree said 'Nothing open yet' beside it -- P28)
         ex = REPO / "ff9mapkit" / "examples" / "vivi-hut" / "hut_int.field.toml"
+        assert win.open_field(ex), "the bundled example must open"
         win.tabs.setCurrentWidget(win.place_doc)
-        win.place_doc.show_field("hut_int", {"verbatim_eb": {"donor": 351}}, ex)
         _settle(4)
-    elif state in ("fork", "regions"):
+        assert win.place_doc._blocked, "the bundled example must refuse placement"
+    elif state in ("fork", "regions", "multicam"):
         import importlib.util
+        from ff9mapkit import imagefield as _if
+        from ff9mapkit.scene import guide as _guide
         p = REPO / "ff9mapkit" / "tests" / "test_imagefield.py"
         spec = importlib.util.spec_from_file_location("_place_fixture", p)
         mod = importlib.util.module_from_spec(spec)
@@ -1927,40 +2044,61 @@ def _snap_place_body(ctx: _Ctx, state: str) -> None:
         if root.exists():
             shutil.rmtree(root, ignore_errors=True)
         root.mkdir(parents=True, exist_ok=True)
-        photo, _floor = mod._paint_room(root)
+        photo, floor = mod._paint_room(root)
+        # The floor IS the painted floor (P28): its canvas outline un-projected through the camera
+        # the room is painted for (Trace's default rig), so every marker and zone below is placed
+        # by canvas pixel and lands on the art where a reviewer can judge it.
+        cam = _guide.make_camera(_if.DEFAULT_PITCH, _if.DEFAULT_DISTANCE, fov_x_deg=_if.DEFAULT_FOV)
+
+        def w(cx, cy):
+            return _if.click_to_world(cam, (float(cx), float(cy)))
+
+        a, b, c, d = ((x, 0.0, z) for x, z in (w(*pt) for pt in floor))
+        mx, mz = w(110, 340)                           # Mira, on the floor left of the pillar
         pf = root / "PLACEDEMO.field.toml"
         pf.write_text('[field]\nid = 4702\nname = "PLACEDEMO"\narea = 11\nsource_field = 351\n\n'
-                      '[[npc]]\nname = "Mira"\npreset = "vivi"\ndialogue = "..."\npos = [-120, 1100]\n',
-                      encoding="utf-8")
+                      '[[npc]]\nname = "Mira"\npreset = "vivi"\ndialogue = "..."\n'
+                      f'pos = [{round(mx)}, {round(mz)}]\n', encoding="utf-8")
+        if state == "fork":                            # an NPC Blender placed: Place shows it, greyed,
+            bx, bz = w(200, 410)                       # and refuses to move it (a locked marker)
+            (root / "PLACEDEMO.scene.toml").write_text(
+                f'[[npc]]\nname = "Bram"\npos = [{round(bx)}, {round(bz)}]\n', encoding="utf-8")
         assert win.open_field(pf), "the demo fork must open"
         win.tabs.setCurrentWidget(win.place_doc)
         pd = win.place_doc
-        from ff9mapkit.scene import guide as _guide
-        quad = [((-900.0, 0.0, 500.0), (900.0, 0.0, 500.0), (900.0, 0.0, 2600.0)),
-                ((-900.0, 0.0, 500.0), (900.0, 0.0, 2600.0), (-900.0, 0.0, 2600.0))]
         # the rung-7d bundle key shape: (source tuple, cam) — the doc's _bundle() lookups miss
         # an old-style bare-donor key silently (markers/regions would never paint here)
-        key = (("real", 351), 0)
-        pd._bundles[key] = {"donor": 351, "source": ("real", 351), "cam_index": 0, "n_cams": 1,
-                            "cam": _guide.make_camera(26.0, 3000.0, fov_x_deg=42.0),
-                            "png": str(photo), "tris": quad, "floors": [0, 0]}
-        pd._apply_bundle(pd._bundles[key], refit=True)
+        n_cams = 2 if state == "multicam" else 1
+        cams = [cam, _guide.make_camera(_if.DEFAULT_PITCH + 12, _if.DEFAULT_DISTANCE,
+                                        fov_x_deg=_if.DEFAULT_FOV)][:n_cams]
+        for ci, cm in enumerate(cams):
+            pd._bundles[(("real", 351), ci)] = {
+                "donor": 351, "source": ("real", 351), "cam_index": ci, "n_cams": n_cams,
+                "cam": cm, "png": str(photo), "tris": [(a, b, c), (a, c, d)], "floors": [0, 0]}
+        ci = n_cams - 1                                # multicam: placed under camera 1, chosen
+        pd._cam_pick[("real", 351)] = ci               # through the doc's own pick
+        pd._apply_bundle(pd._bundles[(("real", 351), ci)], refit=True)
         if state == "regions":
             pd.tools.set_current("regions")            # the rung-4 tool, through its own strip
+            pd._ask_message = lambda cur: None         # a drawn event asks for its words (P27):
+            pd._ask_field_id = lambda cur: None        # Cancel, so the placeholder warns on the art
             pd.gw_to.setValue(4005)
-            pd._on_region_drawn([(-800.0, 1600.0), (-100.0, 1600.0),  # a CLEAN convex gateway:
-                                 (-100.0, 2400.0), (-800.0, 2400.0)])  # accent, edge + chevron
-            pd._on_region_drawn([(400.0, 1900.0), (900.0, 1900.0),   # overlaps the event below ->
-                                 (900.0, 2600.0), (400.0, 2600.0)])   # the TREADQUAD warn pair
+
+            def zone(*px):
+                return [w(*pt) for pt in px]
+            pd._on_region_drawn(zone((30, 430), (150, 430),     # a CLEAN convex gateway at the
+                                     (160, 395), (45, 395)))    # near edge: edge + chevron
+            pd._on_region_drawn(zone((250, 330), (320, 330),    # overlaps the event below ->
+                                     (330, 370), (255, 370)))   # the TREADQUAD warn pair
             pd.rkind_btns["event"].setChecked(True)
-            pd._on_region_drawn([(100.0, 1600.0), (800.0, 1600.0),
-                                 (800.0, 2200.0), (100.0, 2200.0)])
-            pd._on_region_drawn([(-50.0, 1000.0), (300.0, 600.0),    # a notch-in-hull dart ->
-                                 (300.0, 1200.0), (-400.0, 1200.0)])  # the over-trigger wash
+            pd._on_region_drawn(zone((225, 355), (300, 355),
+                                     (305, 400), (225, 400)))
+            pd._on_region_drawn(zone((180, 250), (200, 200),    # a notch-in-hull dart (corner 0
+                                     (200, 270), (130, 270)))   # inside) -> the over-trigger wash
         else:
             pd.mode_btns["prop"].setChecked(True)      # place a prop through the REAL op path so the
-            pd._apply_hit({"xz": (300.0, 1700.0), "pos": (300.0, 0.0, 1700.0),   # status + marker are true
-                           "floor": 0, "tri": 0, "s": 1.0})
+            px, pz = w(290, 390)                       # status + marker are true
+            pd._apply_hit({"xz": (px, pz), "pos": (px, 0.0, pz), "floor": 0, "tri": 0, "s": 1.0})
         _settle(6)
     else:
         win.tabs.setCurrentWidget(win.place_doc)
@@ -2587,6 +2725,13 @@ DIALOG_OPENERS = {
     # the named 3-button 'a campaign deploy will wipe your New Game entry' confirm -- fabricate a plan
     # + a casualty so the modal has something to name (BuildDoc._confirm_campaign_deploy).
     "campaign-newgame": _open_campaign_newgame,
+    # rung P6: the World tab's Save as prefab dialog, opened by the function its menu entry calls (ask_save), on an
+    # invented draft: a sink (greyed), then an island and the mountain and hill on it (ticked)
+    "prefab-save":   lambda w: __import__("ff9mapkit.workspace.worldprefabsave", fromlist=["ask_save"]).ask_save(
+        w, [{"row": {"table": "sink"}, "label": "sink at 412, -230"},
+            {"row": {"table": "island", "ground": "desert"}, "label": "island r60 seed 5 at 672, -608"},
+            {"row": {"table": "mountain"}, "label": "mountain 19,3 at 664, -604, turned 90"},
+            {"row": {"table": "hill"}, "label": "hill r14 at 650, -590"}], {"desert-isle"}),
 }
 
 
@@ -2608,7 +2753,7 @@ HOME_STATES = ("fresh", "midway", "ready", "veteran", "open")
 TABS = ("build", "import", "coop", "models", "battle", "story", "items")
 DIALOGS = ("new-field", "new-campaign", "new-journey", "fork-regions", "import-fields", "setup", "prefs",
            "about", "concept-map", "infohub", "updates", "fork-battle", "campaign-newgame",
-           "anim-picker", "animset-picker")
+           "anim-picker", "animset-picker", "prefab-save")
 
 
 def all_surfaces() -> list[str]:

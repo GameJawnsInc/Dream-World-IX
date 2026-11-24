@@ -452,7 +452,8 @@ class WorldDoc(QWidget):
                  mountain_runner=None, mountain_seams=None, recipe_runner=None, recipe_seams=None,
                  sink_runner=None, sink_seams=None, coast_runner=None, coast_seams=None, island_runner=None,
                  island_seams=None, transplant_runner=None, transplant_seams=None, river_runner=None,
-                 river_seams=None, hill_runner=None, hill_seams=None):
+                 river_seams=None, hill_runner=None, hill_seams=None, prefab_runner=None, prefab_seams=None,
+                 prefab_save_runner=None, prefab_save_ask=None, prefab_save_tell=None):
         super().__init__()
         self.pal = pal
         self.on_setup = on_setup
@@ -493,6 +494,13 @@ class WorldDoc(QWidget):
         self._hill = None                          # the hill tool (rung 6): built on the first Add-a-hill click
         self._hill_runner = hill_runner
         self._hill_seams = hill_seams or {}
+        self._prefab = None                        # the prefab tool (rung P3): built on the first Add-a-prefab click
+        self._prefab_runner = prefab_runner
+        self._prefab_seams = prefab_seams or {}
+        self._prefab_save_runner = prefab_save_runner   # Save as prefab's job runner (rung P6; a test's seam)
+        self._prefab_save_ask = prefab_save_ask         # its dialog (steps, taken) -> choice or None (a test's seam)
+        self._prefab_save_tell = prefab_save_tell       # its outcome (ok, title, text); default a message box
+        self._prefab_saving = None                      # the save running: its name
         self._recipe = None                        # the recipe bar (rung C3): built with the 3D page
         self._recipe_runner = recipe_runner        # ...its world-fuse runner and its seams (ask, file dialogs)
         self._recipe_seams = recipe_seams or {}
@@ -599,13 +607,16 @@ class WorldDoc(QWidget):
         from PySide6.QtWidgets import QMenu
         self.tools_btn = QPushButton("Edit the map")
         self.tools_btn.setProperty("role", "quiet")
-        self.tools_btn.setToolTip("Add a forest, a mountain, a hill or an island, shape or carry a coast, move the "
-                                  "river or sink an island: each tool's "
+        self.tools_btn.setToolTip("Add a whole prefab landmass, a forest, a mountain, a hill or an island, shape or "
+                                  "carry a coast, move the river or sink an island: each tool's "
                                   "card shows where it is lawful, its own world verb judges it, and Accept writes it to "
                                   "a draft the game does not load.")
         menu = QMenu(self.tools_btn)
         self.tool_actions = {}
         for key, text, tip in (
+                ("prefab", "Add a prefab", "Place a whole landmass in one step -- an island with the mountain, forest "
+                 "or hill carried onto it, or a walked stock island -- from the prefab catalog: pick it, click open "
+                 "ocean; world-prefab holds it to the land its catalog names, and one Undo takes it back."),
                 ("forest", "Add forest", "Place a real stock canopy on a deployed island: click where it goes, drag, "
                  "turn and spread it; every world-forest gate judges it."),
                 ("mountain", "Add mountain", "Place a real stock rock massif on a deployed island: drag, turn, spread "
@@ -620,7 +631,10 @@ class WorldDoc(QWidget):
                  "the donor and the turn, click the cell; world-transplant judges it."),
                 ("river", "Move the river", "Move the carried river, whole, to another open-ocean placement: click "
                  "where it goes; world-river --move-from judges it, the old river taken out only once it passes."),
-                ("sink", "Sink an island", "Sink a real island into open water: click it; world-sink judges it.")):
+                ("sink", "Sink an island", "Sink a real island into open water: click it; world-sink judges it."),
+                ("save_prefab", "Save the draft as a prefab…", "Freeze an island (or carried coast) in the draft and "
+                 "the relief on it as a prefab of your own: world-prefab --save builds it outside the install, holds "
+                 "it to itself at two sites and measures its turns; Add a prefab then offers it.")):
             act = menu.addAction(text)
             act.setToolTip(tip)
             act.triggered.connect(lambda _c=False, k=key: getattr(self, f"open_{k}")())
@@ -949,7 +963,7 @@ class WorldDoc(QWidget):
 
     def _carry_tools(self):
         return [t for t in (self._forest, self._mountain, self._hill, self._sink, self._coast, self._island,
-                            self._transplant, self._river) if t is not None]
+                            self._transplant, self._river, self._prefab) if t is not None]
 
     def _open_carry(self, which, *, sync=False, edit=False):
         """The 3D view first (the tools work on it), then that tool's card under it; one card at a time, and the
@@ -977,6 +991,8 @@ class WorldDoc(QWidget):
                 from .worldriver import RiverTool as Tool
             elif which == "hill":
                 from .worldhill import HillTool as Tool
+            elif which == "prefab":
+                from .worldprefab import PrefabTool as Tool
             else:
                 from .worldmountain import MountainTool as Tool
             tool = Tool(self.pal, self._view3d, game_fn=lambda: self._game, source_fn=lambda: self._census.root,
@@ -1035,14 +1051,96 @@ class WorldDoc(QWidget):
         """The Add-a-hill menu entry."""
         return self._open_carry("hill", sync=sync)
 
+    def open_prefab(self, *, sync=False):
+        """The Add-a-prefab menu entry."""
+        return self._open_carry("prefab", sync=sync)
+
     def open_river(self, *, sync=False):
         """The Move-the-river menu entry."""
         return self._open_carry("river", sync=sync)
 
+    # -- Save as prefab (rung P6) --
+    def open_save_prefab(self):
+        """The Save-the-draft-as-a-prefab menu entry: the dialog on the draft's steps, then ``world-prefab --save`` as a
+        job (the draft is only read). Returns the argv started, or None."""
+        from .worldprefabsave import ask_save, offered, save_argv
+        bar = self._recipe
+        if bar is None or self._prefab_saving is not None:
+            return None
+        d, steps = bar.draft(), bar.steps()
+        if d is None or not any(offered(s["row"]) for s in steps):
+            self._prefab_note("Nothing to save as a prefab yet: the draft needs an island or a carried coast "
+                              "(Add an island, Carry a coast), and the forest, mountain or hill on it.", "warn")
+            return None
+        from ..world import prefab as PF
+        try:
+            taken = {p["name"] for p in PF.load_catalog()}
+        except ValueError as e:
+            self._prefab_note(f"Your prefab catalog does not read: {e}", "error")
+            return None
+        val = (self._prefab_save_ask or ask_save)(self, steps, taken)
+        if not val:
+            return None
+        import tempfile
+        from pathlib import Path
+        from .worldforest import JobRunner, kit_cwd
+        report = Path(tempfile.mkdtemp(prefix="ff9-prefab-save-")) / "verdict.json"
+        argv = save_argv(self._game, d, val["name"], val["picked"], note=val["note"], turns=val["turns"],
+                         report=report)
+        if self._prefab_save_runner is None:
+            self._prefab_save_runner = JobRunner()
+        self._prefab_saving = val["name"]
+        from .worldprefabsave import SAVE_TIME
+        self._prefab_note(f"Saving {val['name']} as a prefab: {SAVE_TIME}.", "")
+        act = self.tool_actions.get("save_prefab")
+        if act is not None:                             # (a second click is not silent: the entry says why)
+            act.setText(f"Saving {val['name']} as a prefab…")
+            act.setEnabled(False)
+        self._prefab_save_runner.start(argv, kit_cwd(),
+                                       lambda code, text: self._prefab_saved(val, report, code, text))
+        return argv
+
+    def _prefab_note(self, text, state):
+        if self._recipe is not None:
+            widgets.set_state(self._recipe.status_lbl, state)
+            self._recipe.status_lbl.setText(text)
+
+    def _prefab_tell(self, ok, title, text):
+        if self._prefab_save_tell is not None:
+            self._prefab_save_tell(ok, title, text)
+            return
+        from PySide6.QtWidgets import QMessageBox
+        (QMessageBox.information if ok else QMessageBox.warning)(self, title, text)
+
+    def _prefab_saved(self, val, report, code, text):
+        import json
+        self._prefab_saving = None
+        act = self.tool_actions.get("save_prefab")
+        if act is not None:
+            act.setText("Save the draft as a prefab…")
+            act.setEnabled(True)
+        try:
+            v = json.loads(report.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            v = None
+        if code != 0 or not v or v.get("refused"):
+            why = ((v or {}).get("refused") or {}).get("message") or (
+                [ln for ln in text.splitlines() if ln.strip()][-1:] or [f"exit code {code}"])[0]
+            self._prefab_note(f"Not saved as a prefab: {why}", "error")
+            self._prefab_tell(False, "Not saved as a prefab", f"{val['name']} was not saved: {why}")
+            return
+        turns = ", ".join(str(t) for t in v.get("turns") or [0])
+        said = (f"Saved {v['name']} as a prefab ({len(v.get('footprint') or ())} blocks, turns {turns}): "
+                f"Add a prefab offers it, marked new until you walk it in game.")
+        self._prefab_note(said, "ok")
+        self._prefab_tell(True, "Saved as a prefab", said)
+        if self._prefab is not None:
+            self._prefab.reload_catalog()
+
     # -- a placed step (rung C9) --
     EDIT_CARDS = {"forest": "forest", "mountain": "mountain", "hill": "hill", "island": "island",
                   "transplant": "transplant", "sink": "sink", "morph": "coast",
-                  "river": "river"}                    # a table -> the card that opens on its rows
+                  "river": "river", "prefab": "prefab"}   # a table -> the card that opens on its rows
 
     def _mark_step(self, step):
         """Mark the picked step's place on the view (a pin at its anchor), or clear the mark; a card's own drawing
