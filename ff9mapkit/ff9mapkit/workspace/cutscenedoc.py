@@ -34,9 +34,9 @@ import threading
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPen
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QPlainTextEdit, QPushButton, QScrollArea, QSlider, QSplitter, QStackedLayout,
-    QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QPlainTextEdit, QPushButton, QScrollArea, QSlider, QSplitter, QStackedLayout, QStyle,
+    QStyledItemDelegate, QStyleOptionViewItem, QVBoxLayout, QWidget,
 )
 
 from .. import dialogue as _dlg
@@ -85,6 +85,12 @@ class CutsceneStage(StageCanvas):
         redraws until the host replaces them — a redraw must not silently un-say a stall."""
         self._verdict_rows = list(rows or [])
         self._draw()
+
+    def reveal_verdict(self, v):
+        """Bring one verdict's stall point (and its label above/right of it) into view from its
+        own DOCUMENT point: scrolls only when needed, never zooms -- the author's zoom stays."""
+        sx, sy = self._pt(*v["b"])
+        self.ensureVisible(sx, sy, 1, 1, 140, 60)
 
     def set_selected_step(self, idx):
         if idx == self._selected_step:
@@ -659,6 +665,23 @@ class StepLadder(QWidget):
         return frame
 
 
+class _WrapHintDelegate(QStyledItemDelegate):
+    """A word-wrapped row's height, measured at the width the row's text is PAINTED at. The
+    stock hint wraps at the whole row width while the sheet's item padding and rail narrow the
+    painted text, so a long sentence lost its last line to an ellipsis."""
+
+    def sizeHint(self, option, index):             # noqa: N802 (Qt override)
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        w = opt.widget
+        st = w.style() if w is not None else QApplication.style()
+        inset = opt.rect.width() - st.subElementRect(
+            QStyle.SubElement.SE_ItemViewItemText, opt, w).width()
+        if 0 < inset < opt.rect.width():
+            opt.rect.setWidth(opt.rect.width() - inset)
+        return super().sizeHint(opt, index)
+
+
 class CutsceneDoc(QWidget):
     """The Cutscene tab. The shell feeds it the OPEN field's parsed dict (``show_field``) on
     tab show / tree select — never a file read; the doc's ONE disk touch is the staging
@@ -696,6 +719,7 @@ class CutsceneDoc(QWidget):
         #                                            only the selected scene's (_paint_verdicts)
         self._stage_busy = False
         self._stage_armed = False                  # first EXPLICIT check arms auto re-judges
+        self._stage_explicit = False               # the run in flight is the button's, not a re-judge
         self._stage_gen = 0                        # field switch/close drops in-flight results
         self._stage_done.connect(self._finish_stage)
         self._restage_timer = QTimer(self)
@@ -964,6 +988,14 @@ class CutsceneDoc(QWidget):
         v.addWidget(self.stage_note)
         self.stage_list = QListWidget()
         self.stage_list.setAccessibleName("Cutscene staging problems")
+        self.stage_list.setToolTip("Click a problem to select its step and show it on the stage.")
+        # the docked inspector is narrow: the build's sentence WRAPS (a sideways-scrolling list
+        # showed a stub of it), and a row is a door to its step and its spot on the stage
+        self.stage_list.setWordWrap(True)
+        self.stage_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.stage_list.setResizeMode(QListWidget.ResizeMode.Adjust)   # re-wrap when docked
+        self.stage_list.setItemDelegate(_WrapHintDelegate(self.stage_list))
+        self.stage_list.itemClicked.connect(self._on_stage_item)
         self.stage_list.setVisible(False)
         v.addWidget(self.stage_list, 1)
         self.toml_btn = QPushButton("Open the .toml")
@@ -1657,6 +1689,7 @@ class CutsceneDoc(QWidget):
         raw = self._merged()
         if self._stage_busy or self._raw is None:
             return
+        self._stage_explicit = not warm            # only the author's own check moves the view
         if not cutscenescan.has_cast_scene(raw):
             res = cutscenescan.StagingResult(
                 scenes=len(cutscenescan.scene_rows(raw)))
@@ -1727,21 +1760,51 @@ class CutsceneDoc(QWidget):
         self.stage_note.setText(res.summary())
         widgets.set_state(self.stage_note,
                           "warn" if (res.warnings or res.skipped or res.error) else "")
-        self.stage_list.clear()
-        for w in res.warnings:
-            self.stage_list.addItem(f"⚠ {w}")
-        for lbl, why in res.skipped:
-            self.stage_list.addItem(f"? {lbl} not checked — {why}")
-        self.stage_list.setVisible(self.stage_list.count() > 0)
         self._verdicts = list(rows or [])
         if getattr(self, "_stage_moved", False):   # the scenes were edited while this ran: a stall
             self._stage_moved = False              # would paint on whichever scene now has its
             self._verdicts = []                    # number. Paint nothing; judge the doc as it is.
             if self._stage_armed and self._wmesh is not None:
                 self._restage_timer.start()
+        self.stage_list.clear()
+        unused = list(self._verdicts)              # each sentence is ONE verdict row's own text
+        for w in res.warnings:                     # (stage_verdicts is parity-fenced to it)
+            v = next((r for r in unused if r["text"] == w), None)
+            if v is not None:
+                unused.remove(v)
+            self._stage_item(f"⚠ {w}", v)
+        for lbl, why in res.skipped:
+            k = int(lbl.split("#")[1]) if "#" in lbl else 0
+            self._stage_item(f"? {lbl} not checked — {why}", {"scene": k})
+        self.stage_list.setVisible(self.stage_list.count() > 0)
         self._paint_verdicts()
+        if self._stage_explicit:                   # the author asked: show them where it stalls
+            mine = [r for r in self._verdicts if r.get("scene") == self._scene]
+            if mine:
+                self.canvas.reveal_verdict(mine[0])
         if self.board_btn.isChecked():
             self._refresh_board()                  # the warm mesh upgrades straight legs to routes
+
+    def _stage_item(self, text, where):
+        self.stage_list.addItem(text)
+        self.stage_list.item(self.stage_list.count() - 1).setData(Qt.ItemDataRole.UserRole, where)
+
+    def _on_stage_item(self, item):
+        """A staging row is a door: select its scene and step, and show its stall on the stage
+        (scrolled into view from the verdict's own point; the zoom stays the author's)."""
+        where = item.data(Qt.ItemDataRole.UserRole)
+        if not where or self._raw is None:
+            return
+        k = where["scene"]
+        if k != self._scene:
+            self.rail.setCurrentRow(k)             # the rail's own path (a dirty editor refuses)
+            if self._scene != k:
+                return
+        step = where.get("step")
+        if step is not None and step != self._selected_step:
+            self._on_step_select(step)
+        if "b" in where:
+            self.canvas.reveal_verdict(where)
 
     def _paint_verdicts(self):
         """The stage shows ONE scene, so it paints only that scene's verdicts: another scene's

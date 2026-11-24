@@ -399,6 +399,72 @@ def test_a_stall_paints_only_on_its_own_scene(doc, tmp_path):
     assert _tags(doc.canvas)["verdict"] == 0, "switching back re-filters"
 
 
+def _shown_stall(doc, tmp_path):
+    """The stalling field, the doc and its instruments shown (hidden on screen), and the
+    author zoomed in 2x on Cid's start post -- the stall at (2000, 2000) is out of view."""
+    from PySide6.QtCore import QPointF
+    doc.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+    doc.instruments.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+    doc.resize(1000, 700)
+    doc.instruments.resize(260, 600)
+    doc.show()
+    doc.instruments.show()
+    _fed(doc, tmp_path, FIELD_TOML.replace('walk = "altar"', "walk = [2000, 2000]"))
+    QApplication.processEvents()
+    c = doc.canvas
+    c._fit_pending = False
+    c.resetTransform()
+    c.scale(2.0, 2.0)
+    c._zoom = 2.0
+    c.centerOn(QPointF(*c._pt(0, 400)))
+    QApplication.processEvents()
+    return c
+
+
+def _stall_in_view(c):
+    from PySide6.QtCore import QPointF
+    v = c._verdict_rows[0]
+    p = c.mapFromScene(QPointF(*c._pt(*v["b"])))
+    return c.viewport().rect().adjusted(20, 20, -20, -20).contains(p)
+
+
+def test_an_explicit_check_brings_its_stall_into_view_and_keeps_the_zoom(doc, tmp_path):
+    """C35: a stall outside the fitted bounds painted off screen (the same-scene re-render keeps
+    the author's zoom, rightly) and the stage showed no marker until Ctrl+0."""
+    c = _shown_stall(doc, tmp_path)
+    doc.stage_now(sync=True)
+    QApplication.processEvents()
+    assert c._verdict_rows, "the fixture stalls"
+    assert _stall_in_view(c), "the stall painted outside the view"
+    assert c.transform().m11() == 2.0, "the author's zoom must survive"
+    # an automatic re-judge never moves the view the author has panned
+    c.centerOn(*c._pt(0, 400))
+    QApplication.processEvents()
+    doc.stage_now(sync=True, warm=True)
+    assert not _stall_in_view(c)
+
+
+def test_a_staging_row_wraps_and_takes_you_to_its_step_and_stall(doc, tmp_path):
+    """C22: the docked list showed a stub of the build's sentence ('walk ta') and a row did
+    nothing when clicked. It wraps now, and a click selects the scene and step and shows the
+    stall on the stage."""
+    from PySide6.QtTest import QTest
+    sl = doc.stage_list
+    assert sl.wordWrap() and \
+        sl.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    c = _shown_stall(doc, tmp_path)
+    doc.rail.setCurrentRow(1)                          # another scene is showing
+    doc.stage_now(sync=True)
+    QApplication.processEvents()
+    assert sl.count() == 1 and "step 0" in sl.item(0).text()
+    QTest.mouseClick(sl.viewport(), Qt.MouseButton.LeftButton,
+                     pos=sl.visualItemRect(sl.item(0)).center())
+    QApplication.processEvents()
+    assert doc._scene == 0 and doc.rail.currentRow() == 0
+    assert doc._selected_step == 0
+    assert _stall_in_view(c) and c.transform().m11() == 2.0
+
+
 def test_a_clean_staging_says_so_and_paints_nothing(doc, tmp_path):
     _fed(doc, tmp_path)
     doc.stage_now(sync=True)
