@@ -160,7 +160,14 @@ class TraceDoc(QWidget):
                                                       # change re-judges, exactly like vertices)
         self._history = []                            # prior snapshots, one per gesture (undo)
         self._region_rows_cache = []                  # the last judged canvas feed
-        self._region_back = []                        # feed row -> self._regions index
+        self._region_back = []                        # feed row -> the row it shows (by identity):
+        #                                               a session region, or a _context row
+        # the project file's OWN [[gateway]]/[[event]] rows -- a door drawn in Place, a zone written
+        # by hand (finding E12): drawn and judged by the overlap law as CONTEXT, nothing else. Never
+        # in the argv, the zone count, the record or the unsaved test; every gesture on one is
+        # refused here. Re-read whenever the tab reads the project file.
+        self._context = []
+        self._context_error = ""                      # why the file's own rows could not be read
         self._project = None                          # {"out", "name", "fid"} after a Generate:
                                                       # later Generates go IN PLACE (no dialog)
         self._stamped = True                          # False = gestures since the last Generate
@@ -525,7 +532,7 @@ class TraceDoc(QWidget):
         self.pitch_label.setText(f"{self.pitch.value()}° · {where}{pose}")
         good, bad = self._valid_count()
         fg_invalid, fg_unattached = self._fg_problems()
-        _shim, _back, rg_bad = self._region_shim()
+        _shim, _back, rg_bad, ctx_hidden = self._region_shim()
         rg_untargeted = sum(1 for r in self._regions
                             if r["kind"] == "gateway" and not r.get("to"))
         crossed = self._outline_problem()
@@ -595,7 +602,7 @@ class TraceDoc(QWidget):
                         warns.append(f"⚠ {rg_bad} zone{'' if rg_bad == 1 else 's'} above the "
                                      f"horizon, hidden — slide the pitch back to see "
                                      f"{'it' if rg_bad == 1 else 'them'}")
-                note = " · ".join(warns + [note])
+                note = self._context_note(ctx_hidden) + " · ".join(warns + [note])
         if self._project and not self._stamped:        # edits the project on disk doesn't have
             stamp = f"⚠ not stamped — Regenerate {self._project['name']} to update the project"
             # an explicit error (a refusal) still leads: it is what the click just ran into
@@ -750,6 +757,7 @@ class TraceDoc(QWidget):
         self._floor = []
         self._fg = []                                  # old contacts mean nothing on new art
         self._regions = []                             # nor do old zones
+        self._context, self._context_error = [], ""    # nor another project's own rows (E12)
         self._history = []
         self._project = None                           # a new photo is a NEW project
         self._distance = imagefield.DEFAULT_DISTANCE   # a new photo shoots on the default rig
@@ -861,13 +869,16 @@ class TraceDoc(QWidget):
 
     def _region_shim(self):
         """The session's regions as the doc-dict shape ``placedoc.region_rows`` judges — ONE
-        owner of the labels + both region laws for every host. Returns (shim, map) where map
-        takes the shim's (kind, per-kind index) back to ``self._regions`` indices; rows with an
-        above-horizon corner are left OUT of the shim (counted in the status instead)."""
+        owner of the labels + both region laws for every host. Returns (shim, map, bad, hidden)
+        where map takes the shim's (kind, per-kind index) back to the ROW it came from (a session
+        region or a project context row, by identity); session rows with an above-horizon corner
+        are left OUT of the shim (``bad``, counted in the status instead). The project's own rows
+        (E12) ride in the shim as they are in the file -- world zones, so the overlap law judges
+        them at any pitch; ``hidden`` counts those the canvas cannot draw at this one."""
         shim = {"gateway": [], "event": []}
         back = {}
-        bad = 0
-        for ri, r in enumerate(self._regions):
+        bad = hidden = 0
+        for r in self._regions:
             worlds = self._region_worlds(r["quad"])
             if any(w is None for w in worlds):
                 bad += 1
@@ -882,19 +893,105 @@ class TraceDoc(QWidget):
                     row["entrance"] = r["entrance"]
             else:
                 row["message"] = r.get("message") or "..."
-            back[(kind, len(shim[kind]))] = ri
+            back[(kind, len(shim[kind]))] = r
             shim[kind].append(row)
-        return shim, back, bad
+        cam = self.canvas.camera()
+        for c in self._context:                        # AFTER the session's: door0 stays door0
+            kind = c["kind"]
+            row = {"name": f"{c.get('name') or kind} (project)", "zone": c["zone"]}
+            if kind == "gateway":
+                row["to"] = c.get("to")
+                if c.get("entrance"):
+                    row["entrance"] = c["entrance"]
+            try:
+                for p in c["zone"]:
+                    imagefield.world_to_click(cam, (float(p[0]), float(p[1])))
+            except imagefield.ImageFieldError:
+                hidden += 1
+            back[(kind, len(shim[kind]))] = c
+            shim[kind].append(row)
+        return shim, back, bad, hidden
 
     def _refresh_regions(self):
         """Feed the canvas from the session's regions, laws judged (the placedoc derivation —
-        one owner). The row list is kept for gesture routing."""
+        one owner). The row list is kept for gesture routing. A project row keeps only the
+        overlap law's verdict, and only on the session row it judges: its own flags (a target,
+        a placeholder message) are the Place tab's and the Editor's to show (E12)."""
         from . import placedoc
-        shim, back, _bad = self._region_shim()
+        shim, back, _bad, _hidden = self._region_shim()
         rows = placedoc.region_rows(shim)
-        self._region_rows_cache = rows
         self._region_back = [back[(r["kind"], r["index"])] for r in rows]
+        for r, row in zip(rows, self._region_back):
+            if self._is_context(row):
+                r["warn"] = None
+        self._region_rows_cache = rows
         self.canvas.set_regions(rows)
+
+    def _is_context(self, row):
+        return any(row is c for c in self._context)
+
+    def _session_region(self, i):
+        """The session region behind canvas row ``i`` -- or None, having REFUSED, when the row is
+        the project's own (E12): it is redrawn from the file (a drag snaps back) and the status
+        says where it can be changed."""
+        if not 0 <= i < len(self._region_back):
+            return None
+        row = self._region_back[i]
+        if not self._is_context(row):
+            return row
+        what = "door" if row["kind"] == "gateway" else "zone"
+        self._refresh_regions()
+        self._refresh(f"{row.get('name') or what} is the project's own {what}, not this trace's — "
+                      f"move, change or delete it in the Place tab or the Editor.", "warn")
+        return None
+
+    def _read_context(self, toml):
+        """Re-read the project file's own gateway and event rows as context (E12). True when
+        they changed. A file that cannot be read leaves none, and says so on the status."""
+        import tomllib
+        try:
+            data = tomllib.loads(Path(toml).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            said = f"⚠ could not read the project's own doors and zones ({e}) · "
+            changed = bool(self._context) or said != self._context_error
+            self._context, self._context_error = [], said
+            return changed
+        was_error, self._context_error = bool(self._context_error), ""   # readable: the note goes
+        # a project from before the traced_ prefix calls its traced doors door0/zone0: one whose
+        # quad the session re-emits is the session's own -- the regenerate merge replaces it with
+        # the session's (imagefield.merge_project_toml), so it is not drawn twice
+        twins = set()
+        if not imagefield._has_traced_rows(data):
+            for r in self._regions:
+                worlds = self._region_worlds(r["quad"])
+                if all(w is not None for w in worlds):
+                    twins.add((r["kind"], imagefield._zone_key(worlds)))
+        ctx = []
+        for kind in ("gateway", "event"):
+            for e in data.get(kind) or []:
+                if not isinstance(e, dict) or imagefield.is_generated_region(kind, e.get("name")):
+                    continue
+                try:                                   # no zone to draw: region_rows' own rule
+                    z = [(float(p[0]), float(p[1])) for p in e.get("zone")]
+                except (TypeError, ValueError, IndexError):
+                    continue
+                if len(z) not in (4, 5):
+                    continue
+                if (kind, imagefield._zone_key(z)) in twins:
+                    continue
+                ctx.append({"kind": kind, "name": e.get("name"), "zone": z, "to": e.get("to"),
+                            "entrance": e.get("entrance")})
+        if ctx == self._context and not was_error:
+            return False
+        self._context = ctx
+        return True
+
+    def _context_note(self, hidden=None):
+        """The status clause for the project's own rows this pitch cannot draw ('' when none)."""
+        if hidden is None:
+            hidden = self._region_shim()[3]
+        return self._context_error + (f"⚠ {hidden} of the project's own doors and zones cannot "
+                                      f"be drawn at this pitch · " if hidden else "")
 
     def _on_region_drawn(self, quad_world):
         """Four accepted clicks: store the quad in CANVAS px (the authoring truth — the exact
@@ -923,7 +1020,8 @@ class TraceDoc(QWidget):
         self._refresh(note)
 
     def _on_region_changed(self, i, quad_world):
-        if not 0 <= i < len(getattr(self, "_region_back", [])):
+        r = self._session_region(i)
+        if r is None:
             return
         cam = self.canvas.camera()
         try:
@@ -934,25 +1032,24 @@ class TraceDoc(QWidget):
                           "kept its old shape. Drag the corner lower on the photo.", "warn")      # and say so
             return
         self._push_history()
-        self._regions[self._region_back[i]]["quad"] = quad_px
+        r["quad"] = quad_px
         self._refresh_regions()
         self._refresh("region reshaped")
 
     def _on_region_deleted(self, i):
-        if not 0 <= i < len(getattr(self, "_region_back", [])):
+        r = self._session_region(i)
+        if r is None:
             return
         self._push_history()
-        del self._regions[self._region_back[i]]
+        self._regions = [q for q in self._regions if q is not r]
         self._refresh_regions()
         self._refresh("region deleted")
 
     def _on_region_retarget(self, i):
         """Retarget a drawn door in place (the Field(0) black-screen lesson: the 'to field' box
         feeds NEW draws only, so an already-drawn door needs its own edit path)."""
-        if not 0 <= i < len(getattr(self, "_region_back", [])):
-            return
-        r = self._regions[self._region_back[i]]
-        if r["kind"] != "gateway":
+        r = self._session_region(i)
+        if r is None or r["kind"] != "gateway":
             return
         to = self._ask_field_id(r.get("to") or 0)
         if to is None:
@@ -965,10 +1062,8 @@ class TraceDoc(QWidget):
     def _on_region_reword(self, i):
         """Reword a drawn event zone in place (its message lives in this SESSION — the photo
         lane's toml is regenerated, so there is no other editor for it)."""
-        if not 0 <= i < len(getattr(self, "_region_back", [])):
-            return
-        r = self._regions[self._region_back[i]]
-        if r["kind"] != "event":
+        r = self._session_region(i)
+        if r is None or r["kind"] != "event":
             return
         cur = r.get("message") or ""
         text = self._ask_message("" if cur == "..." else cur)
@@ -1234,6 +1329,8 @@ class TraceDoc(QWidget):
         if proj is None or self._project is not proj:
             return
         name, out = proj["name"], proj["out"]
+        if Path(toml).is_file() and self._read_context(toml):   # the file was rewritten (E12)
+            self._refresh_regions()
         if first and not Path(toml).is_file():
             self._project = None
             self._refresh("Generate failed — no field.toml was written. See the Output panel, fix "
@@ -1383,10 +1480,13 @@ class TraceDoc(QWidget):
         self._project = {"out": str(Path(path).parent), "name": self.name_box.text(),
                          "fid": data.get("id")}
         self._stamped = True                           # the record IS the project's state
+        tomls = sorted(Path(path).parent.glob("*.field.toml"))   # one field per folder
+        if tomls:
+            self._read_context(tomls[0])
         self._refresh_cutouts()
         self._refresh_regions()
         drift = self._pitch_drift_note(data.get("pitch", imagefield.DEFAULT_PITCH))
-        drift += self._crossed_note()
+        drift += self._crossed_note() + self._context_note()
         self._refresh(drift + f"Reopened {Path(path).name} — Generate updates the project in "
                               f"place.", "warn" if drift else "")
 
@@ -1501,10 +1601,11 @@ class TraceDoc(QWidget):
             self.id_box.setText(str(fid))
         self._project = {"out": str(path.parent), "name": name, "fid": fid}
         self._stamped = True                           # rebuilt FROM the project = in sync
+        self._read_context(path)
         self._refresh_cutouts()
         self._refresh_regions()
         drift = self._pitch_drift_note(cam_tbl.get("pitch", imagefield.DEFAULT_PITCH))
-        drift += self._crossed_note()
+        drift += self._crossed_note() + self._context_note()
         how =("" if lead else " (no .trace.json yet; the next Generate writes one)")
         self._refresh((f"{lead} " if lead else "") + drift
                       + f"Reopened {path.name} — session REBUILT from the compiled project{how}. "
@@ -1522,7 +1623,12 @@ class TraceDoc(QWidget):
             return
         cur = Path(self._project["out"]) if self._project else None
         if cur is not None and Path(self._offer_path).parent == cur:
-            return                                     # already this project
+            # already this project: its own rows may have moved since (a door drawn in Place and
+            # saved) -- re-read them (E12); the status changes only when they did
+            if Path(self._offer_path).is_file() and self._read_context(self._offer_path):
+                self._refresh_regions()
+                self._refresh()
+            return
         pristine = self._image is None and not self._floor and not self._fg
         if pristine:
             try:
