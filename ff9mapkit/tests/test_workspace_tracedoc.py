@@ -387,6 +387,33 @@ def test_a_snip_becomes_a_positionable_overlay(app, tmp_path, monkeypatch):
     assert doc.gen_btn.isEnabled()
 
 
+@pytest.mark.parametrize("name,size,full", [("snip@2x.png", (531, 473), False),
+                                            ("frame@2x.png", (768, 896), True)])
+def test_a_cut_out_named_at_2x_previews_at_its_real_size(app, tmp_path, monkeypatch, name, size,
+                                                         full):
+    """Finding V1: Qt loads a file named '...@2x.png' with device pixel ratio 2, so the canvas drew
+    the snip at half its rect (a full frame at a quarter of the frame) while the build ships the
+    file's real size. The preview must cover exactly the rect the build will use."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    doc, _run, _ = _snip_doc(app, tmp_path, monkeypatch)
+    png = tmp_path / name
+    Image.new("RGBA", size, (10, 20, 30, 128)).save(png)
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: str(png))
+    doc.on_fg_attach()
+    f = doc._fg[0]
+    assert f["pm"].devicePixelRatio() == 1
+    (item,) = [it for it in doc.canvas._scene.items() if it.data(0) == "cutoutimg"]
+    got = item.sceneBoundingRect()
+    if full:
+        want = (0.0, 0.0, 384.0, 448.0)
+    else:
+        (cut,) = doc.canvas._cutouts
+        want = cut["rect"]
+    assert all(abs(a - b) < 0.6 for a, b in
+               zip((got.x(), got.y(), got.width(), got.height()), want)), (got, want)
+
+
 def test_dragging_a_snip_moves_its_anchor_and_rederives_z(app, tmp_path, monkeypatch):
     pytest.importorskip("PIL")
     doc, _, _ = _snip_doc(app, tmp_path, monkeypatch)

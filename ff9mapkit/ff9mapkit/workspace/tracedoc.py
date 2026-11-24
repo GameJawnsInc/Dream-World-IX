@@ -452,6 +452,9 @@ class TraceDoc(QWidget):
         f["size"] = (sw, sh)
         f["opaque"] = opaque
         f["pm"] = QPixmap(str(path))
+        # Qt gives a file named '...@2x.png' device pixel ratio 2, and the canvas would draw it at
+        # half the size the build ships (finding V1): a cut-out's pixels are photo pixels
+        f["pm"].setDevicePixelRatio(1)
         pw, ph = self._photo_wh()
         frame = imagefield.CANVAS_W / imagefield.CANVAS_H
         # the photo's aspect, OR the build's own 384:448 frame -- which the build fills 1:1 and
