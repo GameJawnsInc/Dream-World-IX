@@ -2473,6 +2473,18 @@ def test_detect_floor_is_a_floor_tool_control(app, tmp_path):
     assert not doc.detect_btn.isVisible()
 
 
+def test_a_field_that_is_not_a_trace_project_keeps_the_opening_teach_first(app, tmp_path):
+    """Batch 4 left (T39): with nothing loaded, selecting a field in the tree replaced the opening
+    teach with '<field> was not loaded here'. The teach stays; the note follows it."""
+    doc, _ = _doc(app)
+    teach = doc.status.text()
+    plain = tmp_path / "plain.field.toml"
+    plain.write_text('[field]\nid = 4003\nname = "X"\narea = 11\n', encoding="utf-8")
+    doc.offer_project(plain)
+    said = doc.status.text()
+    assert said.startswith(teach) and "plain.field.toml (the open field) was not loaded here" in said, said
+
+
 def test_a_stopped_regenerate_says_stopped(app, tmp_path, monkeypatch):
     pytest.importorskip("PIL")
     stop = []

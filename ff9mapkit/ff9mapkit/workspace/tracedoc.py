@@ -127,6 +127,8 @@ def first_out(parent, image, name) -> Path:
 class TraceDoc(QWidget):
     """Trace a photo into a walkable field, entirely on the art. ``run`` = ``shell.run_job``."""
 
+    _TEACH = "Open an image to begin."                 # the bare tab's status
+
     def __init__(self, pal, kit_root, *, run, problems=None, scale=100, on_generated=None,
                  can_generate=None, on_regenerated=None, was_stopped=None):
         super().__init__()
@@ -696,7 +698,7 @@ class TraceDoc(QWidget):
         self._refresh_fg_strip()
         if not note:
             if self._image is None:
-                note = "Open an image to begin."
+                note = self._TEACH
             elif not self._floor:
                 note = ("Click the floor's outline in order — only below the horizon counts (the "
                         "Pitch readout says where it is) — drag a vertex to adjust, right-click "
@@ -1817,8 +1819,9 @@ class TraceDoc(QWidget):
                 self._offer_rejected = self._offer_path
                 # said, quietly (muted, not an error): the author did not ask for this load, but
                 # a project that half-looked like one used to vanish with no reason (T16)
-                self._refresh(f"{Path(self._offer_path).name} (the open field) was not loaded "
-                              f"here: {e}")
+                # after the opening teach, never instead of it (batch 4's T39 leftover)
+                self._refresh(f"{self._TEACH} · {Path(self._offer_path).name} (the open field) "
+                              f"was not loaded here: {e}")
             return
         self.offer_btn.setText(f"Load {Path(self._offer_path).stem.replace('.field', '')} "
                                f"(the open field)")
