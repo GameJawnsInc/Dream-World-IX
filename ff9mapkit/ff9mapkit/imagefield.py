@@ -607,6 +607,12 @@ def _grow_floor(world) -> tuple:
         return grow(None)
 
 
+def walk_edge(world) -> list:
+    """The ring of the walkmesh the build cuts for this traced floor (world units) -- what
+    :func:`_grow_floor` grows, so a preview of the walkable edge draws exactly what ships."""
+    return _grow_floor(world)[0]
+
+
 def floor_spawn(world) -> tuple:
     """Where the player starts: the vertex mean when it lies ON the traced floor (every convex
     floor -- the value the kit always wrote), else the centre of the floor's largest triangle,

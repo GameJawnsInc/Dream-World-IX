@@ -211,6 +211,24 @@ def test_outset_preview_rings_the_polygon(app):
     assert min(xs) < 20 and max(xs) > 364 and max(ys) > 440
 
 
+def test_outset_preview_is_the_ring_the_build_emits(app):
+    """The dashed walk-edge preview and the build share ONE owner (``imagefield._grow_floor``).
+    At a tip sharper than the miter limit the build bevels (finding T4); a preview that still
+    called the bare ``outset_polygon`` drew the unlimited spike the build no longer ships."""
+    c, cam, _ = _trace_canvas(app)
+    tip = [(192, 250), (230, 430), (154, 430)]
+    c.set_floor(tip)
+    world = [IF.click_to_world(cam, p) for p in tip]
+    built = [IF.world_to_click(cam, v) for v in IF._grow_floor(world)[0]]
+    spike = IF.outset_polygon(world, IF.COLLISION_OUTSET)
+    assert len(built) != len(spike), "the fixture must be a floor the build bevels"
+    rings = [it for it in c._scene.items() if it.data(0) == "outset"]
+    assert len(rings) == 1
+    got = [(p.x(), p.y()) for p in rings[0].polygon()]
+    assert len(got) == len(built), "the preview is not the ring the build emits"
+    assert all(math.hypot(g[0] - b[0], g[1] - b[1]) < 1e-3 for g, b in zip(got, built))
+
+
 def test_pitch_change_marks_bad_vertices_and_suspends_outset(app):
     """Canvas px stay the truth: a camera swap re-judges every vertex. The two back vertices
     land above the shallower camera's horizon -> error-marked with the refusal tooltip, and

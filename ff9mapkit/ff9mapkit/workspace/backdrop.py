@@ -1140,14 +1140,14 @@ class BackdropCanvas(QGraphicsView):
             self._trace_items.append({"anchor": anchor, "i": i})
 
     def _draw_outset(self, worlds):
-        """The +48u collision-outset ring the build will actually emit, derived through the
-        SAME conversions (world outset -> re-projected per vertex). Suspended while any vertex
-        is invalid — a preview computed from partial geometry would lie."""
+        """The +48u collision-outset ring the build will actually emit: the build's OWN ring
+        (``imagefield.walk_edge`` -- repeats dropped, sharp tips bevelled), re-projected per
+        vertex. Suspended while any vertex is invalid, and for an outline the build refuses —
+        a preview computed from partial geometry would lie."""
         if len(worlds) < 3 or any(w is None for w in worlds):
             return
         try:
-            grown = imagefield.outset_polygon([tuple(w) for w in worlds],
-                                              imagefield.COLLISION_OUTSET)
+            grown = imagefield.walk_edge([tuple(w) for w in worlds])
             ring = [imagefield.world_to_click(self._cam, g) for g in grown]
         except imagefield.ImageFieldError:
             return
