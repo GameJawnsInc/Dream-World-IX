@@ -1009,7 +1009,9 @@ def test_a_class_rank_collapses_to_one_counted_label(doc):
 
 def test_overlapping_labels_take_distinct_tiers(doc):
     """Two units on the SAME spot: the de-collision pass moves one label to a free
-    tier (labels are screen px, so the fence reads the text items' y offsets)."""
+    place -- the other side of the shared marker first, then a free tier (labels are screen
+    px, so the fence reads the text items' own rects relative to the anchor)."""
+    from PySide6.QtWidgets import QGraphicsSimpleTextItem
     raw = {"field": {"name": "STACK"}, "player": {"spawn": [0, -900]},
            "npc": [{"name": "twin_a", "pos": [100, 100]},
                    {"name": "twin_b", "pos": [100, 100]}],
@@ -1017,8 +1019,11 @@ def test_overlapping_labels_take_distinct_tiers(doc):
                {"npc": "twin_a", "hp": 1, "branch": [{"do": {"hold_post": True}}]},
                {"npc": "twin_b", "hp": 1, "branch": [{"do": {"hold_post": True}}]}]}}
     doc.show_field("STACK", raw, None)
-    ys = {t: y for t, y in _label_texts(doc.canvas) if t.startswith("twin")}
-    assert len(ys) == 2 and len(set(ys.values())) == 2   # same anchor, two tiers
+    rects = {}
+    for it in doc.canvas._scene.items():
+        if isinstance(it, QGraphicsSimpleTextItem) and it.text().startswith("twin"):
+            rects[it.text()] = it.mapRectToParent(it.boundingRect())
+    assert len(rects) == 2 and not rects["twin_a"].intersects(rects["twin_b"])
 
 
 # --------------------------------------------------------------------------- round 2: dead rows + rowtool

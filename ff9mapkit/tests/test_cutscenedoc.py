@@ -1896,6 +1896,42 @@ def test_the_stage_refits_to_its_pane_until_the_author_zooms(doc, tmp_path):
     assert doc.canvas._zoom == zoomed, "a pane change reset the author's zoom"
 
 
+def _on_screen(c, it):
+    """An item's painted rect in viewport px (labels and dots are zoom-immune furniture)."""
+    return it.deviceTransform(c.viewportTransform()).mapRect(it.boundingRect())
+
+
+def _label_hits(c):
+    """Every (label, dot) pair where a stage label is painted across a marker dot."""
+    from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsSimpleTextItem
+    items = c._scene.items()
+    texts = [it for it in items if isinstance(it, QGraphicsSimpleTextItem)
+             and it.data(2) == "label"]
+    dots = [it for it in items if isinstance(it, QGraphicsEllipseItem) and it.data(2)
+            and it.data(2) != "label"]
+    return [(t.text(), d.data(2)) for t in texts for d in dots
+            if _on_screen(c, t).adjusted(1, 1, -1, -1).intersects(_on_screen(c, d))]
+
+
+@pytest.mark.parametrize("w,h", [(330, 150), (420, 130), (527, 208), (601, 175)])
+def test_a_stage_label_never_lands_on_a_marker(doc, tmp_path, w, h):
+    """C23: labels avoided each other but not the dots, so 'player spawn' was pushed a tier
+    down onto Cid's start post at 125% and 150%. A dot is occupied ground; a label tries the
+    other side of its own marker before it climbs."""
+    _shown(doc, tmp_path)
+    c = doc.canvas
+    for board in (False, True):
+        doc.board_btn.setChecked(board)
+        c.resize(w, h)
+        QApplication.processEvents()
+        c._fit()
+        assert _label_hits(c) == [], f"board={board}"
+        for lab in c._labels:                          # each label stays beside its own anchor
+            a = c.mapFromScene(lab["anchor"].pos())
+            r = _on_screen(c, lab["item"])
+            assert r.left() - 40 <= a.x() <= r.right() + 40, lab["item"].text()
+
+
 def test_the_zoom_pill_gives_way_in_a_short_stage(doc, tmp_path):
     """C15: in a stage a few lines tall the 'Ctrl+scroll zooms' pill covered the routed leg and
     a name; it shows only when the stage is at least six pill-heights tall."""
