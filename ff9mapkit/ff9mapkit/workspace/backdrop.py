@@ -1252,9 +1252,8 @@ class BackdropCanvas(QGraphicsView):
             if d["quad"] != d["start"]:
                 self.region_changed.emit(
                     d["i"], [(round(x, 1), round(z, 1)) for x, z in d["quad"]])
-            else:
-                self._rebuild()                    # nothing changed: restore the law overlays
-            return
+            self._rebuild()                        # document truth: a host that took the change
+            return                                 # re-fed it; one that refused it did not (V10)
         if d["pt"] != tuple(self._trace[d["i"]]):
             pts = list(self._trace)
             pts[d["i"]] = (round(d["pt"][0], 1), round(d["pt"][1], 1))

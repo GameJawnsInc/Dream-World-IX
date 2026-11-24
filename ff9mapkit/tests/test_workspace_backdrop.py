@@ -1458,6 +1458,29 @@ def test_escape_and_a_lost_release_put_a_marker_back(app):
     assert not moved and not hits and not clicked
 
 
+@pytest.mark.parametrize("w", [501, 500])
+@pytest.mark.parametrize("grab", ["corner", "body"])
+def test_a_region_drag_the_host_refuses_is_not_left_drawn(app, w, grab):
+    """V10: after a corner or whole-zone drag the canvas emitted region_changed and kept the
+    dragged shape, trusting the host to re-feed. Trace refuses a zone whose corner would go
+    behind the camera with a bare return, so the art showed a zone the document did not hold.
+    The canvas now redraws from what it was fed once the gesture ends."""
+    c, drawn, changed, _, refused = _region_canvas(app)
+    c.resize(w, 560)
+    QApplication.processEvents()
+    c._fit()
+    c.set_regions([{"i": 0, "quad": list(_GW_QUAD), "label": "door0", "kind": "gateway",
+                    "warn": None}])
+    home = c._region_items[0].polygon()
+    start = (_GW_QUAD[2] if grab == "corner" else (0.0, 1200.0))
+    sx, sy = IF.world_to_click(c.camera(), start)
+    _mouse(c, "press", (sx, sy))
+    _mouse(c, "move", (sx + 30, sy + 25))
+    _mouse(c, "release", (sx + 30, sy + 25))
+    assert len(changed) == 1                                 # the host was told (and did nothing)
+    assert c._region_items[0].polygon() == home              # the RETAINED wrapper of the redraw
+
+
 def test_a_right_click_on_a_marker_offers_delete(app, monkeypatch):
     import types
     from PySide6.QtGui import QContextMenuEvent
