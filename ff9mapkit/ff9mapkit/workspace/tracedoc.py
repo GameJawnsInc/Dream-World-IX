@@ -395,7 +395,79 @@ class TraceDoc(QWidget):
         self.status.setProperty("role", "muted")
         self.status.setWordWrap(True)                  # its text width is never the page minimum
         root.addWidget(self.status)
+        self.instruments = self._build_instruments()   # docked into the shell's Inspector (T41)
         self._refresh()
+
+    def _build_instruments(self):
+        """The session summary the shell docks into its INSPECTOR while this tab shows (finding
+        T41; the Cutscene tab's contract). The column is narrow: every sentence wraps, and a name
+        (the photo, the project folder) elides with its whole text in the tooltip -- nothing here
+        may set a width floor under the window."""
+        col = QWidget()
+        v = QVBoxLayout(col)
+        v.setContentsMargins(0, 8, 0, 0)
+        v.setSpacing(6)
+
+        def line():
+            lb = widgets.caption("")
+            lb.setWordWrap(True)
+            v.addWidget(lb)
+            return lb
+        v.addWidget(widgets.role_label("THIS TRACE", "subtle"))
+        self.ins_photo = widgets.ElideLabel("", "caption")
+        v.addWidget(self.ins_photo)
+        self.ins_pitch, self.ins_floor, self.ins_fg, self.ins_zones = line(), line(), line(), line()
+        v.addWidget(widgets.role_label("PROJECT", "subtle"))
+        self.ins_proj = widgets.ElideLabel("", "caption")
+        v.addWidget(self.ins_proj)
+        self.ins_stamp = line()
+        v.addWidget(widgets.role_label("NEXT", "subtle"))
+        self.ins_next = line()
+        v.addStretch(1)
+        return col
+
+    def _refresh_instruments(self, good, bad, crossed, fg_invalid, fg_unattached, rg_untargeted,
+                             rg_bad, ctx_hidden, nxt):
+        """Fill the docked summary from what :meth:`_refresh` already judged -- no new checks."""
+        def plural(n, word):
+            return f"{n} {word}{'' if n == 1 else 's'}"
+
+        def say(lb, parts, warn=False):
+            lb.setText(" · ".join(p for p in parts if p))
+            widgets.set_state(lb, "warn" if warn else "")
+        self.ins_photo.setText(f"Photo: {self._image.name}" if self._image else "No photo open")
+        pose = ("" if (self._distance, self._fov) ==
+                (imagefield.DEFAULT_DISTANCE, imagefield.DEFAULT_FOV)
+                else f"distance {self._distance:g}, field of view {self._fov:g}°")
+        say(self.ins_pitch, [f"Pitch {self.pitch.value()}°", pose])
+        n = good + bad
+        say(self.ins_floor, [f"Floor: {n} {'vertex' if n == 1 else 'vertices'}",
+                             f"⚠ {bad} above the horizon" if bad else "",
+                             f"⚠ {crossed}" if crossed else ""], warn=bool(bad or crossed))
+        say(self.ins_fg, [f"Cut-outs: {len(self._fg)}",
+                          f"⚠ {fg_invalid} with an invalid contact" if fg_invalid else "",
+                          f"⚠ {plural(fg_unattached, 'PNG')} missing" if fg_unattached else ""],
+            warn=bool(fg_invalid or fg_unattached))
+        warned = sum(1 for r, row in zip(self._region_rows_cache, self._region_back)
+                     if r.get("warn") and not self._is_context(row))
+        say(self.ins_zones,
+            [f"Zones: {len(self._regions)}",
+             f"⚠ {plural(rg_untargeted, 'door')} without a target" if rg_untargeted else "",
+             f"⚠ {warned} with law warnings" if warned else "",
+             f"⚠ {rg_bad} hidden above the horizon" if rg_bad else "",
+             f"the project has {len(self._context)} more of its own" if self._context else "",
+             f"⚠ {ctx_hidden} of those cannot be drawn at this pitch" if ctx_hidden else ""],
+            warn=bool(rg_untargeted or warned or rg_bad or ctx_hidden))
+        if self._project:
+            self.ins_proj.setText(f"Folder: {Path(self._project['out']).name}")
+            self.ins_proj.setToolTip(str(self._project["out"]))
+            say(self.ins_stamp, ["The last Generate has seen every change." if self._stamped else
+                                 "⚠ Changed since the last Generate."], warn=not self._stamped)
+        else:
+            self.ins_proj.setText("Not generated yet")
+            say(self.ins_stamp, ["Generate writes the project folder, then later Generates "
+                                 "update it in place."])
+        say(self.ins_next, [nxt])
 
     # ------------------------------------------------------------------ camera + status
     def _camera(self):
@@ -564,6 +636,19 @@ class TraceDoc(QWidget):
         else:
             tip = "Needs an open image and at least 3 traced vertices, all below the horizon."
         self.gen_btn.setToolTip(tip)
+        unstamped = bool(self._project) and not self._stamped
+        if self._image is None:
+            nxt = "Open a photo to begin."
+        elif not ready:
+            nxt = tip
+        elif unstamped:
+            nxt = f"Regenerate {self._project['name']} to update the project."
+        elif self._project:
+            nxt = "Press Deploy (F9) to put the field in the game."
+        else:
+            nxt = "Generate the field project."
+        self._refresh_instruments(good, bad, crossed, fg_invalid, fg_unattached, rg_untargeted,
+                                  rg_bad, ctx_hidden, nxt)
         self.undo_btn.setEnabled(bool(self._history))
         what, attr, tip = self._CLEARS[self.tools.current()]
         self.clear_btn.setToolTip(f"Clear {what}: {tip.lower()} (one Undo brings them back).")
@@ -580,18 +665,20 @@ class TraceDoc(QWidget):
                         "one to delete it.")
             else:
                 # the ⚠ clauses LEAD: the status wraps, but what the author must act on is never
-                # the tail a narrow window pushes out of sight (finding T23)
+                # the tail a narrow window pushes out of sight (finding T23). The plain tally
+                # lives in the Inspector (finding T41): with nothing to fix, the status is the
+                # next step alone
                 warns = [f"⚠ {crossed}"] if crossed else []
-                note = f"{good} vertices traced" + (f" · {bad} above the horizon (red)" if bad
-                                                    else "")
-                if self._fg:
-                    note += f" · {len(self._fg)} cut-out{'' if len(self._fg) == 1 else 's'}"
-                    if fg_invalid:
-                        note += f" · {fg_invalid} contact{'' if fg_invalid == 1 else 's'} invalid"
-                    if fg_unattached:
-                        note += f" · {fg_unattached} PNG{'' if fg_unattached == 1 else 's'} missing"
+                if bad:
+                    warns.append(f"⚠ {bad} above the horizon (red)")
+                if fg_invalid:
+                    warns.append(f"⚠ {fg_invalid} cut-out contact{'' if fg_invalid == 1 else 's'} "
+                                 f"invalid")
+                if fg_unattached:
+                    warns.append(f"⚠ {fg_unattached} PNG{'' if fg_unattached == 1 else 's'} "
+                                 f"missing")
+                note = "" if unstamped else nxt        # the stamp clause below IS the next step
                 if self._regions:
-                    note += f" · {len(self._regions)} zone{'' if len(self._regions) == 1 else 's'}"
                     warned = sum(1 for r in getattr(self, '_region_rows_cache', []) if r.get("warn"))
                     if rg_untargeted:
                         warns.append(f"⚠ {rg_untargeted} door{'' if rg_untargeted == 1 else 's'} "
@@ -602,11 +689,13 @@ class TraceDoc(QWidget):
                         warns.append(f"⚠ {rg_bad} zone{'' if rg_bad == 1 else 's'} above the "
                                      f"horizon, hidden — slide the pitch back to see "
                                      f"{'it' if rg_bad == 1 else 'them'}")
-                note = self._context_note(ctx_hidden) + " · ".join(warns + [note])
-        if self._project and not self._stamped:        # edits the project on disk doesn't have
+                note = (self._context_note(ctx_hidden)
+                        + " · ".join(warns or [note])).rstrip(" ·")
+        if unstamped:                                  # edits the project on disk doesn't have
             stamp = f"⚠ not stamped — Regenerate {self._project['name']} to update the project"
             # an explicit error (a refusal) still leads: it is what the click just ran into
-            note = f"{note} · {stamp}" if state == "error" else f"{stamp} · {note}"
+            note = (stamp if not note else
+                    f"{note} · {stamp}" if state == "error" else f"{stamp} · {note}")
             state = state or "warn"
         self.status.setText(note)
         widgets.set_state(self.status, state)

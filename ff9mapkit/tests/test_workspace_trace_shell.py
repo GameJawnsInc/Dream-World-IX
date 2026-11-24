@@ -659,3 +659,23 @@ def test_a_reload_keeps_a_step_editor_whose_step_is_still_there(win, tmp_path):
     assert cd._wmesh is None                           # the old floor is not kept
     cd._apply_step()
     assert win._doc(_NAME).data["cutscene"]["steps"][0]["say"] == "typed, not yet applied"
+
+
+def test_the_trace_summary_docks_in_the_inspector_and_leaves_with_the_tab(win):
+    """Finding T41: the Inspector column was empty on Trace. The tab's summary docks there while
+    Trace shows, the ordinary card hides under it, and leaving -- for the Editor, or straight for
+    another tab that docks its own column -- puts back exactly what that tab shows."""
+    td = win.trace_doc
+    win.show()
+    win.tabs.setCurrentWidget(td)
+    QApplication.processEvents()
+    assert td.instruments.parent() is not None and td.instruments.isVisible()
+    assert not win.insp_body.isVisible()
+    win.tabs.setCurrentWidget(win.cutscene_doc)        # Trace -> a tab with its own column
+    QApplication.processEvents()
+    assert td.instruments.parent() is None
+    assert win.cutscene_doc.instruments.isVisible() and not win.insp_body.isVisible()
+    win.tabs.setCurrentWidget(td)
+    win.tabs.setCurrentWidget(win.doc_scroll)          # Trace -> the Editor: the card is back
+    QApplication.processEvents()
+    assert td.instruments.parent() is None and win.insp_body.isVisible()

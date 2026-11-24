@@ -85,7 +85,8 @@ def test_gestures_gate_generate(app, tmp_path):
     assert not doc.gen_btn.isEnabled()                 # 2 vertices: not a polygon yet
     doc.canvas._commit_floor([(100, 300), (280, 300), (190, 430)])
     assert doc.gen_btn.isEnabled()
-    assert "3 vertices traced" in doc.status.text()
+    assert "3 vertices" in doc.ins_floor.text()         # the tally lives in the Inspector (T41)
+    assert doc.status.text() == "Generate the field project."   # the status: the next step
 
 
 def test_pitch_rejudges_the_trace(app, tmp_path):
@@ -1812,7 +1813,8 @@ def test_the_warning_the_author_must_act_on_comes_first(app, tmp_path, monkeypat
     doc._refresh()
     text = doc.status.text()
     assert text.startswith("⚠ not stamped"), text
-    assert text.index("without a target") < text.index("vertices traced"), text
+    # the tally moved to the Inspector (T41): what is left after the stamp is the warning
+    assert text.split(" · ")[1].startswith("⚠ 1 door without a target"), text
 
 
 def test_a_tool_switch_that_spills_the_row_keeps_the_frame_in_view_and_the_authors_zoom(app, tmp_path):
@@ -2396,7 +2398,46 @@ def test_the_regions_tool_says_zone_and_how_to_cancel(app, tmp_path):
     doc.ev_msg.setText("The floor creaks.")
     doc._on_region_drawn([(-200.0, 900.0), (200.0, 900.0), (200.0, 1300.0), (-200.0, 1300.0)])
     doc._refresh()
-    assert "1 zone" in doc.status.text() and "region" not in doc.status.text(), doc.status.text()
+    assert "Zones: 1" in doc.ins_zones.text() and "region" not in doc.status.text(), \
+        doc.status.text()
+
+
+# --------------------------------------------------------------------------- T41: the Inspector summary
+def test_the_inspector_summary_follows_the_session(app, tmp_path, monkeypatch):
+    """Finding T41: the Inspector was empty on Trace while one status line carried every count.
+    The docked summary names the photo, the pitch, each tally with its warning, the project
+    folder, whether the last Generate has seen the session, and the next step."""
+    pytest.importorskip("PIL")
+    doc, run = _doc(app)
+    assert doc.ins_photo.fullText() == "No photo open" and "Open a photo" in doc.ins_next.text()
+    doc.load_image(_photo(tmp_path))
+    doc.canvas._commit_floor([(100, 100), (280, 100), (280, 430), (100, 430)])
+    assert doc.ins_photo.fullText() == "Photo: photo.png"
+    assert doc.ins_pitch.text().startswith(f"Pitch {doc.pitch.value()}°")
+    assert doc.ins_floor.text().startswith("Floor: 4 vertices")
+    assert doc.ins_proj.fullText() == "Not generated yet"
+    doc.pitch.setValue(6)                                # two vertices go above the horizon
+    assert "⚠ 2 above the horizon" in doc.ins_floor.text()
+    assert doc.ins_floor.property("state") == "warn"
+    assert doc.ins_next.text() == doc.gen_btn.toolTip()  # not ready: why, in the button's words
+    assert doc.status.text().startswith("⚠ 2 above the horizon"), doc.status.text()
+    doc.pitch.setValue(26)
+    assert doc.ins_floor.property("state") == ""
+    doc.tools.set_current("regions")
+    doc._on_region_drawn([(-200.0, 900.0), (200.0, 900.0), (200.0, 1300.0), (-200.0, 1300.0)])
+    assert doc.ins_zones.text().startswith("Zones: 1 · ⚠ 1 door without a target")
+    doc._on_region_deleted(0)
+    doc.id_box.setText("30777")
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    assert doc.ins_proj.fullText() == "Folder: photo-field"
+    assert doc.ins_proj.toolTip() == str(tmp_path / "photo-field")
+    assert doc.ins_stamp.text() == "The last Generate has seen every change."
+    assert "Deploy (F9)" in doc.ins_next.text()
+    doc.canvas._commit_floor([(100, 110), (280, 100), (280, 430), (100, 430)])
+    assert doc.ins_stamp.text().startswith("⚠ Changed since") and "Regenerate" in doc.ins_next.text()
+    said = doc.status.text()                             # the stamp IS the next step: said once
+    assert said.startswith("⚠ not stamped") and said.count("Regenerate") == 1, said
 
 
 # --------------------------------------------------------------------------- E12: the project's own rows

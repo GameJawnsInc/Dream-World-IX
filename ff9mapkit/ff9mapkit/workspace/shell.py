@@ -4998,6 +4998,7 @@ class Workspace(QMainWindow):
         self._refresh_undo_actions()                       # Trace/Floorplan Undo is their own (_local_undo_doc)
         self._mount_behavior_instruments(w is getattr(self, "behavior_doc", None))
         self._mount_cutscene_instruments(w is getattr(self, "cutscene_doc", None))
+        self._mount_trace_instruments(w is getattr(self, "trace_doc", None))
         if w in (self.doc_scroll, self.map):
             self.crumb.set(self._content_crumbs)
             self._set_chip(self._content_chip)
@@ -5107,6 +5108,30 @@ class Workspace(QMainWindow):
             self._insp_lay.removeWidget(w)         # reparented to None flashes as its own OS
             w.setParent(None)                      # window (the ladder's phantom-window lesson)
             self.insp_body.show()
+
+    def _mount_trace_instruments(self, on):
+        """Dock the Trace doc's session summary into the INSPECTOR while that tab shows (finding
+        T41) -- the Cutscene contract exactly: the SAME widget moves, the ordinary inspector card
+        hides under it and returns when the tab changes away. This runs AFTER the other two
+        mounts, so leaving Trace for Behavior or Cutscene finds their column already docked:
+        the card stays hidden under it."""
+        doc = getattr(self, "trace_doc", None)
+        if doc is None or getattr(self, "_insp_lay", None) is None:
+            return
+        w = doc.instruments
+        mounted = w.parent() is not None
+        if on and not mounted:
+            self.insp_body.hide()
+            self._insp_lay.addWidget(w, 1)
+            w.show()
+        elif not on and mounted:
+            w.hide()                               # hide BEFORE the reparent (phantom window)
+            self._insp_lay.removeWidget(w)
+            w.setParent(None)
+            if not any(getattr(getattr(self, d, None), "instruments", None) is not None
+                       and getattr(self, d).instruments.parent() is not None
+                       for d in ("behavior_doc", "cutscene_doc")):
+                self.insp_body.show()
 
     def _feed_cutscene(self):
         """Push the OPEN field's parsed dict into the Cutscene doc — BY REFERENCE (the feed
