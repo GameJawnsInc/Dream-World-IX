@@ -1274,7 +1274,8 @@ class TraceDoc(QWidget):
         said = []
         for kind in ("gateway", "event"):
             # a dropped key is named the way the Editor form labels it, never as the raw key
-            words = {f.key: f.label for f in
+            # (minus the label's own format hint: "Give item (id, count)" -> "Give item")
+            words = {f.key: f.label.split(" (")[0] for f in
                      (_forms.GATEWAY_SPEC if kind == "gateway" else _forms.EVENT_SPEC)}
             rows = [r for r in new.get(kind) or [] if isinstance(r, dict)]
             for r in old.get(kind) or []:

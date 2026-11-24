@@ -1108,11 +1108,62 @@ def test_a_regenerate_that_fails_after_the_walkmesh_never_freezes_the_spawn(tmp_
         _regen_merge(tmp_path, wider)
     monkeypatch.setattr(_P, "write_text", real)
     assert tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"] == first
-    assert IF.generated_spawn(tmp_path / "out") is None, "the stamp is ahead of the field.toml"
+    # the stamp is put back to what it WAS: the old stamp and the old toml are a pair the next
+    # regenerate can judge (taking it out altogether made that regenerate overwrite a spawn the
+    # author had placed -- the second review of this fix)
+    assert IF.generated_spawn(tmp_path / "out") == first, "the stamp is ahead of the field.toml"
     man2 = _regen_merge(tmp_path, wider)
     now = tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"]
     assert now != first and now == [round(man2["spawn"][0]), round(man2["spawn"][1])]
     assert IF.generated_spawn(tmp_path / "out") == now
+    assert not any("spawn" in k for k in man2["kept"] + man2["retaken"])
+
+
+def test_a_placed_spawn_survives_a_regenerate_that_failed_first(tmp_path, monkeypatch):
+    """The other half of the same failure: the author PLACED the spawn, a regenerate failed after
+    the walkmesh was written, and the next regenerate must still keep the author's spawn."""
+    pytest.importorskip("PIL")
+    import tomllib
+    from pathlib import Path as _P
+    toml, floor, man = _merge_project(tmp_path)
+    w = man["world_floor"]
+    mine = [int(0.5 * (w[2][0] + w[3][0])), int(0.5 * (w[2][1] + w[3][1])) + 40]   # near the front
+    assert IF.point_in_polygon(mine, w)
+    _set_spawn(toml, *mine)
+    real = _P.write_text
+
+    def locked(self, *a, **k):
+        if self.name.endswith(".field.toml"):
+            raise PermissionError("locked by another program")
+        return real(self, *a, **k)
+    monkeypatch.setattr(_P, "write_text", locked)
+    with pytest.raises(PermissionError):
+        _regen_merge(tmp_path, floor)
+    monkeypatch.setattr(_P, "write_text", real)
+    man2 = _regen_merge(tmp_path, floor)
+    assert tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"] == mine
+    assert any(k.startswith("[player].spawn") for k in man2["kept"]), man2["kept"]
+
+
+def test_the_first_error_is_the_one_raised_when_the_stamp_cannot_be_put_back(tmp_path, monkeypatch):
+    """If the folder is locked as a whole, putting the stamp back fails too: the author must still
+    see the FIRST error (the write that failed), not the clean-up's."""
+    pytest.importorskip("PIL")
+    from pathlib import Path as _P
+    toml, floor, _man = _merge_project(tmp_path)
+    real = _P.write_text
+    seen = []
+
+    def locked(self, *a, **k):
+        if self.name.endswith(".field.toml"):
+            seen.append("toml")
+            raise PermissionError("the field.toml is locked")
+        if self.name == "walkmesh.obj" and seen:
+            raise PermissionError("the walkmesh is locked now too")
+        return real(self, *a, **k)
+    monkeypatch.setattr(_P, "write_text", locked)
+    with pytest.raises(PermissionError, match="field.toml is locked"):
+        _regen_merge(tmp_path, floor)
 
 
 def test_the_generators_own_spawn_follows_a_reshaped_floor(tmp_path):

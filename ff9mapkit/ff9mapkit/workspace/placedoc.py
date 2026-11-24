@@ -1046,8 +1046,9 @@ class PlaceDoc(QWidget):
         else:
             asked = None
         if self._data is not data:
-            self._refresh("The field reloaded while you answered — the zone was not drawn; "
-                          "draw it again.", "warn")
+            # true whether THIS field was reloaded or another one opened under the prompt
+            self._refresh("The field changed while you answered — the zone was not drawn.",
+                          "warn")
             return
         state = ""
         if gateway:
@@ -1135,15 +1136,21 @@ class PlaceDoc(QWidget):
     def _ask_field_id(self, current):
         """Instance dialog behind a seam (a static execs in C++ past every test patch)."""
         from PySide6.QtWidgets import QInputDialog
+        dlg = self._field_id_dialog(current)
+        if dlg.exec() != QInputDialog.DialogCode.Accepted:
+            return None
+        return dlg.intValue()
+
+    def _field_id_dialog(self, current):
+        """The target prompt as built (apart from its exec, so a test can read what it shows)."""
+        from PySide6.QtWidgets import QInputDialog
         dlg = QInputDialog(self)
         dlg.setInputMode(QInputDialog.InputMode.IntInput)
         dlg.setIntRange(1, 32767)
         dlg.setIntValue(max(1, int(current) if isinstance(current, int) and current > 0 else 1))
         dlg.setWindowTitle("Gateway target")
         dlg.setLabelText(self._FIELD_ID_PROMPT)
-        if dlg.exec() != QInputDialog.DialogCode.Accepted:
-            return None
-        return dlg.intValue()
+        return dlg
 
     def _ask_message(self, current):
         """Instance dialog behind a seam (a static execs in C++ past every test patch)."""

@@ -1432,10 +1432,10 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
                     continue
                 if key is not None:
                     twin_quads[kind][key] = f"{prefix}{i}"
+    stamp = None if existing is None else generated_spawn(out)   # what the folder holds NOW
     text, kept, retaken, removed = merge_project_toml("\n".join(lines) + "\n", existing,
                                                      twin_quads=twin_quads, floor=verts,
-                                                     last_spawn=(None if existing is None
-                                                                 else generated_spawn(out)))
+                                                     last_spawn=stamp)
     chosen = spawn                                  # the generator's own, stamped (E13 review)
     if any(k.startswith("[player].spawn") for k in kept):    # the author's spawn stayed (E13)
         spawn = tuple(existing["player"]["spawn"])
@@ -1449,9 +1449,15 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
         toml_path.write_text(text, encoding="utf-8", newline="\n")
     except OSError:
         # The stamp must never be AHEAD of the field.toml: a later regenerate would read the old
-        # toml spawn as one the author placed and keep it for good. Take the stamp back out --
-        # a project without one takes the generator's spawn, and says so (final review of E13).
-        write_walkmesh_obj(verts, faces, out / "walkmesh.obj")
+        # toml spawn as one the author placed and keep it for good (final review of E13). Put
+        # back the stamp the folder HAD: the old stamp and the old toml are a pair the next
+        # regenerate judges rightly, whoever placed that spawn. (No stamp at all made it
+        # overwrite a spawn the author had placed -- the second review.) If that write fails
+        # too the folder is locked as a whole, and the first error is the one to report.
+        try:
+            write_walkmesh_obj(verts, faces, out / "walkmesh.obj", spawn=stamp)
+        except OSError:
+            pass
         raise
 
     return {"toml": str(toml_path), "walkmesh": str(out / "walkmesh.obj"),

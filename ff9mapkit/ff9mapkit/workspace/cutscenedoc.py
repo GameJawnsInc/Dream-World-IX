@@ -1322,7 +1322,9 @@ class CutsceneDoc(QWidget):
         if not 0 <= self._scene < len(blocks):
             return None
         # the COUNT too: Apply writes by index, and a scene added or removed elsewhere can put a
-        # twin with equal values (Duplicate Scene makes them) at this index (final review)
+        # twin with equal values (Duplicate Scene makes them) at this index (final review).
+        # Scenes have no id of their own, so a change that KEEPS the count -- a hand-edited
+        # .toml reloaded with one scene removed and another added -- is not seen here.
         return (self._scene, len(blocks),
                 forms.entity_to_values(forms.CUTSCENE_SPEC, blocks[self._scene]))
 
@@ -1846,10 +1848,14 @@ class CutsceneDoc(QWidget):
 
     @staticmethod
     def _scene_words(text):
-        """The build labels a scene ``[cutscene] #k``; the rail and PROBLEMS call it ``scene #k``.
-        One name for one scene in this column (the leading label only -- the sentence is the
-        build's own)."""
-        return "scene " + text[len("[cutscene] "):] if text.startswith("[cutscene] #") else text
+        """The build labels a scene ``[cutscene] #k`` -- and the ONLY scene of a field plain
+        ``[cutscene]``; the rail and PROBLEMS call it ``scene #k``. One name for one scene in
+        this column (the leading label only -- the sentence is the build's own)."""
+        if text.startswith("[cutscene] #"):
+            return "scene " + text[len("[cutscene] "):]
+        if text == "[cutscene]" or text.startswith("[cutscene] "):
+            return "scene #0" + text[len("[cutscene]"):]
+        return text
 
     def _stage_item(self, text, where):
         self.stage_list.addItem(text)

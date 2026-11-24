@@ -1384,7 +1384,8 @@ def _hall(app, tmp_path):
     far = (int(0.9 * w[0][0] + 0.1 * w[2][0]), int(0.9 * w[0][1] + 0.1 * w[2][1]))
     text = re.sub(r"spawn = \[-?\d+, -?\d+\]", f"spawn = [{far[0]}, {far[1]}]",
                   toml.read_text(encoding="utf-8"), count=1)
-    text = text.replace('name = "traced_door1"', 'name = "traced_door1"\nflag_gate = 8800', 1)
+    text = text.replace('name = "traced_door1"',
+                        'name = "traced_door1"\nflag_gate = 8800\nrequires_flag = 8801', 1)
     toml.write_text(text, encoding="utf-8", newline="\n")
     doc, run = _doc(app)
     doc.load_project(toml)
@@ -1413,6 +1414,9 @@ def test_a_regenerate_says_on_the_status_what_it_moved_or_removed(app, tmp_path)
     assert "removed" not in said                        # not traced_door2, which still exists
     assert "traced_door0 lost “flag gate”" in said      # the middle door, renumbered to 0
     assert "flag_gate" not in said, "a raw key in the status"
+    # a key the Editor form shows is named by the form's own label (without its format hint)
+    assert "traced_door0 lost “Opens when flag set”" in said
+    assert "requires_flag" not in said and "requires flag" not in said
     assert "spawn point moved" in said and "off the new floor" in said   # Place's own word
     assert doc.status.property("state") == "warn"
     # a second regenerate: the generator's own spawn follows the floor and names nothing
@@ -1422,6 +1426,24 @@ def test_a_regenerate_says_on_the_status_what_it_moved_or_removed(app, tmp_path)
                          field_id=30790, gateways=doors[1:])
     run.calls[1][1]["on_finished"](0)
     assert doc.status.text().startswith("Regenerated HALL") and "⚠" not in doc.status.text()
+
+
+def test_a_dropped_key_is_named_without_the_forms_format_hint():
+    """'traced_event0 lost “Give item (id, count)”' quoted a hint for typing the value; the name
+    of the thing is 'Give item'."""
+    import tomllib
+    from ff9mapkit.workspace.tracedoc import TraceDoc as TD
+    old = {"event": [{"name": "traced_zone0", "zone": [[0, 0], [1, 0], [1, 1], [0, 1]],
+                      "message": "hi", "give_item": [232, 1], "set_flag": ["boss_dead", 1]}]}
+    new = "[[event]]\nname = \"traced_zone0\"\nmessage = \"hi\"\nzone = [[0, 0], [1, 0], [1, 1], [0, 1]]\n"
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        toml = Path(td) / "X.field.toml"
+        toml.write_text(new, encoding="utf-8")
+        assert tomllib.loads(new)["event"][0]["zone"] == old["event"][0]["zone"]
+        said = TD._what_it_took(old, toml)
+    assert "lost “Give item”" in said and "lost “Set flag”" in said, said
+    assert "(" not in said, said
 
 
 def test_a_written_file_whose_job_reported_an_error_still_says_what_it_took(app, tmp_path):

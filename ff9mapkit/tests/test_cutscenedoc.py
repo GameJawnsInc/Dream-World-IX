@@ -489,6 +489,20 @@ def test_a_staging_row_wraps_and_takes_you_to_its_step_and_stall(doc, tmp_path):
     assert _stall_in_view(c) and c.transform().m11() == 2.0
 
 
+@pytest.mark.parametrize("label,want", [
+    ("[cutscene] #2 step 0: walk target", "scene #2 step 0: walk target"),
+    ("[cutscene] step 0: walk target", "scene #0 step 0: walk target"),   # a ONE-scene field
+    ("[cutscene]", "scene #0"),                                          # its skipped row
+    ("[cutscene] #1", "scene #1"),
+    ("the walkmesh could not be read", "the walkmesh could not be read"),
+])
+def test_a_staging_row_names_the_scene_the_way_the_tab_does(label, want):
+    """The build labels the only scene of a field plain '[cutscene]' (no number), so on the
+    commonest field the row still read '[cutscene] step 0' beside a rail that says '#0'."""
+    from ff9mapkit.workspace.cutscenedoc import CutsceneDoc
+    assert CutsceneDoc._scene_words(label) == want
+
+
 def test_a_staging_row_opens_from_the_keyboard_too(doc, tmp_path):
     """Final review of C22: the row acted only on a mouse click; Enter on the focused row did
     nothing, so a keyboard user could read the problem and not go to it."""
@@ -836,7 +850,7 @@ def test_a_signal_the_build_refuses_is_refused_with_its_forms_named(doc, tmp_pat
     doc._edit_step(0)
     assert "+" in doc.editor._extra_rows["signal"][0].text(), "the label must say + is allowed"
     assert '"+"' in doc.editor.x_signal.toolTip()
-    assert "a number" in doc.editor._extra_rows["signal"][0].text(),         "'n' for 'a number' in a field label"
+    assert "a number" in doc.editor._extra_rows["signal"][0].text(), "'n' for 'a number'"
     doc.editor.x_signal.setText("soon")
     doc._apply_step()
     assert "signal" in doc.editor.note.text() and "+" in doc.editor.note.text()
@@ -1762,6 +1776,45 @@ def test_opening_a_step_shows_the_editors_header_and_the_row_it_edits(doc, tmp_p
     doc._edit_step(2)
     QApplication.processEvents()
     assert not doc.editor.note.isVisible(), "an empty note must take no room under the header"
+
+
+def test_an_apply_error_is_brought_into_view_and_a_good_apply_clears_it(doc, tmp_path):
+    """The editor's words sit under its header. An Apply that fails while the author is scrolled
+    down the panel (the pacing drawer is two panes tall) must bring them into view; the Apply
+    that succeeds must take them away -- a stale red line is its own lie."""
+    from PySide6.QtCore import Qt as _Qt
+    toml = FIELD_TOML.replace('  { say = "Made it to the altar.", speaker = "Cid" },\n',
+                              '  { say = "Made it to the altar.", speaker = "Cid" },\n'
+                              + "".join(f'  {{ say = "line {n}" }},\n' for n in range(10)))
+    doc.setAttribute(_Qt.WidgetAttribute.WA_DontShowOnScreen)
+    doc.resize(1000, 520)
+    doc.show()
+    _fed(doc, tmp_path, toml)
+    QApplication.processEvents()
+    doc._edit_step(9)
+    QApplication.processEvents()
+    sb = doc._lscroll.verticalScrollBar()
+    doc.editor.x_signal.setText("soon")                # not a form the build reads
+    sb.setValue(sb.maximum())                          # scrolled down the tall panel
+    QApplication.processEvents()
+    assert not _in_view(doc, doc.editor.apply_btn), "the fixture must start scrolled away"
+    doc._apply_step()
+    QApplication.processEvents()
+    assert doc.editor.note.isVisible() and "signal" in doc.editor.note.text()
+    assert _in_view(doc, doc.editor.note), "the Apply error is written out of view"
+    doc.editor.x_signal.setText("")
+    doc._apply_step()
+    QApplication.processEvents()
+    assert not doc.editor.note.isVisible() and doc.editor.note.text() == ""
+    # a step that was removed elsewhere (the editor is still open on it): said, and in view
+    assert doc.editor.scene is not None and doc.editor.step_i == 9
+    del doc._steps()[9]
+    sb.setValue(sb.maximum())
+    QApplication.processEvents()
+    doc._apply_step()
+    QApplication.processEvents()
+    assert "no longer in the scene" in doc.editor.note.text()
+    assert _in_view(doc, doc.editor.note), "'no longer in the scene' is written out of view"
 
 
 def test_a_clean_editor_still_closes_for_a_structural_edit(doc, tmp_path):

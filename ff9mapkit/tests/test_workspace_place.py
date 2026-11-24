@@ -1714,8 +1714,27 @@ def test_a_zone_dropped_because_the_field_reloaded_says_so(app, monkeypatch):
     monkeypatch.setattr(d, "_ask_message", refeed)
     d._on_region_drawn(_Q)
     assert calls == []
-    assert "not drawn" in d.status.text() and "draw it again" in d.status.text()
+    assert "The field changed while you answered" in d.status.text()
+    assert "not drawn" in d.status.text()
     assert d.status.property("state") == "warn"
+
+
+def test_a_zone_dropped_because_another_field_opened_does_not_say_reloaded(app, monkeypatch):
+    """The same guard fires when ANOTHER field opens under the prompt (a first Generate handing
+    its project to the shell). 'The field reloaded ... draw it again' was untrue there: the
+    sentence is one that holds in both cases."""
+    d, calls = _regions_on(app, {"field": {"source_field": 351}})
+    d.rkind_btns["event"].setChecked(True)
+
+    def swap(cur):
+        d.show_field("OTHER", {"field": {"source_field": 351}},
+                     Path("C:/somewhere/OTHER.field.toml"))
+        return "The door is locked."
+    monkeypatch.setattr(d, "_ask_message", swap)
+    d._on_region_drawn(_Q)
+    said = d.status.text()
+    assert calls == [] and "not drawn" in said
+    assert "reloaded" not in said and "draw it again" not in said, said
 
 
 def test_the_gateway_prompt_names_no_repository_path():
@@ -1724,6 +1743,17 @@ def test_the_gateway_prompt_names_no_repository_path():
     from ff9mapkit.workspace.placedoc import PlaceDoc
     assert "field id" in PlaceDoc._FIELD_ID_PROMPT
     assert "manifest" not in PlaceDoc._FIELD_ID_PROMPT and ".tsv" not in PlaceDoc._FIELD_ID_PROMPT
+
+
+def test_the_gateway_dialog_shows_that_prompt(app):
+    """...and the dialog the author sees is built with it (the constant alone proved nothing)."""
+    d, _calls = _regions_on(app, {"field": {"source_field": 351}})
+    dlg = d._field_id_dialog(4005)
+    try:
+        assert dlg.labelText() == d._FIELD_ID_PROMPT
+        assert dlg.intValue() == 4005
+    finally:
+        dlg.deleteLater()
 
 
 # --------------------------------------------------------------- batch 4: stacked floors (P7)
@@ -1974,6 +2004,7 @@ def test_a_movable_spawn_says_drag_and_never_offers_delete(app):
     _send(d.canvas, "press", p)
     _send(d.canvas, "release", p)
     assert "drag it to move it." in d.status.text() and "delete" not in d.status.text()
+    assert d.status.text().startswith("That is the spawn point,"), d.status.text()
 
 
 def test_a_marker_dropped_off_the_floor_says_so_and_a_stack_asks(app, monkeypatch):
