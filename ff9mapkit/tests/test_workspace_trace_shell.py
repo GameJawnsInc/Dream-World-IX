@@ -659,3 +659,130 @@ def test_a_reload_keeps_a_step_editor_whose_step_is_still_there(win, tmp_path):
     assert cd._wmesh is None                           # the old floor is not kept
     cd._apply_step()
     assert win._doc(_NAME).data["cutscene"]["steps"][0]["say"] == "typed, not yet applied"
+
+
+def test_a_stopped_generate_says_stopped_not_failed(win, tmp_path, monkeypatch):
+    """Batch 4 left: the tab saw only an exit code, so a job the author STOPPED read 'Generate
+    failed'. The shell's own finish path (``_proc_done``) runs it, with its Stop flag set."""
+    from PIL import Image
+    td = win.trace_doc
+    photo = tmp_path / "attic.png"
+    Image.new("RGB", (800, 600), (90, 80, 70)).save(photo)
+    td.load_image(photo)
+    td.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    td.id_box.setText("30785")
+    monkeypatch.setattr(td, "_ask_out", lambda: str(tmp_path))
+    launched = []
+    monkeypatch.setattr(td, "_run", lambda argv, **kw: launched.append(kw) or True)
+    td.on_generate()
+    win._job = ("Image → field", None, "", "x", launched[0]["on_finished"], None)
+    win._stopped = True                                # the Output panel's Stop
+    win._proc_done(1, None)
+    said = td.status.text()
+    assert "stopped" in said.lower() and "failed" not in said.lower(), said
+    td.load_image(photo)                               # and an ordinary failure still says so
+    td.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    td.id_box.setText("30785")
+    td.on_generate()
+    win._job = ("Image → field", None, "", "x", launched[1]["on_finished"], None)
+    win._stopped = False
+    win._proc_done(1, None)
+    assert "Generate failed" in td.status.text(), td.status.text()
+
+
+def test_trace_a_photo_sits_beside_new_field_in_the_menu_and_the_command_list(win):
+    """Finding T37: a newcomer looks under Field for 'make a field from a picture'. The Field menu
+    and Ctrl-K have it beside New Field, and it goes to the Trace tab (which stays on its rail)."""
+    acts = [a for a in win._field_btn.menu().actions() if not a.isSeparator()]
+    texts = [a.text() for a in acts]
+    i = next(k for k, t in enumerate(texts) if t.startswith("New Field"))
+    assert texts[i + 1] == "Trace a photo…", texts
+    acts[i + 1].trigger()
+    assert win.tabs.currentWidget() is win.trace_doc
+    win.tabs.setCurrentWidget(win.doc_scroll)
+    cmds = win._command_index()
+    labels = [c[0] for c in cmds]
+    assert labels[labels.index("New Field…") + 1] == "Trace a photo…", labels
+    cmds[labels.index("Trace a photo…")][2]()
+    assert win.tabs.currentWidget() is win.trace_doc
+
+
+def _drop(win, path, *, enter_only=False):
+    """A real drag-enter / drop of one local file on the window, through Qt's own events."""
+    from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
+    from PySide6.QtGui import QDragEnterEvent, QDropEvent
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile(str(path))])
+    enter = QDragEnterEvent(QPoint(10, 10), Qt.DropAction.CopyAction, mime,
+                            Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    win.dragEnterEvent(enter)
+    if enter_only:
+        return enter.isAccepted()
+    drop = QDropEvent(QPointF(10, 10), Qt.DropAction.CopyAction, mime,
+                      Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    win.dropEvent(drop)
+    return drop.isAccepted()
+
+
+def test_a_dropped_photo_opens_in_trace_through_the_same_path_as_open(win, tmp_path, monkeypatch):
+    """Finding T35: dropping a photo on the window did nothing. It opens on the Trace tab, the
+    way Open does -- including the question before unwritten traced work is discarded."""
+    from PIL import Image
+    photo = tmp_path / "attic.jpg"
+    Image.new("RGB", (800, 600), (90, 80, 70)).save(photo)
+    assert _drop(win, photo, enter_only=True)
+    assert _drop(win, photo)
+    td = win.trace_doc
+    assert win.tabs.currentWidget() is td and td._image == photo
+    td.canvas._commit_floor([(100, 300), (280, 300), (190, 430)])   # unwritten work
+    other = tmp_path / "cellar.png"
+    Image.new("RGB", (800, 600), (40, 40, 40)).save(other)
+    asked = []
+    monkeypatch.setattr(td, "_ask_discard", lambda: asked.append(1) or False)
+    _drop(win, other)
+    assert asked and td._image == photo and len(td._floor) == 3     # kept: the author said no
+
+
+def test_the_other_dropped_kinds_still_open_where_they_did(win, tmp_path):
+    """The image branch is an addition: a field .toml still opens in the Editor."""
+    _photo_, toml = _project(tmp_path)
+    assert _drop(win, toml)
+    assert _NAME in win.member_paths
+
+
+def test_the_next_step_never_sends_f9_at_a_field_it_would_not_deploy(win, tmp_path):
+    """Review of T41: a reopened project's NEXT said 'Press Deploy (F9)', but F9 deploys the
+    field the shell has open -- here ANOTHER one. The step names how to aim F9 at this project."""
+    photo, toml = _project(tmp_path)
+    other = IF.build_image_field(photo, _FLOOR, tmp_path / "other", name="OTHER", field_id=30791)
+    win.open_field(Path(other["toml"]))
+    win.tabs.setCurrentWidget(win.trace_doc)
+    td = win.trace_doc
+    td.open_path(str(toml))                            # Trace's own Open, not the shell's
+    assert Path(win._deploy_target()) == Path(other["toml"])   # what F9 would deploy
+    nxt = td.ins_next.text()
+    td._refresh()                                      # past the reopen note: the next step alone
+    assert td.status.text() == nxt
+    for said in (nxt, td.status.text()):
+        assert not said.startswith("Press Deploy"), said
+        assert f"open {_NAME}.field.toml in the Editor" in said and "Deploy (F9)" in said, said
+
+
+def test_the_trace_summary_docks_in_the_inspector_and_leaves_with_the_tab(win):
+    """Finding T41: the Inspector column was empty on Trace. The tab's summary docks there while
+    Trace shows, the ordinary card hides under it, and leaving -- for the Editor, or straight for
+    another tab that docks its own column -- puts back exactly what that tab shows."""
+    td = win.trace_doc
+    win.show()
+    win.tabs.setCurrentWidget(td)
+    QApplication.processEvents()
+    assert td.instruments.parent() is not None and td.instruments.isVisible()
+    assert not win.insp_body.isVisible()
+    win.tabs.setCurrentWidget(win.cutscene_doc)        # Trace -> a tab with its own column
+    QApplication.processEvents()
+    assert td.instruments.parent() is None
+    assert win.cutscene_doc.instruments.isVisible() and not win.insp_body.isVisible()
+    win.tabs.setCurrentWidget(td)
+    win.tabs.setCurrentWidget(win.doc_scroll)          # Trace -> the Editor: the card is back
+    QApplication.processEvents()
+    assert td.instruments.parent() is None and win.insp_body.isVisible()
