@@ -961,6 +961,29 @@ def test_pick_on_the_stage_shows_it_is_armed_and_never_outlives_its_step(doc, tm
     assert not armed(), "Add step left it armed"
 
 
+def test_a_stage_press_after_the_type_left_walk_writes_nothing(doc, tmp_path):
+    """C26 (already fixed by E2's disarm in the kind change, proven here on the finding's own
+    path): Pick on the stage, change Type to Say without clicking, then press the stage. The
+    press used to land "x, z" in the hidden value line, which Wait then showed."""
+    from PySide6.QtTest import QTest
+    doc.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+    doc.resize(1000, 700)
+    doc.show()
+    _fed(doc, tmp_path)
+    doc._edit_step(0)                                  # the walk
+    doc.editor.pick_btn.click()
+    assert doc.canvas.on_sim_click is not None
+    doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("say"))
+    before = doc.editor.value_line.text()
+    QApplication.processEvents()
+    QTest.mouseClick(doc.canvas.viewport(), Qt.MouseButton.LeftButton,
+                     pos=doc.canvas.viewport().rect().center())
+    assert doc.canvas.on_sim_click is None and not doc.editor.pick_btn.isChecked()
+    assert doc.editor.value_line.text() == before
+    doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("wait"))
+    assert "," not in doc.editor.value_line.text()
+
+
 def test_a_warm_mesh_rejudges_without_touching_disk(doc, tmp_path, monkeypatch):
     _fed(doc, tmp_path)
     doc.stage_now(sync=True)
