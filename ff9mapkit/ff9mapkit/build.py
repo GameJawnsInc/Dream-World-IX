@@ -3360,6 +3360,7 @@ def validate(project: FieldProject) -> list[str]:
                                 f"scenes fire, and lock control, on the same load).")
             else:
                 _gates[key] = _ci
+        problems += cutscene_once_flag_problems(project)
 
     # [[mint]] -- a NEW additive GEO model id. resolve_mint() carries the full rule set (band >= 6000,
     # from XOR fbx, novel non-real name, valid group->type); surface its errors as build problems, and
@@ -3375,6 +3376,55 @@ def validate(project: FieldProject) -> list[str]:
         except Exception as e:
             problems.append(f"[[mint]] #{i}: {e}")
     return problems
+
+
+def cutscene_once_flag_problems(project, names=None, pair="[cutscene] #{} and #{}") -> list[str]:
+    """THE SHARED ONCE-FLAG RULE: two play-once [[cutscene]] blocks compiled on the SAME once-flag --
+    whichever plays first sets the bit and the other never plays. Judged on the flag each block is
+    compiled with (build_script's own resolution): a pinned ``flag`` (an int, or a [[flag]] / campaign
+    NAME resolved through ``names`` + the field's [[flag]] table, as the load resolves it), else
+    ``_FlagAlloc.cutscene(k)``. A replaying block (``once = false``) is compiled with NO once-flag, so it
+    never shares one. A flag that does not resolve is another rule's error and is not judged here; a
+    verbatim fork wires at most one scene, so it has no pair. ``pair`` words the two scenes (the
+    Workspace tab says ``scene #a and scene #b``). Read-only over ``project.raw``."""
+    raw = project.raw
+    blocks = _cutscene.blocks(raw.get("cutscene"))
+    once = [(k, cs) for k, cs in enumerate(blocks) if cs.get("once", True)]
+    if "verbatim_eb" in raw or len(once) < 2 or not any("flag" in cs for _k, cs in once):
+        return []                                  # auto picks never collide with each other
+    name_map = dict(names or {})
+    try:
+        name_map.update(_flags.collect_flag_defs(raw))
+    except (ValueError, TypeError):
+        pass                                       # a broken [[flag]] table is load's error
+    pinned = {}
+    for k, cs in once:
+        if "flag" in cs:
+            try:
+                pinned[k] = _flags.resolve(cs["flag"], name_map)
+            except ValueError:
+                continue
+    alloc = _FlagAlloc.for_project(project)
+    # the load resolves names before the allocator reads the project, so a pinned bit is reserved there
+    alloc = _FlagAlloc(alloc.base, alloc.reserved | {f for f in pinned.values() if _flags.is_safe_custom(f)})
+    out, first = [], {}
+    for k, cs in once:
+        if "flag" in cs:
+            if k not in pinned:
+                continue
+            idx = pinned[k]
+        else:
+            try:
+                idx = alloc.cutscene(k)
+            except BuildError:                     # a campaign member's 2nd+ auto scene: refused elsewhere
+                continue
+        if idx in first:
+            out.append(f"{pair.format(first[idx], k)} play once on the same once-flag {idx} -- "
+                       f"whichever plays first sets it, and the other never plays. Give one of them a "
+                       f"flag of its own (flag = N), or remove a pinned flag so the build picks one.")
+        else:
+            first[idx] = k
+    return out
 
 
 # Synthesize-path CONTENT blocks (build_script injects these). A VERBATIM fork ([verbatim_eb]) runs the

@@ -253,6 +253,11 @@ _PARITY = [
     ("C7e a window style the build does not know",
      _raw({"steps": [{"say": "hi", "style": "fancy"}]}),
      _raw({"steps": [{"say": "hi", "style": "notail"}]})),
+    ("C9 two play-once scenes on one once-flag",
+     _raw([{"requires_scenario": 5, "flag": 8800, "steps": [{"say": "a"}]},
+           {"requires_scenario": 6, "flag": 8800, "steps": [{"say": "b"}]}]),
+     _raw([{"requires_scenario": 5, "flag": 8800, "steps": [{"say": "a"}]},
+           {"requires_scenario": 6, "flag": 8801, "steps": [{"say": "b"}]}])),
     ("C8 the player acts outside the cast (the build accepts it)",
      None,
      _raw({"actors": ["Cid"], "steps": [{"walk": [0, 300], "actor": "player"}]})),
@@ -502,6 +507,40 @@ def test_scene_problems_flags_two_scenes_sharing_one_once_flag():
     assert not [p for p in cs.scene_problems(raw) if "once-flag" in p]
     raw["cutscene"][0]["flag"] = raw["cutscene"][1]["flag"] = [8713]   # half-typed: never raise
     cs.scene_problems(raw)
+
+
+def test_a_shared_once_flag_is_the_builds_own_rule_and_sentence(tmp_path):
+    """C9 (build half): the tab compared the RAW flag values, the build had no rule at all. Now
+    there is one rule (build.cutscene_once_flag_problems) judging the flag each scene is compiled
+    with, and the tab says its sentence: a name and a number for the same bit are caught, and a
+    number spelled two ways is not two flags."""
+    raw = _raw([{"requires_scenario": 5, "flag": 8800, "steps": [{"say": "a"}]},
+                {"requires_scenario": 6, "flag": "met_cid", "steps": [{"say": "b"}]}])
+    raw["flag"] = [{"name": "met_cid", "index": 8800}]
+    ours = [p for p in cs.scene_problems(raw) if "once-flag" in p]
+    theirs = [p for p in _build_cutscene_problems(raw, tmp_path) if "once-flag" in p]
+    assert len(ours) == 1 and len(theirs) == 1, (ours, theirs)
+    assert ours[0].replace("scene #0 and scene #1", "[cutscene] #0 and #1") == theirs[0]
+    # a campaign-level name resolves too (the tab is handed the campaign's names)
+    camp = copy.deepcopy(raw)
+    del camp["flag"]
+    assert not [p for p in cs.scene_problems(camp) if "once-flag" in p], "unresolved: not judged"
+    assert [p for p in cs.scene_problems(camp, flag_names={"met_cid": 8800}) if "once-flag" in p]
+    # the build's auto pick skips every authored bit -- a campaign NAME too, once resolved -- so a
+    # scene pinned (by a campaign name) on the next scene's default slot is NOT a shared flag
+    from ff9mapkit import flags as _flags
+    late = _raw([{"requires_scenario": 5, "flag": "late", "steps": [{"say": "a"}]},
+                 {"requires_scenario": 6, "steps": [{"say": "b"}]}])
+    assert not [p for p in cs.scene_problems(late, flag_names={"late": _flags.AUTO_CUTSCENE_BASE + 1})
+                if "once-flag" in p]
+    # the build resolves a number written as text; the tab must not call "8800" a second flag
+    raw["cutscene"][1]["flag"] = "8801"
+    raw["cutscene"][0]["flag"] = 8801
+    assert [p for p in cs.scene_problems(raw) if "once-flag" in p]
+    raw["cutscene"][1]["flag"] = "8802"
+    assert not [p for p in cs.scene_problems(raw) if "once-flag" in p]
+    # garbage never raises out of the render
+    cs.scene_problems(_raw([{"flag": {"x": 1}, "steps": []}, {"flag": True, "once": "yes"}, 7]))
 
 
 def test_delete_scene_removes_one_and_drops_the_emptied_section():

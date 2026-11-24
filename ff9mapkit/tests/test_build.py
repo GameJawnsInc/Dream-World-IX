@@ -1190,6 +1190,59 @@ def test_cutscene_step_window_keys_are_said_once_and_name_the_scene(tmp_path):
     assert len(tails) == 1 and tails[0].startswith("[cutscene] step 0 tail 'XYZ' is not a valid"), one
 
 
+def test_two_play_once_cutscenes_on_one_once_flag_are_refused(tmp_path):
+    """C9: two [[cutscene]] blocks that play once on the SAME once-flag -- whichever plays first sets
+    the bit and the other never plays, silently. validate refuses it, naming both scenes and the
+    flag, judged on the flag each block is COMPILED with: a pinned flag, a [[flag]] NAME resolved as
+    the build resolves it, or the build's own auto pick."""
+    from ff9mapkit import flags as _flags
+
+    def scene(gate, extra=""):
+        return f'[[cutscene]]\nrequires_scenario = {gate}\n{extra}steps = [ {{say = "s{gate}"}} ]\n\n'
+
+    def probs(body, flag_base=None):
+        p = tmp_path / "o.field.toml"
+        p.write_text(_LINT_BASE + body, encoding="utf-8")
+        proj = FieldProject.load(p)
+        proj.flag_base = flag_base
+        return [s for s in validate(proj) if "once-flag" in s]
+
+    got = probs(scene(5, "flag = 8800\n") + scene(6, "flag = 8800\n"))
+    assert len(got) == 1 and "[cutscene] #0 and #1" in got[0] and "8800" in got[0], got
+    named = '[[flag]]\nname = "met_cid"\nindex = 8800\n\n'
+    got = probs(named + scene(5, "flag = 8800\n") + scene(6, 'flag = "met_cid"\n'))
+    assert len(got) == 1 and "8800" in got[0], got
+    # three scenes on one flag: each later one is named against the first
+    got = probs(scene(5, "flag = 8800\n") + scene(6, "flag = 8800\n") + scene(7, "flag = 8800\n"))
+    assert [g.split(" play")[0] for g in got] == ["[cutscene] #0 and #1", "[cutscene] #0 and #2"], got
+    # a campaign member: scene #0's AUTO once-flag is the member's flag_base, and #1 pins the same bit
+    camp = scene(5) + scene(6, "flag = 9100\n")
+    assert len(probs(camp, flag_base=9100)) == 1
+    assert probs(camp, flag_base=9200) == []
+    # ...and a 2nd auto scene there (which the build refuses on its own) is not judged, nor raised
+    assert len(probs(camp + scene(7), flag_base=9100)) == 1
+    # a single field's auto pick SKIPS an authored flag (the compiler's allocator, not the bare
+    # default): #0 pins the default slot of #1, and #1 is compiled on the next free bit
+    assert probs(scene(5, f"flag = {_flags.AUTO_CUTSCENE_BASE + 1}\n") + scene(6)) == []
+    # a replaying scene (once = false) is compiled with no once-flag at all: it never shares one
+    assert probs(scene(5, "flag = 8800\n") + scene(6, "once = false\nflag = 8800\n")) == []
+    assert probs(scene(5, "once = false\nflag = 8800\n") + scene(6, "once = false\nflag = 8800\n")) == []
+    # distinct flags, and all-auto, are clean
+    assert probs(scene(5, "flag = 8800\n") + scene(6, "flag = 8801\n")) == []
+    assert probs(scene(5) + scene(6) + scene(7)) == []
+    # a flag that cannot be resolved is another rule's error, not a shared once-flag
+    raw = {"field": {"id": 4003, "name": "X", "area": 11},
+           "cutscene": [{"requires_scenario": 5, "flag": "nobody", "steps": [{"say": "a"}]},
+                        {"requires_scenario": 6, "flag": "nobody", "steps": [{"say": "b"}]}]}
+    assert [s for s in validate(FieldProject(raw, tmp_path)) if "once-flag" in s] == []
+    # a verbatim fork wires at most one scene (the first cast one), so no two can share a bit
+    from ff9mapkit.build import cutscene_once_flag_problems
+    raw["cutscene"][0]["flag"] = raw["cutscene"][1]["flag"] = 8800
+    assert len(cutscene_once_flag_problems(FieldProject(raw, tmp_path))) == 1
+    raw["verbatim_eb"] = {"donor": 100}
+    assert cutscene_once_flag_problems(FieldProject(raw, tmp_path)) == []
+
+
 def test_cutscene_migration_errors(tmp_path):
     """#13 v3 breaking changes: the old block key `actor` (string OR list), the step key `anim`, and
     `exit_warp` all fail validation with a migration hint (never silently misbuild)."""

@@ -309,25 +309,22 @@ def scene_problems(raw, flag_names=None) -> list:
                     if _bad_name(leg):
                         out.append(f'{tag}step {i} path point {j} "{leg}" is not a known '
                                    f'marker/NPC/player')
-    return (out + _once_flag_problems(blocks) + _flag_name_problems(raw, blocks, flag_names)
-            + _flag_band_problems(raw, blocks))
+    return (out + _once_flag_problems(raw, blocks, flag_names)
+            + _flag_name_problems(raw, blocks, flag_names) + _flag_band_problems(raw, blocks))
 
 
-def _once_flag_problems(blocks) -> list:
-    """Two play-once scenes pinned to the SAME once-flag: whichever plays first sets the bit and
-    the other never plays. (The tab's rule; ``build.validate`` does not check it yet.)"""
-    out, seen = [], {}
-    for k, b in enumerate(blocks):
-        f = b.get("flag")
-        if f is None or not b.get("once", True) or isinstance(f, (dict, list)):
-            continue
-        if f in seen:
-            out.append(f"scene #{seen[f]} and scene #{k} share the once-flag {f!r} -- whichever "
-                       f"plays first sets it, and the other never plays. Give one its own flag "
-                       f"(or clear it to let the build pick one).")
-        else:
-            seen[f] = k
-    return out
+def _once_flag_problems(raw, blocks, flag_names) -> list:
+    """Two play-once scenes on the SAME once-flag: whichever plays first sets the bit and the
+    other never plays. ``build.cutscene_once_flag_problems`` owns the rule (the flag each scene is
+    COMPILED with, names resolved); it reads the doc, never copies it, and is handed the hardened
+    block list so a garbage section cannot raise. The tab cannot know a campaign member's flag
+    base, so a pin on that member's auto flag is the build's to catch."""
+    from .. import build as _build
+    if len(blocks) < 2:
+        return []
+    view = {**raw, "cutscene": [b for b in blocks if isinstance(b, dict)]}
+    return _build.cutscene_once_flag_problems(_build.FieldProject(view, "."), flag_names,
+                                              pair="scene #{} and scene #{}")
 
 
 def _conductor_problems(raw, block, tag) -> list:
