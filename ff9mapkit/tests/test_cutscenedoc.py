@@ -19,6 +19,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("FF9MAPKIT_NO_THUMBS", "1")
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import Qt                        # noqa: E402
 from PySide6.QtWidgets import QApplication          # noqa: E402
 
 from ff9mapkit.editor import forms                   # noqa: E402
@@ -198,6 +199,20 @@ def test_the_rail_renders_the_whole_dispatch(doc, tmp_path):
     assert "scene #0" in doc.rail.item(0).text() and "cast 2" in doc.rail.item(0).text()
     assert "narration" in doc.rail.item(1).text()
     assert "plays at beat 100" in doc.rail.item(0).text()
+
+
+def test_the_rail_leads_with_what_tells_scenes_apart_and_elides_instead_of_scrolling(doc,
+                                                                                      tmp_path):
+    """C21: rows were cut mid-glyph over a permanent horizontal scrollbar (a list that scrolls
+    sideways never elides), and the step count and cast -- what tells scenes apart -- sat at
+    the far end. Pixels: tools/gui_snap.py cutscene:doc at 100 and 150."""
+    _fed(doc, tmp_path)
+    assert doc.rail.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    assert doc.rail.textElideMode() == Qt.TextElideMode.ElideRight
+    t0, t1 = doc.rail.item(0).text(), doc.rail.item(1).text()
+    assert t0 == "scene #0 · 3 steps\ncast 2 · plays at beat 100", t0   # two lines, each elides
+    assert t1 == "scene #1 · 2 steps\nnarration · plays at beat 300", t1
+    assert doc.rail.item(0).toolTip().startswith(t0), "the tooltip keeps the whole line"
 
 
 def test_scene_select_switches_the_ladder_and_the_stage(doc, tmp_path):

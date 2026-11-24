@@ -765,6 +765,10 @@ class CutsceneDoc(QWidget):
         self.rail.setAccessibleDescription(
             "Every [[cutscene]] scene of this field's dispatch, with its story gate. "
             "At most one fires per field load.")
+        # no sideways scroll: a list that scrolls never elides, and cut a row mid-glyph over a
+        # permanent scrollbar; elided, the row's tooltip carries the whole line
+        self.rail.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.rail.setTextElideMode(Qt.TextElideMode.ElideRight)
         self.rail.currentRowChanged.connect(self._on_scene_select)
         rv.addWidget(self.rail, 1)
         self.add_scene_btn = QPushButton("＋ Add scene…")
@@ -1074,8 +1078,9 @@ class CutsceneDoc(QWidget):
         self.rail.clear()
         for r in rows:
             kind = "narration" if r["narration"] else f"cast {len(r['cast'])}"
-            text = (f"{r['label']} · {r['gate']} · {kind} · {r['steps']} "
-                    f"step{'s' if r['steps'] != 1 else ''}")
+            # what tells scenes apart FIRST, on two lines that each elide right
+            text = (f"{r['label']} · {r['steps']} step{'s' if r['steps'] != 1 else ''}\n"
+                    f"{kind} · {r['gate']}")
             self.rail.addItem(text)
             it = self.rail.item(self.rail.count() - 1)
             tip = text + (("\ncast: " + ", ".join(r["cast"])) if r["cast"] else "")
