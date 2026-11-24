@@ -287,6 +287,40 @@ def test_scene_problems_speaks_the_builds_own_conductor_sentences(tmp_path):
     cs.scene_problems(_two_cast([5, dict(_TURN)]))
 
 
+_HALF_TYPED = [
+    ("a step that is not a table", lambda r: r["cutscene"]["steps"].insert(0, 5)),
+    ("an [[npc]] row that is not a table", lambda r: r["npc"].append("oops")),
+    ("a tail that is a list", lambda r: r["cutscene"]["steps"].insert(0, {"say": "hi",
+                                                                          "tail": ["x"]})),
+]
+
+
+@pytest.mark.parametrize("why, spoil", _HALF_TYPED, ids=[h[0] for h in _HALF_TYPED])
+def test_a_half_typed_cast_scene_never_reads_as_clean(why, spoil):
+    """C7 (after review): any exception in the build's conductor validator made the lane return
+    nothing, so a half-typed cast scene with a ghost cast member and an actor outside the cast
+    read 'No structural problems'. The sentences found so far stay, and a scene the validator
+    could not finish says so."""
+    raw = _raw({"actors": ["Cid", "Ghost"], "steps": [{"walk": [0, 0], "actor": "Nobody"}]})
+    spoil(raw)
+    probs = cs.scene_problems(raw)
+    assert any('"Ghost"' in p or "'Ghost'" in p for p in probs), (why, probs)
+    assert len(probs) >= 2, (why, probs)       # the actor sentence, or the could-not-finish one
+
+
+def test_scene_problems_never_resolves_an_animation_name(monkeypatch):
+    """C7 (after review): the per-render lane resolved every animation NAME in every cast scene
+    through the catalog (tens of ms each, on the GUI thread, on every click). That is the
+    explicit Check's job (it reports a name that does not resolve) and the build's."""
+    from ff9mapkit import build as _build
+    calls = []
+    monkeypatch.setattr(_build, "_resolve_actor_animation",
+                        lambda *a, **k: calls.append(a) or 0)
+    raw = _raw([{"actors": ["Cid"], "steps": [{"animation": "idle", "actor": "Cid"}] * 3}] * 4)
+    assert cs.scene_problems(raw) == []
+    assert calls == [], f"{len(calls)} name lookups on the render lane"
+
+
 def test_scene_problems_clean_scene_is_silent():
     raw = _raw({"actors": ["Cid"],
                 "steps": [{"walk": "altar", "actor": "Cid"},

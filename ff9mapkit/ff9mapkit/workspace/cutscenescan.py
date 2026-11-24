@@ -329,15 +329,36 @@ def _once_flag_problems(blocks) -> list:
 
 def _conductor_problems(raw, block, tag) -> list:
     """A cast scene through the BUILD'S OWN conductor validator, its sentences verbatim behind
-    the tab's ``scene #k:`` prefix. Never raises: a half-typed scene is this lane's normal input,
-    and the full Check still runs the same rule."""
+    the tab's ``scene #k:`` prefix. Never raises: a half-typed scene is this lane's normal input.
+
+    This runs on EVERY render, so it is handed a cheap view, never a deep copy of the field (the
+    validator only reads): the npc/marker rows that are tables, the player, and the steps with
+    an animation NAME swapped for a number. Resolving a name scans the animation catalog (tens
+    of ms each, on the GUI thread); the explicit Check reports a bad name (``_unwalkable``) and
+    the build refuses it. A scene the validator cannot finish still says so -- never "no
+    problems" over a scene it gave up on."""
     from .. import build as _build
+    raw = raw if isinstance(raw, dict) else {}
+
+    def _tables(key):
+        rows = raw.get(key)
+        return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+    def _no_name_lookup(s):
+        a = s.get("animation") if isinstance(s, dict) else None
+        return {**s, "animation": "0"} if isinstance(a, str) and not a.strip().isdigit() else s
+
+    view = {"npc": _tables("npc"), "marker": _tables("marker"),
+            "player": raw.get("player") if isinstance(raw.get("player"), dict) else {}}
+    steps = block.get("steps")
+    block = {**block, "steps": [_no_name_lookup(s) for s in steps]} \
+        if isinstance(steps, list) else block
     probs = []
     try:
-        project = _build.FieldProject(copy.deepcopy(raw) if isinstance(raw, dict) else {}, ".")
-        _build._validate_conductor(project, copy.deepcopy(block), probs, lbl="")
+        _build._validate_conductor(_build.FieldProject(view, "."), block, probs, lbl="")
     except Exception:                              # noqa: BLE001 -- the render loop must survive
-        return []
+        probs.append("this scene could not be checked to the end -- a step or value is not in "
+                     "a form the build can read yet (each step is a { key = value } table)")
     return [tag + p.strip() for p in probs]
 
 
