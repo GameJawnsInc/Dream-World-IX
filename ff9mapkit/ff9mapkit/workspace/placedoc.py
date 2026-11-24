@@ -229,6 +229,9 @@ def region_rows(data: dict) -> list:
                   f"later-armed one silently starves" for other in
                   overlaps.get((r["kind"], r["index"]), [])]
         audit = imagefield.zone_fan_audit(r["quad"])
+        if not imagefield.fan_triangles(r["quad"]):   # the audit has no interior to judge (P11)
+            warns.append("no area — its corners lie in a line or on one spot, so it can never "
+                         "fire; drag a corner out")
         if audit["gap"] > 0.02:
             warns.append(f"dead zone ~{audit['gap']:.0%} — part of the drawn area never fires")
         if audit["spill"] > 0.02:

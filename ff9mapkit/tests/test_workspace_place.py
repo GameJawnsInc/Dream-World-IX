@@ -1615,6 +1615,23 @@ def test_the_place_regions_tool_says_zone_and_how_to_cancel(app):
     assert "zones" in tip and "quad" not in tip and "Esc" in tip, tip
 
 
+# --------------------------------------------------------------- batch 4: empty zones (P11)
+@pytest.mark.parametrize("zone, empty", [
+    ([[0, 500], [100, 500], [200, 500], [300, 500]], True),          # four corners in a line
+    ([[50, 500], [50, 500], [50, 500], [50, 500]], True),            # all on one spot
+    ([[0, 500], [100, 500], [100, 600], [0, 600]], False),           # an ordinary zone
+    ([[0, 500], [100, 500], [0, 600], [100, 600]], False),           # a bowtie: its signed area
+])                                                                    # cancels, yet the fan fires
+def test_a_zone_with_no_area_warns_that_it_can_never_fire(zone, empty):
+    """P11: the fan audit is vacuous on a degenerate zone (no interior to judge), so four
+    collinear or coincident corners passed clean -- a trigger that can never fire."""
+    for kind, row in (("gateway", {"name": "d", "to": 4005, "zone": zone}),
+                      ("event", {"name": "z", "message": "hi", "zone": zone})):
+        (r,) = P.region_rows({kind: [row]})
+        said = bool(r["warn"] and "never fire" in r["warn"])
+        assert said is empty, (kind, zone, r["warn"])
+
+
 # --------------------------------------------------------------- batch 4: the crumb (P31)
 def test_the_crumb_names_the_surface_like_its_siblings(app):
     """P31: Behavior and Cutscene read 'Behavior — X' / 'Cutscene — X'; Place read the bare
