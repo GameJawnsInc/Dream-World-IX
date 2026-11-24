@@ -2402,6 +2402,77 @@ def test_the_regions_tool_says_zone_and_how_to_cancel(app, tmp_path):
         doc.status.text()
 
 
+# --------------------------------------------------------------------------- T33: Detect floor
+def _room_photo(tmp_path):
+    """A photo with a floor auto_floor can find: a lit trapezoid on a dark room."""
+    from PIL import Image, ImageDraw
+    p = tmp_path / "room-photo.png"
+    im = Image.new("RGB", (1200, 900), (60, 60, 90))
+    ImageDraw.Draw(im).polygon([(360, 450), (840, 450), (1200, 900), (0, 900)], fill=(150, 120, 80))
+    im.save(p)
+    return p
+
+
+def test_detect_floor_seeds_an_empty_floor_as_one_undoable_gesture(app, tmp_path):
+    """Finding T33: the tab never called imagefield.auto_floor, the seed the CLI tracer had."""
+    pytest.importorskip("numpy")
+    doc, _run = _doc(app)
+    assert not doc.detect_btn.isEnabled()                # nothing to detect on yet
+    doc.load_image(_room_photo(tmp_path))
+    assert doc.detect_btn.isEnabled() and "starting outline" in doc.detect_btn.toolTip().lower()
+    doc.detect_btn.click()
+    assert len(doc._floor) >= 3 and doc.canvas.floor() == doc._floor
+    assert all(0 <= x <= 384 and 0 <= y <= 448 for x, y in doc._floor)
+    assert len(doc._history) == 1 and doc.gen_btn.isEnabled()   # the hand trace's own gate
+    assert "starting outline" in doc.status.text() and "drag" in doc.status.text()
+    doc.on_undo()
+    assert doc._floor == [] and doc.canvas.floor() == []
+
+
+def test_detect_floor_never_replaces_a_traced_floor(app, tmp_path):
+    pytest.importorskip("numpy")
+    doc, _run = _doc(app)
+    doc.load_image(_room_photo(tmp_path))
+    mine = [(100.0, 300.0), (280.0, 300.0), (190.0, 430.0)]
+    doc.canvas._commit_floor(mine)
+    doc.detect_btn.click()
+    assert doc._floor == mine and len(doc._history) == 1
+    assert "Clear the floor first" in doc.status.text()
+    assert doc.status.property("state") == "warn"
+
+
+def test_detect_floor_says_why_in_the_tabs_words_when_it_finds_none(app, tmp_path):
+    pytest.importorskip("numpy")
+    doc, _run = _doc(app)
+    doc.load_image(_photo(tmp_path))                     # one flat colour: no floor boundary
+    doc.detect_btn.click()
+    said = doc.status.text()
+    assert said.startswith("⚠ No floor found") and doc.status.property("state") == "warn", said
+    assert "--" not in said and "auto floor-seed" not in said, said
+    assert "trace it by hand" in said, said
+    from PySide6.QtGui import QGuiApplication
+    assert QGuiApplication.overrideCursor() is None     # the busy cursor ends with a refusal too
+    assert doc._floor == [] and doc._history == []
+
+
+def test_detect_floor_without_numpy_is_disabled_and_says_why(app, tmp_path, monkeypatch):
+    import importlib.util
+    real = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec",
+                        lambda name, *a: None if name == "numpy" else real(name, *a))
+    doc, _run = _doc(app)
+    doc.load_image(_photo(tmp_path))
+    assert not doc.detect_btn.isEnabled() and "numpy" in doc.detect_btn.toolTip()
+
+
+def test_detect_floor_is_a_floor_tool_control(app, tmp_path):
+    pytest.importorskip("PIL")
+    doc, _ = _traced_doc(app, tmp_path)
+    assert doc.detect_btn.isVisible()
+    doc.tools.set_current("regions")
+    assert not doc.detect_btn.isVisible()
+
+
 # --------------------------------------------------------------------------- T41: the Inspector summary
 def test_the_inspector_summary_follows_the_session(app, tmp_path, monkeypatch):
     """Finding T41: the Inspector was empty on Trace while one status line carried every count.

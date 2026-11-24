@@ -250,6 +250,19 @@ class TraceDoc(QWidget):
         self.tools.changed.connect(self._on_tool)
         row.addWidget(self.tools)
         self.fg_btn = self.tools.button("cutout")      # the Add-cut-out control, now a segment
+        # the Floor tool's own control (T33): imagefield.auto_floor seeds an EMPTY floor with a
+        # starting outline the author drags into shape -- the seed the retired CLI tracer had
+        import importlib.util
+        self._has_numpy = importlib.util.find_spec("numpy") is not None
+        self.detect_btn = QPushButton("Detect floor")
+        self.detect_btn.setToolTip(
+            "Find the floor from the photo's colours and lay down a STARTING outline — then drag "
+            "its vertices onto the floor's real edges (it cannot tell where a doorway ends). "
+            "Works on an empty floor; one Undo takes it back." if self._has_numpy else
+            "Detect floor needs the numpy package (py -m pip install numpy) — trace the floor "
+            "by hand instead.")
+        self.detect_btn.clicked.connect(self.on_detect_floor)
+        row.addWidget(self.detect_btn)
         # the Regions tool's own cluster (visible only while it is the active tool)
         from PySide6.QtWidgets import QButtonGroup, QRadioButton, QSpinBox
         self.rkind_group = QButtonGroup(self)
@@ -655,6 +668,7 @@ class TraceDoc(QWidget):
         self.clear_btn.setEnabled(bool(getattr(self, attr)))
         for key in ("cutout", "regions"):
             self.tools.button(key).setEnabled(self._image is not None)
+        self.detect_btn.setEnabled(self._has_numpy and self._image is not None)
         self._refresh_fg_strip()
         if not note:
             if self._image is None:
@@ -914,6 +928,48 @@ class TraceDoc(QWidget):
         self._refresh_regions()
         self._refresh()
 
+    def on_detect_floor(self):
+        """Seed an EMPTY floor from the photo (finding T33): ``imagefield.auto_floor``'s polygon
+        lands as ONE gesture through the canvas's own commit path (one Undo), and is judged by
+        the same Generate gate as a hand trace. It never replaces a traced floor -- Clear does,
+        with its own Undo. It takes about a quarter of a second on a 12-megapixel photo, so the
+        window shows it is busy rather than looking hung."""
+        if self._image is None or not self._has_numpy:
+            return
+        if self._floor:
+            self._refresh("Clear the floor first — Detect floor lays a starting outline on an "
+                          "empty floor.", "warn")
+            return
+        from PySide6.QtGui import QGuiApplication
+        self._refresh("Detecting the floor…")
+        self.status.repaint()
+        QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            seed = imagefield.auto_floor(self._image, pitch=float(self.pitch.value()),
+                                         fov=self._fov, distance=self._distance)
+        except imagefield.ImageFieldError as e:
+            self._refresh(f"⚠ No floor found — {self._authors_words(e)}", "warn")
+            return
+        finally:
+            QGuiApplication.restoreOverrideCursor()
+        self.canvas._commit_floor(seed["floor"])      # the gesture path: on_floor -> one Undo
+        self._refresh(self._crossed_note()
+                      + f"Detected a starting outline ({len(self._floor)} vertices) — drag its "
+                        f"vertices onto the floor's real edges; it cannot tell where a doorway "
+                        f"ends.", "warn" if self._outline_problem() else "")
+
+    @staticmethod
+    def _authors_words(err):
+        """auto_floor speaks to the command line (its flags, its own name); say it as this tab."""
+        s = str(err).removeprefix("auto floor-seed: ")
+        for cli, tab in ((" -- hand-trace it with --trace", " — trace it by hand"),
+                         ("; hand-trace it with --trace", " — trace it by hand"),
+                         (" -- steepen --pitch, or hand-trace it with --trace",
+                          " — raise the pitch, or trace it by hand"),
+                         ("hand-trace it with --trace", "trace it by hand")):
+            s = s.replace(cli, tab)
+        return s.replace(" -- ", " — ")
+
     # ------------------------------------------------------------------ the tool strip
     def _on_tool(self, key):
         """ONE owner of tool -> canvas click semantics (the strip made the mode explicit —
@@ -936,6 +992,7 @@ class TraceDoc(QWidget):
         if getattr(self, "ev_msg", None) is None:
             return                                 # construction order: radios fire before the boxes
         on = self.tools.current() == "regions"
+        self.detect_btn.setVisible(self.tools.current() == "floor")
         gw = on and self.rkind_btns["gateway"].isChecked()
         for w in (self.rkind_btns["gateway"], self.rkind_btns["event"]):
             w.setVisible(on)
