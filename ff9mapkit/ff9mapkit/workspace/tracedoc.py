@@ -1082,6 +1082,10 @@ class TraceDoc(QWidget):
         toml = out / f"{name}.field.toml"
         proj = {"out": str(out), "name": name, "fid": int(fid)}
         before = _file_stamp(toml)                     # the disk, not the exit code, says what moved
+        try:                                           # the file as the regenerate found it: the
+            old = None if first else imagefield.load_project_tables(toml)   # finish compares (E13)
+        except imagefield.ImageFieldError:
+            old = None
         started = self._run(
             argv, cwd=str(self.kit), subject="Image → field",
             ok_headline=f"{name} generated → {out}",
@@ -1095,7 +1099,7 @@ class TraceDoc(QWidget):
             fail_hint="See the Output panel — the usual causes are a vertex above the horizon "
                       "or a floor larger than the Int16 world bound.",
             on_finished=lambda code, _t=str(toml):
-                self._after_generate(code, first, _t, proj=proj, before=before))
+                self._after_generate(code, first, _t, proj=proj, before=before, old=old))
         if started:
             self._project = proj
             self._stamped = True                       # the project now matches the session
@@ -1105,7 +1109,7 @@ class TraceDoc(QWidget):
             self._refresh("Another job is running — Generate after it finishes (the Output "
                           "panel shows it).", "warn")
 
-    def _after_generate(self, code, first, toml, *, proj=None, before=None):
+    def _after_generate(self, code, first, toml, *, proj=None, before=None, old=None):
         """A clean FIRST Generate opens the project in the Editor (through the shell's own
         ``open_field`` — which is what feeds the Place tab, rung 7d, so 'trace it → place
         content on it' is one flow). Regenerates never yank; failures never open anything.
@@ -1140,15 +1144,46 @@ class TraceDoc(QWidget):
             self._refresh("Generate failed — no field.toml was written. See the Output panel, fix "
                           "the cause, then Generate again.", "error")
         elif code == 0:
-            self._refresh(f"{'Generated' if first else 'Regenerated'} {name} → {out}")
+            took = self._what_it_took(old, toml)
+            self._refresh(f"{took}{'Generated' if first else 'Regenerated'} {name} → {out}",
+                          "warn" if took else "")
         elif _file_stamp(toml) != before:
-            self._refresh(f"{name} was written to {out}, but the job reported an error — see the "
-                          f"Output panel.", "warn")
+            self._refresh(f"{self._what_it_took(old, toml)}{name} was written to {out}, but the "
+                          f"job reported an error — see the Output panel.", "warn")
         else:
             self._stamped = False                      # the job writes walkmesh + art BEFORE the toml,
             self._refresh(f"Regenerate failed — {name}.field.toml was not updated (its walkmesh "
                           f"and art may have been). See the Output panel, then Regenerate again.",
                           "error")                     # so only the toml's own stat is known here
+
+    @staticmethod
+    def _what_it_took(old, toml):
+        """What a regenerate took from the file it found (``old``, read at launch), judged by the
+        disk -- the merge names it in the Output console, and the tab's own status said nothing
+        (finding E13): a door or zone row that went, a key dropped from a regenerated row, a start
+        point moved because the new floor no longer covers it. '' when nothing was."""
+        if not old:
+            return ""
+        try:
+            new = imagefield.load_project_tables(toml) or {}
+        except imagefield.ImageFieldError:
+            return ""
+        said = []
+        for kind in ("gateway", "event"):
+            rows = {str(r.get("name")): r for r in new.get(kind) or [] if isinstance(r, dict)}
+            for r in old.get(kind) or []:
+                if not isinstance(r, dict):
+                    continue
+                nm = str(r.get("name"))
+                if nm not in rows:
+                    said.append(f"removed {nm}")
+                else:
+                    said += [f"{nm} lost {k}" for k in r if k not in rows[nm]]
+        was = (old.get("player") or {}).get("spawn") if isinstance(old.get("player"), dict) else None
+        now = (new.get("player") or {}).get("spawn") if isinstance(new.get("player"), dict) else None
+        if was is not None and was != now:
+            said.append("the start point moved (it was off the new floor)")
+        return f"⚠ {', '.join(said)} · " if said else ""
 
     def _write_trace_sidecar(self, out):
         """The tab's session as ``<out>/<image-stem>.trace.json`` — floor, pitch, cut-outs

@@ -1076,7 +1076,8 @@ def load_project_tables(toml_path) -> dict | None:
             f"pass --force to discard it") from e
 
 
-def merge_project_toml(generated_text: str, existing: dict | None, *, twin_quads=None):
+def merge_project_toml(generated_text: str, existing: dict | None, *, twin_quads=None,
+                       floor=None):
     """Regenerate WITHOUT destroying hand-authored content — ``(text, kept, retaken, removed)``.
 
     ``twin_quads`` = ``{"gateway": {quad: traced name}, "event": {...}}``: the quads this run's
@@ -1106,8 +1107,10 @@ def merge_project_toml(generated_text: str, existing: dict | None, *, twin_quads
       generator's (each one overwritten is named, ``field.area``), every other key -- the
       Editor's Field form writes ``location``, ``title``, ``text_block``, ``borrow_bg`` there
       -- rides through and is named in ``kept`` (finding T2); a kept ``borrow_bg`` keeps its
-      ``area`` too, since the two name the donor together. ``[player]`` merges PER KEY: ``spawn`` is the
-      generator's (the session's centroid wins, retaken when it differed) while every other
+      ``area`` too, since the two name the donor together. ``[player]`` merges PER KEY: a
+      ``spawn`` the file already has is KEPT while it lies inside ``floor`` (the new walkmesh's
+      outline) and retaken -- named, with why -- only when it fell off (finding E13; without
+      ``floor`` the generator's spawn wins as before), while every other
       key — the Place tab's ``[[player.arrival]]`` rows above all — is the human's and rides
       through. The floorplan owns [player] wholesale because its composer GENERATES arrivals;
       this generator never does, so wholesale here was pure deletion (the review's catch)."""
@@ -1182,11 +1185,21 @@ def merge_project_toml(generated_text: str, existing: dict | None, *, twin_quads
     field_extra = {k: v for k, v in old_field.items() if k not in gen_field or k in paired}
     old_player = existing.get("player") if isinstance(existing.get("player"), dict) else {}
     player_extra = {k: v for k, v in (old_player or {}).items() if k != "spawn"}
-    if old_player and old_player.get("spawn") != (gen.get("player") or {}).get("spawn"):
-        retaken.append("player.spawn")
+    gen_spawn = (gen.get("player") or {}).get("spawn")
+    old_spawn = (old_player or {}).get("spawn")
+    is_point = (isinstance(old_spawn, list) and len(old_spawn) == 2
+                and all(isinstance(c, (int, float)) for c in old_spawn))
+    # a spawn the file already has (the Place tab writes it) is KEPT while it still lies on the
+    # new walkmesh, and retaken only when it fell off (finding E13)
+    spawn_kept = floor is not None and is_point and point_in_polygon(old_spawn, floor)
+    if not spawn_kept and old_player and old_spawn != gen_spawn:
+        retaken.append("player.spawn" if floor is None or "spawn" not in old_player
+                       else "player.spawn (it was off the new floor)" if is_point
+                       else "player.spawn (it was not a floor position)")
     kept = ([f"[[{k}]] ×{len(v)}" if isinstance(v, list) else f"[{k}]"
              for k, v in kept_tables.items()] + [f"{k} = …" for k in scalars]
             + [f"[field].{k}" for k in field_extra]
+            + (["[player].spawn (still on the floor)"] if spawn_kept else [])
             + [f"[player].{k}" for k in player_extra]
             + [f"[[gateway]] {r.get('name') or '?'}" for r in kept_rows["gateway"]]
             + [f"[[event]] {r.get('name') or '?'}" for r in kept_rows["event"]]
@@ -1202,11 +1215,11 @@ def merge_project_toml(generated_text: str, existing: dict | None, *, twin_quads
                           text, count=1)
         if n != 1:                                 # fail LOUDLY: the alternative drops hand keys
             raise ImageFieldError("internal: the generated [field] block was not found to merge")
-    if player_extra:
+    if player_extra or spawn_kept:
         # PER-KEY [player]: the generated block is exactly two known lines, replaced with one
         # self-consistent dumps chunk (an appended second [player] header would be a TOML
         # redefinition error, and [[player.arrival]] rows must follow their own super-table).
-        merged_player = {"spawn": (gen.get("player") or {}).get("spawn"), **player_extra}
+        merged_player = {"spawn": old_spawn if spawn_kept else gen_spawn, **player_extra}
         block = _model.dumps({"player": merged_player}).rstrip("\n")
         text, n = re.subn(r"\[player\]\nspawn = \[-?\d+, -?\d+\]", block, text, count=1)
         if n != 1:                                 # the generated shape moved: fail LOUDLY, the
@@ -1369,7 +1382,9 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
                 if key is not None:
                     twin_quads[kind][key] = f"{prefix}{i}"
     text, kept, retaken, removed = merge_project_toml("\n".join(lines) + "\n", existing,
-                                                     twin_quads=twin_quads)
+                                                     twin_quads=twin_quads, floor=verts)
+    if any(k.startswith("[player].spawn") for k in kept):    # the file's own spawn stayed (E13)
+        spawn = tuple(existing["player"]["spawn"])
 
     # every refusal has passed: NOW touch the disk
     (out / "art").mkdir(parents=True, exist_ok=True)

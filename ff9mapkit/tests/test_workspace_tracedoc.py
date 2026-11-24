@@ -1057,6 +1057,52 @@ def test_the_status_settles_after_a_regenerate_and_a_failed_one_is_not_stamped(a
     assert "not stamped" not in doc.status.text() and "Output panel" in doc.status.text()
 
 
+def test_a_regenerate_says_on_the_status_what_it_moved_or_removed(app, tmp_path):
+    """Finding E13: what a regenerate takes back was named only in the Output console. The tab's
+    own status now leads with it: a removed row, a key dropped from a regenerated row, and a
+    start point moved because the new floor no longer covers it. A kept spawn is not named."""
+    pytest.importorskip("PIL")
+    import re
+    from PIL import Image
+    from ff9mapkit import imagefield as IF
+    photo = tmp_path / "room.png"
+    Image.new("RGB", (1536, 1792), (90, 80, 70)).save(photo)
+    floor = [(130.0, 140.0), (254.0, 140.0), (364.0, 440.0), (20.0, 440.0)]
+    doors = ["4005@60,300;140,300;140,330;60,330", "4006@200,300;280,300;280,330;200,330"]
+    man = IF.build_image_field(photo, floor, tmp_path / "proj", name="HALL", field_id=30790,
+                               gateways=doors)
+    toml = Path(man["toml"])
+    w = man["world_floor"]
+    far = (int(0.9 * w[0][0] + 0.1 * w[2][0]), int(0.9 * w[0][1] + 0.1 * w[2][1]))
+    text = re.sub(r"spawn = \[-?\d+, -?\d+\]", f"spawn = [{far[0]}, {far[1]}]",
+                  toml.read_text(encoding="utf-8"), count=1)
+    text = text.replace('name = "traced_door0"', 'name = "traced_door0"\nflag_gate = 8800', 1)
+    toml.write_text(text, encoding="utf-8", newline="\n")
+    doc, run = _doc(app)
+    doc.load_project(toml)
+    doc._on_region_deleted(1)                           # the second door, deleted in Trace
+    shorter = [(130.0, 300.0), (254.0, 300.0), (364.0, 440.0), (20.0, 440.0)]
+    doc.canvas._commit_floor(shorter)                   # and the far half traced away
+    doc.on_generate()
+    assert len(run.calls) == 1
+    IF.build_image_field(photo, shorter, tmp_path / "proj", name="HALL", field_id=30790,
+                         gateways=doors[:1])            # what the job does on disk
+    run.calls[0][1]["on_finished"](0)
+    said = doc.status.text()
+    assert said.startswith("⚠") and "Regenerated HALL" in said
+    assert "removed traced_door1" in said
+    assert "traced_door0 lost flag_gate" in said
+    assert "start point moved" in said and "off the new floor" in said
+    assert doc.status.property("state") == "warn"
+    # a second regenerate that keeps the (now on-floor) spawn says nothing about it
+    doc.canvas._commit_floor([(132.0, 302.0)] + shorter[1:])
+    doc.on_generate()
+    IF.build_image_field(photo, [(132.0, 302.0)] + shorter[1:], tmp_path / "proj", name="HALL",
+                         field_id=30790, gateways=doors[:1])
+    run.calls[1][1]["on_finished"](0)
+    assert doc.status.text().startswith("Regenerated HALL") and "⚠" not in doc.status.text()
+
+
 def test_a_finish_after_the_author_moved_on_leaves_the_new_session_alone(app, tmp_path,
                                                                          monkeypatch):
     """The settle is the LAUNCH's: an author who opened another project while a first Generate

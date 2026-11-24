@@ -1016,9 +1016,9 @@ def test_regenerate_refuses_an_unparseable_project_before_writing_anything(tmp_p
     assert _tree(tmp_path / "out") != before          # anti-vacuity: the inputs DO move bytes
 
 
-def test_player_spawn_is_generator_owned_and_the_retake_is_said_out_loud(tmp_path):
-    """[player].spawn regenerates (the session's centroid wins) -- but a hand-moved spawn is
-    REPORTED via retaken, never silently reverted."""
+def test_a_spawn_that_is_not_a_floor_point_is_retaken_and_said_out_loud(tmp_path):
+    """A spawn the file holds that is not an (x, z) point is replaced by the generator's -- and
+    REPORTED via retaken, never silently. (A real point on the floor is kept: finding E13.)"""
     pytest.importorskip("PIL")
     import tomllib
     toml, floor, _man = _merge_project(tmp_path)
@@ -1030,7 +1030,51 @@ def test_player_spawn_is_generator_owned_and_the_retake_is_said_out_loud(tmp_pat
                                 events=["It creaks.@200,340;300,340;300,380;200,380"])
     data = tomllib.loads(toml.read_text(encoding="utf-8"))
     assert data["player"]["spawn"] != moved            # the centroid is re-derived
-    assert "player.spawn" in man2["retaken"]
+    assert "player.spawn (it was not a floor position)" in man2["retaken"]
+
+
+def _set_spawn(toml, x, z):
+    import re
+    text = re.sub(r"spawn = \[-?\d+, -?\d+\]", f"spawn = [{x}, {z}]",
+                  toml.read_text(encoding="utf-8"), count=1)
+    toml.write_text(text, encoding="utf-8", newline="\n")
+
+
+def _regen_merge(tmp_path, floor):
+    return IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                                gateways=["4005@60,300;140,300;140,330;60,330"],
+                                events=["It creaks.@200,340;300,340;300,380;200,380"])
+
+
+def test_a_spawn_placed_on_the_floor_survives_a_regenerate(tmp_path):
+    """Finding E13: the Place tab writes [player] spawn, and every Regenerate moved it back to the
+    generator's choice. A spawn already in the file is kept while it still lies on the new floor."""
+    pytest.importorskip("PIL")
+    import tomllib
+    toml, floor, man = _merge_project(tmp_path)
+    w = man["world_floor"]
+    x, z = int(0.7 * w[2][0] + 0.3 * w[0][0]), int(0.7 * w[2][1] + 0.3 * w[0][1])
+    _set_spawn(toml, x, z)
+    nudged = [(132, 142)] + floor[1:]                  # a floor tweak in Trace
+    man2 = _regen_merge(tmp_path, nudged)
+    assert tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"] == [x, z]
+    assert "player.spawn" not in " ".join(man2["retaken"])
+    assert any("spawn" in k for k in man2["kept"])
+    assert man2["spawn"] == (x, z)                     # the report names the spawn the file has
+
+
+def test_a_spawn_the_new_floor_no_longer_covers_is_retaken_and_said_so(tmp_path):
+    pytest.importorskip("PIL")
+    import tomllib
+    toml, floor, man = _merge_project(tmp_path)
+    w = man["world_floor"]
+    x, z = int(0.9 * w[0][0] + 0.1 * w[2][0]), int(0.9 * w[0][1] + 0.1 * w[2][1])   # the far end
+    _set_spawn(toml, x, z)
+    shorter = [(130, 300), (254, 300)] + floor[2:]     # the far half traced away
+    man2 = _regen_merge(tmp_path, shorter)
+    spawn = tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"]
+    assert spawn != [x, z] and spawn == [round(man2["spawn"][0]), round(man2["spawn"][1])]
+    assert any(r.startswith("player.spawn") and "off the new floor" in r for r in man2["retaken"])
 
 
 def test_place_authored_arrivals_ride_through_a_regenerate(tmp_path):

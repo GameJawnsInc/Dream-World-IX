@@ -234,7 +234,9 @@ def test_edits_made_while_the_job_ran_are_never_dropped_without_asking(win, tmp_
 # told to break it (or a line of it that no test noticed being removed).
 
 def _moved_floor():
-    return [(100.0, 220.0), (280.0, 220.0), (340.0, 430.0), (40.0, 430.0)]
+    # a front strip that no longer covers the old spawn: a regenerate keeps a spawn still on
+    # the floor (finding E13), so only a floor that left it behind moves it
+    return [(100.0, 390.0), (280.0, 390.0), (340.0, 440.0), (40.0, 440.0)]
 
 
 def test_the_reload_drops_redo_steps_too(win, tmp_path):
