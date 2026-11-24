@@ -661,6 +661,35 @@ def test_a_reload_keeps_a_step_editor_whose_step_is_still_there(win, tmp_path):
     assert win._doc(_NAME).data["cutscene"]["steps"][0]["say"] == "typed, not yet applied"
 
 
+def test_a_stopped_generate_says_stopped_not_failed(win, tmp_path, monkeypatch):
+    """Batch 4 left: the tab saw only an exit code, so a job the author STOPPED read 'Generate
+    failed'. The shell's own finish path (``_proc_done``) runs it, with its Stop flag set."""
+    from PIL import Image
+    td = win.trace_doc
+    photo = tmp_path / "attic.png"
+    Image.new("RGB", (800, 600), (90, 80, 70)).save(photo)
+    td.load_image(photo)
+    td.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    td.id_box.setText("30785")
+    monkeypatch.setattr(td, "_ask_out", lambda: str(tmp_path))
+    launched = []
+    monkeypatch.setattr(td, "_run", lambda argv, **kw: launched.append(kw) or True)
+    td.on_generate()
+    win._job = ("Image → field", None, "", "x", launched[0]["on_finished"], None)
+    win._stopped = True                                # the Output panel's Stop
+    win._proc_done(1, None)
+    said = td.status.text()
+    assert "stopped" in said.lower() and "failed" not in said.lower(), said
+    td.load_image(photo)                               # and an ordinary failure still says so
+    td.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 440)])
+    td.id_box.setText("30785")
+    td.on_generate()
+    win._job = ("Image → field", None, "", "x", launched[1]["on_finished"], None)
+    win._stopped = False
+    win._proc_done(1, None)
+    assert "Generate failed" in td.status.text(), td.status.text()
+
+
 def test_trace_a_photo_sits_beside_new_field_in_the_menu_and_the_command_list(win):
     """Finding T37: a newcomer looks under Field for 'make a field from a picture'. The Field menu
     and Ctrl-K have it beside New Field, and it goes to the Trace tab (which stays on its rail)."""

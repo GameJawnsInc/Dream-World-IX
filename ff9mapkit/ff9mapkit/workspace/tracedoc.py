@@ -128,8 +128,11 @@ class TraceDoc(QWidget):
     """Trace a photo into a walkable field, entirely on the art. ``run`` = ``shell.run_job``."""
 
     def __init__(self, pal, kit_root, *, run, problems=None, scale=100, on_generated=None,
-                 can_generate=None, on_regenerated=None):
+                 can_generate=None, on_regenerated=None, was_stopped=None):
         super().__init__()
+        self.was_stopped = was_stopped                # () -> True while the job just finishing was
+        #                                               STOPPED by the author (the shell's Stop); the
+        #                                               shared run seam reports only an exit code
         self.pal = pal
         self.kit = Path(kit_root)                     # `-m ff9mapkit` cwd (this checkout's package)
         self._run = run
@@ -1502,22 +1505,28 @@ class TraceDoc(QWidget):
         name, out = proj["name"], proj["out"]
         if Path(toml).is_file() and self._read_context(toml):   # the file was rewritten (E12)
             self._refresh_regions()
+        stopped = code != 0 and self.was_stopped is not None and bool(self.was_stopped())
         if first and not Path(toml).is_file():
             self._project = None
-            self._refresh("Generate failed — no field.toml was written. See the Output panel, fix "
-                          "the cause, then Generate again.", "error")
+            self._refresh("Generate stopped — no field.toml was written. Generate again when "
+                          "ready." if stopped else
+                          "Generate failed — no field.toml was written. See the Output panel, fix "
+                          "the cause, then Generate again.", "warn" if stopped else "error")
         elif code == 0:
             took = self._what_it_took(old, toml, last_spawn)
             self._refresh(f"{took}{'Generated' if first else 'Regenerated'} {name} → {out}",
                           "warn" if took else "")
         elif _file_stamp(toml) != before:
             self._refresh(f"{self._what_it_took(old, toml, last_spawn)}{name} was written to {out}, but the "
-                          f"job reported an error — see the Output panel.", "warn")
+                          + ("job was stopped before it finished." if stopped else
+                             "job reported an error — see the Output panel."), "warn")
         else:
             self._stamped = False                      # the job writes walkmesh + art BEFORE the toml,
-            self._refresh(f"Regenerate failed — {name}.field.toml was not updated (its walkmesh "
-                          f"and art may have been). See the Output panel, then Regenerate again.",
-                          "error")                     # so only the toml's own stat is known here
+            self._refresh(f"Regenerate {'stopped' if stopped else 'failed'} — {name}.field.toml "
+                          f"was not updated (its walkmesh and art may have been). "
+                          + ("Regenerate again when ready." if stopped else
+                             "See the Output panel, then Regenerate again."),
+                          "warn" if stopped else "error")   # only the toml's own stat is known here
 
     @staticmethod
     def _what_it_took(old, toml, last_spawn=None):

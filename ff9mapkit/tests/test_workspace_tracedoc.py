@@ -2473,6 +2473,19 @@ def test_detect_floor_is_a_floor_tool_control(app, tmp_path):
     assert not doc.detect_btn.isVisible()
 
 
+def test_a_stopped_regenerate_says_stopped(app, tmp_path, monkeypatch):
+    pytest.importorskip("PIL")
+    stop = []
+    doc, run, toml = _armed(app, tmp_path, monkeypatch, was_stopped=lambda: bool(stop))
+    doc.canvas._commit_floor([(130, 200), (254, 200), (364, 440), (20, 445)])
+    doc.on_generate()
+    stop.append(1)
+    run.calls[-1][1]["on_finished"](1)                 # the file is as it was
+    said = doc.status.text()
+    assert "Regenerate stopped" in said and "failed" not in said, said
+    assert doc.status.property("state") == "warn" and not doc._stamped
+
+
 # --------------------------------------------------------------------------- T35: the empty canvas
 def test_the_bare_tab_asks_for_a_photo_where_the_canvas_will_be(app, tmp_path):
     """Finding T35: with nothing loaded the canvas was an empty frame over a muted one-liner. A

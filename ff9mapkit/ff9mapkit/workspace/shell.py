@@ -1789,7 +1789,8 @@ class Workspace(QMainWindow):
         self.trace_doc = TraceDoc(self.pal, KIT, run=self.run_job, problems=self._show_problems,
                                   scale=self._text_scale, on_generated=self.open_field,
                                   can_generate=self._trace_can_generate,
-                                  on_regenerated=self._trace_regenerated)
+                                  on_regenerated=self._trace_regenerated,
+                                  was_stopped=lambda: bool(self._stopped))
         self.tabs.addTab(self.trace_doc, "Trace")
         # the multiplayer ghost-sync front door: host/join a session point-and-click (wraps `ff9mapkit coop`;
         # the setup streams through run_job, the ws->wss bridge runs in-process inside this app).
