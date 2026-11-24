@@ -1416,6 +1416,7 @@ class CutsceneDoc(QWidget):
                      len(self._ed_block.get("steps") or []))   # (clamped: rows may have gone)
             label = cutscenescan.add_step(self._raw, k, at, step)   # the old form's
             self.editor.insert_at = at + 1         # same-kind overwrite made impossible.
+            self.editor._sync_with_prev()          # a new row: with_prev is judged by row too
             self.editor.title.setText(f"New step — lands at row {self.editor.insert_at}")
             self._selected_step = at
             (self.editor.value_text.clear() if self.editor._is_text()

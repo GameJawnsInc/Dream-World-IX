@@ -673,6 +673,23 @@ def test_with_prev_is_gated_by_the_compilers_rule_and_row_position(doc, tmp_path
     assert not doc.editor.with_prev.isEnabled()
 
 
+def test_an_add_lane_started_at_row_0_re_enables_with_prev_after_apply(doc, tmp_path):
+    """C13: the checkbox was judged only on a kind change, so after the first Apply advanced the
+    lane to row 1 it stayed disabled for a turn until the author toggled the type."""
+    _fed(doc, tmp_path)
+    for _ in range(3):
+        _rowtool(doc, "Remove this step (Ctrl+Z undoes)", 0).click()
+    doc.add_step_btn.click()
+    assert doc.editor.insert_at == 0
+    doc.editor.kind.setCurrentIndex(list(forms.STEP_KIND).index("turn"))
+    assert not doc.editor.with_prev.isEnabled(), "row 0 has nothing to run with"
+    doc.editor.value_line.setText("128")
+    doc.editor.actor.setEditText("Cid")
+    doc.editor.apply_btn.click()
+    assert doc.editor.insert_at == 1 and forms.step_key(doc._steps()[0]) == "turn"
+    assert doc.editor.with_prev.isEnabled(), "row 1 may run with row 0"
+
+
 def test_ladder_rowtools_reorder_duplicate_and_delete(doc, tmp_path):
     _fed(doc, tmp_path)
     doc.rail.setCurrentRow(1)
