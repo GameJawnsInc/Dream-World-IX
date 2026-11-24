@@ -9054,32 +9054,44 @@ def _validate_conductor(project, cs, problems, lbl="[cutscene]"):
     npc_names = {n.get("name") for n in project.raw.get("npc", [])}
     for nm in cast:
         if nm != "player" and nm not in npc_names:
-            problems.append(f"{lbl} actors entry {nm!r} is not a defined [[npc]] name (or \"player\")")
+            problems.append(f"{lbl} cast member {nm!r} is not a defined [[npc]] name -- add an [[npc]] "
+                            f"named {nm!r}, or take it out of the cast (actors); \"player\" is always "
+                            f"allowed")
     known = set(cast) | {"player"}
     sole = cast[0] if len(cast) == 1 else None
+    cast_words = ", ".join(cast)
     global_keys = ("say", "wait", "set_flag") + _cutscene.WINDOW_STEP_KINDS
     actor_keys = ("walk", "path", "teleport", "face_player", "animation", "turn")
     npc_by_name = {n.get("name"): n for n in project.raw.get("npc", [])}
     move_reg = _position_registry(project)
     steps = cs.get("steps")
     if not isinstance(steps, list) or not steps:
-        problems.append(f"{lbl} needs a non-empty steps = [ {{actor=..., say=...}}, ... ] list")
+        problems.append(f"{lbl} has no steps -- add at least one "
+                        f"(steps = [ {{actor = \"...\", say = \"...\"}}, ... ])")
         return
     for k, s in enumerate(steps):
         present = [key for key in global_keys + actor_keys if key in s]
-        if len(present) != 1:
-            problems.append(f"{lbl} step {k} needs exactly one action "
-                            f"({' / '.join(global_keys + actor_keys)})")
+        if not present:
+            problems.append(f"{lbl} step {k} has no action -- give it exactly one: "
+                            f"{', '.join(global_keys + actor_keys)}")
+            continue
+        if len(present) > 1:
+            problems.append(f"{lbl} step {k} has more than one action ({', '.join(present[:-1])} and "
+                            f"{present[-1]}) -- a step does exactly one thing; split it into separate "
+                            f"steps")
             continue
         act, who = present[0], s.get("actor", sole if present[0] in actor_keys else None)
         # say/open take an OPTIONAL actor (it attributes the window -- WindowSyncEx/WindowAsyncEx);
         # only validate the name when one is given, since an unattributed line is legitimate narration.
         if (act in actor_keys or (act in _cutscene.TEXT_STEP_KINDS and who is not None)):
             if who is None:
-                problems.append(f"{lbl} step {k} ({act}) needs actor = \"<name>\" (a cast of one lets you "
-                                f"omit it)")
+                problems.append(f"{lbl} step {k} ({act}) needs to say who does it -- set actor = "
+                                f"\"<name>\" to a cast member ({cast_words}) or \"player\"; only a "
+                                f"cast of one can leave it out")
             elif who not in known:
-                problems.append(f"{lbl} step {k} actor {who!r} is not in actors (or \"player\")")
+                problems.append(f"{lbl} step {k}: {who!r} is not in the cast ({cast_words}) -- add "
+                                f"{who!r} to the cast (actors), or give the step to a cast member or "
+                                f"\"player\"")
         if act == "animation":
             a = s.get("animation")
             if isinstance(a, str) and not a.strip().isdigit():
@@ -9109,28 +9121,38 @@ def _validate_conductor(project, cs, problems, lbl="[cutscene]"):
     # walk/path/animation/turn can run in parallel (say/wait/set_flag/teleport/face_player are sequential),
     # the group leader must be one of those too, and no actor may act twice in a group (one execution context).
     if steps[0].get("with_prev"):
-        problems.append(f"{lbl} step 0 can't have with_prev = true (nothing precedes it)")
+        problems.append(f"{lbl} step 0 can't run together with the previous step (with_prev) -- there "
+                        f"isn't one; turn it off")
     _par_ok = PARALLEL_STEP_KINDS
+
+    def _kind(s):                                          # "(say)" -- the step's one action, if it has one
+        acts = [key for key in global_keys + actor_keys if key in s]
+        return f" ({acts[0]})" if len(acts) == 1 else ""
     for g in _conductor.group_parallel(steps):
         if len(g) < 2:
             continue
         lead_k, lead_s = g[0]
         lead_act = next((key for key in _par_ok if key in lead_s), None)
         if lead_act is None:
-            problems.append(f"{lbl} step {lead_k} has a with_prev beat after it but isn't a "
-                            f"walk/path/animation/turn -- only those run in parallel")
-        seen = {lead_s.get("actor", sole)} if lead_act else set()
+            problems.append(f"{lbl} step {lead_k}{_kind(lead_s)} can't have the next step run together "
+                            f"with it (with_prev on step {g[1][0]}) -- only walk, path, animation and "
+                            f"turn can run together; make step {lead_k} one of those, or turn it off on "
+                            f"step {g[1][0]}")
+        seen = {lead_s.get("actor", sole): lead_k} if lead_act else {}
         for k, s in g[1:]:
             act = next((key for key in _par_ok if key in s), None)
             if act is None:
-                problems.append(f"{lbl} step {k}: only walk/path/animation/turn can run with_prev "
-                                f"(say/wait/set_flag/teleport/face_player are sequential)")
+                problems.append(f"{lbl} step {k}{_kind(s)} can't run together with the previous step "
+                                f"(with_prev) -- only walk, path, animation and turn can; turn it off "
+                                f"on this step")
                 continue
             who = s.get("actor", sole)
             if who in seen:
-                problems.append(f"{lbl} step {k}: actor {who!r} already acts in this parallel group "
-                                f"(an actor can't do two things at once)")
-            seen.add(who)
+                problems.append(f"{lbl} step {k}: {who!r} already acts in this moment (step {seen[who]}) "
+                                f"-- one actor can't do two things at once; turn off \"runs together "
+                                f"with the previous step\" (with_prev) here, or give the step to "
+                                f"another cast member")
+            seen.setdefault(who, k)
 
 
 # Which step kinds may run IN PARALLEL with the preceding beat (`with_prev = true`). say/wait/set_flag are

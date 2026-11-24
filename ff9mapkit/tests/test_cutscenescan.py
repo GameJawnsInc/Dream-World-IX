@@ -165,11 +165,12 @@ def test_scene_problems_names_the_offenders():
     }])
     probs = cs.scene_problems(raw)
     # a cast scene speaks the build's own conductor sentences (one owner per rule)
-    assert any("scene #0: actors entry 'Nobody' is not a defined [[npc]]" in p for p in probs)
-    assert any("scene #0: step 0 can't have with_prev" in p for p in probs)
-    assert any("scene #0: step 1: only walk/path/animation/turn can run with_prev" in p
+    assert any("scene #0: cast member 'Nobody' is not a defined [[npc]]" in p for p in probs)
+    assert any("scene #0: step 0 can't run together with the previous step (with_prev)" in p
                for p in probs)
-    assert any("scene #0: step 2 actor 'Ghost' is not in actors" in p for p in probs)
+    assert any("scene #0: step 1 (say) can't run together with the previous step" in p
+               for p in probs)
+    assert any("scene #0: step 2: 'Ghost' is not in the cast (Cid, Nobody)" in p for p in probs)
     assert any("scene #0: step 2: movement target 'no_such_marker'" in p for p in probs)
     assert any("scene #1: step 0 (turn) needs a cast" in p for p in probs)
 

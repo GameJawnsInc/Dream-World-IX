@@ -1339,9 +1339,9 @@ def test_conductor_parallel_validation(tmp_path):
         return build.validate(build.FieldProject.load(p))
     assert any("step 0" in m and "with_prev" in m for m
                in probs('[ { actor = "a", turn = 0, with_prev = true } ]'))
-    assert any("with_prev" in m and "sequential" in m.lower() for m
+    assert any("step 1 (say) can't run together with the previous step (with_prev)" in m for m
                in probs('[ { actor = "a", turn = 0 }, { actor = "b", say = "hi", with_prev = true } ]'))
-    assert any("parallel" in m.lower() for m
+    assert any("step 0 (say) can't have the next step run together with it" in m for m
                in probs('[ { actor = "a", say = "hi" }, { actor = "b", turn = 0, with_prev = true } ]'))
     assert any("already acts" in m for m
                in probs('[ { actor = "a", turn = 0 }, { actor = "a", animation = "glad", with_prev = true } ]'))

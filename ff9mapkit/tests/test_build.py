@@ -8,6 +8,7 @@ background scene + walkmesh — all offline.
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 
 import pytest
@@ -1163,6 +1164,54 @@ def test_cutscene_unknown_actor_is_rejected(tmp_path):
     p = tmp_path / "x.field.toml"
     p.write_text(_LINT_BASE + '[cutscene]\nactors = ["ghost"]\nsteps = [ {wait=5} ]\n', encoding="utf-8")
     assert any("not a defined [[npc]] name" in s for s in validate(FieldProject.load(p)))
+
+
+def test_cast_scene_problems_speak_the_tabs_plain_words(tmp_path):
+    """The cast-scene (conductor) sentences are shown verbatim in the Cutscene tab, which speaks of
+    the cast, of moments and of steps that run together -- not of TOML keys. Each names the step and
+    the offending name, says what to do, and keeps the key in parentheses for a command-line author."""
+    raw = {"field": {"id": 4003, "name": "X", "area": 11}, "player": {"spawn": [0, -300]},
+           "npc": [{"name": "Cid", "preset": "vivi", "pos": [0, -300]},
+                   {"name": "Mira", "preset": "vivi", "pos": [100, -300]}],
+           "cutscene": {"actors": ["Cid", "Mira", "Ghost"], "steps": [
+               {"turn": 0, "actor": "Cid", "with_prev": True},           # 0
+               {"actor": "Cid"},                                         # 1 no action
+               {"say": "x", "walk": [0, -300], "actor": "Cid"},          # 2 two actions
+               {"turn": 0, "actor": "Nobody"},                           # 3 not in the cast
+               {"turn": 0},                                              # 4 who?
+               {"wait": 5},                                              # 5 leads a moment it can't
+               {"turn": 0, "actor": "Mira", "with_prev": True},          # 6
+               {"turn": 0, "actor": "Cid"},                              # 7
+               {"turn": 64, "actor": "Cid", "with_prev": True},          # 8 Cid twice in a moment
+               {"say": "hi", "with_prev": True},                         # 9 a say can't run together
+           ]}}
+
+    def said(r):
+        return [p for p in validate(FieldProject(copy.deepcopy(r), tmp_path)) if p.startswith("[cutscene]")]
+    got = said(raw)
+    want = [
+        "[cutscene] cast member 'Ghost' is not a defined [[npc]] name -- add an [[npc]] named 'Ghost', "
+        "or take it out of the cast (actors)",
+        "[cutscene] step 1 has no action -- give it exactly one: say, wait, set_flag",
+        "[cutscene] step 2 has more than one action (say and walk) -- a step does exactly one thing",
+        "[cutscene] step 3: 'Nobody' is not in the cast (Cid, Mira, Ghost) -- add 'Nobody' to the cast "
+        "(actors)",
+        "[cutscene] step 4 (turn) needs to say who does it -- set actor = \"<name>\" to a cast member "
+        "(Cid, Mira, Ghost)",
+        "[cutscene] step 0 can't run together with the previous step (with_prev) -- there isn't one",
+        "[cutscene] step 5 (wait) can't have the next step run together with it (with_prev on step 6)",
+        "[cutscene] step 8: 'Cid' already acts in this moment (step 7) -- one actor can't do two things",
+        "[cutscene] step 9 (say) can't run together with the previous step (with_prev) -- only walk, "
+        "path, animation and turn can",
+    ]
+    for w in want:
+        assert sum(p.startswith(w) for p in got) == 1, (w, got)
+    for old in ("actors entry", "is not in actors", "parallel group", "beat", "needs exactly one",
+                "non-empty steps", "can run with_prev", "with_prev = true", " / "):
+        assert not any(old in p for p in got), (old, got)
+    raw["cutscene"]["steps"] = []
+    assert said(raw)[-1] == ('[cutscene] has no steps -- add at least one '
+                             '(steps = [ {actor = "...", say = "..."}, ... ])')
 
 
 def test_cutscene_step_window_keys_are_said_once_and_name_the_scene(tmp_path):
