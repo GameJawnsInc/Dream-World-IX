@@ -1156,6 +1156,7 @@ class TraceDoc(QWidget):
             old = None if first else imagefield.load_project_tables(toml)   # finish compares (E13)
         except imagefield.ImageFieldError:
             old = None
+        last = None if first else imagefield.generated_spawn(out)   # the generator's own spawn
         started = self._run(
             argv, cwd=str(self.kit), subject="Image → field",
             ok_headline=f"{name} generated → {out}",
@@ -1169,7 +1170,8 @@ class TraceDoc(QWidget):
             fail_hint="See the Output panel — the usual causes are a vertex above the horizon "
                       "or a floor larger than the Int16 world bound.",
             on_finished=lambda code, _t=str(toml):
-                self._after_generate(code, first, _t, proj=proj, before=before, old=old))
+                self._after_generate(code, first, _t, proj=proj, before=before, old=old,
+                                     last_spawn=last))
         if started:
             self._project = proj
             self._stamped = True                       # the project now matches the session
@@ -1179,7 +1181,8 @@ class TraceDoc(QWidget):
             self._refresh("Another job is running — Generate after it finishes (the Output "
                           "panel shows it).", "warn")
 
-    def _after_generate(self, code, first, toml, *, proj=None, before=None, old=None):
+    def _after_generate(self, code, first, toml, *, proj=None, before=None, old=None,
+                        last_spawn=None):
         """A clean FIRST Generate opens the project in the Editor (through the shell's own
         ``open_field`` — which is what feeds the Place tab, rung 7d, so 'trace it → place
         content on it' is one flow). Regenerates never yank; failures never open anything.
@@ -1214,11 +1217,11 @@ class TraceDoc(QWidget):
             self._refresh("Generate failed — no field.toml was written. See the Output panel, fix "
                           "the cause, then Generate again.", "error")
         elif code == 0:
-            took = self._what_it_took(old, toml)
+            took = self._what_it_took(old, toml, last_spawn)
             self._refresh(f"{took}{'Generated' if first else 'Regenerated'} {name} → {out}",
                           "warn" if took else "")
         elif _file_stamp(toml) != before:
-            self._refresh(f"{self._what_it_took(old, toml)}{name} was written to {out}, but the "
+            self._refresh(f"{self._what_it_took(old, toml, last_spawn)}{name} was written to {out}, but the "
                           f"job reported an error — see the Output panel.", "warn")
         else:
             self._stamped = False                      # the job writes walkmesh + art BEFORE the toml,
@@ -1227,11 +1230,18 @@ class TraceDoc(QWidget):
                           "error")                     # so only the toml's own stat is known here
 
     @staticmethod
-    def _what_it_took(old, toml):
+    def _what_it_took(old, toml, last_spawn=None):
         """What a regenerate took from the file it found (``old``, read at launch), judged by the
         disk -- the merge names it in the Output console, and the tab's own status said nothing
-        (finding E13): a door or zone row that went, a key dropped from a regenerated row, a start
-        point moved because the new floor no longer covers it. '' when nothing was."""
+        (finding E13): a hand row that went, a key dropped from a regenerated row, a start point
+        the author placed that moved. '' when nothing was.
+
+        A traced_ row is named by its POSITION, so deleting the first of three renumbers the rest:
+        judged by name, the status named the wrong door as removed (review of E13). The author
+        deleted traced rows here, so their going is not reported; a traced row's dropped key is
+        reported only against the new row with the SAME zone. ``last_spawn`` is the spawn the
+        last generate stamped (:func:`imagefield.generated_spawn`): the generator's own spawn
+        following a reshaped floor took nothing from the author."""
         if not old:
             return ""
         try:
@@ -1240,19 +1250,25 @@ class TraceDoc(QWidget):
             return ""
         said = []
         for kind in ("gateway", "event"):
-            rows = {str(r.get("name")): r for r in new.get(kind) or [] if isinstance(r, dict)}
+            rows = [r for r in new.get(kind) or [] if isinstance(r, dict)]
             for r in old.get(kind) or []:
                 if not isinstance(r, dict):
                     continue
                 nm = str(r.get("name"))
-                if nm not in rows:
-                    said.append(f"removed {nm}")
+                if imagefield.is_generated_region(kind, r.get("name")):
+                    twin = next((q for q in rows if imagefield.is_generated_region(kind, q.get("name"))
+                                 and q.get("zone") == r.get("zone")), None)
                 else:
-                    said += [f"{nm} lost {k}" for k in r if k not in rows[nm]]
+                    twin = next((q for q in rows if str(q.get("name")) == nm), None)
+                    if twin is None:
+                        said.append(f"removed {nm}")
+                if twin is not None:
+                    said += [f"{twin.get('name')} lost {k}" for k in r if k not in twin]
         was = (old.get("player") or {}).get("spawn") if isinstance(old.get("player"), dict) else None
         now = (new.get("player") or {}).get("spawn") if isinstance(new.get("player"), dict) else None
-        if was is not None and was != now:
-            said.append("the start point moved (it was off the new floor)")
+        if was is not None and was != now and was != last_spawn:
+            said.append("the start point moved" + (" (it was off the new floor)"
+                                                   if last_spawn is not None else ""))
         return f"⚠ {', '.join(said)} · " if said else ""
 
     def _write_trace_sidecar(self, out):

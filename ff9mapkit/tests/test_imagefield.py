@@ -194,6 +194,27 @@ def test_a_sharp_tip_is_bevelled_not_thrown_across_the_room(tmp_path):
         assert min(math.hypot(v[0] - p[0], v[1] - p[1]) for p in tip) <= reach, v
 
 
+def test_a_bevel_that_would_cross_the_ring_falls_back_to_the_unlimited_grow(tmp_path):
+    """Review of T4: a sharp convex tip beside a sharp reflex corner on a short side -- the
+    bevel's two points pass the neighbouring miter point and the bevelled ring crosses itself,
+    where the unlimited grow (what every earlier build shipped) tiles cleanly. Nothing there is
+    narrow, so the floor builds; only a floor whose UNLIMITED grow crosses is refused."""
+    pytest.importorskip("PIL")
+    from ff9mapkit.floorplan import segments_cross
+    floor = [(309, 320), (301, 329), (323, 323), (264, 363), (247, 383), (192, 249), (260, 255)]
+    world = IF.unproject_floor(guide.make_camera(26.0, IF.DEFAULT_DISTANCE,
+                                                 fov_x_deg=IF.DEFAULT_FOV), floor)
+    bevelled = IF.outset_polygon(IF._drop_repeats(world), IF.COLLISION_OUTSET,
+                                 miter_limit=IF.MITER_LIMIT)
+    m = len(bevelled)
+    assert any(segments_cross(bevelled[i], bevelled[(i + 1) % m], bevelled[j],
+                              bevelled[(j + 1) % m])
+               for i in range(m) for j in range(i + 2, m) if not (i == 0 and j == m - 1)), \
+        "the fixture must be one whose bevelled ring crosses"
+    man = IF.build_image_field(_src(tmp_path), floor, tmp_path / "out")
+    assert man["faces"] >= 5
+
+
 def test_a_doubled_click_is_dropped_and_every_corner_is_still_grown(tmp_path):
     """Finding T4: a consecutive duplicate vertex (the CLI --floor, the toml inversion) left that
     corner un-grown -- a zero-length edge has no normal."""
@@ -1061,6 +1082,34 @@ def test_a_spawn_placed_on_the_floor_survives_a_regenerate(tmp_path):
     assert "player.spawn" not in " ".join(man2["retaken"])
     assert any("spawn" in k for k in man2["kept"])
     assert man2["spawn"] == (x, z)                     # the report names the spawn the file has
+
+
+def test_the_generators_own_spawn_follows_a_reshaped_floor(tmp_path):
+    """Review of E13: keeping every spawn on the floor froze the generator's own centroid -- an
+    author who widened the floor kept the small floor's start point, reported as 'kept'. The
+    spawn the last generate wrote (stamped in its walkmesh.obj) is re-derived, and names nothing;
+    a project with no stamp (built before it) takes the generator's spawn as it always did."""
+    pytest.importorskip("PIL")
+    import tomllib
+    toml, floor, man = _merge_project(tmp_path)
+    first = tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"]
+    assert IF.generated_spawn(tmp_path / "out") == first
+    wider = [(40, 140), (340, 140), (380, 446), (4, 446)]    # covers the old floor
+    man2 = _regen_merge(tmp_path, wider)
+    now = tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"]
+    assert now != first and now == [round(man2["spawn"][0]), round(man2["spawn"][1])]
+    assert IF.point_in_polygon(first, man2["world_floor"])   # the old one WAS still on it
+    assert not any("spawn" in k for k in man2["kept"] + man2["retaken"])
+    assert IF.generated_spawn(tmp_path / "out") == now
+    # no stamp: the old rule, said
+    obj = tmp_path / "out" / "walkmesh.obj"
+    obj.write_text("".join(ln for ln in obj.read_text(encoding="utf-8").splitlines(True)
+                           if "generated spawn" not in ln), encoding="utf-8", newline="\n")
+    assert IF.generated_spawn(tmp_path / "out") is None
+    _set_spawn(toml, now[0] + 7, now[1])
+    man3 = _regen_merge(tmp_path, wider)
+    assert tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"] == now
+    assert "player.spawn" in man3["retaken"]
 
 
 def test_a_spawn_the_new_floor_no_longer_covers_is_retaken_and_said_so(tmp_path):

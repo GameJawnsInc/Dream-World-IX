@@ -571,28 +571,40 @@ def _grow_floor(world) -> tuple:
     """The traced floor (world units, simple) -> the walkmesh ``(verts, faces)``: repeats dropped,
     grown by :data:`COLLISION_OUTSET` with the miter limited, triangulated -- and CHECKED, because a
     narrow notch's walls cross once grown and the ear-clipper then overlaps triangles (finding
-    T4). Raises :class:`ImageFieldError` naming the traced vertex nearest the trouble."""
-    grown = outset_polygon(_drop_repeats(world), COLLISION_OUTSET, miter_limit=MITER_LIMIT)
+    T4). Raises :class:`ImageFieldError` naming the traced vertex nearest the trouble.
+
+    The bevel is only ever a narrowing: at a sharp tip beside a sharp reflex corner the bevel's
+    two points can pass the neighbouring miter point and cross the ring where the unlimited grow
+    did not. Then the unlimited grow is kept (what every build before the bevel shipped), and the
+    floor is refused only when THAT ring fails too (review of T4)."""
+    ring = _drop_repeats(world)
 
     def near(p):
         return min(range(len(world)),
                    key=lambda i: math.hypot(world[i][0] - p[0], world[i][1] - p[1]))
     from .floorplan import segments_cross
-    m = len(grown)
-    for i in range(m):
-        for j in range(i + 2, m):
-            if not (i == 0 and j == m - 1) and segments_cross(
-                    grown[i], grown[(i + 1) % m], grown[j], grown[(j + 1) % m]):
-                raise ImageFieldError(
-                    f"the floor is too narrow near vertex {near(grown[(i + 1) % m])}: grown by "
-                    f"the {COLLISION_OUTSET:g}-unit walking margin its sides cross -- widen the "
-                    f"gap there, or trace around it without the notch")
-    verts, faces = triangulate(grown)
-    tri = sum(abs(_cross(verts[a], verts[b], verts[c])) / 2 for a, b, c in faces)
-    if abs(tri - abs(_signed_area(verts))) > 1e-6 * max(1.0, abs(_signed_area(verts))):
-        raise ImageFieldError("the walkmesh triangles overlap -- the floor outline has a part too "
-                              "narrow or too sharp to walk; simplify the outline there")
-    return verts, faces
+
+    def grow(limit):
+        grown = outset_polygon(ring, COLLISION_OUTSET, miter_limit=limit)
+        m = len(grown)
+        for i in range(m):
+            for j in range(i + 2, m):
+                if not (i == 0 and j == m - 1) and segments_cross(
+                        grown[i], grown[(i + 1) % m], grown[j], grown[(j + 1) % m]):
+                    raise ImageFieldError(
+                        f"the floor is too narrow near vertex {near(grown[(i + 1) % m])}: grown "
+                        f"by the {COLLISION_OUTSET:g}-unit walking margin its sides cross -- "
+                        f"widen the gap there, or trace around it without the notch")
+        verts, faces = triangulate(grown)
+        tri = sum(abs(_cross(verts[a], verts[b], verts[c])) / 2 for a, b, c in faces)
+        if abs(tri - abs(_signed_area(verts))) > 1e-6 * max(1.0, abs(_signed_area(verts))):
+            raise ImageFieldError("the walkmesh triangles overlap -- the floor outline has a part "
+                                  "too narrow or too sharp to walk; simplify the outline there")
+        return verts, faces
+    try:
+        return grow(MITER_LIMIT)
+    except ImageFieldError:
+        return grow(None)
 
 
 def floor_spawn(world) -> tuple:
@@ -662,12 +674,35 @@ def triangulate(poly) -> tuple:
     return pts, faces
 
 
-def write_walkmesh_obj(verts, faces, path) -> None:
-    """Write a Wavefront .obj on the y=0 plane (FF9 world coords: ``v x 0 z``, 1-indexed faces)."""
+_SPAWN_STAMP = "# generated spawn = "
+
+
+def write_walkmesh_obj(verts, faces, path, *, spawn=None) -> None:
+    """Write a Wavefront .obj on the y=0 plane (FF9 world coords: ``v x 0 z``, 1-indexed faces).
+    ``spawn`` = the spawn the generator chose for this floor, stamped as a comment line: the
+    walkmesh is the generator's file (a GUI save of the field.toml drops comments, never this),
+    and the next regenerate reads it back to tell its own spawn from one the author placed."""
     lines = ["# ff9mapkit image-field walkmesh (world coords, y=0 floor plane)"]
+    if spawn is not None:
+        lines.append(f"{_SPAWN_STAMP}[{int(round(spawn[0]))}, {int(round(spawn[1]))}]")
     lines += [f"v {x:.3f} 0 {z:.3f}" for (x, z) in verts]
     lines += [f"f {a + 1} {b + 1} {c + 1}" for (a, b, c) in faces]
     Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+
+
+def generated_spawn(out_dir):
+    """The spawn the last generate wrote into ``out_dir`` (its walkmesh.obj stamp) as ``[x, z]``,
+    or None when there is none (a project from before the stamp, or no project)."""
+    import re
+    try:
+        with open(Path(out_dir) / "walkmesh.obj", encoding="utf-8") as fh:
+            for _ in range(4):                        # the stamp is the second line
+                m = re.match(re.escape(_SPAWN_STAMP) + r"\[(-?\d+), (-?\d+)\]", fh.readline())
+                if m:
+                    return [int(m.group(1)), int(m.group(2))]
+    except (OSError, UnicodeDecodeError):
+        pass
+    return None
 
 
 # ----------------------------------------------------------------- image layers (Pillow)
@@ -1077,7 +1112,7 @@ def load_project_tables(toml_path) -> dict | None:
 
 
 def merge_project_toml(generated_text: str, existing: dict | None, *, twin_quads=None,
-                       floor=None):
+                       floor=None, last_spawn=None):
     """Regenerate WITHOUT destroying hand-authored content — ``(text, kept, retaken, removed)``.
 
     ``twin_quads`` = ``{"gateway": {quad: traced name}, "event": {...}}``: the quads this run's
@@ -1108,9 +1143,11 @@ def merge_project_toml(generated_text: str, existing: dict | None, *, twin_quads
       Editor's Field form writes ``location``, ``title``, ``text_block``, ``borrow_bg`` there
       -- rides through and is named in ``kept`` (finding T2); a kept ``borrow_bg`` keeps its
       ``area`` too, since the two name the donor together. ``[player]`` merges PER KEY: a
-      ``spawn`` the file already has is KEPT while it lies inside ``floor`` (the new walkmesh's
-      outline) and retaken -- named, with why -- only when it fell off (finding E13; without
-      ``floor`` the generator's spawn wins as before), while every other
+      ``spawn`` the AUTHOR placed -- one that differs from ``last_spawn``, the spawn the last
+      generate wrote (:func:`generated_spawn`) -- is KEPT while it lies inside ``floor`` (the new
+      walkmesh's outline) and retaken -- named, with why -- only when it fell off (finding E13);
+      the generator's own spawn is re-derived unnamed; without ``floor`` or ``last_spawn`` the
+      generator's spawn wins as before, named when it differed, while every other
       key — the Place tab's ``[[player.arrival]]`` rows above all — is the human's and rides
       through. The floorplan owns [player] wholesale because its composer GENERATES arrivals;
       this generator never does, so wholesale here was pure deletion (the review's catch)."""
@@ -1189,11 +1226,18 @@ def merge_project_toml(generated_text: str, existing: dict | None, *, twin_quads
     old_spawn = (old_player or {}).get("spawn")
     is_point = (isinstance(old_spawn, list) and len(old_spawn) == 2
                 and all(isinstance(c, (int, float)) for c in old_spawn))
-    # a spawn the file already has (the Place tab writes it) is KEPT while it still lies on the
-    # new walkmesh, and retaken only when it fell off (finding E13)
-    spawn_kept = floor is not None and is_point and point_in_polygon(old_spawn, floor)
-    if not spawn_kept and old_player and old_spawn != gen_spawn:
-        retaken.append("player.spawn" if floor is None or "spawn" not in old_player
+    # a spawn the AUTHOR placed (the Place tab writes it) is KEPT while it still lies on the new
+    # walkmesh, and retaken only when it fell off (finding E13). The generator's own spawn --
+    # the one ``last_spawn`` stamps -- is re-derived from the new floor and nothing was taken
+    # (review of E13: keeping every spawn froze the generator's centroid). No stamp (a project
+    # from before it) cannot be told apart, so the generator's wins as it always did, said.
+    authored = last_spawn is not None and old_spawn != list(last_spawn)
+    spawn_kept = (floor is not None and authored and is_point
+                  and point_in_polygon(old_spawn, floor))
+    if not spawn_kept and old_player and old_spawn != gen_spawn and (
+            floor is None or last_spawn is None or authored):
+        retaken.append("player.spawn" if floor is None or last_spawn is None
+                       or "spawn" not in old_player
                        else "player.spawn (it was off the new floor)" if is_point
                        else "player.spawn (it was not a floor position)")
     kept = ([f"[[{k}]] ×{len(v)}" if isinstance(v, list) else f"[{k}]"
@@ -1383,13 +1427,16 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
                 if key is not None:
                     twin_quads[kind][key] = f"{prefix}{i}"
     text, kept, retaken, removed = merge_project_toml("\n".join(lines) + "\n", existing,
-                                                     twin_quads=twin_quads, floor=verts)
-    if any(k.startswith("[player].spawn") for k in kept):    # the file's own spawn stayed (E13)
+                                                     twin_quads=twin_quads, floor=verts,
+                                                     last_spawn=(None if existing is None
+                                                                 else generated_spawn(out)))
+    chosen = spawn                                  # the generator's own, stamped (E13 review)
+    if any(k.startswith("[player].spawn") for k in kept):    # the author's spawn stayed (E13)
         spawn = tuple(existing["player"]["spawn"])
 
     # every refusal has passed: NOW touch the disk
     (out / "art").mkdir(parents=True, exist_ok=True)
-    write_walkmesh_obj(verts, faces, out / "walkmesh.obj")
+    write_walkmesh_obj(verts, faces, out / "walkmesh.obj", spawn=chosen)
     for dest, img in art_writes:
         img.save(dest)
     toml_path.write_text(text, encoding="utf-8", newline="\n")

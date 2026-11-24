@@ -560,8 +560,10 @@ class BackdropCanvas(QGraphicsView):
             anchor.setPos(6, 0)
             anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
             anchor.setData(0, "horizonedgelabel")
-            self._label(anchor, f"horizon ↑ {max(1, round(-hy))} px above the frame",
-                        self._ink["warn_text"], dx=3, dy=4)
+            # short: the plate sits ON the art's top strip, where the eye level is matched (at
+            # 150% the long form spanned the whole photo and ran off its right edge -- review)
+            self._label(anchor, f"↑ horizon {max(1, round(-hy))} px",
+                        self._ink["warn_text"], dx=0, dy=2)
             return
         if not 0 <= hy < h:
             return
