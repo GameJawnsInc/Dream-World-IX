@@ -1638,7 +1638,7 @@ class CutsceneDoc(QWidget):
         self.board_slider.setEnabled(bool(beats))
         self.board_slider.blockSignals(False)
         if err:
-            self.board_say.setText(err)
+            self._board_text(err)
             widgets.set_state(self.board_say, "error")
             self.board_pos.setText("")
             self.board_note.setFullText("the storyboard needs every name to resolve — "
@@ -1651,7 +1651,7 @@ class CutsceneDoc(QWidget):
         self.board_note.setFullText("offline storyboard — beats, not seconds (hover for why)")
         self.board_note.setToolTip("\n".join(notes))
         if not beats:                              # every step deleted: nothing of the old board
-            self.board_say.setText("No steps yet — add one to storyboard this scene.")
+            self._board_text("No steps yet — add one to storyboard this scene.", placeholder=True)
             self.board_pos.setText("")
             self.ladder.set_beat_marks(())
             self.canvas.set_storyboard(None)
@@ -1675,11 +1675,19 @@ class CutsceneDoc(QWidget):
         if b["say"] is not None:
             ww = cutscenescan.wrap_width(self._merged())
             line = cutscenescan.say_as_built(b["say_speaker"], b["say"])   # the build's line
-            self.board_say.setText(_dlg.wrap_preview(line, ww) if ww is not None else line)
+            self._board_text(_dlg.wrap_preview(line, ww) if ww is not None else line)
         else:
-            self.board_say.setText("(no line this beat)")
+            self._board_text("(no line this beat)", placeholder=True)
         self.ladder.set_beat_marks(set(b["step_idxs"]))
         self.canvas.set_storyboard(self._board, k)
+
+    def _board_text(self, text, *, placeholder=False):
+        """The strip's line: the game window's mono for a real line (or the error), a quiet
+        caption for a placeholder -- an empty state must not out-shout the scene title."""
+        self.board_say.setProperty("role", "caption" if placeholder else None)
+        self.board_say.setProperty("mono", not placeholder)
+        widgets.repolish(self.board_say)
+        self.board_say.setText(text)
 
     # -- the staging lane (the one disk read; the shell's old strip, moved home) --
     def stage_now(self, *, sync=False, warm=False):

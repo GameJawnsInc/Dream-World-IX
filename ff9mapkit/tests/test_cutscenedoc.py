@@ -294,6 +294,22 @@ def test_the_storyboard_scrubs_beats_and_wraps_the_say_line(doc, tmp_path):
     assert doc.ladder._beat_marks == set()
 
 
+def test_a_beat_with_no_line_says_so_quietly(doc, tmp_path):
+    """C28: '(no line this beat)' was the loudest text in the strip -- full-size heavy mono over
+    the scene title. A placeholder is a caption; a real line keeps the mono of the game's window.
+    Pixels: tools/gui_snap.py cutscene:storyboard (beat 1 is a walk)."""
+    _fed(doc, tmp_path)
+    doc.board_btn.setChecked(True)
+    doc._show_beat(0)                                  # [walk + turn]: no line
+    assert doc.board_say.property("role") == "caption" and not doc.board_say.property("mono")
+    doc._show_beat(1)                                  # the say
+    assert doc.board_say.property("role") != "caption" and doc.board_say.property("mono")
+    doc._show_beat(0)
+    for _ in range(3):
+        _rowtool(doc, "Remove this step (Ctrl+Z undoes)", 0).click()
+    assert doc.board_say.property("role") == "caption", "'No steps yet' is a placeholder too"
+
+
 def test_the_storyboard_never_names_an_actor_the_game_leaves_unattributed(doc, tmp_path):
     """C14 (already fixed by E1, proven here): the strip wrote 'Mira:' over a line tagged only
     with actor = "Mira". The build attributes a line through `speaker` alone, so the game shows
