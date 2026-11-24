@@ -2129,3 +2129,49 @@ def test_open_in_the_editor_lands_on_the_rows_form(app, tmp_path, monkeypatch):
     finally:
         w.hide()
         w.deleteLater()
+
+
+def test_open_in_the_editor_reaches_a_never_expanded_campaign_member(app, tmp_path, monkeypatch):
+    """A campaign member's rows load lazily on expand. Selecting the member (not expanding it) and
+    opening a marker must still land on that marker's row, not fall back to the Field form."""
+    from ff9mapkit import prefs
+    from ff9mapkit import campaign as C
+    from ff9mapkit.workspace import shell
+    monkeypatch.setattr(prefs, "_path", lambda: tmp_path / "prefs.json")
+    root = tmp_path / "demo"
+    root.mkdir()
+    mem = [C.Member(100, 30100, "GLADE", "borrow", 11, "", "GLADE/GLADE.field.toml", False),
+           C.Member(101, 30101, "TRAIL", "borrow", 11, "", "TRAIL/TRAIL.field.toml", False)]
+    plan = C.CampaignPlan(name="Demo", mod_folder="M", id_base=30100, flag_base=C.FIRST_SAFE_FLAG,
+                          flags_per_field=64, entry_name="GLADE", entry_entrance=0,
+                          members=mem, edges=[], seams=[])
+    (root / "campaign.toml").write_text(C.render_campaign_toml(plan), encoding="utf-8")
+    for nm, fid in (("GLADE", 30100), ("TRAIL", 30101)):
+        (root / nm).mkdir()
+        (root / nm / f"{nm}.field.toml").write_text(
+            f'[field]\nid = {fid}\nname = "{nm}"\narea = 11\nsource_field = 351\n\n'
+            '[[npc]]\nname = "A"\npos = [-400, 1000]\n\n[[npc]]\nname = "B"\npos = [0, 1500]\n',
+            encoding="utf-8")
+    w = shell.Workspace(pick_palette("dark"))
+    try:
+        assert w.open_campaign(root / "campaign.toml")
+        mi = w._member_items["TRAIL"]
+        w.tree.setCurrentItem(mi)
+        QApplication.processEvents()
+        assert w._payload(mi.child(0))[0] == "__lazy__"      # the case under test: never expanded
+        w.tabs.setCurrentWidget(w.place_doc)
+        QApplication.processEvents()
+        pd = w.place_doc
+        assert pd._member == "TRAIL"
+        pd._bundles[(pd._source, 0)] = dict(_bundle(), source=pd._source)
+        pd._apply_bundle(pd._bundles[(pd._source, 0)], refit=True)
+        QApplication.processEvents()
+        _right_click(pd, 0, 1500, "Open", monkeypatch)
+        QApplication.processEvents()
+        assert w.tabs.currentWidget() is w.doc_scroll
+        assert w._payload(w.tree.currentItem())[2] == "npc:1"
+        ctx = w._save_ctx
+        assert ctx and ctx["member"] == "TRAIL" and ctx["key"] == "npc:1", ctx
+    finally:
+        w.hide()
+        w.deleteLater()

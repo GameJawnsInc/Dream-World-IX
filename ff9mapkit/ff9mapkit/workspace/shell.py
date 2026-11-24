@@ -1823,7 +1823,7 @@ class Workspace(QMainWindow):
         # clicking a forked room's OWN art (every click raycasts the donor walkmesh). The shell
         # PUSHES the open doc (tab show / tree select, the Behavior contract); the doc's one
         # disk touch is the user's own 'Load the room' click.
-        self.place_doc = PlaceDoc(self.pal, on_edit=self._on_place_edit, on_open=self._goto_focus,
+        self.place_doc = PlaceDoc(self.pal, on_edit=self._on_place_edit, on_open=self._open_from_place,
                                   scale=self._text_scale)
         self.tabs.addTab(self.place_doc, "Place")
         # click-authoring Rung 6c (studies/click-authoring/RUNG6.md): lay several rooms out on a
@@ -5793,6 +5793,14 @@ class Workspace(QMainWindow):
                     self.tree.setCurrentItem(rn)       # fires _on_select -> mounts the panel + breadcrumb
                     return True
         return False
+
+    def _open_from_place(self, member, key):
+        """Place's 'Open in the Editor': expand the member first, so a never-expanded campaign member
+        builds its lazy rows and _goto_focus finds the marker's row instead of the member row."""
+        mi = getattr(self, "_member_items", {}).get(member)
+        if mi is not None:
+            mi.setExpanded(True)                      # itemExpanded -> _on_expand loads the lazy rows
+        self._goto_focus(member, key)
 
     def _goto_focus(self, member, key):
         """Select + mount the node ``(member, key)`` after an undo/redo (falls back to the member row)."""

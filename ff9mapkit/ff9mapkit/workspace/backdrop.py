@@ -1535,6 +1535,8 @@ class BackdropCanvas(QGraphicsView):
             act = self._kb_delete
         if act is None:
             return False
+        if event.isAutoRepeat():                   # a mouse cannot auto-repeat a click: a held key
+            return True                            # acts once (only the arrows repeat)
         self._kb_note_keyboard()
         if self._kb_pt is None:                    # the first key shows WHERE it would act
             self._kb_move(0, 0)

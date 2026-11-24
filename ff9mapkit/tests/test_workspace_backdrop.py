@@ -1788,6 +1788,41 @@ def test_the_regions_tool_draws_opens_and_deletes_a_zone_from_the_keyboard(app, 
     assert len(refused) == 2 and _words(refused[0]) == _words(refused[1]), refused
 
 
+def _held(c, key, repeats):
+    """One press, then the OS's auto-repeat presses of a HELD key, then the release."""
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QKeyEvent
+    none = Qt.KeyboardModifier.NoModifier
+    QApplication.sendEvent(c, QKeyEvent(QEvent.Type.KeyPress, key, none, "", False))
+    for _ in range(repeats):
+        QApplication.sendEvent(c, QKeyEvent(QEvent.Type.KeyRelease, key, none, "", True))
+        QApplication.sendEvent(c, QKeyEvent(QEvent.Type.KeyPress, key, none, "", True))
+    QApplication.sendEvent(c, QKeyEvent(QEvent.Type.KeyRelease, key, none, "", False))
+
+
+def test_a_held_key_clicks_once_but_a_held_arrow_keeps_moving(app, monkeypatch):
+    """A mouse cannot auto-repeat a click, so neither can a held Enter/Space, Menu key or Delete:
+    in the Regions tool a held Enter is one corner, not a zero-area zone. The arrows still repeat."""
+    c, drawn, changed, deleted, refused = _region_canvas(app)
+    _focus(c)
+    _aim(c, (192.0, 330.0))
+    _held(c, Qt.Key.Key_Return, 5)
+    assert not drawn and len(c._pending_region) == 1, (drawn, c._pending_region)
+    y0 = c._kb_pt[1]
+    _held(c, Qt.Key.Key_Up, 3)                        # 1 press + 3 repeats = 4 steps
+    assert c._kb_pt[1] == y0 - 4 * c._kb_step()
+    c._pending_region = []
+    c.set_regions([{"i": 0, "quad": _GW_QUAD, "label": "door0", "kind": "gateway", "warn": None}])
+    inside = IF.world_point_to_click(c.camera(), (0.0, 0.0, 1200.0))
+    _aim(c, (round(inside[0]), round(inside[1])))
+    opened = []
+    monkeypatch.setattr(c, "_region_menu", lambda i, gp: opened.append(i))
+    _held(c, Qt.Key.Key_Menu, 4)
+    assert opened == [0]
+    _held(c, Qt.Key.Key_Delete, 4)
+    assert deleted == [0]
+
+
 @pytest.mark.parametrize("w", [501, 500])
 def test_the_place_tool_places_and_refuses_from_the_keyboard(app, w):
     """E7: Enter places where the crosshair stands (the walkmesh raycast the mouse runs), is
@@ -1949,6 +1984,54 @@ def test_grab_targets_grow_with_the_text_size_dial(app):
     c.set_scale(100)
     assert max(corner) == pytest.approx(1.5 * max(k.boundingRect().width() for k in c._kids
                                                   if k.data(2) == "regionpt"), rel=0.02)
+
+
+def test_glyph_pens_obstacles_and_the_down_tier_follow_the_dial(app):
+    """V15, after review: the ring and halo pens, the de-collision obstacle box of every glyph and
+    the floor of a DOWN label tier scale with the dial too -- not only the glyph outlines."""
+    tags = ("tracept", "cutoutpt", "marker", "regionchevron", "regionpt")
+
+    def pens(c):
+        out = {}
+        for k in c._kids:
+            if k.data(2) in tags and not hasattr(k, "text") and hasattr(k, "pen") \
+                    and k.pen().style() != Qt.PenStyle.NoPen:
+                out.setdefault(k.data(2), set()).add(round(k.pen().widthF(), 4))
+        return out
+
+    c = _furnished(app, "dark", "#808080")
+    c.set_region_mode(True)
+    c.set_trace_mode(True)
+    small = pens(c)
+    c.set_scale(150)
+    big = pens(c)
+    assert set(small) >= {"tracept", "marker"}, small
+    for tag, ws in small.items():
+        assert big[tag] == {round(1.5 * w, 4) for w in ws}, (tag, ws, big[tag])
+    # the obstacle IS the halo's painted extent (its path plus half its pen), at the dial
+    from PySide6.QtCore import QRectF
+    halos = [k.boundingRect() for k in c._kids if hasattr(k, "path") and hasattr(k, "pen")
+             and k.pen().widthF() == pytest.approx(1.5 * 4.4)]
+    assert c._glyphs and halos
+    for _anchor, box in c._glyphs:
+        assert box in halos, (box, halos[:4])
+    # the down tier: one label boxed in from above, its first down tier at dy 10 (inside a
+    # 150% glyph of r<=12, outside a 100% one of r<=8)
+
+    def settle():
+        lab = next(lb for lb in c._labels if lb["text"].text() == "Mira")
+        step = lab["h"] + 1
+        lab["dy"] = 10 - step
+        c._labels = [lab]
+        c._glyphs = [(lab["anchor"], QRectF(-5000, -5000, 10000, 5008.5))]
+        c._decollide_labels()
+        return lab["text"].pos().y(), step
+
+    y, step = settle()
+    assert y == pytest.approx(10 + step), (y, step)
+    c.set_scale(100)
+    y, step = settle()
+    assert y == pytest.approx(10), (y, step)
 
 
 # --------------------------------------------------------------- batch 5: the view, natively (V12)
