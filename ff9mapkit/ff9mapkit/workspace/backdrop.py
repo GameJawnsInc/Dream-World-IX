@@ -79,6 +79,7 @@ class BackdropCanvas(QGraphicsView):
     marker_moved = Signal(int, object)       # place mode: a marker dragged — (index, walkmesh hit)
     marker_clicked = Signal(int)             # place mode: a press on a marker that did not travel
     marker_deleted = Signal(int)             # the marker menu's delete — the host owns the doc op
+    marker_opened = Signal(int)              # the marker menu's "Open in the Editor" (``open``)
     click_refused = Signal(str)              # why a click produced no floor point
 
     def __init__(self, palette, *, scale=100, on_floor=None):
@@ -479,7 +480,8 @@ class BackdropCanvas(QGraphicsView):
         placement on top of it), its menu ``marker_deleted`` -- each by its index in this list.
         ``locked`` (the host's reason it refuses every gesture): no grab cursor, no drag, no menu;
         the tooltip gives the reason and a click still only emits ``marker_clicked``. ``keep``:
-        movable but never deleted -- no menu."""
+        movable but never deleted -- no Delete. ``open``: the host can show its row in the Editor,
+        so an unlocked marker's menu offers that (``marker_opened``)."""
         self._markers = list(markers or [])
         self._rebuild()
 
@@ -712,7 +714,7 @@ class BackdropCanvas(QGraphicsView):
                 if free:
                     mark_grabbable(gl)
                 tip = (f"{name}: {m['locked']}" if not free
-                       else f"{name}: drag to move it" if m.get("keep")
+                       else f"{name}: drag to move it" if m.get("keep") and not m.get("open")
                        else f"{name}: drag to move it, right-click for its menu")
                 halo.setToolTip(tip)
                 gl.setToolTip(tip)
@@ -1268,8 +1270,14 @@ class BackdropCanvas(QGraphicsView):
             return
         m = self._markers[i]
         menu = QMenu(self)
-        rm = menu.addAction(f"Delete {m.get('label') or m.get('kind')}")
-        if menu.exec(global_pos) is rm:
+        op = menu.addAction("Open in the Editor") if m.get("open") else None
+        rm = None if m.get("keep") else menu.addAction(f"Delete {m.get('label') or m.get('kind')}")
+        act = menu.exec(global_pos)
+        if act is None:
+            return
+        if act is op:
+            self.marker_opened.emit(i)
+        elif act is rm:
             self.marker_deleted.emit(i)
 
     def _drag_canvas(self, cx, cy):
@@ -1807,8 +1815,8 @@ class BackdropCanvas(QGraphicsView):
             self._region_menu(i, event.globalPos())
         elif kind == "marker":
             m = self._markers[i]
-            if not (m.get("locked") or m.get("keep")):   # no Delete the host refuses
-                self._marker_menu(i, event.globalPos())
+            if not m.get("locked") and (m.get("open") or not m.get("keep")):   # no menu of
+                self._marker_menu(i, event.globalPos())    # entries the host only refuses
         else:
             self._vertex_menu(i, event.globalPos())
         event.accept()

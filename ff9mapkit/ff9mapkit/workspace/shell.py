@@ -1823,7 +1823,8 @@ class Workspace(QMainWindow):
         # clicking a forked room's OWN art (every click raycasts the donor walkmesh). The shell
         # PUSHES the open doc (tab show / tree select, the Behavior contract); the doc's one
         # disk touch is the user's own 'Load the room' click.
-        self.place_doc = PlaceDoc(self.pal, on_edit=self._on_place_edit, scale=self._text_scale)
+        self.place_doc = PlaceDoc(self.pal, on_edit=self._on_place_edit, on_open=self._goto_focus,
+                                  scale=self._text_scale)
         self.tabs.addTab(self.place_doc, "Place")
         # click-authoring Rung 6c (studies/click-authoring/RUNG6.md): lay several rooms out on a
         # plan-view chart, declare which shared walls are doors, Compose a wired dungeon through
