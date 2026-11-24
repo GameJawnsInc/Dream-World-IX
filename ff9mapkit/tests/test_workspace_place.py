@@ -1699,6 +1699,33 @@ def test_a_field_swapped_while_the_draw_asks_gets_nothing(app, monkeypatch):
     assert calls == [] and "gateway" not in other
 
 
+def test_a_zone_dropped_because_the_field_reloaded_says_so(app, monkeypatch):
+    """Final review of P27: the same guard fires when the SAME field is re-fed under the dialog
+    (a regenerate or a revert finishing). The four corners and the typed line went without a
+    word; the status now says the zone was not drawn."""
+    import copy
+    data = {"field": {"source_field": 351}}
+    d, calls = _regions_on(app, data)
+    d.rkind_btns["event"].setChecked(True)
+
+    def refeed(cur):
+        d.show_field("FORK", copy.deepcopy(data), Path("C:/somewhere/FORK.field.toml"))
+        return "The door is locked."
+    monkeypatch.setattr(d, "_ask_message", refeed)
+    d._on_region_drawn(_Q)
+    assert calls == []
+    assert "not drawn" in d.status.text() and "draw it again" in d.status.text()
+    assert d.status.property("state") == "warn"
+
+
+def test_the_gateway_prompt_names_no_repository_path():
+    """The target prompt now opens on every door drawn without a target (P27); it pointed a
+    first-time author at reference/field-manifest.tsv, a file an installed kit does not have."""
+    from ff9mapkit.workspace.placedoc import PlaceDoc
+    assert "field id" in PlaceDoc._FIELD_ID_PROMPT
+    assert "manifest" not in PlaceDoc._FIELD_ID_PROMPT and ".tsv" not in PlaceDoc._FIELD_ID_PROMPT
+
+
 # --------------------------------------------------------------- batch 4: stacked floors (P7)
 def test_the_stacked_floor_chooser_lists_each_floor_once_and_says_what_it_records(app, monkeypatch):
     """P7: a click on a triangle edge listed the same floor twice, and the menu read 'floor 1 ·

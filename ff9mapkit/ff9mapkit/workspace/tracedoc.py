@@ -459,10 +459,14 @@ class TraceDoc(QWidget):
         # half the size the build ships (finding V1): a cut-out's pixels are photo pixels
         f["pm"].setDevicePixelRatio(1)
         pw, ph = self._photo_wh()
-        frame = imagefield.CANVAS_W / imagefield.CANVAS_H
-        # the photo's aspect, OR the build's own 384:448 frame -- which the build fills 1:1 and
-        # the old wording told the author to make (finding T14)
-        if any(abs(sw / sh - a) <= 0.02 * a for a in (pw / ph, frame)):
+        cw, ch = imagefield.CANVAS_W, imagefield.CANVAS_H
+        # the photo's aspect (the owner's rule: same shape as the photo = aligned), OR the build's
+        # own frame, which the build fills 1:1 and the old wording told the author to make
+        # (finding T14). The frame is judged by SIZE -- 384x448 or a whole multiple -- never by
+        # shape: a 60x70 crop of a lamp has the frame's shape too, and stretched over the room
+        # as a full-frame layer (the final review of T14).
+        frame = sw % cw == 0 and sw * ch == sh * cw
+        if frame or abs(sw / sh - pw / ph) <= 0.02 * (pw / ph):
             f["kind"], f["offset"] = "full", None
             return None
         k = self._canvas_scale()
@@ -472,10 +476,28 @@ class TraceDoc(QWidget):
         return "a snip — drag it into place on the art (its contact anchor rides along)"
 
     def _outline_problem(self):
-        """The build's own outline rule on the traced canvas pixels (finding T5): a sentence
-        naming the sides that cross, or None. The map from canvas to floor keeps straight lines
-        straight, so a crossing here is the crossing the build would refuse."""
-        return imagefield.outline_problem(self._floor) if len(self._floor) >= 3 else None
+        """Why the build would refuse this floor outline, or None -- the build's own two rules.
+        Sides that cross (finding T5), judged on the traced canvas pixels: the map from canvas to
+        floor keeps straight lines straight, so a crossing here is the crossing the build would
+        refuse. And a floor too narrow to walk once grown by the walking margin (finding T4),
+        through :func:`imagefield.walk_edge` -- the call the canvas makes for its dashed ring,
+        so a ring that is not drawn is always explained here (the final review: it vanished
+        without a word while Generate stayed on offer)."""
+        if len(self._floor) < 3:
+            return None
+        crossed = imagefield.outline_problem(self._floor)
+        if crossed:
+            return crossed
+        cam = self.canvas.camera()
+        try:
+            world = [imagefield.click_to_world(cam, p) for p in self._floor]
+        except imagefield.ImageFieldError:
+            return None                            # a vertex above the horizon: its own gate
+        try:
+            imagefield.walk_edge(world)
+        except imagefield.ImageFieldError as e:
+            return str(e)
+        return None
 
     def _crossed_note(self):
         """A reopened session whose outline the rule now refuses still OPENS (so it can be
@@ -1248,8 +1270,12 @@ class TraceDoc(QWidget):
             new = imagefield.load_project_tables(toml) or {}
         except imagefield.ImageFieldError:
             return ""
+        from ..editor import forms as _forms
         said = []
         for kind in ("gateway", "event"):
+            # a dropped key is named the way the Editor form labels it, never as the raw key
+            words = {f.key: f.label for f in
+                     (_forms.GATEWAY_SPEC if kind == "gateway" else _forms.EVENT_SPEC)}
             rows = [r for r in new.get(kind) or [] if isinstance(r, dict)]
             for r in old.get(kind) or []:
                 if not isinstance(r, dict):
@@ -1263,11 +1289,12 @@ class TraceDoc(QWidget):
                     if twin is None:
                         said.append(f"removed {nm}")
                 if twin is not None:
-                    said += [f"{twin.get('name')} lost {k}" for k in r if k not in twin]
+                    said += [f"{twin.get('name')} lost “{words.get(k, str(k).replace('_', ' '))}”"
+                             for k in r if k not in twin]
         was = (old.get("player") or {}).get("spawn") if isinstance(old.get("player"), dict) else None
         now = (new.get("player") or {}).get("spawn") if isinstance(new.get("player"), dict) else None
         if was is not None and was != now and was != last_spawn:
-            said.append("the start point moved" + (" (it was off the new floor)"
+            said.append("the spawn point moved" + (" (it was off the new floor)"
                                                    if last_spawn is not None else ""))
         return f"⚠ {', '.join(said)} · " if said else ""
 
@@ -1341,8 +1368,9 @@ class TraceDoc(QWidget):
             self._fg.append({"contact": tuple(e["contact"]), "image": None})
             if e.get("image") and Path(e["image"]).is_file():
                 self._attach_cutout(len(self._fg) - 1, e["image"])
-                if e.get("offset") and self._fg[-1].get("offset") is not None:
-                    self._fg[-1]["offset"] = tuple(e["offset"])   # the dragged spot wins
+                if e.get("offset"):                # a record with a dragged spot IS a snip,
+                    self._fg[-1]["kind"] = "snip"      # whatever today's classifier calls the
+                    self._fg[-1]["offset"] = tuple(e["offset"])   # file: old records keep meaning
         self._regions = [{"kind": r.get("kind", "gateway"), "to": int(r.get("to", 0)),
                           "entrance": int(r.get("entrance", 0)),
                           "message": str(r.get("message", "...")),

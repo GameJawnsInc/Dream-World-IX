@@ -1443,9 +1443,16 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
     # every refusal has passed: NOW touch the disk
     (out / "art").mkdir(parents=True, exist_ok=True)
     write_walkmesh_obj(verts, faces, out / "walkmesh.obj", spawn=chosen)
-    for dest, img in art_writes:
-        img.save(dest)
-    toml_path.write_text(text, encoding="utf-8", newline="\n")
+    try:
+        for dest, img in art_writes:
+            img.save(dest)
+        toml_path.write_text(text, encoding="utf-8", newline="\n")
+    except OSError:
+        # The stamp must never be AHEAD of the field.toml: a later regenerate would read the old
+        # toml spawn as one the author placed and keep it for good. Take the stamp back out --
+        # a project without one takes the generator's spawn, and says so (final review of E13).
+        write_walkmesh_obj(verts, faces, out / "walkmesh.obj")
+        raise
 
     return {"toml": str(toml_path), "walkmesh": str(out / "walkmesh.obj"),
             "world_floor": world, "spawn": spawn, "verts": len(verts), "faces": len(faces),

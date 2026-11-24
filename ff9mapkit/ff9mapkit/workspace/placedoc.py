@@ -965,6 +965,7 @@ class PlaceDoc(QWidget):
     _VERBATIM_ENTRY = ("a verbatim fork runs the donor's own entry sequence — spawn/arrival rows "
                        "are ignored on it (the donor's real per-door arrivals carry)")
     _PLAYER_WORDS = {"spawn": "the spawn point", "arrival": "the arrival points"}
+    _FIELD_ID_PROMPT = "Destination field id (a stock field or one of yours):"
 
     @staticmethod
     def _blender_says(what):
@@ -1045,7 +1046,8 @@ class PlaceDoc(QWidget):
         else:
             asked = None
         if self._data is not data:
-            self._refresh()
+            self._refresh("The field reloaded while you answered — the zone was not drawn; "
+                          "draw it again.", "warn")
             return
         state = ""
         if gateway:
@@ -1138,8 +1140,7 @@ class PlaceDoc(QWidget):
         dlg.setIntRange(1, 32767)
         dlg.setIntValue(max(1, int(current) if isinstance(current, int) and current > 0 else 1))
         dlg.setWindowTitle("Gateway target")
-        dlg.setLabelText("Destination field id (a stock field or one of yours —\n"
-                         "reference/field-manifest.tsv names the stock ones):")
+        dlg.setLabelText(self._FIELD_ID_PROMPT)
         if dlg.exec() != QInputDialog.DialogCode.Accepted:
             return None
         return dlg.intValue()
@@ -1392,13 +1393,14 @@ class PlaceDoc(QWidget):
         if not 0 <= i < len(self._marker_rows_cache):
             return
         e = self._marker_rows_cache[i]
+        name = "the spawn point" if e["kind"] == "spawn" else e["label"]
         locked = self._marker_why(e, "pos")
         if locked is not None:                      # never advertise a drag it will refuse
-            self._refresh(f"That is {e['label']}. {locked} Nothing was added.", "warn")
+            self._refresh(f"That is {name}. {locked} Nothing was added.", "warn")
             return
         how = ("drag it to move it" if self._marker_why(e, None) is not None
                else "drag it to move it, or right-click it to delete it")
-        self._refresh(f"That is {e['label']}, already placed — {how}. Nothing was added.")
+        self._refresh(f"That is {name}, already placed — {how}. Nothing was added.")
 
     def _refresh(self, note="", state=""):
         if self._blocked is not None:

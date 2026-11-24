@@ -196,9 +196,11 @@ def test_the_rail_renders_the_whole_dispatch(doc, tmp_path):
     raw, _ = _fed(doc, tmp_path)
     rows = cutscenescan.scene_rows(raw)
     assert doc.rail.count() == len(rows) == 2
-    assert "scene #0" in doc.rail.item(0).text() and "cast 2" in doc.rail.item(0).text()
+    assert "#0" in doc.rail.item(0).text() and "cast 2" in doc.rail.item(0).text()
     assert "narration" in doc.rail.item(1).text()
-    assert "plays at beat 100" in doc.rail.item(0).text()
+    assert "beat 100" in doc.rail.item(0).text()
+    assert "scene #0" in doc.rail.item(0).toolTip()
+    assert "plays at beat 100" in doc.rail.item(0).toolTip()
 
 
 def test_the_rail_leads_with_what_tells_scenes_apart_and_elides_instead_of_scrolling(doc,
@@ -210,9 +212,13 @@ def test_the_rail_leads_with_what_tells_scenes_apart_and_elides_instead_of_scrol
     assert doc.rail.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
     assert doc.rail.textElideMode() == Qt.TextElideMode.ElideRight
     t0, t1 = doc.rail.item(0).text(), doc.rail.item(1).text()
-    assert t0 == "scene #0 · 3 steps\ncast 2 · plays at beat 100", t0   # two lines, each elides
-    assert t1 == "scene #1 · 2 steps\nnarration · plays at beat 300", t1
-    assert doc.rail.item(0).toolTip().startswith(t0), "the tooltip keeps the whole line"
+    # what tells two scenes apart comes FIRST and short: at 125% the rail has room for about
+    # 13 characters a line, and "scene #0 · 3 steps / cast 2 · plays at beat 100" lost the beat
+    assert t0 == "#0 · beat 100\n3 steps · cast 2", t0   # two lines, each elides
+    assert t1 == "#1 · beat 300\n2 steps · narration", t1
+    tip = doc.rail.item(0).toolTip()                   # the tooltip keeps the whole sentence
+    assert tip.startswith("scene #0 · 3 steps\ncast 2 · plays at beat 100"), tip
+    assert "cast: Cid, Mira" in tip
 
 
 def test_scene_select_switches_the_ladder_and_the_stage(doc, tmp_path):
@@ -473,12 +479,31 @@ def test_a_staging_row_wraps_and_takes_you_to_its_step_and_stall(doc, tmp_path):
     doc.stage_now(sync=True)
     QApplication.processEvents()
     assert sl.count() == 1 and "step 0" in sl.item(0).text()
+    # the same scene has ONE name in this column: PROBLEMS and the rail say "scene #0"
+    assert "scene #0 step 0" in sl.item(0).text() and "[cutscene]" not in sl.item(0).text()
     QTest.mouseClick(sl.viewport(), Qt.MouseButton.LeftButton,
                      pos=sl.visualItemRect(sl.item(0)).center())
     QApplication.processEvents()
     assert doc._scene == 0 and doc.rail.currentRow() == 0
     assert doc._selected_step == 0
     assert _stall_in_view(c) and c.transform().m11() == 2.0
+
+
+def test_a_staging_row_opens_from_the_keyboard_too(doc, tmp_path):
+    """Final review of C22: the row acted only on a mouse click; Enter on the focused row did
+    nothing, so a keyboard user could read the problem and not go to it."""
+    from PySide6.QtTest import QTest
+    _shown_stall(doc, tmp_path)
+    doc.rail.setCurrentRow(1)
+    doc.stage_now(sync=True)
+    QApplication.processEvents()
+    sl = doc.stage_list
+    assert sl.count() == 1 and doc._scene == 1
+    sl.setFocus()
+    sl.setCurrentRow(0)
+    QTest.keyClick(sl, Qt.Key.Key_Return)
+    QApplication.processEvents()
+    assert doc._scene == 0 and doc._selected_step == 0
 
 
 def test_a_staging_row_of_another_scene_does_nothing_under_a_dirty_editor(doc, tmp_path):
@@ -811,6 +836,7 @@ def test_a_signal_the_build_refuses_is_refused_with_its_forms_named(doc, tmp_pat
     doc._edit_step(0)
     assert "+" in doc.editor._extra_rows["signal"][0].text(), "the label must say + is allowed"
     assert '"+"' in doc.editor.x_signal.toolTip()
+    assert "a number" in doc.editor._extra_rows["signal"][0].text(),         "'n' for 'a number' in a field label"
     doc.editor.x_signal.setText("soon")
     doc._apply_step()
     assert "signal" in doc.editor.note.text() and "+" in doc.editor.note.text()
@@ -960,11 +986,36 @@ def test_scene_settings_apply_writes_the_gate_and_keeps_the_steps(doc, tmp_path)
     b = doc._raw["cutscene"][0]
     assert b["requires_scenario"] == 777
     assert b["steps"] == steps_before, "settings must never touch the steps"
-    assert "plays at beat 777" in doc.rail.item(0).text(), "the rail follows the applied gate"
+    assert "beat 777" in doc.rail.item(0).text(), "the rail follows the applied gate"
 
 
 def _gate_box(doc):
     return doc._settings_getters["requires_scenario"].__self__
+
+
+def test_a_kept_settings_form_never_lands_on_a_neighbour_scene(doc, tmp_path):
+    """Final review of C10: the form was kept while (scene index, its values) were unchanged,
+    and Apply writes by index. Duplicate Scene makes twins with equal values, so after an
+    earlier scene was deleted elsewhere (the Editor tab) the typed gate survived at the same
+    index -- now a DIFFERENT scene -- and Apply wrote it there. The scene count is part of what
+    the form was built from: a scene added or removed anywhere rebuilds it."""
+    raw, p = _fed(doc, tmp_path)
+    doc._dup_scene()
+    doc._dup_scene()
+    blocks = doc._raw["cutscene"]
+    n = len(blocks)
+    doc.rail.setCurrentRow(1)
+    doc.settings_btn.setChecked(True)
+    _gate_box(doc).setText("555")
+    typed_for, neighbour = blocks[1], blocks[2]
+    before = neighbour.get("requires_scenario")
+    del blocks[0]                                      # the Editor tab deleted an earlier scene
+    doc.show_field("GLEN", doc._raw, p)
+    assert len(doc._raw["cutscene"]) == n - 1
+    assert _gate_box(doc).text() != "555", "typing for one scene was carried to its neighbour"
+    doc._apply_settings()
+    assert neighbour.get("requires_scenario") == before
+    assert typed_for.get("requires_scenario") != 555
 
 
 def test_unapplied_scene_settings_survive_every_re_render(doc, tmp_path):
@@ -1689,6 +1740,28 @@ def test_opening_a_step_shows_the_editors_header_and_the_row_it_edits(doc, tmp_p
     _rowtool(doc, "Remove this step (Ctrl+Z undoes)", 0).click()
     QApplication.processEvents()
     assert "Apply" in doc.editor.note.text() and _in_view(doc, doc.editor.apply_btn)
+    # final review: the note was the editor's LAST widget, below the fold of a panel taller than
+    # the pane, so every refused gesture looked dead. It sits under the header, in view.
+    assert doc.editor.note.isVisible() and _in_view(doc, doc.editor.note), \
+        "the refusal is written where nobody can see it"
+    # ...also in a pane too short for the row above, the header AND the note (126 px is the
+    # ladder pane of a 1024x720 window at 125% text): the words win, with Apply right above them
+    seen = []
+    for h in (400, 340, 300):
+        doc.resize(1000, h)
+        QApplication.processEvents()
+        doc._lscroll.verticalScrollBar().setValue(0)
+        _rowtool(doc, "Remove this step (Ctrl+Z undoes)", 0).click()
+        QApplication.processEvents()
+        vh = doc._lscroll.viewport().height()
+        seen.append(vh)
+        assert _in_view(doc, doc.editor.note), f"pane {vh}px: the refusal is below the fold"
+        assert _in_view(doc, doc.editor.apply_btn), f"pane {vh}px: Apply is off screen"
+    assert min(seen) <= 130, f"the fixture no longer reaches a short pane: {seen}"
+    doc._close_editor()
+    doc._edit_step(2)
+    QApplication.processEvents()
+    assert not doc.editor.note.isVisible(), "an empty note must take no room under the header"
 
 
 def test_a_clean_editor_still_closes_for_a_structural_edit(doc, tmp_path):

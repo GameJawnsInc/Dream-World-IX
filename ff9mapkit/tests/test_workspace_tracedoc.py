@@ -125,6 +125,34 @@ def test_a_crossed_outline_gates_generate_and_says_which_sides(app, tmp_path, mo
     assert doc.gen_btn.isEnabled() and "crosses" not in doc.status.text()
 
 
+def test_a_floor_too_narrow_to_walk_gates_generate_and_names_the_vertex(app, tmp_path,
+                                                                        monkeypatch):
+    """Final review of batch 4: the build refuses a notch narrower than the walk margin, and the
+    canvas then draws no walk edge -- but the tab's gate asked only the crossed-outline rule, so
+    the dashed ring vanished without a word and Generate failed in the job. One rule decides the
+    ring, the gate and the status."""
+    pytest.importorskip("PIL")
+    from ff9mapkit import imagefield as IF
+    doc, run = _doc(app)
+    doc.load_image(_photo(tmp_path))
+    cam = doc.canvas.camera()
+    slit = [(-600, 800), (600, 800), (600, 2000), (30, 2000), (30, 1000), (-30, 1000),
+            (-30, 2000), (-600, 2000)]
+    doc.canvas._commit_floor([IF.world_to_click(cam, p) for p in slit])
+    assert not [it for it in doc.canvas._scene.items() if it.data(0) == "outset"]
+    assert not doc.gen_btn.isEnabled(), "Generate is offered on a floor the build refuses"
+    assert "too narrow near vertex" in doc.gen_btn.toolTip()
+    assert doc.status.text().startswith("⚠") and "too narrow near vertex" in doc.status.text()
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    assert run.calls == []
+    wide = [(-600, 800), (600, 800), (600, 2000), (200, 2000), (200, 1000), (-200, 1000),
+            (-200, 2000), (-600, 2000)]
+    doc.canvas._commit_floor([IF.world_to_click(cam, p) for p in wide])
+    assert doc.gen_btn.isEnabled() and "narrow" not in doc.status.text()
+    assert [it for it in doc.canvas._scene.items() if it.data(0) == "outset"]
+
+
 def test_a_session_saved_with_a_crossed_outline_still_opens_to_be_repaired(app, tmp_path):
     """The new rule must not lock out a session recorded before it: it reopens, armed, and only
     Generate refuses -- with the sentence that says what to fix."""
@@ -618,6 +646,51 @@ def test_a_cut_out_made_in_the_builds_frame_registers_full_frame(app, tmp_path, 
     doc.on_generate()
     argv, _kw = run.calls[0]
     assert argv[argv.index("--foreground") + 1].startswith(str(png))   # passed through untouched
+
+
+@pytest.mark.parametrize("size", [(60, 70), (120, 140), (385, 448), (400, 466)])
+def test_a_small_crop_that_only_shares_the_frames_shape_stays_a_snip(app, tmp_path, monkeypatch,
+                                                                     size):
+    """Final review of T14: registering by ASPECT made a 60x70 crop of a lamp a full-frame layer
+    that the build stretches over the whole room. Only a PNG of the frame's own size (384x448 or
+    a whole multiple) is the frame; the photo-aspect rule is the owner's and is unchanged."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+    doc, _run = _traced(app, tmp_path)                 # an 800x600 (4:3) photo
+    png = tmp_path / "lamp.png"
+    Image.new("RGBA", size, (10, 20, 30, 128)).save(png)
+    monkeypatch.setattr(doc, "_ask_cutout", lambda: str(png))
+    doc.fg_btn.setChecked(True)
+    doc._on_contact(230.0, 320.0)
+    f = doc._fg[0]
+    assert f["kind"] == "snip" and f["offset"] is not None, f
+    (cut,) = doc.canvas._cutouts
+    assert cut["rect"] is not None and not cut["locked"]
+
+
+def test_a_recorded_snip_reopens_where_it_was_dragged(app, tmp_path):
+    """A record that carries an offset IS a snip, whatever the classifier would call the file
+    today -- an old record never changes meaning (final review of T14: a frame-shaped snip
+    reopened as a full frame, its dragged spot dropped, and the next Generate saved that)."""
+    pytest.importorskip("PIL")
+    import json
+    from PIL import Image
+    photo = _photo(tmp_path)                           # 800x600
+    lamp = tmp_path / "lamp.png"
+    Image.new("RGBA", (384, 448), (10, 20, 30, 128)).save(lamp)   # today's classifier: the frame
+    side = tmp_path / "proj" / "photo.trace.json"
+    side.parent.mkdir()
+    side.write_text(json.dumps({
+        "image": str(photo), "upright": True, "pitch": 26, "name": "OLD", "id": "30790",
+        "floor": [[130, 200], [254, 200], [364, 440], [20, 440]],
+        "fg": [{"contact": [230, 320], "image": str(lamp), "offset": [100.0, 150.0]}]}),
+        encoding="utf-8")
+    doc, _run = _doc(app)
+    doc.load_trace(side)
+    f = doc._fg[0]
+    assert f["kind"] == "snip" and tuple(f["offset"]) == (100.0, 150.0), f
+    (cut,) = doc.canvas._cutouts
+    assert cut["rect"] is not None and abs(cut["rect"][0] - 100.0) < 0.1
 
 
 def test_the_cut_out_wording_says_what_to_make(app):
@@ -1338,8 +1411,9 @@ def test_a_regenerate_says_on_the_status_what_it_moved_or_removed(app, tmp_path)
     said = doc.status.text()
     assert said.startswith("⚠") and "Regenerated HALL" in said
     assert "removed" not in said                        # not traced_door2, which still exists
-    assert "traced_door0 lost flag_gate" in said        # the middle door, renumbered to 0
-    assert "start point moved" in said and "off the new floor" in said
+    assert "traced_door0 lost “flag gate”" in said      # the middle door, renumbered to 0
+    assert "flag_gate" not in said, "a raw key in the status"
+    assert "spawn point moved" in said and "off the new floor" in said   # Place's own word
     assert doc.status.property("state") == "warn"
     # a second regenerate: the generator's own spawn follows the floor and names nothing
     doc.canvas._commit_floor([(132.0, 302.0)] + shorter[1:])
@@ -1356,7 +1430,7 @@ def test_a_written_file_whose_job_reported_an_error_still_says_what_it_took(app,
     doc, run, *_ = _hall(app, tmp_path)
     run.calls[0][1]["on_finished"](1)
     said = doc.status.text()
-    assert said.startswith("⚠") and "traced_door0 lost flag_gate" in said
+    assert said.startswith("⚠") and "traced_door0 lost “flag gate”" in said
     assert "but the job reported an error" in said and doc.status.property("state") == "warn"
 
 

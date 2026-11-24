@@ -1084,6 +1084,37 @@ def test_a_spawn_placed_on_the_floor_survives_a_regenerate(tmp_path):
     assert man2["spawn"] == (x, z)                     # the report names the spawn the file has
 
 
+def test_a_regenerate_that_fails_after_the_walkmesh_never_freezes_the_spawn(tmp_path,
+                                                                            monkeypatch):
+    """Final review of E13's stamp: the walkmesh (and the stamp in it) is written before the art
+    and the field.toml. A write that failed in between left the NEW stamp beside the OLD toml
+    spawn, so every later regenerate read the generator's own stale spawn as one the author
+    placed and kept it for good. A failed write takes the stamp back out, and the next
+    regenerate falls back to the rule for a project with none."""
+    pytest.importorskip("PIL")
+    import tomllib
+    from pathlib import Path as _P
+    toml, _floor, _man = _merge_project(tmp_path)
+    first = tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"]
+    wider = [(40, 140), (340, 140), (380, 446), (4, 446)]
+    real = _P.write_text
+
+    def locked(self, *a, **k):
+        if self.name.endswith(".field.toml"):
+            raise PermissionError("locked by another program")
+        return real(self, *a, **k)
+    monkeypatch.setattr(_P, "write_text", locked)
+    with pytest.raises(PermissionError):
+        _regen_merge(tmp_path, wider)
+    monkeypatch.setattr(_P, "write_text", real)
+    assert tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"] == first
+    assert IF.generated_spawn(tmp_path / "out") is None, "the stamp is ahead of the field.toml"
+    man2 = _regen_merge(tmp_path, wider)
+    now = tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"]
+    assert now != first and now == [round(man2["spawn"][0]), round(man2["spawn"][1])]
+    assert IF.generated_spawn(tmp_path / "out") == now
+
+
 def test_the_generators_own_spawn_follows_a_reshaped_floor(tmp_path):
     """Review of E13: keeping every spawn on the floor froze the generator's own centroid -- an
     author who widened the floor kept the small floor's start point, reported as 'kept'. The

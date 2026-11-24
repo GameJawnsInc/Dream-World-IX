@@ -1619,6 +1619,15 @@ def test_a_locked_marker_advertises_no_gesture_the_host_refuses(app, monkeypatch
                    {"pos": _SPAWN, "label": "spawn", "kind": "spawn", "keep": True}])
     glyphs = [k for k in c._kids if k.data(2) == "marker" and k.data(3) == 0]
     assert glyphs and not any(k.hasCursor() for k in glyphs)
+    # ...and it LOOKS fixed in a still image too: its glyph is drawn in the muted ink, never the
+    # kind's own colour (final review: only the cursor and the tooltip differed)
+    from PySide6.QtGui import QColor
+    inks = {k.brush().color().name() for k in glyphs if hasattr(k, "brush")
+            and k.brush().style() != Qt.BrushStyle.NoBrush}
+    free = {k.brush().color().name() for k in c._kids if k.data(2) == "marker" and k.data(3) == 1
+            and hasattr(k, "brush") and k.brush().style() != Qt.BrushStyle.NoBrush}
+    assert QColor(c.pal["muted"]).name() in inks, inks
+    assert QColor(c.pal["muted"]).name() not in free, free
     tips = {k.toolTip() for k in glyphs if k.toolTip()}
     assert tips == {"Mira: Placed in Blender."}, tips
     _mouse(c, "press", _px(c, _MIRA))

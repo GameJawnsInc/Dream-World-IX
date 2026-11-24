@@ -269,6 +269,13 @@ class StepEditor(QFrame):
         hw = QWidget()
         hw.setLayout(head)
         v.addWidget(hw)
+        # What the editor has to SAY (a refusal, an Apply error) goes right under the header:
+        # the panel is taller than the ladder pane at every text size and the pane keeps its TOP
+        # in view, so a note at the bottom was written where nobody could see it (final review).
+        self.note = widgets.caption("")
+        self.note.setWordWrap(True)
+        self.note.hide()                           # no words, no room
+        v.addWidget(self.note)
         v.addWidget(QLabel("Type:"))
         self.kind = QComboBox()
         self.kind.setAccessibleName("Cutscene step type")
@@ -354,14 +361,16 @@ class StepEditor(QFrame):
         self.x_hold = _erow("hold", "", QCheckBox("Hold until a script closes it ([TIME=-1])"),
                             "undismissable, no auto-close — the unison shape (close it with a "
                             "'Close a window' step)")
-        self.x_signal = _erow("signal", "Signal when typed (+, n or blank):", QLineEdit(),
+        self.x_signal = _erow("signal", "Signal when typed (+, a number, or blank):", QLineEdit(),
                               'fire the text signal as the line finishes typing: "+" adds one '
                               "to it, a number sets it, blank sends none — pair with "
                               "'Wait for text signal'")
         v.addWidget(self.extras)
-        self.note = widgets.caption("")
-        self.note.setWordWrap(True)
-        v.addWidget(self.note)
+
+    def say(self, text=""):
+        """The editor's one line of words: shown while it has any, gone (no gap) when it has not."""
+        self.note.setText(text)
+        self.note.setVisible(bool(text))
 
     # -- kind plumbing --
     def current_kind(self):
@@ -462,7 +471,7 @@ class StepEditor(QFrame):
         self.x_hold.setChecked(bool(step.get("hold")))
         self.title.setText(f"Step {step_i} — edit" if insert_at is None
                            else f"New step — lands at row {insert_at}")
-        self.note.setText("")
+        self.say("")
         widgets.set_state(self.note, "")
         self._on_kind()
         # NO self.show() here: on the FIRST edit the editor is still PARENTLESS, and showing a
@@ -1008,6 +1017,7 @@ class CutsceneDoc(QWidget):
         self.stage_list.setResizeMode(QListWidget.ResizeMode.Adjust)   # re-wrap when docked
         self.stage_list.setItemDelegate(_WrapHintDelegate(self.stage_list))
         self.stage_list.itemClicked.connect(self._on_stage_item)
+        self.stage_list.itemActivated.connect(self._on_stage_item)   # Enter: the keyboard's click
         self.stage_list.setVisible(False)
         v.addWidget(self.stage_list, 1)
         self.toml_btn = QPushButton("Open the .toml")
@@ -1141,12 +1151,15 @@ class CutsceneDoc(QWidget):
         self.rail.clear()
         for r in rows:
             kind = "narration" if r["narration"] else f"cast {len(r['cast'])}"
-            # what tells scenes apart FIRST, on two lines that each elide right
-            text = (f"{r['label']} · {r['steps']} step{'s' if r['steps'] != 1 else ''}\n"
-                    f"{kind} · {r['gate']}")
+            steps = f"{r['steps']} step{'s' if r['steps'] != 1 else ''}"
+            # What tells scenes apart FIRST and SHORT, on two lines that each elide right: the
+            # rail has room for about 13 characters a line at 125%, and the gate's sentence
+            # ("plays at beat 100") lost its number there. The header and the tooltip keep it.
+            text = f"#{r['idx']} · {r['gate'].removeprefix('plays at ')}\n{steps} · {kind}"
             self.rail.addItem(text)
             it = self.rail.item(self.rail.count() - 1)
-            tip = text + (("\ncast: " + ", ".join(r["cast"])) if r["cast"] else "")
+            tip = (f"{r['label']} · {steps}\n{kind} · {r['gate']}"
+                   + (("\ncast: " + ", ".join(r["cast"])) if r["cast"] else ""))
             if not r["once"]:
                 tip += "\nreplays every visit (once = false)"
             it.setToolTip(tip)
@@ -1259,7 +1272,7 @@ class CutsceneDoc(QWidget):
         on. A clean editor closes as before; nothing is ever applied on the author's behalf."""
         if not self._editor_dirty():
             return False
-        self.editor.note.setText("This step has changes that are not applied. Apply them, or "
+        self.editor.say("This step has changes that are not applied. Apply them, or "
                                  "Close to drop them, then try again.")
         widgets.set_state(self.editor.note, "error")
         self._reveal_editor()
@@ -1308,7 +1321,10 @@ class CutsceneDoc(QWidget):
         blocks = forms.all_blocks((self._raw or {}).get("cutscene"))
         if not 0 <= self._scene < len(blocks):
             return None
-        return (self._scene, forms.entity_to_values(forms.CUTSCENE_SPEC, blocks[self._scene]))
+        # the COUNT too: Apply writes by index, and a scene added or removed elsewhere can put a
+        # twin with equal values (Duplicate Scene makes them) at this index (final review)
+        return (self._scene, len(blocks),
+                forms.entity_to_values(forms.CUTSCENE_SPEC, blocks[self._scene]))
 
     def _fill_settings(self):
         self._settings_built = self._settings_key()
@@ -1424,6 +1440,9 @@ class CutsceneDoc(QWidget):
         vh = self._lscroll.viewport().height()
         lo, hi = bottom - vh, max(0, top)
         sb.setValue(hi if lo > hi else max(lo, min(sb.value(), hi)))
+        if self.editor.note.isVisible():           # in a pane too short for the row above, the
+            self._lscroll.ensureWidgetVisible(self.editor.note, 0, 4)   # header AND the words:
+                                                   # the words win (Apply sits right above them)
 
     def _close_editor(self):
         self.editor.hide()                         # hidden takes no space; the next refill lifts it
@@ -1480,19 +1499,21 @@ class CutsceneDoc(QWidget):
         try:
             step = self.editor.read_step()
         except ValueError as e:
-            self.editor.note.setText(str(e))
+            self.editor.say(str(e))
             widgets.set_state(self.editor.note, "error")
+            self._reveal_editor()
             return
         loc = self._editor_locate(self._raw)
         if loc is None:                            # its scene or its step is gone (an edit elsewhere)
-            self.editor.note.setText("This step is no longer in the scene (it was removed "
+            self.editor.say("This step is no longer in the scene (it was removed "
                                      "elsewhere) — Close, then open the step again.")
             widgets.set_state(self.editor.note, "error")
+            self._reveal_editor()
             return
         k = self.editor.scene = loc[0]
         if loc[1] is not None:
             self.editor.step_i = loc[1]
-        self.editor.note.setText("")
+        self.editor.say("")
         widgets.set_state(self.editor.note, "")
         self._disarm_stage_pick()                  # Apply ends the pick (it would steal a drag)
         if self.editor.insert_at is not None:      # ADD: insert, then ADVANCE -- the next Apply
@@ -1810,10 +1831,10 @@ class CutsceneDoc(QWidget):
             v = next((r for r in unused if r["text"] == w), None)
             if v is not None:
                 unused.remove(v)
-            self._stage_item(f"⚠ {w}", v)
+            self._stage_item(f"⚠ {self._scene_words(w)}", v)
         for lbl, why in res.skipped:
             k = int(lbl.split("#")[1]) if "#" in lbl else 0
-            self._stage_item(f"? {lbl} not checked — {why}", {"scene": k})
+            self._stage_item(f"? {self._scene_words(lbl)} not checked — {why}", {"scene": k})
         self.stage_list.setVisible(self.stage_list.count() > 0)
         self._paint_verdicts()
         if self._stage_explicit:                   # the author asked: show them where it stalls
@@ -1822,6 +1843,13 @@ class CutsceneDoc(QWidget):
                 self.canvas.reveal_verdict(mine[0])
         if self.board_btn.isChecked():
             self._refresh_board()                  # the warm mesh upgrades straight legs to routes
+
+    @staticmethod
+    def _scene_words(text):
+        """The build labels a scene ``[cutscene] #k``; the rail and PROBLEMS call it ``scene #k``.
+        One name for one scene in this column (the leading label only -- the sentence is the
+        build's own)."""
+        return "scene " + text[len("[cutscene] "):] if text.startswith("[cutscene] #") else text
 
     def _stage_item(self, text, where):
         self.stage_list.addItem(text)

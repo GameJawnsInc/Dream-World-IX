@@ -651,7 +651,10 @@ class BackdropCanvas(QGraphicsView):
             path = self._marker_path(m.get("kind"))
             free = grab and not m.get("locked")    # the host refuses every gesture on a locked one
             halo = self._halo(anchor, path, free)
-            gl = self._child(self._scene.addPath(path, self._ring_pen(), QBrush(color)), anchor)
+            # a marker the host will never move LOOKS fixed in a still image too: the muted ink
+            # (never hollow -- hollow means INVALID on this canvas, and this marker is fine)
+            ink = QColor(self.pal["muted"]) if grab and not free else color
+            gl = self._child(self._scene.addPath(path, self._ring_pen(), QBrush(ink)), anchor)
             if grab:
                 name = m.get("label") or m.get("kind")
                 if free:
