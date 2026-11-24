@@ -441,6 +441,18 @@ class TraceDoc(QWidget):
         f["offset"] = (round(cx - sw * k / 2, 1), round(cy - sh * k, 1))
         return "a snip — drag it into place on the art (its contact anchor rides along)"
 
+    def _outline_problem(self):
+        """The build's own outline rule on the traced canvas pixels (finding T5): a sentence
+        naming the sides that cross, or None. The map from canvas to floor keeps straight lines
+        straight, so a crossing here is the crossing the build would refuse."""
+        return imagefield.outline_problem(self._floor) if len(self._floor) >= 3 else None
+
+    def _crossed_note(self):
+        """A reopened session whose outline the rule now refuses still OPENS (so it can be
+        repaired); its status leads with what Generate will refuse."""
+        crossed = self._outline_problem()
+        return f"⚠ {crossed} — Generate is held until it is fixed · " if crossed else ""
+
     def _fg_problems(self):
         """(invalid, unattached) counts across the marked cut-outs — the Generate gates."""
         invalid = sum(1 for f in self._fg if self._fg_state(f)[1] is not None)
@@ -460,7 +472,8 @@ class TraceDoc(QWidget):
         _shim, _back, rg_bad = self._region_shim()
         rg_untargeted = sum(1 for r in self._regions
                             if r["kind"] == "gateway" and not r.get("to"))
-        ready = (self._image is not None and good >= 3 and bad == 0
+        crossed = self._outline_problem()
+        ready = (self._image is not None and good >= 3 and bad == 0 and crossed is None
                  and fg_invalid == 0 and fg_unattached == 0 and rg_bad == 0
                  and rg_untargeted == 0)
         self.gen_btn.setEnabled(ready)
@@ -472,6 +485,8 @@ class TraceDoc(QWidget):
         elif ready:
             tip = ("Build the field project (walkmesh + art + field.toml) with the exact command "
                    "the CLI tracer emits — it streams to the Output panel.")
+        elif crossed:
+            tip = f"The floor cannot be built: {crossed}."
         elif fg_invalid or fg_unattached:
             tip = ("Every cut-out needs a valid floor contact (below the horizon, below the base "
                    "layer) and an attached PNG — fix or Remove the flagged ones.")
@@ -502,7 +517,7 @@ class TraceDoc(QWidget):
             else:
                 # the ⚠ clauses LEAD: the status wraps, but what the author must act on is never
                 # the tail a narrow window pushes out of sight (finding T23)
-                warns = []
+                warns = [f"⚠ {crossed}"] if crossed else []
                 note = f"{good} vertices traced" + (f" · {bad} above the horizon (red)" if bad
                                                     else "")
                 if self._fg:
@@ -988,6 +1003,10 @@ class TraceDoc(QWidget):
         if good < 3 or bad:
             self._refresh("Trace at least 3 vertices, all below the horizon.", "error")
             return
+        crossed = self._outline_problem()
+        if crossed:
+            self._refresh(f"⚠ The floor cannot be built: {crossed}.", "error")
+            return
         fg_invalid, fg_unattached = self._fg_problems()
         if fg_invalid or fg_unattached:
             self._refresh("Every cut-out needs a valid contact and an attached PNG — fix or "
@@ -1217,6 +1236,7 @@ class TraceDoc(QWidget):
         self._refresh_cutouts()
         self._refresh_regions()
         drift = self._pitch_drift_note(data.get("pitch", imagefield.DEFAULT_PITCH))
+        drift += self._crossed_note()
         self._refresh(drift + f"Reopened {Path(path).name} — Generate updates the project in "
                               f"place.", "warn" if drift else "")
 
@@ -1334,7 +1354,8 @@ class TraceDoc(QWidget):
         self._refresh_cutouts()
         self._refresh_regions()
         drift = self._pitch_drift_note(cam_tbl.get("pitch", imagefield.DEFAULT_PITCH))
-        how = ("" if lead else " (no .trace.json yet; the next Generate writes one)")
+        drift += self._crossed_note()
+        how =("" if lead else " (no .trace.json yet; the next Generate writes one)")
         self._refresh((f"{lead} " if lead else "") + drift
                       + f"Reopened {path.name} — session REBUILT from the compiled project{how}. "
                         f"Generate goes in place.", "warn" if (drift or lead) else "")

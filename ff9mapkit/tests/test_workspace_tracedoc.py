@@ -103,6 +103,45 @@ def test_pitch_rejudges_the_trace(app, tmp_path):
     assert doc.gen_btn.isEnabled()
 
 
+_BOWTIE = [(100, 300), (280, 440), (280, 300), (100, 440)]
+
+
+def test_a_crossed_outline_gates_generate_and_says_which_sides(app, tmp_path, monkeypatch):
+    """Finding T5: a crossed outline walked through to a walkmesh over floor nobody traced. The tab
+    asks the build's own rule and says which sides cross; Generate refuses with that sentence."""
+    pytest.importorskip("PIL")
+    doc, run = _doc(app)
+    doc.load_image(_photo(tmp_path))
+    doc.canvas._commit_floor(_BOWTIE)
+    assert not doc.gen_btn.isEnabled()
+    want = "the side from vertex 0 to 1 crosses the side from vertex 2 to 3"
+    assert want in doc.gen_btn.toolTip()
+    assert doc.status.text().startswith("⚠") and want in doc.status.text()
+    monkeypatch.setattr(doc, "_ask_out", lambda: str(tmp_path))
+    doc.on_generate()
+    assert run.calls == [] and want in doc.status.text()
+    assert doc.status.property("state") == "error"
+    doc.canvas._commit_floor([(100, 300), (280, 300), (280, 440), (100, 440)])   # untangled
+    assert doc.gen_btn.isEnabled() and "crosses" not in doc.status.text()
+
+
+def test_a_session_saved_with_a_crossed_outline_still_opens_to_be_repaired(app, tmp_path):
+    """The new rule must not lock out a session recorded before it: it reopens, armed, and only
+    Generate refuses -- with the sentence that says what to fix."""
+    pytest.importorskip("PIL")
+    import json
+    photo = _photo(tmp_path)
+    side = tmp_path / "proj" / "photo.trace.json"
+    side.parent.mkdir()
+    side.write_text(json.dumps({"image": str(photo), "upright": True, "pitch": 26,
+                                "floor": [list(p) for p in _BOWTIE], "name": "OLD",
+                                "id": "30790"}), encoding="utf-8")
+    doc, _run = _doc(app)
+    doc.load_trace(side)
+    assert doc._floor == _BOWTIE and doc._project is not None
+    assert "crosses" in doc.status.text() and not doc.gen_btn.isEnabled()
+
+
 def test_undo_and_clear_are_host_history(app, tmp_path):
     pytest.importorskip("PIL")
     doc, _ = _doc(app)

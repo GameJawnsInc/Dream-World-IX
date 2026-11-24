@@ -484,10 +484,18 @@ def _line_intersect(a, b):
     return (ax + t * adx, az + t * adz)
 
 
-def outset_polygon(poly, dist: float) -> list:
+MITER_LIMIT = 2.0                      # the build's grow bevels a convex corner whose miter point
+#                                        lies past this many outset distances (finding T4)
+
+
+def outset_polygon(poly, dist: float, *, miter_limit=None) -> list:
     """Miter-offset a simple polygon OUTWARD by ``dist`` world units (each boundary edge moved along
     its outward normal, adjacent offset edges re-intersected). So the player CENTRE — which stops
-    ~COLLISION_OUTSET inside a wall — can reach the visual floor edge."""
+    ~COLLISION_OUTSET inside a wall — can reach the visual floor edge.
+
+    ``miter_limit`` (None = unlimited, what every other caller keeps): a CONVEX corner whose miter
+    point lies more than ``miter_limit * dist`` from it is bevelled -- two points, each edge's own
+    offset end -- instead of a spike thrown across the room (a 5 degree tip moved 1100 units)."""
     pts = _as_ccw(poly)
     n = len(pts)
     lines = []
@@ -500,9 +508,115 @@ def outset_polygon(poly, dist: float) -> list:
         lines.append((x1 + nx * dist, z1 + nz * dist, dx, dz))
     out = []
     for i in range(n):
-        v = _line_intersect(lines[(i - 1) % n], lines[i])
+        prev = lines[(i - 1) % n]
+        v = _line_intersect(prev, lines[i])
+        if (v is not None and miter_limit is not None and dist > 0
+                and _cross(pts[(i - 1) % n], pts[i], pts[(i + 1) % n]) > 0
+                and math.hypot(v[0] - pts[i][0], v[1] - pts[i][1]) > miter_limit * dist):
+            out += [(prev[0] + prev[2], prev[1] + prev[3]), (lines[i][0], lines[i][1])]
+            continue
         out.append(v if v is not None else (lines[i][0], lines[i][1]))
     return out
+
+
+def outline_problem(poly):
+    """None when ``poly`` is a simple outline that encloses floor, else a plain sentence naming
+    the vertices (numbered as the Trace canvas numbers them, from 0). ONE rule for the Trace tab's
+    Generate gate (canvas px) and the build (world units): a crossing outline triangulated over
+    its whole hull, so the walkmesh covered floor nobody traced (finding T5). A corner clicked
+    twice in a row is not a problem (the build drops it); the crossing test is the floorplan's own
+    ``segments_cross``, which counts a corner resting on another side as a crossing."""
+    from .floorplan import segments_cross
+    keep = [i for i in range(len(poly)) if tuple(poly[i]) != tuple(poly[i - 1])] or [0]
+    ring = [poly[i] for i in keep]
+    m = len(ring)
+    if m < 3 or all(_cross(ring[0], ring[1], p) == 0 for p in ring[2:]):
+        return "the outline encloses no floor (its corners lie on one line)"
+    for k in range(m):                                  # a side that walks back along the one
+        a, b, c = ring[k - 1], ring[k], ring[(k + 1) % m]   # before it encloses nothing there
+        if _cross(a, b, c) == 0 and (
+                (b[0] - a[0]) * (c[0] - b[0]) + (b[1] - a[1]) * (c[1] - b[1])) < 0:
+            return (f"the outline doubles back on itself at vertex {keep[k]} -- move or delete "
+                    f"that vertex")
+    for i in range(m):
+        for j in range(i + 2, m):
+            if i == 0 and j == m - 1:
+                continue                                # the closing side meets the first
+            if segments_cross(ring[i], ring[(i + 1) % m], ring[j], ring[(j + 1) % m]):
+                return (f"the outline crosses itself: the side from vertex {keep[i]} to "
+                        f"{keep[(i + 1) % m]} crosses the side from vertex {keep[j]} to "
+                        f"{keep[(j + 1) % m]} -- drag a vertex so no two sides cross")
+    return None
+
+
+def _drop_repeats(poly, eps: float = 0.5) -> list:
+    """The ring without consecutive duplicate corners and without corners lying within ``eps``
+    of the straight line through their neighbours: a zero-length side has no outward normal (the
+    outset left that corner un-grown) and a straight-through corner only makes sliver triangles."""
+    pts = [tuple(p) for p in poly]
+    changed = True
+    while changed and len(pts) > 3:
+        changed = False
+        for k in range(len(pts)):
+            a, b, c = pts[k - 1], pts[k], pts[(k + 1) % len(pts)]
+            span = math.hypot(c[0] - a[0], c[1] - a[1])
+            if b == a or (span > 0 and abs(_cross(a, b, c)) / span < eps):
+                del pts[k]
+                changed = True
+                break
+    return pts
+
+
+def _grow_floor(world) -> tuple:
+    """The traced floor (world units, simple) -> the walkmesh ``(verts, faces)``: repeats dropped,
+    grown by :data:`COLLISION_OUTSET` with the miter limited, triangulated -- and CHECKED, because a
+    narrow notch's walls cross once grown and the ear-clipper then overlaps triangles (finding
+    T4). Raises :class:`ImageFieldError` naming the traced vertex nearest the trouble."""
+    grown = outset_polygon(_drop_repeats(world), COLLISION_OUTSET, miter_limit=MITER_LIMIT)
+
+    def near(p):
+        return min(range(len(world)),
+                   key=lambda i: math.hypot(world[i][0] - p[0], world[i][1] - p[1]))
+    from .floorplan import segments_cross
+    m = len(grown)
+    for i in range(m):
+        for j in range(i + 2, m):
+            if not (i == 0 and j == m - 1) and segments_cross(
+                    grown[i], grown[(i + 1) % m], grown[j], grown[(j + 1) % m]):
+                raise ImageFieldError(
+                    f"the floor is too narrow near vertex {near(grown[(i + 1) % m])}: grown by "
+                    f"the {COLLISION_OUTSET:g}-unit walking margin its sides cross -- widen the "
+                    f"gap there, or trace around it without the notch")
+    verts, faces = triangulate(grown)
+    tri = sum(abs(_cross(verts[a], verts[b], verts[c])) / 2 for a, b, c in faces)
+    if abs(tri - abs(_signed_area(verts))) > 1e-6 * max(1.0, abs(_signed_area(verts))):
+        raise ImageFieldError("the walkmesh triangles overlap -- the floor outline has a part too "
+                              "narrow or too sharp to walk; simplify the outline there")
+    return verts, faces
+
+
+def floor_spawn(world) -> tuple:
+    """Where the player starts: the vertex mean when it lies ON the traced floor (every convex
+    floor -- the value the kit always wrote), else the centre of the floor's largest triangle,
+    which always does. The mean of an L or a U lies off the floor (finding T3)."""
+    mean = (sum(p[0] for p in world) / len(world), sum(p[1] for p in world) / len(world))
+    if point_in_polygon(mean, world):
+        return mean
+    pts, faces = triangulate(_drop_repeats(world))
+    a, b, c = max(faces, key=lambda f: abs(_cross(pts[f[0]], pts[f[1]], pts[f[2]])))
+    return ((pts[a][0] + pts[b][0] + pts[c][0]) / 3, (pts[a][1] + pts[b][1] + pts[c][1]) / 3)
+
+
+def point_in_polygon(p, poly) -> bool:
+    """Even-odd test; a point exactly on a side may go either way."""
+    x, z = p
+    hit = False
+    n = len(poly)
+    for i in range(n):
+        (x1, z1), (x2, z2) = poly[i], poly[(i + 1) % n]
+        if (z1 > z) != (z2 > z) and x < x1 + (z - z1) * (x2 - x1) / (z2 - z1):
+            hit = not hit
+    return hit
 
 
 def _cross(a, b, c) -> float:
@@ -1165,9 +1279,11 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
 
     # 1) floor polygon -> world -> outset -> triangulate (the obj write is deferred)
     world = unproject_floor(cam, floor_px)
-    spawn = (sum(p[0] for p in world) / len(world), sum(p[1] for p in world) / len(world))
-    grown = outset_polygon(world, COLLISION_OUTSET)
-    verts, faces = triangulate(grown)
+    why = outline_problem(world)                    # a crossed outline (finding T5): refused
+    if why:                                         # before any write, like every refusal here
+        raise ImageFieldError(f"floor: {why}")
+    spawn = floor_spawn(world)                      # ON the floor, even an L or a U (T3)
+    verts, faces = _grow_floor(world)               # repeats dropped, miter limited, checked (T4)
     for x, z in verts:                              # Int16 walkmesh bound (bgi._check_int16 raises otherwise)
         if not (-32767 <= x <= 32767 and -32767 <= z <= 32767):
             raise ImageFieldError(f"walkmesh vertex ({x:.0f},{z:.0f}) exceeds the Int16 world bound "

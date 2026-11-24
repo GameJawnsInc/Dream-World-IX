@@ -112,6 +112,135 @@ def test_build_image_field_end_to_end(tmp_path):
     assert min(xs) <= man["spawn"][0] <= max(xs) and min(zs) <= man["spawn"][1] <= max(zs)
 
 
+def _src(tmp_path):
+    from PIL import Image
+    Image.new("RGB", (384, 448), (90, 80, 70)).save(tmp_path / "src.png")
+    return tmp_path / "src.png"
+
+
+def _px(world, pitch=26.0):
+    """World floor points -> the canvas pixels the tab would have clicked (default rig)."""
+    cam = guide.make_camera(pitch, IF.DEFAULT_DISTANCE, fov_x_deg=IF.DEFAULT_FOV,
+                            range_wh=(IF.CANVAS_W, IF.CANVAS_H))
+    return [C.to_canvas((x, 0.0, z), cam) for (x, z) in world]
+
+
+def _inside(p, poly):
+    """Even-odd point-in-polygon (test-side, independent of the module's)."""
+    x, z = p
+    hit = False
+    for i in range(len(poly)):
+        (x1, z1), (x2, z2) = poly[i], poly[(i + 1) % len(poly)]
+        if (z1 > z) != (z2 > z) and x < x1 + (z - z1) * (x2 - x1) / (z2 - z1):
+            hit = not hit
+    return hit
+
+
+def _obj_verts(path):
+    return [(float(p[1]), float(p[3])) for p in
+            (ln.split() for ln in path.read_text().splitlines() if ln.startswith("v "))]
+
+
+def test_a_crossed_floor_outline_is_refused_before_anything_is_written(tmp_path):
+    """Finding T5: a bowtie (an outline whose sides cross) triangulated over its whole hull, so the
+    walkmesh covered floor the author never traced. Refused, naming the sides, with nothing written."""
+    pytest.importorskip("PIL")
+    bowtie = [(100, 300), (280, 440), (280, 300), (100, 440)]
+    with pytest.raises(IF.ImageFieldError, match=r"from vertex 0 to 1 crosses the side from vertex 2 to 3"):
+        IF.build_image_field(_src(tmp_path), bowtie, tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+
+
+def test_the_outline_check_is_one_rule_for_the_tab_and_the_build():
+    assert IF.outline_problem([(100, 300), (280, 300), (280, 440), (100, 440)]) is None
+    assert "crosses" in IF.outline_problem([(100, 300), (280, 440), (280, 300), (100, 440)])
+    # a corner resting exactly on a side that is not its own is not a simple outline either
+    assert "crosses" in IF.outline_problem([(0, 0), (100, 0), (100, 100), (50, 0), (0, 100)])
+    # an outline that walks back along itself encloses nothing on that stretch
+    assert "doubles back" in IF.outline_problem([(0, 0), (100, 0), (50, 0), (50, 100)])
+    assert "no floor" in IF.outline_problem([(0, 0), (100, 0), (200, 0)])
+    # a clicked-twice corner is not a crossing (the build drops the duplicate)
+    assert IF.outline_problem([(0, 0), (100, 0), (100, 0), (100, 100), (0, 100)]) is None
+
+
+def test_a_notch_too_narrow_for_the_walk_margin_is_refused_naming_its_vertex(tmp_path):
+    """Finding T4: grown by the 48u walk margin, the walls of a 60u slit cross, and the ear-clipper
+    emitted overlapping triangles. Refused before any write, naming where."""
+    pytest.importorskip("PIL")
+    u = [(-600, 800), (600, 800), (600, 2000), (30, 2000), (30, 1000), (-30, 1000),
+         (-30, 2000), (-600, 2000)]
+    assert IF.outline_problem(u) is None               # the outline itself is legal
+    with pytest.raises(IF.ImageFieldError, match=r"too narrow near vertex [3-6]\b"):
+        IF.build_image_field(_src(tmp_path), _px(u), tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+    wide = [(-600, 800), (600, 800), (600, 2000), (200, 2000), (200, 1000), (-200, 1000),
+            (-200, 2000), (-600, 2000)]
+    IF.build_image_field(_src(tmp_path), _px(wide), tmp_path / "ok")   # a 400u notch builds
+    # a sharp V cut into the floor: its inner corner's miter is long but correct (only a CONVEX
+    # corner is bevelled; a bevel there would cross the walls and refuse a buildable floor)
+    v = [(-800, 800), (800, 800), (800, 2400), (300, 2400), (0, 1200), (-300, 2400), (-800, 2400)]
+    IF.build_image_field(_src(tmp_path), _px(v), tmp_path / "v")
+
+
+def test_a_sharp_tip_is_bevelled_not_thrown_across_the_room(tmp_path):
+    """Finding T4: the miter had no limit -- a 5 degree tip moved 1100 world units. Every walkmesh
+    vertex now stays within the miter limit of the traced floor."""
+    pytest.importorskip("PIL")
+    half = math.radians(2.5)
+    tip = [(-100, 900), (100, 900), (0, 900 + 100 / math.tan(half))]
+    IF.build_image_field(_src(tmp_path), _px(tip), tmp_path / "out")
+    reach = IF.MITER_LIMIT * IF.COLLISION_OUTSET + 1e-3
+    for v in _obj_verts(tmp_path / "out" / "walkmesh.obj"):
+        assert min(math.hypot(v[0] - p[0], v[1] - p[1]) for p in tip) <= reach, v
+
+
+def test_a_doubled_click_is_dropped_and_every_corner_is_still_grown(tmp_path):
+    """Finding T4: a consecutive duplicate vertex (the CLI --floor, the toml inversion) left that
+    corner un-grown -- a zero-length edge has no normal."""
+    pytest.importorskip("PIL")
+    floor = [(130, 140), (254, 140), (254, 140), (364, 440), (20, 440)]
+    IF.build_image_field(_src(tmp_path), floor, tmp_path / "out")
+    verts = _obj_verts(tmp_path / "out" / "walkmesh.obj")
+    assert len(verts) == 4
+    world = IF.unproject_floor(guide.make_camera(26.0, IF.DEFAULT_DISTANCE,
+                                                 fov_x_deg=IF.DEFAULT_FOV), floor)
+    assert all(min(math.hypot(v[0] - p[0], v[1] - p[1]) for p in world) > 40 for v in verts)
+
+
+def test_overlapping_walkmesh_triangles_are_refused(tmp_path, monkeypatch):
+    """The last guard of T4: whatever the cause, triangles whose areas sum past the grown floor's
+    own area overlap -- the build refuses rather than ship floor twice."""
+    pytest.importorskip("PIL")
+    real = IF.triangulate
+
+    def doubled(poly):
+        pts, faces = real(poly)
+        return pts, faces + faces[:1]
+    monkeypatch.setattr(IF, "triangulate", doubled)
+    with pytest.raises(IF.ImageFieldError, match="overlap"):
+        IF.build_image_field(_src(tmp_path), [(130, 140), (254, 140), (364, 440), (20, 440)],
+                             tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+
+
+def test_the_spawn_lies_on_an_l_or_u_shaped_floor(tmp_path):
+    """Finding T3: the spawn was the vertex mean, which lies off an L or a U -- the player started
+    off the floor. A convex floor keeps the mean exactly (no generated value moves)."""
+    pytest.importorskip("PIL")
+    L = [(-900, 800), (900, 800), (900, 1100), (-600, 1100), (-600, 2600), (-900, 2600)]
+    U = [(-900, 800), (900, 800), (900, 2400), (600, 2400), (600, 1100), (-600, 1100),
+         (-600, 2400), (-900, 2400)]
+    for name, poly in (("L", L), ("U", U)):
+        mean = (sum(p[0] for p in poly) / len(poly), sum(p[1] for p in poly) / len(poly))
+        assert not _inside(mean, poly), f"{name}: the fixture must put the mean off the floor"
+        man = IF.build_image_field(_src(tmp_path), _px(poly), tmp_path / name)
+        assert _inside(man["spawn"], man["world_floor"]), (name, man["spawn"])
+    quad = [(130, 140), (254, 140), (364, 440), (20, 440)]
+    man = IF.build_image_field(_src(tmp_path), quad, tmp_path / "quad")
+    w = man["world_floor"]
+    assert man["spawn"] == (sum(p[0] for p in w) / 4, sum(p[1] for p in w) / 4)
+
+
 def test_build_rejects_int16_overflow(tmp_path):
     pytest.importorskip("PIL")
     from PIL import Image
