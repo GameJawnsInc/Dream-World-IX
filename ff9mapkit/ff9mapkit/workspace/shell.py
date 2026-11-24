@@ -4888,6 +4888,10 @@ class Workspace(QMainWindow):
         if (getattr(self, "place_doc", None) is not None
                 and self.tabs.currentWidget() is self.place_doc):
             self._feed_place()                     # same live-follow for the Place surface
+        if (getattr(self, "trace_doc", None) is not None
+                and self.tabs.currentWidget() is self.trace_doc):
+            tgt = self._behavior_target()          # and Trace's "Load <field>" offer (T39)
+            self.trace_doc.offer_project(self.member_paths.get(tgt) if tgt else None)
         if field_item is not None and p:
             member = self._payload(field_item)[1]
             if item is field_item:                 # the member row itself -> its Field form

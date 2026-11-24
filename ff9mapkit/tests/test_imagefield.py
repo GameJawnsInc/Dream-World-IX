@@ -112,6 +112,156 @@ def test_build_image_field_end_to_end(tmp_path):
     assert min(xs) <= man["spawn"][0] <= max(xs) and min(zs) <= man["spawn"][1] <= max(zs)
 
 
+def _src(tmp_path):
+    from PIL import Image
+    Image.new("RGB", (384, 448), (90, 80, 70)).save(tmp_path / "src.png")
+    return tmp_path / "src.png"
+
+
+def _px(world, pitch=26.0):
+    """World floor points -> the canvas pixels the tab would have clicked (default rig)."""
+    cam = guide.make_camera(pitch, IF.DEFAULT_DISTANCE, fov_x_deg=IF.DEFAULT_FOV,
+                            range_wh=(IF.CANVAS_W, IF.CANVAS_H))
+    return [C.to_canvas((x, 0.0, z), cam) for (x, z) in world]
+
+
+def _inside(p, poly):
+    """Even-odd point-in-polygon (test-side, independent of the module's)."""
+    x, z = p
+    hit = False
+    for i in range(len(poly)):
+        (x1, z1), (x2, z2) = poly[i], poly[(i + 1) % len(poly)]
+        if (z1 > z) != (z2 > z) and x < x1 + (z - z1) * (x2 - x1) / (z2 - z1):
+            hit = not hit
+    return hit
+
+
+def _obj_verts(path):
+    return [(float(p[1]), float(p[3])) for p in
+            (ln.split() for ln in path.read_text().splitlines() if ln.startswith("v "))]
+
+
+def test_a_crossed_floor_outline_is_refused_before_anything_is_written(tmp_path):
+    """Finding T5: a bowtie (an outline whose sides cross) triangulated over its whole hull, so the
+    walkmesh covered floor the author never traced. Refused, naming the sides, with nothing written."""
+    pytest.importorskip("PIL")
+    bowtie = [(100, 300), (280, 440), (280, 300), (100, 440)]
+    with pytest.raises(IF.ImageFieldError, match=r"from vertex 0 to 1 crosses the side from vertex 2 to 3"):
+        IF.build_image_field(_src(tmp_path), bowtie, tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+
+
+def test_the_outline_check_is_one_rule_for_the_tab_and_the_build():
+    assert IF.outline_problem([(100, 300), (280, 300), (280, 440), (100, 440)]) is None
+    assert "crosses" in IF.outline_problem([(100, 300), (280, 440), (280, 300), (100, 440)])
+    # a corner resting exactly on a side that is not its own is not a simple outline either
+    assert "crosses" in IF.outline_problem([(0, 0), (100, 0), (100, 100), (50, 0), (0, 100)])
+    # an outline that walks back along itself encloses nothing on that stretch
+    assert "doubles back" in IF.outline_problem([(0, 0), (100, 0), (50, 0), (50, 100)])
+    assert "no floor" in IF.outline_problem([(0, 0), (100, 0), (200, 0)])
+    # a clicked-twice corner is not a crossing (the build drops the duplicate)
+    assert IF.outline_problem([(0, 0), (100, 0), (100, 0), (100, 100), (0, 100)]) is None
+
+
+def test_a_notch_too_narrow_for_the_walk_margin_is_refused_naming_its_vertex(tmp_path):
+    """Finding T4: grown by the 48u walk margin, the walls of a 60u slit cross, and the ear-clipper
+    emitted overlapping triangles. Refused before any write, naming where."""
+    pytest.importorskip("PIL")
+    u = [(-600, 800), (600, 800), (600, 2000), (30, 2000), (30, 1000), (-30, 1000),
+         (-30, 2000), (-600, 2000)]
+    assert IF.outline_problem(u) is None               # the outline itself is legal
+    with pytest.raises(IF.ImageFieldError, match=r"too narrow near vertex [3-6]\b"):
+        IF.build_image_field(_src(tmp_path), _px(u), tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+    wide = [(-600, 800), (600, 800), (600, 2000), (200, 2000), (200, 1000), (-200, 1000),
+            (-200, 2000), (-600, 2000)]
+    IF.build_image_field(_src(tmp_path), _px(wide), tmp_path / "ok")   # a 400u notch builds
+    # a sharp V cut into the floor: its inner corner's miter is long but correct (only a CONVEX
+    # corner is bevelled; a bevel there would cross the walls and refuse a buildable floor)
+    v = [(-800, 800), (800, 800), (800, 2400), (300, 2400), (0, 1200), (-300, 2400), (-800, 2400)]
+    IF.build_image_field(_src(tmp_path), _px(v), tmp_path / "v")
+
+
+def test_a_sharp_tip_is_bevelled_not_thrown_across_the_room(tmp_path):
+    """Finding T4: the miter had no limit -- a 5 degree tip moved 1100 world units. Every walkmesh
+    vertex now stays within the miter limit of the traced floor."""
+    pytest.importorskip("PIL")
+    half = math.radians(2.5)
+    tip = [(-100, 900), (100, 900), (0, 900 + 100 / math.tan(half))]
+    IF.build_image_field(_src(tmp_path), _px(tip), tmp_path / "out")
+    reach = IF.MITER_LIMIT * IF.COLLISION_OUTSET + 1e-3
+    for v in _obj_verts(tmp_path / "out" / "walkmesh.obj"):
+        assert min(math.hypot(v[0] - p[0], v[1] - p[1]) for p in tip) <= reach, v
+
+
+def test_a_bevel_that_would_cross_the_ring_falls_back_to_the_unlimited_grow(tmp_path):
+    """Review of T4: a sharp convex tip beside a sharp reflex corner on a short side -- the
+    bevel's two points pass the neighbouring miter point and the bevelled ring crosses itself,
+    where the unlimited grow (what every earlier build shipped) tiles cleanly. Nothing there is
+    narrow, so the floor builds; only a floor whose UNLIMITED grow crosses is refused."""
+    pytest.importorskip("PIL")
+    from ff9mapkit.floorplan import segments_cross
+    floor = [(309, 320), (301, 329), (323, 323), (264, 363), (247, 383), (192, 249), (260, 255)]
+    world = IF.unproject_floor(guide.make_camera(26.0, IF.DEFAULT_DISTANCE,
+                                                 fov_x_deg=IF.DEFAULT_FOV), floor)
+    bevelled = IF.outset_polygon(IF._drop_repeats(world), IF.COLLISION_OUTSET,
+                                 miter_limit=IF.MITER_LIMIT)
+    m = len(bevelled)
+    assert any(segments_cross(bevelled[i], bevelled[(i + 1) % m], bevelled[j],
+                              bevelled[(j + 1) % m])
+               for i in range(m) for j in range(i + 2, m) if not (i == 0 and j == m - 1)), \
+        "the fixture must be one whose bevelled ring crosses"
+    man = IF.build_image_field(_src(tmp_path), floor, tmp_path / "out")
+    assert man["faces"] >= 5
+
+
+def test_a_doubled_click_is_dropped_and_every_corner_is_still_grown(tmp_path):
+    """Finding T4: a consecutive duplicate vertex (the CLI --floor, the toml inversion) left that
+    corner un-grown -- a zero-length edge has no normal."""
+    pytest.importorskip("PIL")
+    floor = [(130, 140), (254, 140), (254, 140), (364, 440), (20, 440)]
+    IF.build_image_field(_src(tmp_path), floor, tmp_path / "out")
+    verts = _obj_verts(tmp_path / "out" / "walkmesh.obj")
+    assert len(verts) == 4
+    world = IF.unproject_floor(guide.make_camera(26.0, IF.DEFAULT_DISTANCE,
+                                                 fov_x_deg=IF.DEFAULT_FOV), floor)
+    assert all(min(math.hypot(v[0] - p[0], v[1] - p[1]) for p in world) > 40 for v in verts)
+
+
+def test_overlapping_walkmesh_triangles_are_refused(tmp_path, monkeypatch):
+    """The last guard of T4: whatever the cause, triangles whose areas sum past the grown floor's
+    own area overlap -- the build refuses rather than ship floor twice."""
+    pytest.importorskip("PIL")
+    real = IF.triangulate
+
+    def doubled(poly):
+        pts, faces = real(poly)
+        return pts, faces + faces[:1]
+    monkeypatch.setattr(IF, "triangulate", doubled)
+    with pytest.raises(IF.ImageFieldError, match="overlap"):
+        IF.build_image_field(_src(tmp_path), [(130, 140), (254, 140), (364, 440), (20, 440)],
+                             tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+
+
+def test_the_spawn_lies_on_an_l_or_u_shaped_floor(tmp_path):
+    """Finding T3: the spawn was the vertex mean, which lies off an L or a U -- the player started
+    off the floor. A convex floor keeps the mean exactly (no generated value moves)."""
+    pytest.importorskip("PIL")
+    L = [(-900, 800), (900, 800), (900, 1100), (-600, 1100), (-600, 2600), (-900, 2600)]
+    U = [(-900, 800), (900, 800), (900, 2400), (600, 2400), (600, 1100), (-600, 1100),
+         (-600, 2400), (-900, 2400)]
+    for name, poly in (("L", L), ("U", U)):
+        mean = (sum(p[0] for p in poly) / len(poly), sum(p[1] for p in poly) / len(poly))
+        assert not _inside(mean, poly), f"{name}: the fixture must put the mean off the floor"
+        man = IF.build_image_field(_src(tmp_path), _px(poly), tmp_path / name)
+        assert _inside(man["spawn"], man["world_floor"]), (name, man["spawn"])
+    quad = [(130, 140), (254, 140), (364, 440), (20, 440)]
+    man = IF.build_image_field(_src(tmp_path), quad, tmp_path / "quad")
+    w = man["world_floor"]
+    assert man["spawn"] == (sum(p[0] for p in w) / 4, sum(p[1] for p in w) / 4)
+
+
 def test_build_rejects_int16_overflow(tmp_path):
     pytest.importorskip("PIL")
     from PIL import Image
@@ -887,9 +1037,9 @@ def test_regenerate_refuses_an_unparseable_project_before_writing_anything(tmp_p
     assert _tree(tmp_path / "out") != before          # anti-vacuity: the inputs DO move bytes
 
 
-def test_player_spawn_is_generator_owned_and_the_retake_is_said_out_loud(tmp_path):
-    """[player].spawn regenerates (the session's centroid wins) -- but a hand-moved spawn is
-    REPORTED via retaken, never silently reverted."""
+def test_a_spawn_that_is_not_a_floor_point_is_retaken_and_said_out_loud(tmp_path):
+    """A spawn the file holds that is not an (x, z) point is replaced by the generator's -- and
+    REPORTED via retaken, never silently. (A real point on the floor is kept: finding E13.)"""
     pytest.importorskip("PIL")
     import tomllib
     toml, floor, _man = _merge_project(tmp_path)
@@ -901,7 +1051,79 @@ def test_player_spawn_is_generator_owned_and_the_retake_is_said_out_loud(tmp_pat
                                 events=["It creaks.@200,340;300,340;300,380;200,380"])
     data = tomllib.loads(toml.read_text(encoding="utf-8"))
     assert data["player"]["spawn"] != moved            # the centroid is re-derived
-    assert "player.spawn" in man2["retaken"]
+    assert "player.spawn (it was not a floor position)" in man2["retaken"]
+
+
+def _set_spawn(toml, x, z):
+    import re
+    text = re.sub(r"spawn = \[-?\d+, -?\d+\]", f"spawn = [{x}, {z}]",
+                  toml.read_text(encoding="utf-8"), count=1)
+    toml.write_text(text, encoding="utf-8", newline="\n")
+
+
+def _regen_merge(tmp_path, floor):
+    return IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", name="MERGE",
+                                gateways=["4005@60,300;140,300;140,330;60,330"],
+                                events=["It creaks.@200,340;300,340;300,380;200,380"])
+
+
+def test_a_spawn_placed_on_the_floor_survives_a_regenerate(tmp_path):
+    """Finding E13: the Place tab writes [player] spawn, and every Regenerate moved it back to the
+    generator's choice. A spawn already in the file is kept while it still lies on the new floor."""
+    pytest.importorskip("PIL")
+    import tomllib
+    toml, floor, man = _merge_project(tmp_path)
+    w = man["world_floor"]
+    x, z = int(0.7 * w[2][0] + 0.3 * w[0][0]), int(0.7 * w[2][1] + 0.3 * w[0][1])
+    _set_spawn(toml, x, z)
+    nudged = [(132, 142)] + floor[1:]                  # a floor tweak in Trace
+    man2 = _regen_merge(tmp_path, nudged)
+    assert tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"] == [x, z]
+    assert "player.spawn" not in " ".join(man2["retaken"])
+    assert any("spawn" in k for k in man2["kept"])
+    assert man2["spawn"] == (x, z)                     # the report names the spawn the file has
+
+
+def test_the_generators_own_spawn_follows_a_reshaped_floor(tmp_path):
+    """Review of E13: keeping every spawn on the floor froze the generator's own centroid -- an
+    author who widened the floor kept the small floor's start point, reported as 'kept'. The
+    spawn the last generate wrote (stamped in its walkmesh.obj) is re-derived, and names nothing;
+    a project with no stamp (built before it) takes the generator's spawn as it always did."""
+    pytest.importorskip("PIL")
+    import tomllib
+    toml, floor, man = _merge_project(tmp_path)
+    first = tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"]
+    assert IF.generated_spawn(tmp_path / "out") == first
+    wider = [(40, 140), (340, 140), (380, 446), (4, 446)]    # covers the old floor
+    man2 = _regen_merge(tmp_path, wider)
+    now = tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"]
+    assert now != first and now == [round(man2["spawn"][0]), round(man2["spawn"][1])]
+    assert IF.point_in_polygon(first, man2["world_floor"])   # the old one WAS still on it
+    assert not any("spawn" in k for k in man2["kept"] + man2["retaken"])
+    assert IF.generated_spawn(tmp_path / "out") == now
+    # no stamp: the old rule, said
+    obj = tmp_path / "out" / "walkmesh.obj"
+    obj.write_text("".join(ln for ln in obj.read_text(encoding="utf-8").splitlines(True)
+                           if "generated spawn" not in ln), encoding="utf-8", newline="\n")
+    assert IF.generated_spawn(tmp_path / "out") is None
+    _set_spawn(toml, now[0] + 7, now[1])
+    man3 = _regen_merge(tmp_path, wider)
+    assert tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"] == now
+    assert "player.spawn" in man3["retaken"]
+
+
+def test_a_spawn_the_new_floor_no_longer_covers_is_retaken_and_said_so(tmp_path):
+    pytest.importorskip("PIL")
+    import tomllib
+    toml, floor, man = _merge_project(tmp_path)
+    w = man["world_floor"]
+    x, z = int(0.9 * w[0][0] + 0.1 * w[2][0]), int(0.9 * w[0][1] + 0.1 * w[2][1])   # the far end
+    _set_spawn(toml, x, z)
+    shorter = [(130, 300), (254, 300)] + floor[2:]     # the far half traced away
+    man2 = _regen_merge(tmp_path, shorter)
+    spawn = tomllib.loads(toml.read_text(encoding="utf-8"))["player"]["spawn"]
+    assert spawn != [x, z] and spawn == [round(man2["spawn"][0]), round(man2["spawn"][1])]
+    assert any(r.startswith("player.spawn") and "off the new floor" in r for r in man2["retaken"])
 
 
 def test_place_authored_arrivals_ride_through_a_regenerate(tmp_path):
