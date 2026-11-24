@@ -1592,6 +1592,12 @@ class CutsceneDoc(QWidget):
         notes = self._board.get("notes") or []
         self.board_note.setFullText("offline storyboard — beats, not seconds (hover for why)")
         self.board_note.setToolTip("\n".join(notes))
+        if not beats:                              # every step deleted: nothing of the old board
+            self.board_say.setText("No steps yet — add one to storyboard this scene.")
+            self.board_pos.setText("")
+            self.ladder.set_beat_marks(())
+            self.canvas.set_storyboard(None)
+            return
         self._show_beat(min(self._beat_pos(), max(0, len(beats) - 1)))
 
     def _on_board_scrub(self, v):

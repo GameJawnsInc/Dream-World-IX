@@ -279,6 +279,20 @@ def test_the_storyboard_scrubs_beats_and_wraps_the_say_line(doc, tmp_path):
     assert doc.ladder._beat_marks == set()
 
 
+def test_the_storyboard_clears_when_the_scene_loses_its_last_step(doc, tmp_path):
+    """C12: deleting every step left the old beat on the strip, the ladder and the stage."""
+    _fed(doc, tmp_path)
+    doc.board_btn.setChecked(True)
+    doc._show_beat(1)
+    for _ in range(3):
+        _rowtool(doc, "Remove this step (Ctrl+Z undoes)", 0).click()
+    assert doc._steps() == []
+    assert "Made it" not in doc.board_say.text() and "no steps" in doc.board_say.text().lower()
+    assert doc.board_pos.text() == ""
+    assert doc.ladder._beat_marks == set()
+    assert doc.canvas._board is None and _tags(doc.canvas)["beatpos"] == 0
+
+
 def _preview(doc):
     from PySide6.QtWidgets import QPlainTextEdit
     return doc.editor.say_preview.findChild(QPlainTextEdit).toPlainText()
