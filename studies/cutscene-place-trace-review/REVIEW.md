@@ -369,7 +369,10 @@ build error. An untagged step in a cast of two read "None already acts".
 **Nothing that emits bytes changed.** Builds of 45 projects (39 examples and test projects, 814 files,
 plus 6 hand-made dispatches) are byte-identical before and after; the verdicts of 327 projects differ
 only by the reworded sentences, the "#k" label, the removed duplicate and the new once-flag line on
-fixtures written to collide. The full suite ran on `8c9792df` in the gate worktree before any merge: 17,211 passed, 31 skipped, 2 failed. Both failures are co-op timing tests (in `test_coop_world_battle.py` and `test_coop_peer.py`) that pass when re-run alone on the same commit; the last nightly run failed three other tests of those families the same way.
+fixtures written to collide. The full suite ran on `8c9792df` in the gate worktree before any merge:
+17,211 passed, 31 skipped, 2 failed. Both failures are co-op timing tests (in
+`test_coop_world_battle.py` and `test_coop_peer.py`) that pass when re-run alone on the same commit; the
+last nightly run failed three other tests of those families the same way.
 
 **Left open:**
 
