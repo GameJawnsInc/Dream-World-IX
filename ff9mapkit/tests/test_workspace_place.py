@@ -1605,3 +1605,142 @@ def test_the_place_regions_tool_says_zone_and_how_to_cancel(app):
     d, _ = _doc(app)
     tip = d.tools.button("regions").toolTip()
     assert "zones" in tip and "quad" not in tip and "Esc" in tip, tip
+
+
+# --------------------------------------------------------------- batch 4: placed markers (P16)
+def _send(c, kind, canvas_pt, buttons=None):
+    """One mouse event at a CANVAS point, delivered the way Qt delivers it (sendEvent)."""
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QMouseEvent
+    t = {"press": QEvent.Type.MouseButtonPress, "move": QEvent.Type.MouseMove,
+         "release": QEvent.Type.MouseButtonRelease}[kind]
+    vp = c.viewport()
+    wpt = c.viewportTransform().map(QPointF(*canvas_pt))
+    pos = QPointF(round(wpt.x()), round(wpt.y()))
+    left = Qt.MouseButton.LeftButton
+    if buttons is None:
+        buttons = left if kind != "release" else Qt.MouseButton.NoButton
+    btn = Qt.MouseButton.NoButton if kind == "move" else left
+    QApplication.sendEvent(vp, QMouseEvent(t, pos, QPointF(vp.mapToGlobal(pos.toPoint())), btn,
+                                           buttons, Qt.KeyboardModifier.NoModifier))
+
+
+def _placed(app, data, scene=None, path="C:/somewhere/FORK.field.toml"):
+    d, calls = _doc(app)
+    d.show_field("FORK", data, Path(path), scene=scene)
+    d._bundles[(d._source, 0)] = dict(_bundle(), source=d._source)
+    d._apply_bundle(d._bundles[(d._source, 0)], refit=True)
+    QApplication.processEvents()
+    return d, calls
+
+
+def _px(d, x, z):
+    return IF.world_point_to_click(d.canvas.camera(), (x, 0.0, z))
+
+
+def _hit(x, z):
+    row = {"xz": (x, z), "pos": (x, 0.0, z), "floor": 0, "tri": 0, "s": 1.0}
+    return dict(row, stacked=[row])
+
+
+def test_a_click_on_a_placed_marker_never_drops_a_second_one(app):
+    """P16: the marker was inert, so a click on it raycast the floor beneath it and appended a
+    SECOND NPC on top of the first. It places nothing now, and says how to move or delete it."""
+    data = {"field": {"source_field": 351}, "npc": [{"name": "A", "pos": [0, 1500]}]}
+    d, calls = _placed(app, data)
+    p = _px(d, 0, 1500)
+    _send(d.canvas, "press", p)
+    _send(d.canvas, "release", p)
+    assert calls == [] and len(data["npc"]) == 1, data["npc"]
+    assert "drag" in d.status.text() and "A" in d.status.text(), d.status.text()
+
+
+def test_dragging_a_marker_moves_that_row_in_one_undo_step(app):
+    data = {"field": {"source_field": 351},
+            "npc": [{"name": "A", "pos": [0, 1500]}, {"name": "B", "pos": [-400, 1000]}]}
+    d, calls = _placed(app, data)
+    _send(d.canvas, "press", _px(d, 0, 1500))
+    _send(d.canvas, "move", _px(d, 200, 1200))
+    _send(d.canvas, "release", _px(d, 200, 1200))
+    assert len(calls) == 1 and calls[0] == ("FORK", "move NPC A"), calls
+    x, z = data["npc"][0]["pos"]
+    assert math.hypot(x - 200, z - 1200) < 10, data["npc"][0]
+    assert data["npc"][1]["pos"] == [-400, 1000] and len(data["npc"]) == 2
+    mira = next(m for m in d.canvas._markers if m["label"] == "A")
+    assert math.hypot(mira["pos"][0] - x, mira["pos"][2] - z) < 1e-6   # drawn where it now is
+
+
+def test_a_marker_gesture_writes_the_row_it_was_drawn_from_not_its_old_index(app):
+    """Two NPCs share a name, and the first is removed in the Editor before Place is re-fed:
+    the marker for the second still writes THAT row (by identity), and the marker for the
+    removed one refuses instead of landing on whatever now sits at its index."""
+    def stale():
+        data = {"field": {"source_field": 351},
+                "npc": [{"name": "A", "pos": [0, 1500]}, {"name": "A", "pos": [-400, 1000]}]}
+        d, calls = _placed(app, data)
+        second = data["npc"][1]
+        del data["npc"][0]                               # the Editor's delete, no re-feed yet
+        return d, calls, data, second
+
+    d, calls, data, second = stale()
+    d._on_marker_moved(1, _hit(100.0, 1100.0))
+    assert second["pos"] == [100, 1100] and len(calls) == 1
+    for gesture in (lambda d: d._on_marker_moved(0, _hit(300.0, 1300.0)),
+                    lambda d: d._on_marker_deleted(0)):
+        d, calls, data, second = stale()
+        gesture(d)
+        assert data["npc"] == [{"name": "A", "pos": [-400, 1000]}] and calls == []
+        assert "no longer" in d.status.text() and d.status.property("state") == "warn"
+
+
+def test_deleting_a_marker_removes_that_row_and_the_spawn_stays(app):
+    data = {"field": {"source_field": 351}, "prop": [{"name": "prop0", "prop": "barrel",
+                                                      "pos": [0, 1500]}],
+            "player": {"spawn": [100, 1200]}}
+    d, calls = _placed(app, data)
+    i_prop = next(k for k, m in enumerate(d.canvas._markers) if m["kind"] == "prop")
+    i_spawn = next(k for k, m in enumerate(d.canvas._markers) if m["kind"] == "spawn")
+    d._on_marker_deleted(i_spawn)
+    assert data["player"]["spawn"] == [100, 1200] and calls == []
+    assert "spawn" in d.status.text() and "move" in d.status.text(), d.status.text()
+    d._on_marker_deleted(i_prop)
+    assert data["prop"] == [] and calls == [("FORK", "delete prop prop0")], calls
+    d._on_marker_moved(next(k for k, m in enumerate(d.canvas._markers) if m["kind"] == "spawn"),
+                       _hit(-100.0, 1300.0))
+    assert data["player"]["spawn"] == [-100, 1300] and calls[-1] == ("FORK", "move spawn")
+
+
+def test_a_marker_blender_or_a_verbatim_fork_owns_refuses_to_move(app):
+    scene = {"npc": [{"name": "guard", "pos": [5, 1500]}, {"name": "ghost", "pos": [-200, 1200]}]}
+    data = {"field": {"source_field": 351}, "npc": [{"name": "guard", "preset": "vivi"}]}
+    d, calls = _placed(app, data, scene=scene)
+    for m_label in ("guard", "ghost"):
+        i = next(k for k, m in enumerate(d.canvas._markers) if m["label"].startswith(m_label))
+        d._on_marker_moved(i, _hit(0.0, 1000.0))
+        assert calls == [] and "Blender" in d.status.text(), d.status.text()
+        d._on_marker_deleted(i)
+        assert calls == [] and "Blender" in d.status.text(), d.status.text()
+    assert data["npc"] == [{"name": "guard", "preset": "vivi"}]
+    vdata = {"verbatim_eb": {"donor": 351}, "player": {"spawn": [0, 1500],
+                                                       "arrival": [{"entrance": 1, "pos": [0, 1200]}]}}
+    d, calls = _placed(app, vdata)
+    for k in range(len(d.canvas._markers)):
+        d._on_marker_moved(k, _hit(100.0, 1000.0))
+        assert calls == [] and "verbatim" in d.status.text(), d.status.text()
+    assert vdata["player"] == {"spawn": [0, 1500], "arrival": [{"entrance": 1, "pos": [0, 1200]}]}
+
+
+def test_a_marker_dropped_off_the_floor_says_so_and_a_stack_asks(app, monkeypatch):
+    data = {"field": {"source_field": 351}, "npc": [{"name": "A", "pos": [0, 1500]}]}
+    d, calls = _placed(app, data)
+    _send(d.canvas, "press", _px(d, 0, 1500))
+    _send(d.canvas, "move", (4.0, 4.0))
+    _send(d.canvas, "release", (4.0, 4.0))
+    assert calls == [] and data["npc"][0]["pos"] == [0, 1500]
+    assert "back where it was" in d.status.text() and d.status.property("state") == "warn"
+    asked = []
+    monkeypatch.setattr(d, "_choose_hit", lambda rows: asked.append(rows) or rows[1])
+    low = {"xz": (10.0, 1000.0), "pos": (10.0, 0.0, 1000.0), "floor": 0, "tri": 0, "s": 2.0}
+    up = {"xz": (20.0, 1100.0), "pos": (20.0, -300.0, 1100.0), "floor": 1, "tri": 2, "s": 1.0}
+    d._on_marker_moved(0, dict(up, stacked=[up, low]))
+    assert asked and data["npc"][0]["pos"] == [10, 1000] and len(calls) == 1
