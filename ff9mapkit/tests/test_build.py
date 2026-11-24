@@ -8,6 +8,7 @@ background scene + walkmesh — all offline.
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 
 import pytest
@@ -1163,6 +1164,154 @@ def test_cutscene_unknown_actor_is_rejected(tmp_path):
     p = tmp_path / "x.field.toml"
     p.write_text(_LINT_BASE + '[cutscene]\nactors = ["ghost"]\nsteps = [ {wait=5} ]\n', encoding="utf-8")
     assert any("not a defined [[npc]] name" in s for s in validate(FieldProject.load(p)))
+
+
+def test_cast_scene_problems_speak_the_tabs_plain_words(tmp_path):
+    """The cast-scene (conductor) sentences are shown verbatim in the Cutscene tab, which speaks of
+    the cast, of moments and of steps that run together -- not of TOML keys. Each names the step and
+    the offending name, says what to do, and keeps the key in parentheses for a command-line author."""
+    raw = {"field": {"id": 4003, "name": "X", "area": 11}, "player": {"spawn": [0, -300]},
+           "npc": [{"name": "Cid", "preset": "vivi", "pos": [0, -300]},
+                   {"name": "Mira", "preset": "vivi", "pos": [100, -300]}],
+           "cutscene": {"actors": ["Cid", "Mira", "Ghost"], "steps": [
+               {"turn": 0, "actor": "Cid", "with_prev": True},           # 0
+               {"actor": "Cid"},                                         # 1 no action
+               {"say": "x", "walk": [0, -300], "actor": "Cid"},          # 2 two actions
+               {"turn": 0, "actor": "Nobody"},                           # 3 not in the cast
+               {"turn": 0},                                              # 4 who?
+               {"wait": 5},                                              # 5 leads a moment it can't
+               {"turn": 0, "actor": "Mira", "with_prev": True},          # 6
+               {"turn": 0, "actor": "Cid"},                              # 7
+               {"turn": 64, "actor": "Cid", "with_prev": True},          # 8 Cid twice in a moment
+               {"say": "hi", "with_prev": True},                         # 9 a say can't run together
+           ]}}
+
+    def said(r):
+        return [p for p in validate(FieldProject(copy.deepcopy(r), tmp_path)) if p.startswith("[cutscene]")]
+    got = said(raw)
+    want = [
+        "[cutscene] cast member 'Ghost' is not a defined [[npc]] name -- add an [[npc]] named 'Ghost', "
+        "or take it out of the cast (actors)",
+        "[cutscene] step 1 has no action -- give it exactly one: say, wait, set_flag",
+        "[cutscene] step 2 has more than one action (say and walk) -- a step does exactly one thing",
+        "[cutscene] step 3: 'Nobody' is not in the cast (Cid, Mira, Ghost) -- add 'Nobody' to the cast "
+        "(actors)",
+        "[cutscene] step 4 (turn) needs to say who does it -- set actor = \"<name>\" to a cast member "
+        "(Cid, Mira, Ghost)",
+        "[cutscene] step 0 can't run together with the previous step (with_prev) -- there isn't one",
+        "[cutscene] step 5 (wait) can't have the next step run together with it (with_prev on step 6)",
+        "[cutscene] step 8: 'Cid' already acts in this moment (step 7) -- one actor can't do two things",
+        "[cutscene] step 9 (say) can't run together with the previous step (with_prev) -- only walk, "
+        "path, animation and turn can",
+    ]
+    for w in want:
+        assert sum(p.startswith(w) for p in got) == 1, (w, got)
+    for old in ("actors entry", "is not in actors", "parallel group", "beat", "needs exactly one",
+                "non-empty steps", "can run with_prev", "with_prev = true", " / "):
+        assert not any(old in p for p in got), (old, got)
+    # (after review) two UNTAGGED actor steps in one moment: the "needs to say who" line covers each,
+    # and the duplicate-actor line must not say "None already acts"
+    two = copy.deepcopy(raw)
+    two["cutscene"] = {"actors": ["Cid", "Mira"],
+                       "steps": [{"turn": 0}, {"walk": [0, -300], "with_prev": True}]}
+    got = said(two)
+    assert sum("needs to say who does it" in p for p in got) == 2, got
+    assert not any("None" in p or "already acts" in p for p in got), got
+    raw["cutscene"]["steps"] = []
+    assert said(raw)[-1] ==('[cutscene] has no steps -- add at least one '
+                             '(steps = [ {actor = "...", say = "..."}, ... ])')
+
+
+def test_cutscene_step_window_keys_are_said_once_and_name_the_scene(tmp_path):
+    """C16: a cast scene's bad tail was reported twice -- by the window-attribute sweep and again by
+    the conductor validator -- and the sweep's label never said WHICH scene of a dispatch it meant
+    ('[cutscene] step 0' for every block). The sweep owns tail/style/window on every text step, and
+    labels a dispatch block '[cutscene] #k' exactly as the per-scene validation does."""
+    def probs(body):
+        p = tmp_path / "w.field.toml"
+        p.write_text(_LINT_BASE + '[[npc]]\nname = "Cid"\npreset = "vivi"\npos = [0, -300]\n\n' + body,
+                     encoding="utf-8")
+        return [s for s in validate(FieldProject.load(p)) if "cutscene" in s]
+    got = probs('[[cutscene]]\nrequires_scenario = 5\nsteps = [ {say = "a", tail = "NOPE"} ]\n\n'
+                '[[cutscene]]\nrequires_scenario = 6\nactors = ["Cid"]\n'
+                'steps = [ {say = "b", tail = "XYZ", style = "fancy"} ]\n')
+    tails = [s for s in got if "TAIL code" in s]
+    assert len(tails) == 2, got
+    assert tails[0].startswith("[cutscene] #0 step 0 tail 'NOPE' is not a valid TAIL code ("), tails
+    assert tails[1].startswith("[cutscene] #1 step 0 tail 'XYZ' is not a valid TAIL code ("), tails
+    styles = [s for s in got if "fancy" in s]
+    assert len(styles) == 1 and styles[0].startswith("[cutscene] #1 step 0 "), styles
+    # a field with ONE scene keeps the plain label, as the per-scene rules do
+    one = probs('[cutscene]\nactors = ["Cid"]\nsteps = [ {say = "b", tail = "XYZ"} ]\n')
+    tails = [s for s in one if "TAIL code" in s]
+    assert len(tails) == 1 and tails[0].startswith("[cutscene] step 0 tail 'XYZ' is not a valid"), one
+    # (after review) the conductor used to judge a cast scene's tail on EVERY step; the sweep must
+    # keep refusing a bad code on a cast step that shows no window (walk / wait / close), once
+    for step in ('{walk = [0, -300], actor = "Cid", tail = "BOGUS"}', '{wait = 5, tail = "BOGUS"}'):
+        got = probs(f'[cutscene]\nactors = ["Cid"]\nsteps = [ {{say = "a"}}, {step} ]\n')
+        tails = [s for s in got if "TAIL code" in s]
+        assert len(tails) == 1 and tails[0].startswith("[cutscene] step 1 tail 'BOGUS' is not a "
+                                                       "valid TAIL code ("), got
+    # ...and a valid code there stays accepted, as it was
+    ok = probs('[cutscene]\nactors = ["Cid"]\nsteps = [ {walk = [0, -300], tail = "UPR"} ]\n')
+    assert not [s for s in ok if "tail" in s], ok
+
+
+def test_two_play_once_cutscenes_on_one_once_flag_are_refused(tmp_path):
+    """C9: two [[cutscene]] blocks that play once on the SAME once-flag -- whichever plays first sets
+    the bit and the other never plays, silently. validate refuses it, naming both scenes and the
+    flag, judged on the flag each block is COMPILED with: a pinned flag, a [[flag]] NAME resolved as
+    the build resolves it, or the build's own auto pick."""
+    from ff9mapkit import flags as _flags
+
+    def scene(gate, extra=""):
+        return f'[[cutscene]]\nrequires_scenario = {gate}\n{extra}steps = [ {{say = "s{gate}"}} ]\n\n'
+
+    def probs(body, flag_base=None):
+        p = tmp_path / "o.field.toml"
+        p.write_text(_LINT_BASE + body, encoding="utf-8")
+        proj = FieldProject.load(p)
+        proj.flag_base = flag_base
+        return [s for s in validate(proj) if "once-flag" in s]
+
+    got = probs(scene(5, "flag = 8800\n") + scene(6, "flag = 8800\n"))
+    assert len(got) == 1 and "[cutscene] #0 and #1" in got[0] and "8800" in got[0], got
+    named = '[[flag]]\nname = "met_cid"\nindex = 8800\n\n'
+    got = probs(named + scene(5, "flag = 8800\n") + scene(6, 'flag = "met_cid"\n'))
+    assert len(got) == 1 and "8800" in got[0], got
+    # three scenes on one flag: each later one is named against the first
+    got = probs(scene(5, "flag = 8800\n") + scene(6, "flag = 8800\n") + scene(7, "flag = 8800\n"))
+    assert [g.split(" play")[0] for g in got] == ["[cutscene] #0 and #1", "[cutscene] #0 and #2"], got
+    # a campaign member: scene #0's AUTO once-flag is the member's flag_base, and #1 pins the same bit
+    camp = scene(5) + scene(6, "flag = 9100\n")
+    got = probs(camp, flag_base=9100)
+    assert len(got) == 1, got
+    # (after review) there, removing the pin makes a 2nd AUTO scene, which a campaign member refuses
+    # -- so the advice is a flag of its own in the member's band, never "let the build pick one"
+    assert "remove a pinned flag" not in got[0] and "flag = N" in got[0], got
+    assert probs(camp, flag_base=9200) == []
+    # ...and a 2nd auto scene there (which the build refuses on its own) is not judged, nor raised
+    assert len(probs(camp + scene(7), flag_base=9100)) == 1
+    # a single field's auto pick SKIPS an authored flag (the compiler's allocator, not the bare
+    # default): #0 pins the default slot of #1, and #1 is compiled on the next free bit
+    assert probs(scene(5, f"flag = {_flags.AUTO_CUTSCENE_BASE + 1}\n") + scene(6)) == []
+    # a replaying scene (once = false) is compiled with no once-flag at all: it never shares one
+    assert probs(scene(5, "flag = 8800\n") + scene(6, "once = false\nflag = 8800\n")) == []
+    assert probs(scene(5, "once = false\nflag = 8800\n") + scene(6, "once = false\nflag = 8800\n")) == []
+    # distinct flags, and all-auto, are clean
+    assert probs(scene(5, "flag = 8800\n") + scene(6, "flag = 8801\n")) == []
+    assert probs(scene(5) + scene(6) + scene(7)) == []
+    # a flag that cannot be resolved is another rule's error, not a shared once-flag
+    raw = {"field": {"id": 4003, "name": "X", "area": 11},
+           "cutscene": [{"requires_scenario": 5, "flag": "nobody", "steps": [{"say": "a"}]},
+                        {"requires_scenario": 6, "flag": "nobody", "steps": [{"say": "b"}]}]}
+    assert [s for s in validate(FieldProject(raw, tmp_path)) if "once-flag" in s] == []
+    # a verbatim fork wires at most one scene (the first cast one), so no two can share a bit
+    from ff9mapkit.build import cutscene_once_flag_problems
+    raw["cutscene"][0]["flag"] = raw["cutscene"][1]["flag"] = 8800
+    assert len(cutscene_once_flag_problems(FieldProject(raw, tmp_path))) == 1
+    raw["verbatim_eb"] = {"donor": 100}
+    assert cutscene_once_flag_problems(FieldProject(raw, tmp_path)) == []
 
 
 def test_cutscene_migration_errors(tmp_path):

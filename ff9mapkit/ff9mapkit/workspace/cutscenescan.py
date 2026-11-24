@@ -309,25 +309,22 @@ def scene_problems(raw, flag_names=None) -> list:
                     if _bad_name(leg):
                         out.append(f'{tag}step {i} path point {j} "{leg}" is not a known '
                                    f'marker/NPC/player')
-    return (out + _once_flag_problems(blocks) + _flag_name_problems(raw, blocks, flag_names)
-            + _flag_band_problems(raw, blocks))
+    return (out + _once_flag_problems(raw, blocks, flag_names)
+            + _flag_name_problems(raw, blocks, flag_names) + _flag_band_problems(raw, blocks))
 
 
-def _once_flag_problems(blocks) -> list:
-    """Two play-once scenes pinned to the SAME once-flag: whichever plays first sets the bit and
-    the other never plays. (The tab's rule; ``build.validate`` does not check it yet.)"""
-    out, seen = [], {}
-    for k, b in enumerate(blocks):
-        f = b.get("flag")
-        if f is None or not b.get("once", True) or isinstance(f, (dict, list)):
-            continue
-        if f in seen:
-            out.append(f"scene #{seen[f]} and scene #{k} share the once-flag {f!r} -- whichever "
-                       f"plays first sets it, and the other never plays. Give one its own flag "
-                       f"(or clear it to let the build pick one).")
-        else:
-            seen[f] = k
-    return out
+def _once_flag_problems(raw, blocks, flag_names) -> list:
+    """Two play-once scenes on the SAME once-flag: whichever plays first sets the bit and the
+    other never plays. ``build.cutscene_once_flag_problems`` owns the rule (the flag each scene is
+    COMPILED with, names resolved); it reads the doc, never copies it, and is handed the hardened
+    block list so a garbage section cannot raise. The tab cannot know a campaign member's flag
+    base, so a pin on that member's auto flag is the build's to catch."""
+    from .. import build as _build
+    if len(blocks) < 2:
+        return []
+    view = {**raw, "cutscene": [b for b in blocks if isinstance(b, dict)]}
+    return _build.cutscene_once_flag_problems(_build.FieldProject(view, "."), flag_names,
+                                              pair="scene #{} and scene #{}")
 
 
 def _conductor_problems(raw, block, tag) -> list:
@@ -367,18 +364,26 @@ def _conductor_problems(raw, block, tag) -> list:
 
 def _text_window_problems(steps, tag, cast) -> list:
     """The two window keys of a say/open line the build's window-attribute sweep refuses: an
-    unknown ``tail`` code and an unknown ``style``. Each verdict comes from the rule's owner
-    (``text.TAIL_CODES`` / ``text.resolve_style``); a cast scene's tail is already the conductor
-    validator's, so it is judged only on narration here."""
+    unknown ``tail`` code and an unknown ``style``, on a cast scene and a narration scene alike
+    (the sweep is their one owner in the build too). Each verdict comes from the rule's owner
+    (``text.TAIL_CODES`` / ``text.resolve_style``), in the sweep's own sentence. Steps are picked
+    as the sweep picks them (``cutscene.step_text``: any step carrying say/open), and a CAST
+    scene's tail is judged on every step, as the sweep judges it."""
+    from ..content import cutscene as _cutscene
     from ..content import text as _text
     out = []
     for i, s in enumerate(steps):
-        if not isinstance(s, dict) or _forms.step_key(s) not in _forms.TEXT_STEPS:
+        if not isinstance(s, dict):
+            continue
+        is_text = _cutscene.step_text(s) is not None
+        if not is_text and not cast:
             continue
         t = s.get("tail")
-        if not cast and t is not None and t not in _text.TAIL_CODES:
+        if t is not None and (not isinstance(t, str) or t not in _text.TAIL_CODES):
             out.append(f"{tag}step {i} tail {t!r} is not a valid TAIL code "
                        f"({', '.join(sorted(_text.TAIL_CODES))})")
+        if not is_text:
+            continue
         try:
             _text.resolve_style(s.get("style"))
         except ValueError as e:
