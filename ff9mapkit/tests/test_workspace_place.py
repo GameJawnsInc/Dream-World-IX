@@ -2021,3 +2021,157 @@ def test_a_marker_dropped_off_the_floor_says_so_and_a_stack_asks(app, monkeypatc
     up = {"xz": (20.0, 1100.0), "pos": (20.0, -300.0, 1100.0), "floor": 1, "tri": 2, "s": 1.0}
     d._on_marker_moved(0, dict(up, stacked=[up, low]))
     assert asked and data["npc"][0]["pos"] == [10, 1000] and len(calls) == 1
+
+
+# --------------------------------------------------------------- batch 5: Open in the Editor
+class _FakeMenu:
+    """A QMenu stand-in: records its entries; exec() returns the one whose text starts with
+    ``pick`` (None: nothing chosen)."""
+    pick = None
+    shown = []
+
+    def __init__(self, parent=None):
+        self.acts = []
+        _FakeMenu.shown.append(self.acts)
+
+    def addAction(self, text):
+        import types
+        tok = types.SimpleNamespace(text=text)
+        self.acts.append(tok)
+        return tok
+
+    def exec(self, pos):
+        return next((a for a in self.acts if _FakeMenu.pick and a.text.startswith(_FakeMenu.pick)),
+                    None)
+
+
+def _right_click(d, x, z, pick, monkeypatch):
+    from PySide6.QtGui import QContextMenuEvent
+    monkeypatch.setattr("PySide6.QtWidgets.QMenu", _FakeMenu)
+    _FakeMenu.pick, _FakeMenu.shown = pick, []
+    c = d.canvas
+    w = c.viewportTransform().map(QPointF(*_px(d, x, z)))
+    pos = QPoint(round(w.x()), round(w.y()))
+    c.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Reason.Mouse, pos, c.mapToGlobal(pos)))
+    return [[a.text for a in acts] for acts in _FakeMenu.shown]
+
+
+def test_a_markers_menu_opens_its_row_in_the_editor(app, monkeypatch):
+    """Leftover of P16: a marker's menu had Delete but no way to the row's Editor form. With a
+    shell to ask (``on_open``), it offers Open in the Editor, keyed to the ROW the marker was drawn
+    from (by identity: an Editor delete since the feed moves it to its new index); the spawn, which
+    has no Delete, gets a menu for it too; a locked marker still has no menu."""
+    opened = []
+    d, calls = _doc(app)
+    d.on_open = lambda member, key: opened.append((member, key))
+    data = {"field": {"source_field": 351},
+            "npc": [{"name": "A", "pos": [-400, 1000]}, {"name": "B", "pos": [0, 1500]}],
+            "player": {"spawn": [300, 1800]}}
+    d.show_field("FORK", data, Path("C:/somewhere/FORK.field.toml"))
+    d._bundles[(d._source, 0)] = dict(_bundle(), source=d._source)
+    d._apply_bundle(d._bundles[(d._source, 0)], refit=True)
+    QApplication.processEvents()
+    assert _right_click(d, 0, 1500, "Open", monkeypatch) == [["Open in the Editor", "Delete B"]]
+    assert opened == [("FORK", "npc:1")] and calls == []
+    del data["npc"][0]                                   # the Editor's delete, no re-feed yet
+    _right_click(d, 0, 1500, "Open", monkeypatch)
+    assert opened[-1] == ("FORK", "npc:0")               # still B, at the index B has now
+    _right_click(d, -400, 1000, "Open", monkeypatch)     # A is gone: refused, said
+    assert len(opened) == 2 and "no longer" in d.status.text()
+    assert _right_click(d, 300, 1800, "Open", monkeypatch) == [["Open in the Editor"]]
+    assert opened[-1] == ("FORK", "player")
+    tips = " ".join(k.toolTip() for k in d.canvas._kids if k.data(2) == "marker")
+    assert "right-click" in tips
+    d.canvas.marker_clicked.emit(2)                      # a click on the spawn names the way
+    assert "open it in the Editor" in d.status.text() and "delete" not in d.status.text()
+    locked = {"field": {"source_field": 351}, "npc": [{"name": "guard", "preset": "vivi"}]}
+    d.show_field("FORK2", locked, Path("C:/somewhere/FORK2.field.toml"),
+                 scene={"npc": [{"name": "guard", "pos": [0, 1500]}]})
+    d._bundles[(d._source, 0)] = dict(_bundle(), source=d._source)
+    d._apply_bundle(d._bundles[(d._source, 0)], refit=True)
+    assert _right_click(d, 0, 1500, "Open", monkeypatch) == []   # a locked marker: no menu
+    assert len(opened) == 3
+
+
+def test_without_a_shell_a_marker_offers_no_open(app, monkeypatch):
+    data = {"field": {"source_field": 351}, "npc": [{"name": "A", "pos": [0, 1500]}],
+            "player": {"spawn": [300, 1800]}}
+    d, calls = _placed(app, data)
+    assert _right_click(d, 0, 1500, None, monkeypatch) == [["Delete A"]]
+    assert _right_click(d, 300, 1800, None, monkeypatch) == []
+
+
+def test_open_in_the_editor_lands_on_the_rows_form(app, tmp_path, monkeypatch):
+    """The shell wires ``on_open`` to the routine an Undo already uses to land on a row: the
+    Editor tab, the tree row selected, its form mounted."""
+    from ff9mapkit import prefs
+    from ff9mapkit.workspace import shell
+    monkeypatch.setattr(prefs, "_path", lambda: tmp_path / "prefs.json")
+    p = tmp_path / "X.field.toml"
+    p.write_text('[field]\nid = 30999\nname = "X"\narea = 11\nsource_field = 351\n\n'
+                 '[[npc]]\nname = "A"\npos = [-400, 1000]\n\n[[npc]]\nname = "B"\npos = [0, 1500]\n',
+                 encoding="utf-8")
+    w = shell.Workspace(pick_palette("dark"))
+    try:
+        assert w.open_field(p)
+        w.tabs.setCurrentWidget(w.place_doc)
+        QApplication.processEvents()
+        pd = w.place_doc
+        pd._bundles[(pd._source, 0)] = dict(_bundle(), source=pd._source)
+        pd._apply_bundle(pd._bundles[(pd._source, 0)], refit=True)
+        QApplication.processEvents()
+        _right_click(pd, 0, 1500, "Open", monkeypatch)
+        QApplication.processEvents()
+        assert w.tabs.currentWidget() is w.doc_scroll
+        assert w._payload(w.tree.currentItem())[2] == "npc:1"
+        ctx = w._save_ctx
+        assert ctx and ctx["member"] == "X" and ctx["key"] == "npc:1", ctx
+    finally:
+        w.hide()
+        w.deleteLater()
+
+
+def test_open_in_the_editor_reaches_a_never_expanded_campaign_member(app, tmp_path, monkeypatch):
+    """A campaign member's rows load lazily on expand. Selecting the member (not expanding it) and
+    opening a marker must still land on that marker's row, not fall back to the Field form."""
+    from ff9mapkit import prefs
+    from ff9mapkit import campaign as C
+    from ff9mapkit.workspace import shell
+    monkeypatch.setattr(prefs, "_path", lambda: tmp_path / "prefs.json")
+    root = tmp_path / "demo"
+    root.mkdir()
+    mem = [C.Member(100, 30100, "GLADE", "borrow", 11, "", "GLADE/GLADE.field.toml", False),
+           C.Member(101, 30101, "TRAIL", "borrow", 11, "", "TRAIL/TRAIL.field.toml", False)]
+    plan = C.CampaignPlan(name="Demo", mod_folder="M", id_base=30100, flag_base=C.FIRST_SAFE_FLAG,
+                          flags_per_field=64, entry_name="GLADE", entry_entrance=0,
+                          members=mem, edges=[], seams=[])
+    (root / "campaign.toml").write_text(C.render_campaign_toml(plan), encoding="utf-8")
+    for nm, fid in (("GLADE", 30100), ("TRAIL", 30101)):
+        (root / nm).mkdir()
+        (root / nm / f"{nm}.field.toml").write_text(
+            f'[field]\nid = {fid}\nname = "{nm}"\narea = 11\nsource_field = 351\n\n'
+            '[[npc]]\nname = "A"\npos = [-400, 1000]\n\n[[npc]]\nname = "B"\npos = [0, 1500]\n',
+            encoding="utf-8")
+    w = shell.Workspace(pick_palette("dark"))
+    try:
+        assert w.open_campaign(root / "campaign.toml")
+        mi = w._member_items["TRAIL"]
+        w.tree.setCurrentItem(mi)
+        QApplication.processEvents()
+        assert w._payload(mi.child(0))[0] == "__lazy__"      # the case under test: never expanded
+        w.tabs.setCurrentWidget(w.place_doc)
+        QApplication.processEvents()
+        pd = w.place_doc
+        assert pd._member == "TRAIL"
+        pd._bundles[(pd._source, 0)] = dict(_bundle(), source=pd._source)
+        pd._apply_bundle(pd._bundles[(pd._source, 0)], refit=True)
+        QApplication.processEvents()
+        _right_click(pd, 0, 1500, "Open", monkeypatch)
+        QApplication.processEvents()
+        assert w.tabs.currentWidget() is w.doc_scroll
+        assert w._payload(w.tree.currentItem())[2] == "npc:1"
+        ctx = w._save_ctx
+        assert ctx and ctx["member"] == "TRAIL" and ctx["key"] == "npc:1", ctx
+    finally:
+        w.hide()
+        w.deleteLater()
