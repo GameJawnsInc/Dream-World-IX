@@ -143,6 +143,28 @@ def test_interactive_controls_meet_target_size(app):
         assert badge.width() >= 22 and badge.height() >= 22, "the '?' concept badge is a generous inline target"
 
 
+@pytest.mark.parametrize("spec_name", ["CUTSCENE_SPEC", "CHEST_SPEC", "EVENT_SPEC", "FIELD_SPEC",
+                                       "NPC_SPEC", "DIALOGUE_SPEC", "CHOICE_SPEC"])
+def test_every_form_input_has_a_name(app, spec_name):
+    """C38: build_form added each field as (label, container), so no input in ANY Editor form had
+    an accessible name -- a screen reader heard '7 edit fields'. Each input is named after its
+    label (and the label is its buddy); a dialogue field's read-only wrap preview is named too."""
+    from PySide6.QtWidgets import QCheckBox, QComboBox, QLabel, QLineEdit, QPlainTextEdit  # noqa: PLC0415
+    from ff9mapkit.editor import forms                                           # noqa: PLC0415
+    from ff9mapkit.editor.theme import pick_palette                              # noqa: PLC0415
+    from ff9mapkit.workspace import forms_qt                                     # noqa: PLC0415
+    spec = getattr(forms, spec_name)
+    form, _getters = forms_qt.build_form(spec, {}, pick_palette("dark"), pick=lambda *a, **k: None)
+    inputs = [w for cls in (QLineEdit, QCheckBox, QComboBox, QPlainTextEdit)
+              for w in form.findChildren(cls)
+              if not isinstance(w.parent(), QComboBox)]      # an editable combo's own line edit
+    assert inputs, spec_name
+    unnamed = [type(w).__name__ for w in inputs if not w.accessibleName()]
+    assert unnamed == [], f"{spec_name}: {len(unnamed)} unnamed of {len(inputs)}: {unnamed}"
+    buddies = {lab.buddy() for lab in form.findChildren(QLabel) if lab.buddy() is not None}
+    assert len(buddies) == len(spec), f"{spec_name}: a field label points at no input"
+
+
 def test_focus_rings_are_defined_for_keyboard_users():
     """WCAG 2.4.7: buttons, tabs, the tree, and inputs must show a visible focus indicator. Guards against a
     regression that removes the per-widget :focus rings (the global `outline:0` suppresses Fusion's native one)."""
