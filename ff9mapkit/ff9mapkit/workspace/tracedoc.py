@@ -210,7 +210,8 @@ class TraceDoc(QWidget):
             "Downward camera angle in degrees; the dashed horizon line re-derives from it")
         self.pitch.setMinimumWidth(140)
         self.pitch.setToolTip("Slide until the dashed horizon sits on the image's own eye "
-                              "level — floor clicks must stay below it.")
+                              "level — floor clicks must stay below it. When the horizon is off "
+                              "the frame, the readout beside this slider says how far.")
         self.pitch.valueChanged.connect(self._on_pitch)
         pl.setBuddy(self.pitch)
         row.addWidget(self.pitch)
@@ -339,6 +340,7 @@ class TraceDoc(QWidget):
 
         self.canvas = BackdropCanvas(pal, scale=scale, on_floor=self._on_floor)
         self.canvas.set_trace_mode(True)
+        self.canvas.mark_horizon_off_frame = True      # the pitch is matched by its horizon (T27)
         self.canvas.set_backdrop(None, self._camera())   # pure math — no disk at construction
         self.canvas.click_refused.connect(self._on_refused)
         self.canvas.contact_clicked.connect(self._on_contact)
@@ -491,9 +493,13 @@ class TraceDoc(QWidget):
         pose = ("" if (self._distance, self._fov) ==
                 (imagefield.DEFAULT_DISTANCE, imagefield.DEFAULT_FOV)
                 else f" · distance {self._distance:g} · fov {self._fov:g}")
-        self.pitch_label.setText(
-            (f"{self.pitch.value()}° · horizon y {hy:.0f}" if 0 <= hy < imagefield.CANVAS_H
-             else f"{self.pitch.value()}° · horizon above the frame") + pose)
+        # off the frame, say HOW FAR: the default pitch's horizon sits just above it, where no
+        # dashed line can be drawn (finding T27; the canvas marks the top edge with the same)
+        where = (f"horizon y {hy:.0f}" if 0 <= hy < imagefield.CANVAS_H
+                 else f"horizon {max(1, round(-hy))} px above" if hy < 0   # no longer than
+                 #                                     the old 'horizon above the frame' (150%)
+                 else "horizon below the frame")
+        self.pitch_label.setText(f"{self.pitch.value()}° · {where}{pose}")
         good, bad = self._valid_count()
         fg_invalid, fg_unattached = self._fg_problems()
         _shim, _back, rg_bad = self._region_shim()
@@ -539,8 +545,9 @@ class TraceDoc(QWidget):
             if self._image is None:
                 note = "Open an image to begin."
             elif not self._floor:
-                note = ("Click the floor's outline in order, below the dashed horizon — "
-                        "drag a vertex to adjust, right-click one to delete it.")
+                note = ("Click the floor's outline in order — only below the horizon counts (the "
+                        "Pitch readout says where it is) — drag a vertex to adjust, right-click "
+                        "one to delete it.")
             else:
                 # the ⚠ clauses LEAD: the status wraps, but what the author must act on is never
                 # the tail a narrow window pushes out of sight (finding T23)

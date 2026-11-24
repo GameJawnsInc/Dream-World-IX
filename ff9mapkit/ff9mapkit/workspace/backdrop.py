@@ -543,11 +543,26 @@ class BackdropCanvas(QGraphicsView):
 
     def _draw_horizon(self, w, h):
         """The refusal boundary, visible: a dashed line at ``horizon_canvas_y`` with a
-        screen-fixed label. Off-frame horizons draw nothing (a horizon above the frame means
-        every canvas row is floor; below it, none is — the guard still refuses either way)."""
+        screen-fixed label. A horizon ABOVE the frame (every canvas row is floor) is marked on
+        the top edge with how far off it is -- the default Trace pitch puts it 4 px up, and the
+        tooltip that says to line it up had nothing to point at (finding T27). Only for a host
+        that sets ``mark_horizon_off_frame`` (Trace, where the author lines the horizon up; on a
+        field's own camera in Place it is not an instrument). Below the frame, none is floor:
+        nothing drawn (the guard still refuses either way)."""
         if self._cam is None:
             return
         hy = _cam.horizon_canvas_y(self._cam)
+        if hy < 0 and getattr(self, "mark_horizon_off_frame", False):
+            case, pen = self._cased_pen(self.pal["warn"], 1.6, [2, 4])
+            self._scene.addLine(0, 0, w, 0, case).setData(0, "casing")
+            self._scene.addLine(0, 0, w, 0, pen).setData(0, "horizonedge")
+            anchor = self._scene.addRect(QRectF(0, 0, 0, 0), QPen(Qt.PenStyle.NoPen))
+            anchor.setPos(6, 0)
+            anchor.setFlag(anchor.GraphicsItemFlag.ItemIgnoresTransformations)
+            anchor.setData(0, "horizonedgelabel")
+            self._label(anchor, f"horizon ↑ {max(1, round(-hy))} px above the frame",
+                        self._ink["warn_text"], dx=3, dy=4)
+            return
         if not 0 <= hy < h:
             return
         case, pen = self._cased_pen(self.pal["warn"], 1.6, [6, 4])   # cosmetic: survives fit zoom

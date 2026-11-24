@@ -142,6 +142,30 @@ def test_a_session_saved_with_a_crossed_outline_still_opens_to_be_repaired(app, 
     assert "crosses" in doc.status.text() and not doc.gen_btn.isEnabled()
 
 
+def test_an_off_frame_horizon_says_where_it_is(app, tmp_path):
+    """Finding T27: at the default pitch the horizon sits just above the frame, so no dashed line
+    is drawn -- while the pitch tooltip and the empty-state teach both pointed at one. The readout
+    says how far off it is, the canvas marks the top edge with that distance, and the teach no
+    longer presumes a visible line."""
+    pytest.importorskip("PIL")
+    from ff9mapkit.scene import cam as C
+    doc, _ = _doc(app)
+    doc.load_image(_photo(tmp_path))
+    hy = C.horizon_canvas_y(doc.canvas.camera())
+    assert hy < 0                                       # the premise: the default is above
+    far = f"{max(1, round(-hy))} px above the frame"
+    assert doc.pitch_label.text().endswith(f"horizon {max(1, round(-hy))} px above")
+    tags = {it.data(0) for it in doc.canvas._scene.items()}
+    assert "horizonedge" in tags and "horizon" not in tags
+    assert any(far in lab["text"].text() for lab in doc.canvas._labels)
+    assert "below the dashed horizon" not in doc.status.text()
+    assert "readout" in doc.pitch.toolTip()
+    doc.pitch.setValue(10)                              # on the frame: the line, not the mark
+    tags = {it.data(0) for it in doc.canvas._scene.items()}
+    assert "horizon" in tags and "horizonedge" not in tags
+    assert "horizon y" in doc.pitch_label.text()
+
+
 def test_undo_and_clear_are_host_history(app, tmp_path):
     pytest.importorskip("PIL")
     doc, _ = _doc(app)
