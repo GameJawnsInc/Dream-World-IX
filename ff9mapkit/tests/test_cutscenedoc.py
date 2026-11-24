@@ -324,6 +324,28 @@ def test_beat_means_the_story_and_moment_means_steps_that_run_together(doc, tmp_
     assert doc.editor.with_prev.text() == "Runs together with the previous step"
 
 
+def test_a_row_names_who_speaks_and_notes_its_other_keys_quietly(doc, tmp_path):
+    """C27: a say with a speaker showed a '+speaker' pill: the key, not the name, behind a '+'
+    that read like a button. The row shows the NAME in the actor's slot ("as Vivi" beside an
+    actor), and other extra keys as a muted caption with no '+'."""
+    from PySide6.QtWidgets import QLabel
+    toml = FIELD_TOML.replace(
+        '  { say = "Made it to the altar.", speaker = "Cid" },\n',
+        '  { say = "Made it to the altar.", speaker = "Cid" },\n'
+        '  { say = "Me too.", actor = "Mira", speaker = "Vivi", tail = "UPR" },\n')
+    _fed(doc, tmp_path, toml)
+    rows = _rows_now(doc)
+
+    def texts(row):
+        return [lab.text() for lab in row.findChildren(QLabel)]
+
+    assert "Cid" in texts(rows[2]) and not any("+" in t for t in texts(rows[2]))
+    assert "Mira" in texts(rows[3]) and "as Vivi" in texts(rows[3])
+    caps = [lab for lab in rows[3].findChildren(QLabel) if lab.text() == "tail"]
+    assert caps and caps[0].property("role") == "caption", "an extra key is a quiet caption"
+    assert "as Vivi" in rows[3].accessibleName()
+
+
 def test_a_beat_with_no_line_says_so_quietly(doc, tmp_path):
     """C28: '(no line this beat)' was the loudest text in the strip -- full-size heavy mono over
     the scene title. A placeholder is a caption; a real line keeps the mono of the game's window.

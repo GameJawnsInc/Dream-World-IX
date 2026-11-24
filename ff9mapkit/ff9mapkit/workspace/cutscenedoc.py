@@ -756,6 +756,11 @@ class StepLadder(QWidget):
             chip = widgets.role_label(row["actor"], "chip")
             chip.setProperty("mono", True)
             h.addWidget(chip)
+        if row["speaker"]:                         # who TALKS, in the actor's slot: the body face,
+            spk = widgets.role_label(               # not the actor's mono, and "as" beside an actor
+                ("as " if row["actor"] else "") + row["speaker"], "chip")
+            spk.setToolTip(f"The name shown on this line: {row['speaker']}")
+            h.addWidget(spk)
         verb = widgets.role_label(row["verb"], "cardtitle")
         verb.setProperty("mono", True)
         h.addWidget(verb)
@@ -767,12 +772,14 @@ class StepLadder(QWidget):
             h.addStretch(1)
         if row["with_prev"]:
             h.addWidget(widgets.status_chip("‖ with previous", "info"))
-        if row["extras"]:
-            ex = widgets.status_chip("+" + ", ".join(row["extras"]), "info")
-            ex.setToolTip("Extra keys on this step: " + ", ".join(row["extras"]))
+        if row["extras"]:                          # a quiet note of what else the step sets,
+            ex = widgets.caption(", ".join(row["extras"]))   # not a chip that reads like a button
+            ex.setToolTip("Also set on this step: " + ", ".join(row["extras"])
+                          + " (open the step to see them)")
             h.addWidget(ex)
         frame.setAccessibleName(
             f"step {i}: " + (f"{row['actor']} " if row["actor"] else "") + row["verb"]
+            + (f" as {row['speaker']}" if row["speaker"] else "")
             + (" runs together with the previous step" if row["with_prev"] else ""))
         return frame
 

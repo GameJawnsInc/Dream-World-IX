@@ -123,7 +123,8 @@ def test_ladder_rows_survive_garbage_and_keep_authored_indices():
 def test_ladder_rows_list_the_extras_the_editor_should_show():
     steps = [{"say": "hi", "speaker": "Cid", "tail": "UPR", "duration": 90}]
     rows = cs.ladder_rows(_raw({"steps": steps}), 0)
-    assert rows[0]["extras"] == ["duration", "speaker", "tail"]
+    # C27: the speaker is a NAME the row shows, not one more key behind a "+"
+    assert rows[0]["extras"] == ["duration", "tail"] and rows[0]["speaker"] == "Cid"
 
 
 # --------------------------------------------------------------------------- dispatch fence

@@ -210,13 +210,15 @@ def ladder_rows(raw, scene_idx: int) -> list:
             "kind": k,
             "verb": k or "(empty)",
             "actor": s.get("actor") or "",
+            "speaker": str(s.get("speaker") or ""),     # the NAME on the line (shown, not a key)
             "detail": _forms.step_value_text(s),
             "with_prev": bool(s.get("with_prev")),
             "group": group_of.get(i, i),
             "is_text": k in _forms.TEXT_STEPS,
             "valueless": _forms.STEP_KIND.get(k) == _forms.BOOL,
             "extras": sorted(kk for kk in s
-                             if kk not in _forms.STEP_KIND and kk not in ("actor", "with_prev")),
+                             if kk not in _forms.STEP_KIND
+                             and kk not in ("actor", "with_prev", "speaker")),
         })
     return rows
 
