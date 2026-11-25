@@ -934,16 +934,49 @@ def _is_summon(effect_id: int) -> bool:
     return (EFFECT_NAMES.get(int(effect_id)) or "").split("_")[0] in _SUMMON_WORDS
 
 
-# model TOKEN (GEO_<group>_<form>_<TOKEN>) -> who that is. CONSERVATIVE on purpose: each entry was
-# checked against where the model appears in the game (a Moogle in Mognet Central, Doctor Tot in Treno).
-# An unlisted token is shown as its group and token -- never guessed.
+# model TOKEN (GEO_<group>_<form>_<TOKEN>) -> who or what that is. Every entry was CHECKED TWICE: the
+# model was rendered and looked at (every field FORM of the token, on one sheet), and the name was
+# held against where the model appears in the game -- Puck in Alexandria and Cleyra, Lady Hilda at
+# Mount Gulug, Taharka in Ipsen's Castle, the Gulug Stone in Oeilvert / the Desert Palace / Esto Gaza.
+# A token is a FAMILY, and a family is not always one thing: the looking is what caught that "CCB" is
+# an owl in one form and a white bird in another, that "ZON" is both jesters, and that the Lindblum
+# soldiers' fourth form is a bearded scholar -- so a token gets the name true of ALL its forms, and
+# MODEL_FRIENDLY_FORM names the form that differs. A named person is named only where the look and the
+# places both say so; everything else is a plain description of what the model shows ("Old man",
+# "Stone door"). An unlisted token is shown as its group and token -- never guessed.
 MODEL_FRIENDLY = {
+    # the party, and the people the story names
     "ZDN": "Zidane", "VIV": "Vivi", "STN": "Steiner", "GRN": "Garnet", "FRJ": "Freya", "EIK": "Eiko",
-    "KUI": "Quina", "SLM": "Amarant", "MOG": "Moogle", "BMG": "Black Mage", "CHO": "Chocobo",
-    "BLN": "Blank", "CNA": "Cinna", "MRC": "Marcus", "BAK": "Baku", "RBY": "Ruby", "CID": "Cid",
-    "KJA": "Kuja", "BTX": "Beatrix", "TOT": "Doctor Tot", "GRL": "Garland", "ZON": "Zorn",
-    "BW1": "Black Waltz 1", "BW2": "Black Waltz 2", "BW3": "Black Waltz 3", "GRG": "Gargant",
-    "FLT": "Fratley", "TBX": "Treasure chest",
+    "KUI": "Quina", "SLM": "Amarant", "ZDD": "Zidane carrying Garnet", "STD": "Steiner carrying Garnet",
+    "BLN": "Blank", "CNA": "Cinna", "MRC": "Marcus", "BAK": "Baku", "RBY": "Ruby",
+    "ZNR": "Zenero or Benero", "BND": "Tantalus band member", "CID": "Cid", "CDW": "Lady Hilda",
+    "KJA": "Kuja", "KJG": "Trance Kuja", "GRL": "Garland", "BRN": "Queen Brahne", "BTX": "Beatrix",
+    "ZON": "Zorn or Thorn", "TOT": "Doctor Tot", "FLT": "Fratley", "RTC": "Puck",
+    "BW1": "Black Waltz 1", "BW2": "Black Waltz 2", "BW3": "Black Waltz 3",
+    # townspeople, soldiers and animals -- families of look-alikes, named for what they all are
+    "MOG": "Moogle", "BMG": "Black Mage", "OFF": "Alexandrian soldier", "SSB": "Knight of Pluto",
+    "CSO": "Lindblum soldier", "CSA": "Lindblum citizen", "CLM": "Cleyran maiden",
+    "APM": "Townsman", "HUF": "Townswoman", "HUM": "Boy", "JJY": "Old man", "BBA": "Old woman",
+    "DAL": "Villager", "DAC": "Village child", "DAF": "Village woman", "WRK": "Worker",
+    "TMM": "Hippo man", "TMF": "Hippo woman", "CHO": "Chocobo", "CHC": "Bobby Corwen",
+    "CHD": "Fat Chocobo", "CCB": "Bird", "DOG": "Dog", "CAT": "Cat", "BRI": "Oglop",
+    # monsters that walk a field
+    "GRG": "Gargant", "CLB": "Antlion", "DAH": "Taharka", "EFM": "Evil Forest monster",
+    "MKM": "Mistodon", "BFF": "Zaghnol", "FFG": "Fang", "MUU": "Mu", "TBL": "Trick Sparrow",
+    "HHP": "Hedgehog Pie", "AMD": "Armodullahan", "BAN": "Bandersnatch", "CDR": "Red Dragon",
+    "SDR": "Silver Dragon", "TOM": "Gargan Roo serpent", "ZZZ": "Soulcage",
+    # props
+    "TBX": "Treasure chest", "MGR": "Moogle's book", "LTT": "Letter", "HSK": "Gulug Stone",
+    "TNB": "Scales", "WT2": "Weight", "BBT": "Barrel", "CSK": "Cask", "KGG": "Egg", "BLK": "Jar",
+    "BTN": "Bookshelf", "LDD": "Ladder", "LG2": "Wooden planks", "SWD": "Sword", "IRF": "Sword",
+    "HDB": "Hand bell", "LEV": "Lever chain", "CER": "Magic circle", "KOR": "Blue crystal",
+    "GAB": "Gargant carriage", "V10": "Airship", "TRK": "Lindblum vehicle", "ELE": "Leaf lift",
+    "ELV": "Stage lift", "LIF": "Lift platform", "FEL": "Stone platform", "IFE": "Stone disc",
+    "ISB": "Stone door", "DLB": "Stone pillar",
+}
+# "<TOKEN>/<form>" -> the one form of a family that is something else (see above)
+MODEL_FRIENDLY_FORM = {
+    "CCB/F1": "Owl", "CSO/F3": "Lindblum scholar", "ZON/F0": "Zorn", "ZON/F1": "Thorn",
 }
 _GROUP_WORD = {"MAIN": "party member", "SUB": "character", "NPC": "NPC", "MON": "creature",
                "ACC": "prop", "WEP": "weapon"}
@@ -951,8 +984,9 @@ _MODELS: dict = {}
 
 
 def model_label(model_id) -> tuple:
-    """``(label, group)`` for a model id: its friendly name when the kit is sure of one, else its group
-    word and token (``NPC CSO``). ``("model 123", "")`` for an id the catalog does not know."""
+    """``(label, group)`` for a model id: its friendly name when the kit is sure of one (a form-level
+    name first, then its token's), else its group word and token (``NPC GUD``). ``("model 123", "")``
+    for an id the catalog does not know."""
     if not _MODELS:
         try:
             from . import catalog
@@ -962,7 +996,8 @@ def model_label(model_id) -> tuple:
     m = _MODELS.get(int(model_id))
     if m is None:
         return f"model {int(model_id)}", ""
-    return MODEL_FRIENDLY.get(m.token) or f"{_GROUP_WORD.get(m.group, 'model')} {m.token}", m.group
+    name = MODEL_FRIENDLY_FORM.get(f"{m.token}/{m.form}") or MODEL_FRIENDLY.get(m.token)
+    return name or f"{_GROUP_WORD.get(m.group, 'model')} {m.token}", m.group
 
 
 @dataclass(frozen=True)

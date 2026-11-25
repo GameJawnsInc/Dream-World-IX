@@ -21,6 +21,10 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   Lindblum +29", "Door or exit · Treno", "Ambience loop · Ice Cavern", "Sound set of Zidane +4"). The other 398
   say which bank they ship in. A description is not a name: *Unnamed only* still lists these sounds, and *Use the
   description* starts a name from one for you to correct by ear.
+- **Who or what plays a sound is named.** 101 model families are named ("Puck · Alexandria", "Owl · Treno",
+  "Hedgehog Pie · Desert Palace", "Gulug Stone · Oeilvert", "Knight of Pluto · Alexandria Castle"), each checked by
+  rendering the model and looking at it and against where it appears in the game. Three models that could not be
+  identified still show as a code.
 - **The detail pane explains the description**: which effects load the sound, which monsters make it, which
   routines play it and how often, and whether scripts fade or stop it. Length and looping show as soon as you
   pick a row.

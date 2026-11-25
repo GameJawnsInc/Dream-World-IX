@@ -560,6 +560,36 @@ def test_a_model_is_named_only_when_the_kit_is_sure():
     assert SC.model_label(987654) == ("model 987654", "")
 
 
+def test_a_family_of_models_is_named_for_what_all_its_forms_are():
+    """A token is a family, not always one thing. "CCB" is an owl in one form and a white bird in the
+    other; "ZON" is both jesters; the Lindblum soldiers' fourth form is a scholar. The token carries the
+    name true of every form, and the form table names the one that differs."""
+    from ff9mapkit import catalog
+    by_name = {m.name: m.id for m in catalog.all_models()}
+    assert SC.model_label(by_name["GEO_NPC_F0_CCB"]) == ("Bird", "NPC")
+    assert SC.model_label(by_name["GEO_NPC_F1_CCB"]) == ("Owl", "NPC")
+    assert SC.model_label(by_name["GEO_SUB_F0_ZON"]) == ("Zorn", "SUB")
+    assert SC.model_label(by_name["GEO_SUB_F1_ZON"]) == ("Thorn", "SUB")
+    assert SC.model_label(by_name["GEO_NPC_F0_CSO"])[0] == "Lindblum soldier"
+    assert SC.model_label(by_name["GEO_NPC_F3_CSO"])[0] == "Lindblum scholar"
+    assert SC.model_label(by_name["GEO_NPC_F0_RTC"]) == ("Puck", "NPC")
+    assert SC.model_label(by_name["GEO_ACC_F0_HSK"]) == ("Gulug Stone", "ACC")
+
+
+def test_every_model_name_points_at_a_model_that_exists():
+    """A typo'd token would name nothing and nobody would notice -- so every key is held against the
+    catalog, and every form key against a real (token, form) pair."""
+    from ff9mapkit import catalog
+    field = [m for m in catalog.all_models() if m.form.startswith("F")]
+    tokens = {m.token for m in field}
+    pairs = {f"{m.token}/{m.form}" for m in field}
+    assert not sorted(set(SC.MODEL_FRIENDLY) - tokens), "tokens with no field model"
+    assert not sorted(set(SC.MODEL_FRIENDLY_FORM) - pairs), "form keys with no such model"
+    assert all(k.split("/")[0] in SC.MODEL_FRIENDLY for k in SC.MODEL_FRIENDLY_FORM), \
+        "a form override refines a family that has a family name"
+    assert all(v and v == v.strip() for v in list(SC.MODEL_FRIENDLY.values()) + list(SC.MODEL_FRIENDLY_FORM.values()))
+
+
 JOIN = ({100: "alex", 101: "alex", 200: "ice"}, {"alex": {"name": "Alexandria"}, "ice": {"name": "Ice Cavern"}})
 
 
