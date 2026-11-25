@@ -9,10 +9,27 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **A new Sounds tab (Assets, beside Models).** It lists every music track, sound effect, ambience stream and
   movie-audio track in your install (about 3,200), and plays the selected one in the app: play, pause, seek, a
   volume slider, and a Loop box that repeats a track's own loop region. *Load sounds* reads your install once
-  (about five seconds) and is instant after that; nothing in the game is changed.
-- **Search by name, id, tag, bank, or the place a sound plays.** The kit now knows which field scripts name each
-  sound, so `lindblum` finds what plays in Lindblum, and each sound's panel lists its places. Battle-effect sounds
-  show the effects that load them.
+  (about fifteen seconds) and is instant after that; nothing in the game is changed.
+- **Every sound is filed under a category.** Twenty of them, each with a count: Ambience & loops, Doors & exits,
+  Pickups & rewards, Party & named characters, NPCs & creatures, Scene events, World map, Minigames, Battle:
+  spells & abilities, Battle: summons, Battle: monster voices and so on. The category is worked out from how the
+  game uses the sound. A tag of yours that names a category (door, pickup, npc, menu, ambience, monster, spell)
+  moves the sound there.
+- **Unnamed sounds say what they are.** 2,609 of the 3,007 unnamed sounds now carry a description, shown in
+  italics: the battle effect that loads them ("Fire (single) · sound 2 of 3"), the monster whose death or battle
+  cry they are ("Whale Zombie death cry"), or what a field script was doing when it played them ("Moogle talk ·
+  Lindblum +29", "Door or exit · Treno", "Ambience loop · Ice Cavern", "Sound set of Zidane +4"). The other 398
+  say which bank they ship in. A description is not a name: *Unnamed only* still lists these sounds, and *Use the
+  description* starts a name from one for you to correct by ear.
+- **The detail pane explains the description**: which effects load the sound, which monsters make it, which
+  routines play it and how often, and whether scripts fade or stop it. Length and looping show as soon as you
+  pick a row.
+- **Banks say what they hold.** SE05 to SE15 are area sets, and the filter names their areas ("SE06 · Dali, Ice
+  Cavern, Cargo Ship").
+- **Search by name, id, tag, bank, description, or the place a sound plays.** The kit now knows which field
+  scripts name each sound, so `lindblum` finds what plays in Lindblum, `death cry` finds the monster voices,
+  `fire` the Fire spells' sounds, and `loop`, `short` or `long` filter by length. Each sound's panel lists its
+  places.
 - **Names.** Music tracks and about ninety sound effects carry a title ("Vivi's Theme", "Door opening") instead of
   `music008`. The other ~3,000 effects have no name anywhere, so the tab lets you name and tag a sound as you
   listen: *Unnamed only* is the queue, *Play on select* auditions each row, and Shift+Enter saves and moves on.

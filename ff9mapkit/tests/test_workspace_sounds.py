@@ -60,29 +60,52 @@ def _fields_of(place: str, n: int) -> list:
 _MUSIC = [(0, "music006"), (9, "music008"), (35, "music024"), (47, "music047"), (60, "music031"),
           (74, "music054"), (88, "music003"), (136, "music122")]
 _SFX = [(101, "SE00", "se000003"), (103, "SE00", "se000001"), (108, "SE00", "se000004"),
-        (633, "SE00", "se000012"), (1362, "SE00", "se000032"), (912, "SE05", "se050017"),
-        (914, "SE05", "se050019"), (923, "SE06", "se060004"), (2210, "SE52", "se520008"),
-        (2211, "SE52", "se520009")]
+        (633, "SE00", "se000012"), (1362, "SE00", "se000032"), (122, "SE03", "se031062"),
+        (912, "SE05", "se050017"), (914, "SE05", "se050019"), (923, "SE06", "se060004"),
+        (2210, "SE52", "se520008"), (2211, "SE52", "se520009")]
+MOOGLE = 220                                                        # GEO_NPC_F0_MOG, a real catalog id
+CHEST = 75                                                         # GEO_ACC_F0_TBX
 _STREAM = [(5, "song0005_0"), (82, "song0082_0"), (125, "song0125_0")]
 _MOVIE = [(0, "FMV001"), (7, "FMV008")]
 
 
+def _ctx(play=(), ops=None, models=(), pre=(), pmodels=()) -> dict:
+    """One sound's field-usage summary, in the shape ``soundcat.summarize_usage`` keeps."""
+    return {"ops": dict(ops or {"play": sum(n for *_x, n in play)}), "play": [list(p) for p in play],
+            "pre": [list(p) for p in pre], "models": [list(m) for m in models],
+            "pmodels": [list(m) for m in pmodels]}
+
+
 def sample_map() -> soundcat.SoundMap:
-    """A small, representative catalog: named and unnamed rows of every kind, sounds placed by field
-    scripts (in three real places), one placed only by a battle effect, and several placed by nothing."""
+    """A small, representative catalog: named and unnamed rows of every kind, and one sound for each
+    way the kit can DESCRIBE one -- a battle effect's, a monster's death cry (an invented monster: the
+    fixture carries no game text), a Moogle's talk handler, an ambience loop, a door trigger -- plus
+    sounds nothing names at all."""
     alex, ice, evil = _fields_of("Alexandria", 4), _fields_of("Ice Cavern", 3), _fields_of("Evil Forest", 2)
+    rows = {"music": [{"id": i, "resource_id": f"Sounds01/BGM_/{stem}"} for i, stem in _MUSIC],
+            "sfx": [{"id": i, "resource_id": f"Sounds0{'3' if bank >= 'SE10' else '2'}/{bank}/{stem}"}
+                    for i, bank, stem in _SFX],
+            "stream": [{"id": i, "resource_id": f"Sounds02/song_/{stem}"} for i, stem in _STREAM],
+            "movie": [{"id": i, "resource_id": f"Sounds02/Movie_/{stem}"} for i, stem in _MOVIE]}
+    uses = {"music": {9: alex, 60: ice, 88: evil, 35: ice[:1] + evil[:1]},
+            "sfx": {633: alex + ice, 912: alex[:2], 914: ice, 108: alex[:1]},
+            "stream": {5: evil, 82: ice[:1]}, "movie": {}}
+    contexts = {"music": {}, "movie": {}, "stream": {
+        5: _ctx([("logic", "routine", "", 2)]), 82: _ctx([("main", "routine", "", 1)])}, "sfx": {
+        633: _ctx([("region", "touch", "warp", 7)]),
+        108: _ctx([("object", "touch", "item+text", 1)], models=[(CHEST, 1)]),
+        912: _ctx([("object", "talk", "text", 2)], models=[(MOOGLE, 2)]),
+        914: _ctx([("main", "init", "", 3)], ops={"sustain": 3, "stop": 3, "shape": 2})}}
+    audio = {}
+    for kind, facts in (("music", [84.75, 1, 2]), ("sfx", [0.45, 0, 1]), ("stream", [12.0, 0, 1]),
+                        ("movie", [120.0, 0, 2])):
+        for r in rows[kind]:
+            audio[r["resource_id"]] = list(facts)
+    audio["Sounds02/SE05/se050019"] = [12.0, 1, 1]                   # the ambience loop really loops
     return soundcat.SoundMap(
-        stamp="fixture",
-        rows={"music": [{"id": i, "resource_id": f"Sounds01/BGM_/{stem}"} for i, stem in _MUSIC],
-              "sfx": [{"id": i, "resource_id": f"Sounds0{'3' if bank >= 'SE10' else '2'}/{bank}/{stem}"}
-                      for i, bank, stem in _SFX],
-              "stream": [{"id": i, "resource_id": f"Sounds02/song_/{stem}"} for i, stem in _STREAM],
-              "movie": [{"id": i, "resource_id": f"Sounds02/Movie_/{stem}"} for i, stem in _MOVIE]},
-        uses={"music": {9: alex, 60: ice, 88: evil, 35: ice[:1] + evil[:1]},
-              "sfx": {633: alex + ice, 912: alex[:2], 914: ice, 108: alex[:1]},
-              "stream": {5: evil, 82: ice[:1]}, "movie": {}},
+        stamp="fixture", rows=rows, uses=uses, contexts=contexts, audio=audio,
         effects={"Sounds03/SE52/se520008": [5, 14], "Sounds03/SE52/se520009": [14]},
-        field_count=9)
+        monsters={122: {"die": ["Test Golem"]}}, field_count=9)
 
 
 def sample_audio(tmp_dir):
@@ -290,7 +313,7 @@ def test_load_fills_the_browser(doc):
     assert 0 < named < total, "the fixture must carry both named and unnamed rows"
     assert doc.count_lbl.fullText() == f"{total} sounds  ·  {total - named} unnamed"
     assert _rows(doc)[1] == "Vivi's Theme  ·  id 9"                   # the kit's own names table, spent
-    assert doc.listw.item(1).toolTip() == "Vivi's Theme — Sounds01/BGM_/music008, id 9"
+    assert doc.listw.item(1).toolTip() == "Vivi's Theme — Sounds01/BGM_/music008, id 9  ·  Music  ·  1:24 loop"
     assert doc.listw.textElideMode() == Qt.TextElideMode.ElideMiddle, \
         "a long title must elide in the middle, so the id at the row's end survives a narrow pane"
     assert doc.t_players == [], "loading the list must not build an audio player"
@@ -340,15 +363,43 @@ def test_a_failed_rescan_keeps_the_list_that_is_already_up(app, tmp_path):
 
 
 # ================================================================================== the filters ===
-def test_the_kind_filter_narrows_the_list_and_refills_the_banks(doc):
-    doc.kind.setCurrentIndex(doc.kind.findText("Sound effects"))
-    assert doc.listw.count() == len(_SFX)
-    banks = [doc.bank.itemText(i) for i in range(doc.bank.count())]
-    assert banks == ["All banks", "SE00", "SE05", "SE06", "SE52"], "only this kind's banks are offered"
-    doc.bank.setCurrentIndex(banks.index("SE05"))
+def _pick(combo, key):
+    i = combo.findData(key)
+    assert i >= 0, f"{key!r} is not offered: {[combo.itemData(j) for j in range(combo.count())]}"
+    combo.setCurrentIndex(i)
+
+
+def test_every_sound_is_filed_under_a_category_with_a_count(doc):
+    """The category filter is the tab's map of the catalog: every sound lands in exactly one, only
+    categories that hold something are offered, and each says how many."""
+    items = {doc.category.itemData(i): doc.category.itemText(i) for i in range(doc.category.count())}
+    total = len(doc._entries)
+    assert items[None] == f"All sounds  ({total})"
+    assert items["music"] == f"Music  ({len(_MUSIC)})"
+    assert items["ability"] == "Battle: spells & abilities  (2)"
+    assert items["monster"] == "Battle: monster voices  (1)"
+    assert items["ambience"] == "Ambience & loops  (1)"
+    assert items["door"] == "Doors & exits  (1)"
+    assert items["stream"] == f"Streams & vocals  ({len(_STREAM)})"
+    assert "world" not in items and "minigame" not in items, "an empty category is not offered"
+    counted = sum(int(t.rsplit("(", 1)[1].rstrip(")")) for k, t in items.items() if k is not None)
+    assert counted == total, "every sound is in exactly one category"
+
+
+def test_the_category_filter_narrows_the_list_and_refills_the_banks(doc):
+    _pick(doc.category, "ability")
+    assert _stems(doc) == ["se520008", "se520009"]
+    banks = [(doc.bank.itemData(i), doc.bank.itemText(i)) for i in range(doc.bank.count())]
+    assert banks == [(None, "All banks"), ("SE52", "SE52 · Battle effects")], "only this category's banks"
+    _pick(doc.category, None)
+    banks = [doc.bank.itemData(i) for i in range(doc.bank.count())]
+    assert banks == [None, "BGM_", "SE00", "SE03", "SE05", "SE06", "SE52", "song_", "Movie_"], \
+        "music first, the SE banks in number order, then streams and movie audio"
+    _pick(doc.bank, "SE05")
+    assert doc.bank.currentText() == "SE05 · Alexandria, Ice Cavern", "an area bank names its areas"
     assert _stems(doc) == ["se050017", "se050019"]
-    doc.kind.setCurrentIndex(doc.kind.findText("Music"))
-    assert doc.bank.currentText() == "All banks", "a bank the new kind lacks falls back, never sticks"
+    _pick(doc.category, "music")
+    assert doc.bank.currentData() is None, "a bank the new category lacks falls back, never sticks"
     assert doc.listw.count() == len(_MUSIC)
 
 
@@ -357,10 +408,16 @@ def test_search_matches_a_name_a_tag_an_id_and_a_place(doc):
     assert _rows(doc) == ["Vivi's Theme  ·  id 9"]
     doc.search.setText("music008")                                  # the FILE, though the row hides it
     assert _stems(doc) == ["music008"]
-    doc.search.setText("moogle")                                    # a TAG in the kit's table
-    assert _stems(doc) == ["se000032"]
+    doc.search.setText("moogle")                                    # a tag, AND a description
+    assert set(_stems(doc)) == {"se000032", "se050017"}, "named by the kit, or played by a Moogle"
     doc.search.setText("1362")                                      # an id
     assert _stems(doc) == ["se000032"]
+    doc.search.setText("death cry")                                 # what the kit worked out
+    assert _stems(doc) == ["se031062"]
+    doc.search.setText("thundera")                                  # the battle effect that loads it
+    assert _stems(doc) == ["se520008"]
+    doc.search.setText("ambience loop")
+    assert _stems(doc) == ["se050019"]
     doc.search.setText("ice cavern")                                # a PLACE its field scripts sit in
     stems = set(_stems(doc))
     assert {"music031", "se000012", "se050019", "song0082_0"} <= stems
@@ -368,17 +425,51 @@ def test_search_matches_a_name_a_tag_an_id_and_a_place(doc):
     assert doc.count_lbl.fullText().startswith(f"{doc.listw.count()} of ")
 
 
-def test_an_unnamed_row_says_where_it_is_heard(doc):
-    """A bare file stem tells a browsing user nothing, and most effects have no name: the row borrows
-    the place the sound is used most (plus how many more), or says a battle effect loads it."""
+def test_an_unnamed_row_leads_with_what_the_kit_worked_out(doc):
+    """A bare file stem tells a browsing user nothing, and most effects have no name. So an unnamed
+    row IS the kit's description of the sound (its id tells apart two that share one), and a sound
+    nothing describes keeps its stem and trails whatever its bank says."""
     rows = dict(zip(_stems(doc), _rows(doc)))
-    assert rows["se050019"] == "se050019  ·  id 914  ·  Ice Cavern"
-    assert rows["se050017"] == "se050017  ·  id 912  ·  Alexandria"
-    assert rows["se520008"] == "se520008  ·  id 2210  ·  battle effect"
-    assert rows["se060004"] == "se060004  ·  id 923", "nothing known -> nothing claimed"
-    assert rows["se000012"] == "Door opening  ·  id 633", "a NAMED row needs no hint"
-    door = next(s for s in doc._entries if s.stem == "se000012")    # used in two places: busiest first
-    assert doc._row_hint(door) == "Alexandria +1"
+    assert rows["se520008"] == "Thundera (single) +1  ·  id 2210"
+    assert rows["se520009"] == "Berserk (single) · sound 2 of 2  ·  id 2211"
+    assert rows["se031062"] == "Test Golem death cry  ·  id 122"
+    assert rows["se050017"] == "Moogle talk · Alexandria  ·  id 912"
+    assert rows["se050019"] == "Ambience loop · Ice Cavern  ·  id 914"
+    assert rows["song0005_0"] == "Scene event · Evil Forest  ·  id 5"
+    assert doc.listw.item(_stems(doc).index("se050017")).toolTip().startswith("Sounds02/SE05/se050017, id 912"), \
+        "the file a described row leaves out is one hover away"
+    assert rows["se060004"] == "se060004  ·  id 923  ·  area set", "nothing describes it: the bank speaks"
+    assert rows["song0125_0"] == "song0125_0  ·  id 125  ·  stream"
+    assert rows["se000012"] == "Door opening  ·  id 633", "a NAMED row is its name"
+
+
+def test_a_long_row_elides_instead_of_scrolling_sideways(app, doc):
+    """A row wider than the list must elide in the middle (keeping its id), never push an h-bar -- and
+    it must not depend on which row happens to be first: under 'Unnamed only' the first row is a long
+    description, and with uniform item sizes its hint was every row's."""
+    doc.resize(520, 700)
+    for unnamed in (False, True):
+        doc.unnamed_only.setChecked(unnamed)
+        app.processEvents()
+        assert doc.listw.horizontalScrollBar().maximum() == 0, f"unnamed_only={unnamed}"
+        first = doc.listw.visualItemRect(doc.listw.item(0))
+        assert first.width() <= doc.listw.viewport().width(), "a row is never wider than the list"
+
+
+def test_a_description_is_shown_in_italics_and_is_not_a_name(doc):
+    """Italics say 'derived, not named' -- and the font carries ONLY the italic flag, so the delegate
+    resolves it against the list's own font and the row follows the text-size dial."""
+    by_stem = {s.stem: doc._items[s.key] for s in doc._entries}
+    for stem in ("se520008", "se031062", "se050017", "se050019"):
+        assert by_stem[stem].font().italic(), stem
+    for stem in ("music008", "se000012", "se060004", "song0125_0"):
+        assert not by_stem[stem].font().italic(), f"{stem}: named, or nothing to describe"
+    from PySide6.QtGui import QFont
+    assert by_stem["se520008"].font().resolveMask() == doc._italic.resolveMask() != QFont("x", 30).resolveMask()
+    described = sum(1 for s in doc._entries if s.described)
+    assert f"{described} of the unnamed sounds are DESCRIBED" in doc.count_lbl.toolTip()
+    doc.unnamed_only.setChecked(True)                               # ...and described is still UNNAMED
+    assert {"se520008", "se031062", "se050017"} <= set(_stems(doc))
 
 
 def test_unnamed_only_keeps_exactly_the_rows_that_need_a_name(doc):
@@ -410,14 +501,55 @@ def test_selecting_a_sound_fills_the_detail_and_reads_its_audio(doc):
     assert doc.t_players == [], "selecting must not build the audio player"
 
 
-def test_a_sound_no_script_names_says_so_instead_of_showing_an_empty_list(doc):
-    doc.select("sfx", 101)
-    assert not doc.places.isVisible()
-    assert doc.places_sum.text().startswith("No field script or battle effect names it.")
-    doc.select("sfx", 2210)                                         # placed only by battle effects
-    assert doc.places_sum.text() == "Loaded by battle effects 5, 14."
+def test_the_detail_pane_says_what_the_kit_worked_out_and_why(doc):
+    doc.select("sfx", 2210)                                         # a battle effect's sound
+    assert doc.d_sub.text() == "Battle: spells & abilities  ·  id 2210  ·  Sounds03/SE52/se520008"
+    assert doc.about.text().splitlines() == [
+        "Looks like: Thundera (single) +1",
+        "Loaded by battle effects: Thundera (single) (effect 5), Berserk (single) (effect 14)."]
+    assert not doc.places.isVisible() and not doc.places_sum.isVisible()
+    doc.select("sfx", 122)                                          # a monster's
+    assert doc.about.text().splitlines() == ["Looks like: Test Golem death cry", "Death cry of: Test Golem."]
+    doc.select("sfx", 912)                                          # a field script's
+    assert doc.d_sub.text().startswith("NPCs & creatures  ·  id 912")
+    assert doc.about.text().splitlines() == ["Looks like: Moogle talk · Alexandria",
+                                             "Played when you talk to it ×2."]
+    assert doc.places_sum.text() == "Named by 2 field scripts across 1 place."
+    doc.select("sfx", 914)
+    assert doc.about.text().splitlines() == [
+        "Looks like: Ambience loop · Ice Cavern", "Played at field startup ×3.",
+        "Scripts also control it: 3 held starts, 2 fades or pans, 3 stops."]
+    doc.select("sfx", 633)                                          # NAMED: the same read, as a use
+    assert doc.about.text().splitlines()[0] == "Used as: Door or exit · Alexandria +1"
+    assert "(that routine also leaves the field)" in doc.about.text()
+
+
+def test_a_sound_nothing_describes_says_so_instead_of_showing_an_empty_card(doc):
+    doc.select("sfx", 101)                                          # named, in the system bank, unplaced
+    assert not doc.places.isVisible() and not doc.places_sum.isVisible()
+    assert doc.about.text().startswith("No field script or battle effect names it")
+    doc.select("sfx", 923)                                          # unnamed, in an area bank
+    assert doc.about.text().splitlines() == ["Unplaced — area set.", "No script names it."]
     doc.select("movie", 0)
-    assert doc.places_sum.text() == "Movie audio plays with its video, not from a field script."
+    assert doc.about.text().splitlines() == ["Unplaced — movie audio.",
+                                             "Movie audio plays with its video, not from a script."]
+
+
+def test_the_length_shows_the_moment_a_row_is_picked(app, tmp_path):
+    """The catalog already knows every sound's length -- the pane must not wait for the audio to say
+    it. (The async lane: the audio has NOT landed when this reads the pane.)"""
+    d = make_doc(tmp_path, load=False, sync=False)
+    d.load(sync=True)
+    d.select("sfx", 914)
+    d._debounce.stop()
+    assert d._audio is None
+    assert d.d_facts.text().splitlines() == ["Length 0:12  ·  mono", "Loops"]
+    assert d.seek.maximum() == 12000 and d.time_lbl.text() == "0:00 / 0:12"
+    d.select("sfx", 633)
+    d._debounce.stop()
+    assert d.d_facts.text().splitlines() == ["Length 0.5s  ·  mono", "Plays once (no loop points)"]
+    d.shutdown()
+    d.close()
 
 
 def test_a_short_unlooped_sound_reports_that_it_plays_once(doc):
@@ -433,6 +565,7 @@ def test_only_music_and_sfx_offer_replace_add_and_a_snippet(doc):
         assert doc.replace_btn.isEnabled() is ok and doc.add_btn.isEnabled() is ok, kind
         assert doc.copy_snip_btn.isEnabled() is ok, kind
         assert doc.copy_id_btn.isEnabled() and doc.export_btn.isEnabled(), kind
+        assert doc.suggest_btn.isEnabled() is bool(doc._current.describe), kind
 
 
 # ================================================================================== playback ===
@@ -552,7 +685,7 @@ def test_a_superseded_selections_late_audio_paints_nothing(app, tmp_path):
     d._debounce.stop()
     d._req = (("sfx", 633), d._gen)
     d._on_audio(stale, tmp_path / "music008.ogg", {"seconds": 84.75, "rate": 44100}, "stock", "")
-    assert d._audio is None and d.t_players == [] and d.d_facts.text() == ""
+    assert d._audio is None and d.t_players == [] and "Hz" not in d.d_facts.text()
     d._on_audio(d._req, tmp_path / "se000012.ogg", {"seconds": 0.45, "rate": 44100, "channels": 1}, "stock", "")
     assert d._audio is not None and d.t_players and d.t_players[0].log[-1] == ("play",)
     d.shutdown()
@@ -651,8 +784,39 @@ def test_enter_saves_and_shift_enter_saves_then_moves_on(doc):
     assert sorted(e["title"] for t in names.values() for e in t.values()) == ["Named one", "Named two"]
 
 
+def test_the_description_can_start_a_name(doc):
+    """One click turns the kit's read into a draft the user then corrects by ear."""
+    doc.select("sfx", 912)
+    assert doc.name_edit.text() == ""
+    doc.suggest_btn.click()
+    assert doc.name_edit.text() == "Moogle talk, Alexandria"
+    doc.select("sfx", 2211)
+    doc.suggest_btn.click()
+    assert doc.name_edit.text() == "Berserk (single), sound 2 of 2"
+    doc.select("sfx", 923)                                          # nothing to start from
+    assert not doc.suggest_btn.isEnabled()
+
+
+def test_a_tag_that_names_a_category_refiles_the_sound(doc):
+    """The user's word outranks the derived category: tag an 'ambience loop' as a door and it moves."""
+    items = lambda: {doc.category.itemData(i): doc.category.itemText(i) for i in range(doc.category.count())}  # noqa: E731
+    assert items()["ambience"] == "Ambience & loops  (1)" and items()["door"] == "Doors & exits  (1)"
+    doc.select("sfx", 914)
+    doc.name_edit.setText("Portcullis rattle")
+    doc.tags_edit.setText("metal, door")
+    doc.save_name()
+    assert doc._current.category == "door"
+    assert doc.d_sub.text().startswith("Doors & exits  ·  id 914")
+    assert "ambience" not in items() and items()["door"] == "Doors & exits  (2)"
+    _pick(doc.category, "door")
+    assert set(_stems(doc)) == {"se000012", "se050019"}
+    doc.tags_edit.setText("metal")                                  # drop the tag -> the derived one is back
+    doc.save_name()
+    assert doc._current.category == "ambience" and items()["ambience"] == "Ambience & loops  (1)"
+
+
 def test_shift_enter_steps_down_a_list_that_keeps_named_rows(doc):
-    doc.kind.setCurrentIndex(doc.kind.findText("Streams"))
+    _pick(doc.category, "stream")
     doc.listw.setCurrentRow(0)
     doc.name_edit.setText("Forest ambience")
     _press(doc.name_edit, Qt.Key.Key_Return, Qt.KeyboardModifier.ShiftModifier)
@@ -765,7 +929,7 @@ def test_the_mod_folders_own_tracks_and_replacements_show_in_the_list(doc, tmp_p
     assert "Door opening  ·  id 633  ·  replaced" in rows
     doc.select("music", 1000)
     assert doc.d_sub.text().endswith("added by this mod folder")
-    assert doc.places_sum.text().startswith("Added by this mod folder")
+    assert doc.about.text().startswith("Added by this mod folder")
     doc.select("sfx", 633)
     assert doc.d_sub.text().endswith("replaced in this mod folder")
     assert doc.t_audio.calls[-1] == (("sfx", 633), str(mod)), "the audio is asked for AS THIS FOLDER plays it"
@@ -895,10 +1059,11 @@ def test_every_tab_stop_of_the_loaded_tab_shows_where_the_keyboard_is(app, win, 
     win.activateWindow()                           # Qt paints focus only on the ACTIVE window
     win.raise_()
     app.processEvents()
-    stops = {"search": sd.search, "kind": sd.kind, "bank": sd.bank, "unnamed only": sd.unnamed_only,
+    stops = {"search": sd.search, "category": sd.category, "bank": sd.bank, "unnamed only": sd.unnamed_only,
              "play on select": sd.autoplay, "list": sd.listw, "rescan": sd.rescan_btn, "play": sd.play_btn,
              "stop": sd.stop_btn, "seek": sd.seek, "loop": sd.loop_chk, "volume": sd.volume,
              "places": sd.places, "name": sd.name_edit, "tags": sd.tags_edit, "save name": sd.save_name_btn,
+             "use description": sd.suggest_btn,
              "copy id": sd.copy_id_btn, "copy snippet": sd.copy_snip_btn, "export": sd.export_btn,
              "mod folder": sd.mod_edit, "browse": sd.mod_browse_btn, "replace": sd.replace_btn,
              "add": sd.add_btn}
