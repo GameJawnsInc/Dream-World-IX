@@ -1829,8 +1829,7 @@ def snap_sounds(ctx: _Ctx, state: str) -> None:
         _grab(ctx, f"sounds-{state}-use", use)
     else:                                                            # naming
         sd.unnamed_only.setChecked(True)
-        sd.kind.setCurrentIndex(sd.kind.findText("Sound effects"))
-        sd.listw.setCurrentRow(1)
+        sd.select("sfx", 912)                                         # a Moogle's talk sound, unnamed
         sd.name_edit.setText("Castle bell, far off")
         sd.tags_edit.setText("bell, alexandria")
         _grab(ctx, "sounds-naming", win)

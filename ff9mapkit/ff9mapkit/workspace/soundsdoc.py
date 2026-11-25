@@ -22,6 +22,12 @@ Three laws this surface is built around:
 Naming is the part only a person can do: most sound effects have no name anywhere, and nothing but
 ears can give them one. *Name it* writes to a per-user overlay (:func:`soundcat.save_user_name`), and
 Shift+Enter there saves and moves to the next sound -- hear, type, next.
+
+What the kit CAN do without ears is describe: :func:`soundcat.lore` reads how the game uses each
+sound (the battle effect that loads it, the monster whose cry it is, the door or Moogle or ambience
+loop a field script plays it from) and the tab files every sound under a CATEGORY and leads an
+unnamed row with that description -- in ITALICS, because a description is not a name, and "Unnamed
+only" still lists it. A tag that names a category re-files the sound: the user's word wins.
 """
 from __future__ import annotations
 
@@ -32,10 +38,11 @@ import threading
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QFont, QGuiApplication
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
                                QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea,
-                               QSizePolicy, QSlider, QSplitter, QStackedLayout, QVBoxLayout, QWidget)
+                               QSizePolicy, QSlider, QSplitter, QStackedLayout, QStyledItemDelegate,
+                               QVBoxLayout, QWidget)
 
 from .. import config, soundcat
 from . import audioplay, icons, widgets
@@ -46,14 +53,30 @@ _PLACE_CHROME = 5                                # the QSS well's border(1) + pa
 _PLACE_LIST_H = 130                              # ...and its cap before the first fill (a QListWidget's
 #                                                  sizeHint is 256x192 whatever its row count)
 _FIELDS_IN_TIP = 40                              # field ids listed in a place row's tooltip
-_KIND_FILTERS = [("All kinds", None)] + [(soundcat.KIND_LABEL[k], k) for k in soundcat.KINDS]
 _IMPORTABLE = ("music", "sfx")                   # what audio-import can replace / mint
+
+
+class _RowsFitTheList(QStyledItemDelegate):
+    """Rows exactly as wide as the list, never wider.
+
+    A list row elides only inside the rect it is given, and a QListView gives a row its own size hint
+    when that is wider than the viewport -- so a long row is laid out past the edge, an h-bar appears,
+    and the id at the row's end (the part ElideMiddle exists to keep) is simply off-screen. Worse, with
+    uniform item sizes the FIRST row's hint is everyone's, so it depended on which row happened to lead:
+    fine with "Battle Theme" on top, broken under "Unnamed only" (snap-caught at the 150% text size).
+    A width hint of 1 makes every row the viewport's width, so every long row elides in the middle."""
+
+    def sizeHint(self, option, index):             # noqa: N802 (Qt override)
+        hint = super().sizeHint(option, index)
+        hint.setWidth(1)
+        return hint
 
 
 class SoundsDoc(QWidget):
     """Browse every FF9 sound, play the selection, name it, and run the audio round trip on it."""
 
     _load_done = Signal(object, str, str)        # (SoundMap | None, guide state, detail)
+    _load_stage = Signal(str)                    # what a fresh read is doing right now
     _audio_done = Signal(object, object, object, str, str)   # (request, path, info, source, error)
 
     def __init__(self, pal, kit_root, *, run, problems=None, on_setup=None, catalog_fn=None,
@@ -65,16 +88,20 @@ class SoundsDoc(QWidget):
         self._run = run
         self._problems = problems
         self.on_setup = on_setup
-        self._catalog_fn = catalog_fn or (lambda force: soundcat.build_map(force=force))
+        self._catalog_fn = catalog_fn or (
+            lambda force: soundcat.build_map(force=force, progress=self._stage))
         self._audio_fn = audio_fn or (lambda s, mod: soundcat.playable(s.resource_id, mod_folder=mod))
         self._player_factory = player_factory or (lambda: audioplay.make_player(self))
         self._names_path = names_path            # None -> the real per-user overlay, resolved at CALL time
         self._mod_fn = mod_fn or self._detect_mod
         self._sync = bool(sync)
         self._sm = None                          # the loaded soundcat.SoundMap
-        self._join = ({}, {})                    # soundcat.zone_join(), read once per load
-        self._entries = []                       # every soundcat.Sound, names applied
-        self._places_of = {}                     # sound key -> its place names, busiest first
+        self._index = None                       # soundcat.LoreIndex: the shared lookups of one load
+        self._entries = []                       # every soundcat.Sound, names + lore applied
+        # a FONT WITH ONLY ITALIC SET: the item delegate resolves it against the list's own font at
+        # paint time, so a described row follows the text-size dial instead of freezing a point size
+        self._italic = QFont()
+        self._italic.setItalic(True)
         self._overridden = set()                 # lowercased ResourceIDs the mod folder replaces
         self._items = {}                         # sound key -> QListWidgetItem (the CURRENT filter's rows)
         self._current = None                     # the selected soundcat.Sound
@@ -88,6 +115,7 @@ class SoundsDoc(QWidget):
         self._failed = False                     # the last play ended in a reported failure
         self._guide_state = ("start", "")
         self._load_done.connect(self._finish_load)
+        self._load_stage.connect(self._on_stage)
         self._audio_done.connect(self._on_audio)
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
@@ -118,15 +146,17 @@ class SoundsDoc(QWidget):
                                        teach=detail or "Unknown error.",
                                        actions=[("Try again", self.load)], icon_pixmap=glyph)
         if state == "busy":
-            return widgets.empty_state("", "Reading your install…",
-                                       teach="The sound tables first, then every field script, to learn "
-                                             "where each sound plays. About five seconds the first time.",
+            return widgets.empty_state("", detail or "Reading your install…",
+                                       teach="The sound tables, every field script, the battle scenes and "
+                                             "each sound's own header — to learn what each sound is and "
+                                             "where it plays. About fifteen seconds the first time.",
                                        icon_pixmap=glyph)
         return widgets.empty_state(                # "start" -- the front door
             "", "Hear every sound in your FF9 install",
-            teach="Music, sound effects, ambience and movie audio — searchable by name or by the place "
-                  "it plays. Loading reads your install (about five seconds the first time, instant "
-                  "after). It only reads — nothing in the game is changed.",
+            teach="Music, sound effects, ambience and movie audio — sorted into categories and "
+                  "searchable by name or by the place it plays. Loading reads your install (about "
+                  "fifteen seconds the first time, instant after). It only reads — nothing in the game "
+                  "is changed.",
             actions=[("Load sounds", self.load)], icon_pixmap=glyph)
 
     def _show_guide(self, state, detail=""):
@@ -153,28 +183,30 @@ class SoundsDoc(QWidget):
         self.search = QLineEdit()
         self.search.setAccessibleName("Search sounds")
         self.search.setPlaceholderText("Search name, id, tag or place…")
-        self.search.setToolTip("Matches a sound's name, file name, id, tags, bank, and the places its "
-                               "field scripts sit in — try vivi, door, se05, or lindblum.")
+        self.search.setToolTip("Matches a sound's name, file name, id, tags, bank, the places it "
+                               "plays, and what the kit worked out about it — try vivi, door, fire, "
+                               "death cry, loop, or lindblum.")
         self.search.textChanged.connect(self._refill)
         lv.addWidget(self.search)
-        # the filters take TWO rows: a checkbox's label is its minimum width (it does not wrap), so
-        # combos + checkboxes in one row would floor the pane (the Models tab paid for this once)
-        krow = QHBoxLayout()
-        self.kind = QComboBox()
-        self.kind.setAccessibleName("Filter sounds by kind")
-        for label, _k in _KIND_FILTERS:
-            self.kind.addItem(label)
-        self.kind.currentIndexChanged.connect(self._on_kind)
-        krow.addWidget(self.kind)
+        # ONE combo per row, each the pane's full width: their items are sentences-long ("SE06 · Dali,
+        # Ice Cavern, Cargo Ship"), and a combo sized to its longest item would floor the pane. So the
+        # size hint is pinned to a few characters and the LAYOUT stretches them instead.
+        self.category = QComboBox()
+        self.category.setAccessibleName("Filter sounds by category")
+        self.category.setToolTip("What a sound is FOR, worked out from how the game uses it — or from "
+                                 "your own tags: a tag that names a category files the sound there.")
+        self.category.addItem("All sounds", None)
+        self.category.currentIndexChanged.connect(self._on_category)
         self.bank = QComboBox()
         self.bank.setAccessibleName("Filter sounds by bank")
-        self.bank.setToolTip("A bank is the folder a sound ships in. SE00 holds the menu and system "
-                             "sounds; SE50 and up are battle effects.")
-        self.bank.addItem("All banks")
+        self.bank.setToolTip("A bank is the folder a sound ships in. SE05 to SE15 are area sets — each "
+                             "holds the sounds of a few places — and SE50 and up are battle effects.")
+        self.bank.addItem("All banks", None)
         self.bank.currentIndexChanged.connect(self._refill)
-        krow.addWidget(self.bank)
-        krow.addStretch(1)
-        lv.addLayout(krow)
+        for combo in (self.category, self.bank):
+            combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            combo.setMinimumContentsLength(8)
+            lv.addWidget(combo)
         frow = QHBoxLayout()
         self.unnamed_only = QCheckBox("Unnamed only")
         self.unnamed_only.setToolTip("Keep the sounds nobody has named yet — the ones to listen to "
@@ -192,6 +224,7 @@ class SoundsDoc(QWidget):
         # elide in the MIDDLE: a long title then keeps its start AND the id at the row's end (elided on
         # the right, "Assault of the White Dragon…" lost the one number a modder types -- snap-caught)
         self.listw.setTextElideMode(Qt.TextElideMode.ElideMiddle)
+        self.listw.setItemDelegate(_RowsFitTheList(self.listw))    # ...which needs rows the list's width
         self.listw.currentItemChanged.connect(self._on_select)
         lv.addWidget(self.listw, 1)
         foot = QHBoxLayout()
@@ -314,8 +347,12 @@ class SoundsDoc(QWidget):
         return box
 
     def _places_box(self):
-        box = widgets.section("Where it plays")
+        box = widgets.section("What it is, where it plays")
         v = box.content_layout
+        self.about = QLabel("")                    # the kit's own read of the sound: lore's sentences
+        self.about.setTextFormat(Qt.TextFormat.PlainText)
+        self.about.setWordWrap(True)
+        v.addWidget(self.about)
         self.places_sum = QLabel("")
         self.places_sum.setTextFormat(Qt.TextFormat.PlainText)
         self.places_sum.setWordWrap(True)
@@ -343,7 +380,9 @@ class SoundsDoc(QWidget):
         trow.addWidget(_l_tags)
         self.tags_edit = QLineEdit()
         self.tags_edit.setPlaceholderText("comma-separated — door, wood")
-        self.tags_edit.setToolTip("Search words of your own — the search box matches them.")
+        self.tags_edit.setToolTip("Search words of your own. A tag that names a category — door, "
+                                  "pickup, npc, menu, ambience, monster, spell… — also files the sound "
+                                  "under it.")
         _l_tags.setBuddy(self.tags_edit)
         self.tags_edit.installEventFilter(self)
         trow.addWidget(self.tags_edit, 1)
@@ -352,6 +391,12 @@ class SoundsDoc(QWidget):
         self.save_name_btn = QPushButton("Save name")
         self.save_name_btn.clicked.connect(lambda: self.save_name())
         brow.addWidget(self.save_name_btn)
+        self.suggest_btn = QPushButton("Use the description")
+        self.suggest_btn.setProperty("role", "quiet")
+        self.suggest_btn.setToolTip("Start the name from what the kit worked out about this sound, "
+                                    "then correct it to what you actually hear.")
+        self.suggest_btn.clicked.connect(self.use_description)
+        brow.addWidget(self.suggest_btn)
         brow.addStretch(1)
         v.addLayout(brow)
         self.name_status = widgets.notice("")    # "Saved to ..." / a failed write -- a report
@@ -455,6 +500,21 @@ class SoundsDoc(QWidget):
         except RuntimeError:
             pass
 
+    def _stage(self, text):
+        """The catalog reader's progress callback (it runs on the worker thread)."""
+        try:
+            self._load_stage.emit(str(text))
+        except RuntimeError:                       # the doc died mid-read
+            pass
+
+    def _on_stage(self, text):
+        if not self._busy:
+            return
+        if self._sm is None:
+            self._show_guide("busy", text)         # the first load: the guide names the stage
+        else:
+            self.count_lbl.setText(text)           # a rescan: the list is up, the footer says it
+
     def _finish_load(self, sm, state, detail):
         self._busy = False
         self.rescan_btn.setEnabled(True)
@@ -466,7 +526,7 @@ class SoundsDoc(QWidget):
                 self._say(f"The rescan failed — {detail or 'unknown error'}", "error")
             return
         self._sm = sm
-        self._join = soundcat.zone_join()
+        self._index = soundcat.LoreIndex(sm)
         if not self.mod_edit.text().strip():
             mod = self._mod_fn()
             if mod:
@@ -504,11 +564,10 @@ class SoundsDoc(QWidget):
             return
         mod = self._mod()
         names = soundcat.load_names(self._names_path)
-        self._entries = soundcat.sounds(self._sm, names,
+        self._entries = soundcat.sounds(self._sm, names, index=self._index,
                                         extra_rows=soundcat.mod_custom_rows(mod, self._sm))
         self._overridden = self._scan_overrides(mod)
-        self._places_of = {s.key: soundcat.place_names(self._sm, s.kind, s.id, join=self._join)
-                           for s in self._entries if s.n_fields}
+        self._refill_categories()
         self._refill_banks()
         self._refill()
         if self._current is not None:              # the selection's own entry may have changed under it
@@ -518,38 +577,36 @@ class SoundsDoc(QWidget):
                 self._fill_detail(fresh)
 
     # ------------------------------------------------------------------ the list
-    def _kind(self):
-        return _KIND_FILTERS[self.kind.currentIndex()][1]
-
-    def _on_kind(self, *_a):
+    def _on_category(self, *_a):
         self._refill_banks()
         self._refill()
 
+    def _refill_categories(self):
+        """The category filter, with a count beside each -- only the categories that have a sound."""
+        keep = self.category.currentData()
+        self.category.blockSignals(True)
+        self.category.clear()
+        self.category.addItem(f"All sounds  ({len(self._entries):,})", None)
+        for key, label, n in soundcat.category_counts(self._entries):
+            self.category.addItem(f"{label}  ({n:,})", key)
+        i = self.category.findData(keep) if keep is not None else 0
+        self.category.setCurrentIndex(i if i >= 0 else 0)
+        self.category.blockSignals(False)
+
     def _refill_banks(self):
-        keep = self.bank.currentText()
+        """The bank filter for the current category, each bank saying what it holds."""
+        keep = self.bank.currentData()
         self.bank.blockSignals(True)
         self.bank.clear()
-        self.bank.addItem("All banks")
-        for b in soundcat.banks(self._entries, self._kind()):
-            self.bank.addItem(b)
-        i = self.bank.findText(keep)
+        self.bank.addItem("All banks", None)
+        for b in soundcat.banks(self._entries, category=self.category.currentData()):
+            self.bank.addItem(soundcat.bank_label(b, self._index), b)
+        i = self.bank.findData(keep) if keep is not None else 0
         self.bank.setCurrentIndex(i if i >= 0 else 0)
         self.bank.blockSignals(False)
 
-    def _row_hint(self, s) -> str:
-        """What an UNNAMED row says about itself: the place it is heard most (and how many more), or
-        that a battle effect loads it. A file stem alone tells a browsing user nothing."""
-        names = self._places_of.get(s.key) or []
-        if names:
-            return names[0] + (f" +{len(names) - 1}" if len(names) > 1 else "")
-        return "battle effect" if s.n_effects else ""
-
     def _row_text(self, s):
         text = s.label
-        if not s.title:
-            hint = self._row_hint(s)
-            if hint:
-                text += f"  ·  {hint}"
         if s.custom:
             text += "  ·  added"
         elif s.resource_id.lower() in self._overridden:
@@ -559,11 +616,9 @@ class SoundsDoc(QWidget):
     def _refill(self, *_a):
         """Rebuild the rows for the current filter. The selection is restored SILENTLY: a keystroke in
         the search box must not re-arm (and so stop) the sound that is playing."""
-        bank = self.bank.currentText() if self.bank.currentIndex() > 0 else None
         entries = soundcat.filter_sounds(
-            self._entries, self.search.text(), kind=self._kind(), bank=bank,
-            unnamed_only=self.unnamed_only.isChecked(),
-            place_text_fn=lambda s: " ".join(self._places_of.get(s.key, ())))
+            self._entries, self.search.text(), category=self.category.currentData(),
+            bank=self.bank.currentData(), unnamed_only=self.unnamed_only.isChecked())
         keep = self._current.key if self._current is not None else None
         self.listw.blockSignals(True)
         self.listw.clear()
@@ -572,6 +627,8 @@ class SoundsDoc(QWidget):
             it = QListWidgetItem(self._row_text(s))
             it.setData(Qt.ItemDataRole.UserRole, s.key)
             it.setToolTip(s.full_label)
+            if s.described:                        # a description, not a name: italics say so
+                it.setFont(self._italic)
             self.listw.addItem(it)
             self._items[s.key] = it
         if keep is not None and keep in self._items:
@@ -579,8 +636,14 @@ class SoundsDoc(QWidget):
         self.listw.blockSignals(False)
         total = len(self._entries)
         unnamed = sum(1 for s in self._entries if not s.title)
+        described = sum(1 for s in self._entries if s.described)
         shown = f"{len(entries):,} of {total:,}" if len(entries) != total else f"{total:,} sounds"
         self.count_lbl.setText(f"{shown}  ·  {unnamed:,} unnamed")
+        tip = (f"{described:,} of the unnamed sounds are DESCRIBED from how the game uses them — those "
+               "rows are in italics. A description is not a name: only listening gives one.")
+        if self._sm is not None and self._sm.gaps:
+            tip += " Could not be read on this install: " + "; ".join(self._sm.gaps) + "."
+        self.count_lbl.setToolTip(tip)
 
     def _on_select(self, item, _prev=None):
         if item is None:
@@ -606,14 +669,15 @@ class SoundsDoc(QWidget):
     def _set_selected(self, on):
         """Everything that acts on 'the selected sound', enabled as ONE decision."""
         for w in (self.play_btn, self.stop_btn, self.seek, self.loop_chk, self.name_edit, self.tags_edit,
-                  self.save_name_btn, self.copy_id_btn, self.copy_snip_btn, self.export_btn,
-                  self.replace_btn, self.add_btn):
+                  self.save_name_btn, self.suggest_btn, self.copy_id_btn, self.copy_snip_btn,
+                  self.export_btn, self.replace_btn, self.add_btn):
             w.setEnabled(bool(on))
 
     def _fill_detail(self, s):
         self._set_selected(True)
         self.d_title.setText(s.title or s.stem)
-        sub = f"{soundcat.KIND_LABEL[s.kind]}  ·  id {s.id}  ·  {s.resource_id}"
+        what = soundcat.CATEGORY_LABEL.get(s.category) or soundcat.KIND_LABEL[s.kind]
+        sub = f"{what}  ·  id {s.id}  ·  {s.resource_id}"
         if s.custom:
             sub += "  ·  added by this mod folder"
         elif s.resource_id.lower() in self._overridden:
@@ -626,6 +690,7 @@ class SoundsDoc(QWidget):
         for b in (self.replace_btn, self.add_btn):
             b.setEnabled(importable)
         self.copy_snip_btn.setEnabled(importable)
+        self.suggest_btn.setEnabled(bool(s.describe))
         # _set_selected enabled these wholesale; two of them answer to facts it does not know
         self.loop_chk.setEnabled(self._audio is not None and self._loop_ms(self._audio[1]) is not None)
         if self._player is not None and not self._player.can_seek:
@@ -633,7 +698,8 @@ class SoundsDoc(QWidget):
         self._fill_places(s)
 
     def _fill_places(self, s):
-        groups = soundcat.places(self._sm, s.kind, s.id, join=self._join) if self._sm else []
+        join = self._index.join if self._index is not None else None
+        groups = soundcat.places(self._sm, s.kind, s.id, join=join) if self._sm else []
         self.places.clear()
         for g in groups:
             n = len(g["fields"])
@@ -647,27 +713,38 @@ class SoundsDoc(QWidget):
             row_h = self.places.sizeHintForRow(0)
             if row_h > 0:
                 self.places.setMaximumHeight(row_h * min(len(groups), _PLACE_ROWS) + 2 * _PLACE_CHROME)
-        effects = self._sm.effects.get(s.resource_id, []) if self._sm else []
-        parts = []
         if groups:
             nf = sum(len(g["fields"]) for g in groups)
-            parts.append(f"Named by {nf} field script{'s' if nf != 1 else ''} across "
-                         f"{len(groups)} place{'s' if len(groups) != 1 else ''}.")
-        if effects:
-            shown = ", ".join(str(e) for e in effects[:12]) + (" …" if len(effects) > 12 else "")
-            parts.append(f"Loaded by battle effect{'s' if len(effects) != 1 else ''} {shown}.")
-        if not parts:
-            parts.append(self._unplaced_reason(s))
-        self.places_sum.setText(" ".join(parts))
+            self.places_sum.setText(f"Named by {nf} field script{'s' if nf != 1 else ''} across "
+                                    f"{len(groups)} place{'s' if len(groups) != 1 else ''}.")
+        self.places_sum.setVisible(bool(groups))
+        self.about.setText(self._about_text(s))
 
-    @staticmethod
-    def _unplaced_reason(s) -> str:
+    def _about_text(self, s) -> str:
+        """The kit's read of the sound: what it looks like (when unnamed) or is used as (when named),
+        then lore's own sentences. Never empty -- "nothing names it" is itself the finding."""
         if s.custom:
             return "Added by this mod folder — it plays wherever your own fields ask for its id."
-        if s.kind == "movie":
-            return "Movie audio plays with its video, not from a field script."
-        return ("No field script or battle effect names it. It may be played by the engine itself "
-                "(menus, the world map, battle hits) — those are not traced here.")
+        lr = soundcat.lore(self._sm, s, self._index) if self._sm is not None else None
+        lines = []
+        if s.describe:
+            lines.append(f"{'Used as' if s.title else 'Looks like'}: {s.describe}")
+        elif s.hint and not s.title:
+            lines.append(f"Unplaced — {s.hint}.")
+        lines += list(lr.notes) if lr is not None else []
+        return "\n".join(lines) or "Nothing in the game's data says what this is."
+
+    def _fill_facts_from_entry(self, s):
+        """What the catalog already knows, shown the moment a row is picked -- the audio itself
+        (its sample rate, its loop points in time) refines this when it lands."""
+        if not s.seconds:
+            self.d_facts.setText("")
+            return
+        bits = [f"Length {soundcat.format_seconds(s.seconds)}"]
+        facts = self._sm.audio.get(s.resource_id) if self._sm is not None else None
+        if facts and facts[2]:
+            bits.append({1: "mono", 2: "stereo"}.get(facts[2], f"{facts[2]} channels"))
+        self.d_facts.setText("  ·  ".join(bits) + "\n" + ("Loops" if s.loops else "Plays once (no loop points)"))
 
     def _fill_facts(self, info, source):
         lines = []
@@ -717,8 +794,9 @@ class SoundsDoc(QWidget):
         self._pending_play = bool(play)
         self._gen += 1
         self._req = None
-        self._set_duration(0)
-        self.d_facts.setText("")
+        self._set_duration(int((self._current.seconds if self._current is not None else 0) * 1000))
+        if self._current is not None:
+            self._fill_facts_from_entry(self._current)
         self.loop_chk.setEnabled(False)
         self._say("Reading the audio…")
         if self._sync:
@@ -927,6 +1005,15 @@ class SoundsDoc(QWidget):
             return True
         return super().eventFilter(obj, ev)
 
+    def use_description(self):
+        """Start the Name box from the kit's description (the user then corrects it by ear)."""
+        s = self._current
+        if s is None or not s.describe:
+            return
+        self.name_edit.setText(soundcat.suggest_title(s))
+        self.name_edit.setFocus()
+        self.name_edit.selectAll()
+
     def save_name(self, *, advance=False):
         """Write the Name / Tags boxes to the user overlay for the selected sound, relabel its row, and
         (``advance``) move on to the next sound with the caret back in the Name box."""
@@ -943,15 +1030,20 @@ class SoundsDoc(QWidget):
             return
         # re-read: clearing an overlay entry falls back to the kit's own name, which only a reload knows
         ent = (soundcat.load_names(self._names_path).get(s.kind) or {}).get(s.stem.lower()) or {}
-        fresh = dataclasses.replace(s, title=ent.get("title") or "", tags=tuple(ent.get("tags") or ()))
+        tags_now = tuple(ent.get("tags") or ())
+        derived = soundcat.lore(self._sm, s, self._index).category if self._sm is not None else s.category
+        fresh = dataclasses.replace(
+            s, title=ent.get("title") or "", tags=tags_now,
+            category=(soundcat.tag_category(tags_now) if s.kind == "sfx" else None) or derived)
         self._entries = [fresh if e.key == s.key else e for e in self._entries]
         self._current = fresh
+        if fresh.category != s.category:           # a tag that names a category re-filed it
+            self._refill_categories()
+            self._refill_banks()
         if s.kind == "music":                      # the Music form's song picker shows these titles too
             from .. import infohub
             infohub.forget_songs()
-        self.d_title.setText(fresh.title or fresh.stem)
-        self.name_edit.setText(fresh.title)
-        self.tags_edit.setText(", ".join(fresh.tags))
+        self._fill_detail(fresh)                   # the title, the category line, "Used as" -- all of it
         self._refill()
         self._name_say(f"Saved to {path}" if (title or tags) else
                        "Cleared — the kit's own name (if it has one) is back.")

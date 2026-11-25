@@ -56,6 +56,7 @@ _ALIAS = {"UPSCALE": {"A": "B"}, "REVERT_UPSCALE": {"B": "A"}, "DBALL_SWITCH": {
 _GENERATORS = {
     "_regen_animdb": lambda m: m.render({1: "ANH_MAIN_F0_ZDN_IDLE"}, stamp=_STAMP),
     "_regen_animdb_all": lambda m: m.render({1: "ANH_MON_B0_X_IDLE"}, stamp=_STAMP),
+    "_regen_effectnames": lambda m: m.render({0: "Fire__Single"}, stamp=_STAMP),
     "_regen_fieldtable": lambda m: m.render({"fbg_n01_a": [1, "EVT_A"]}, {1: ["fbg_n01_a", "EVT_A"]}, stamp=_STAMP),
     "_regen_fieldtext": lambda m: m.render({1: 2}, stamp=_STAMP),
     "_regen_modelalias": lambda m: m.render(_ALIAS, stamp=_STAMP),

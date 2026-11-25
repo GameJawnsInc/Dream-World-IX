@@ -145,15 +145,24 @@ def _sample_map(stamp="s1") -> SC.SoundMap:
 
 def test_the_map_survives_its_json_round_trip():
     sm = _sample_map()
+    sm.contexts = {"sfx": {633: {"ops": {"play": 2, "stop": 1}, "play": [["region", "touch", "warp", 2]],
+                                 "pre": [], "models": [[220, 2]], "pmodels": [[98, 1]]}},
+                   "music": {}, "stream": {}, "movie": {}}
+    sm.monsters = {122: {"die": ["Test Golem"], "start": ["Test Golem", "Test Imp"]}}
+    sm.audio = {"Sounds02/SE00/se000012": [0.45, 0, 1], "Sounds01/BGM_/music008": [84.75, 1, 2]}
+    sm.gaps = ["battle scenes: no bundle"]
     back = SC._from_cache_dict(json.loads(json.dumps(SC._to_cache_dict(sm))))
     assert back == sm
     assert back.uses["music"][9] == [100, 101, 300]            # int keys came back as ints
+    assert back.contexts["sfx"][633]["models"] == [[220, 2]] and 122 in back.monsters
 
 
 @pytest.mark.parametrize("mutate", [
     lambda d: d.update(version=SC.CACHE_VERSION + 1),          # another version's cache
     lambda d: d.pop("uses"),                                   # a truncated one
     lambda d: d.update(rows="nope"),                           # a foreign shape
+    lambda d: d.pop("contexts"),                               # a map from before the describing lanes
+    lambda d: d.update(audio={"x": [1.0]}),                    # a short audio row
 ])
 def test_a_stale_or_foreign_cache_is_ignored_not_misread(mutate):
     d = SC._to_cache_dict(_sample_map())
@@ -175,9 +184,14 @@ def _seam_install(monkeypatch, *, stamp="s1", census_calls=None):
     def _census(game=None):
         if census_calls is not None:
             census_calls.append(1)
-        return {"music": {9: [100, 101], 77: [100]}, "sfx": {633: [100]}, "stream": {}, "movie": {}}, 2
+        ctx = {"ops": {"play": 1}, "play": [["main", "init", "", 1]], "pre": [], "models": [], "pmodels": []}
+        return ({"music": {9: [100, 101], 77: [100]}, "sfx": {633: [100]}, "stream": {}, "movie": {}},
+                {"music": {9: dict(ctx), 77: dict(ctx)}, "sfx": {633: dict(ctx)}}, 2)
 
     monkeypatch.setattr(SC, "_field_census", _census)
+    # the two describing lanes read bundles too: they are seams, or this file would open the install
+    monkeypatch.setattr(SC, "_battle_census", lambda game=None: {633: {"die": ["Test Golem"]}, 4040: {"die": ["x"]}})
+    monkeypatch.setattr(SC, "_audio_census", lambda rows, game=None: {"Sounds02/SE00/se000012": [0.4, 0, 1]})
 
 
 def test_a_fresh_build_reads_the_install_once_then_the_disk_serves_it(monkeypatch):
@@ -189,6 +203,8 @@ def test_a_fresh_build_reads_the_install_once_then_the_disk_serves_it(monkeypatc
     assert calls == [1]
     assert [r["id"] for r in sm.rows["music"]] == [0, 9]
     assert sm.uses["music"] == {9: [100, 101]}                  # id 77 is in no manifest: it places nothing
+    assert set(sm.contexts["music"]) == {9} and set(sm.monsters) == {633}, "...in ANY lane"
+    assert sm.audio == {"Sounds02/SE00/se000012": [0.4, 0, 1]} and sm.gaps == []
     assert sm.effects == {"Sounds02/SE00/se000012": [14]}
     SC._MEMO.clear()                                            # a NEW process: only the disk is warm
     assert SC.cached_map() == sm
@@ -284,10 +300,10 @@ def test_entries_carry_names_counts_and_a_label():
     vivi = next(s for s in ents if s.stem == "music008")
     assert (vivi.title, vivi.tags, vivi.bank, vivi.n_fields) == ("Vivi's Theme", ("vivi",), "BGM_", 3)
     assert vivi.label == "Vivi's Theme  ·  id 9", "short: a row must never lose its id to an ellipsis"
-    assert vivi.full_label == "Vivi's Theme — Sounds01/BGM_/music008, id 9  ·  tags: vivi"
+    assert vivi.full_label == "Vivi's Theme — Sounds01/BGM_/music008, id 9  ·  Music  ·  tags: vivi"
     battle = next(s for s in ents if s.stem == "music006")
     assert battle.label == "music006  ·  id 0", "an unnamed sound leads with its file stem"
-    assert battle.full_label == "Sounds01/BGM_/music006, id 0"
+    assert battle.full_label == "Sounds01/BGM_/music006, id 0  ·  Music"
     assert next(s for s in ents if s.stem == "se520008").n_effects == 2
 
 
@@ -315,7 +331,8 @@ def test_filtering_by_kind_bank_name_state_and_text():
 
 # --------------------------------------------------------------------------------- where used ---
 @pytest.mark.parametrize("raw,place", [
-    ("A. Castle (ids 1200+)", "A. Castle"), ("Dali [vgdl]", "Dali"), ("Alexandria", "Alexandria"),
+    ("A. Castle (ids 1200+)", "Alexandria Castle"), ("Dali [vgdl]", "Dali"), ("Alexandria", "Alexandria"),
+    ("L. Castle", "Lindblum"), ("Pand.", "Pandemonium"), ("Chocobo\u2019s Paradise", "Chocobo's Paradise"),
     ("Cargo Ship [cshp] (ids 300+)", "Cargo Ship"), ("", ""), (None, ""),
 ])
 def test_a_catalog_arc_name_reads_as_a_place(raw, place):
@@ -327,9 +344,10 @@ def test_places_group_a_sounds_fields_by_place_with_unclaimed_fields_last():
     join = ({100: "a_castle", 101: "a_castle_2"},
             {"a_castle": {"name": "A. Castle", "zone": "alxc"},
              "a_castle_2": {"name": "A. Castle (ids 1200+)", "zone": "alxc"}})
-    assert SC.places(sm, "music", 9, join=join) == [{"name": "A. Castle", "fields": [100, 101]},
+    assert SC.places(sm, "music", 9, join=join) == [{"name": "Alexandria Castle", "fields": [100, 101]},
                                                     {"name": None, "fields": [300]}]
-    assert SC.place_names(sm, "music", 9, join=join) == ["A. Castle"]
+    assert SC.place_names(sm, "music", 9, join=join) == ["Alexandria Castle"], \
+        "spelled out: a search for the word a person types must find it"
     two = ({100: "ice", 101: "alex", 300: "alex"}, {"ice": {"name": "Ice Cavern"}, "alex": {"name": "Alexandria"}})
     assert SC.place_names(sm, "music", 9, join=two) == ["Alexandria", "Ice Cavern"], "busiest place first"
     assert SC.places(sm, "music", 0, join=join) == []
@@ -443,6 +461,290 @@ def test_a_mod_folders_manifest_contributes_only_the_ids_it_adds(tmp_path):
 @pytest.mark.parametrize("secs,text", [(84.7, "1:24"), (0.42, "0.4s"), (9.96, "10.0s"), (600, "10:00"), (0, "0.0s")])
 def test_seconds_format_keeps_a_short_effect_from_reading_as_zero(secs, text):
     assert SC.format_seconds(secs) == text
+
+
+
+# =========================================================================== the describing lanes ===
+def _usage(*recs) -> dict:
+    u = SC._Usage()
+    for rec in recs:
+        u.add(rec)
+    return SC.summarize_usage(u)
+
+
+def _rec(op="play", role="logic", tag="routine", flags=(), model=None, kind="sfx", sid=1) -> dict:
+    return {"kind": kind, "id": sid, "op": op, "role": role, "tag": tag, "flags": tuple(flags), "model": model}
+
+
+@pytest.mark.parametrize("code,op", [
+    (53248, "play"),          # FF9SOUND_SNDEFFECT_PLAY
+    (53376, "sustain"),       # FF9SOUND_SNDEFFECTRES_PLAY: a RESIDENT effect -- the loops scripts fade and stop
+    (20864, "stop"),          # FF9SOUND_SNDEFFECTRES_STOP
+    (54145, "shape"),         # FF9SOUND_SNDEFFECTRES_VOL_INTPL
+    (37381, "shape"),         # FF9SOUND_SNDEFFECT_POS
+    (4616, "preload"),        # FF9SOUND_SNDEFFECT_NULL -- the engine's log: "means ignore"
+    (0, "play"),              # FF9SOUND_SONG_PLAY
+    (1792, "load"),           # FF9SOUND_SONG_LOAD
+    (16897, "shape"),         # FF9SOUND_SONG_VOL
+    (40960, "play"),          # FF9SOUND_STREAM_PLAY (a stream is never "resident")
+    (3072, "other"),          # FF9SOUND_SYNC
+])
+def test_a_sound_code_says_what_it_does_to_the_sound(code, op):
+    assert SC.sound_op(code) == op
+
+
+def test_a_script_usage_record_carries_who_and_when():
+    """One .eb, three entries: the field's own startup, a helper whose touch routine warps, and an
+    object wearing a model whose talk handler gives an item. Each sound comes back with its entry's role,
+    its function's moment, and what else that function does."""
+    set_model = bytes([0x2F, 0x00]) + struct.pack("<H", 220) + b"\x00"
+    field_warp = bytes([0x2B, 0x00]) + struct.pack("<H", 100)
+    add_item = bytes([0x48, 0x00]) + struct.pack("<H", 1) + b"\x01"
+    window = bytes([0x1F, 0x00, 0, 0]) + struct.pack("<H", 5)
+    play = lambda sid: opcodes.encode(0xC8, 53248, sid, 0, 127, 128)        # noqa: E731
+    eb = _eb_file([
+        [(0, opcodes.run_sound_code(53376, 10) + opcodes.run_sound_code(4616, 11) + RET),    # main: init
+         (10, opcodes.run_sound_code(20864, 10) + RET)],                                     # main: reinit
+        [(2, play(20) + field_warp + RET)],                                                  # a warp routine
+        [(0, set_model + RET), (3, window + play(30) + add_item + RET), (7, play(31) + RET)],  # an object
+    ])
+    recs = {(r["id"], r["op"]): r for r in SC.scan_field_usage(eb)}
+    assert recs[(10, "sustain")]["role"] == "main" and recs[(10, "sustain")]["tag"] == "init"
+    assert recs[(11, "preload")]["tag"] == "init"
+    assert recs[(10, "stop")]["tag"] == "reinit"
+    assert (recs[(20, "play")]["role"], recs[(20, "play")]["tag"], recs[(20, "play")]["flags"]) == \
+        ("logic", "touch", ("warp",))
+    talk = recs[(30, "play")]
+    assert (talk["role"], talk["tag"], talk["flags"], talk["model"]) == ("object", "talk", ("item", "text"), 220)
+    assert (recs[(31, "play")]["tag"], recs[(31, "play")]["model"]) == ("routine", 220), \
+        "the model is the ENTRY's, whichever function sets it"
+    assert SC.scan_field_sounds(eb) == [("sfx", 10), ("sfx", 11), ("sfx", 20), ("sfx", 30), ("sfx", 31)]
+
+
+def test_a_usage_summary_keeps_plays_and_preloads_apart():
+    c = _usage(_rec("play", "object", "talk", ("text",), 220), _rec("play", "object", "talk", ("text",), 220),
+               _rec("play", "main", "init"), _rec("preload", "player", "init", (), 98),
+               _rec("stop", "main", "reinit"), _rec("shape", "main", "loop"))
+    assert c["ops"] == {"play": 3, "preload": 1, "shape": 1, "stop": 1}
+    assert c["play"] == [["object", "talk", "text", 2], ["main", "init", "", 1]], "commonest first"
+    assert c["pre"] == [["player", "init", "", 1]]
+    assert c["models"] == [[220, 2]] and c["pmodels"] == [[98, 1]]
+    assert "reinit" not in str(c["play"]), "a stop or a fade says nothing about what the sound IS"
+
+
+@pytest.mark.parametrize("raw,title", [
+    ("Fire__Single", "Fire (single)"), ("Thunder_Slash_2", "Thunder Slash 2"),
+    ("Carbuncle_Ruby__Full", "Carbuncle Ruby (full)"), ("Special_Gizamaluke_Death", "Gizamaluke Death"),
+    ("Unused_442", "Unused effect 442"), ("", ""), (None, ""),
+])
+def test_an_effects_enum_name_reads_as_words(raw, title):
+    assert SC.effect_title(raw) == title
+
+
+def test_the_effect_table_is_spent():
+    """The generated table is only worth shipping if the lookup reads it: effect 0 is the enum's first
+    member, and an id the table lacks degrades to a number instead of raising."""
+    from ff9mapkit._effectnames import EFFECT_NAMES
+    assert len(EFFECT_NAMES) > 350 and EFFECT_NAMES[0] == "Fire__Single"
+    assert SC.effect_name(0) == "Fire (single)" and SC.effect_name(99999) == "effect 99999"
+    assert SC._is_summon(38) and not SC._is_summon(0), "Shiva (full) is a summon; Fire is not"
+
+
+def test_a_model_is_named_only_when_the_kit_is_sure():
+    from ff9mapkit import catalog
+    assert SC.model_label(catalog.resolve_model("GEO_NPC_F0_MOG")) == ("Moogle", "NPC")
+    assert SC.model_label(catalog.resolve_model("GEO_ACC_F0_TBX")) == ("Treasure chest", "ACC")
+    assert SC.model_label(catalog.resolve_model("GEO_MAIN_F0_ZDN")) == ("Zidane", "MAIN")
+    unknown = next(m for m in catalog.all_models() if m.group == "NPC" and m.token not in SC.MODEL_FRIENDLY)
+    assert SC.model_label(unknown.id) == (f"NPC {unknown.token}", "NPC"), "an unlisted token is never guessed"
+    assert SC.model_label(987654) == ("model 987654", "")
+
+
+JOIN = ({100: "alex", 101: "alex", 200: "ice"}, {"alex": {"name": "Alexandria"}, "ice": {"name": "Ice Cavern"}})
+
+
+def _lore_map(**over) -> SC.SoundMap:
+    base = dict(
+        stamp="lore",
+        rows={"music": [{"id": 9, "resource_id": "Sounds01/BGM_/music008"}],
+              "sfx": [{"id": i, "resource_id": rid} for i, rid in (
+                  (1, "Sounds02/SE05/se050001"), (2, "Sounds02/SE05/se050002"), (3, "Sounds02/SE05/se050003"),
+                  (4, "Sounds02/SE04/se040004"), (5, "Sounds02/SE05/se050005"), (6, "Sounds02/SE05/se050006"),
+                  (7, "Sounds02/SE05/se050007"), (8, "Sounds02/SE05/se050008"), (9, "Sounds02/SE03/se030009"),
+                  (10, "Sounds03/SE52/se520010"), (11, "Sounds03/SE52/se520011"), (12, "Sounds03/SE20/se200012"),
+                  (13, "Sounds02/SE00/se000013"), (14, "Sounds02/SE05/se050014"), (15, "Sounds03/SE50/se500015"),
+                  (16, "Sounds02/SE05/se050016"))],
+              "stream": [{"id": 5, "resource_id": "Sounds02/song_/song0005_0"}],
+              "movie": [{"id": 0, "resource_id": "Sounds02/Movie_/FMV001"}]},
+        uses={"music": {9: [100]}, "sfx": {1: [100, 101, 200], 2: [100], 3: [200], 5: [100], 6: [100],
+                                           7: [100], 8: [200], 13: [100], 16: [200]},
+              "stream": {5: [200]}, "movie": {}},
+        effects={"Sounds03/SE52/se520010": [0, 70], "Sounds03/SE52/se520011": [0],
+                 "Sounds03/SE50/se500015": [38]},
+        monsters={9: {"die": ["Test Golem", "Test Imp"], "start": ["Test Golem"]}},
+        audio={"Sounds02/SE05/se050003": [14.0, 1, 1], "Sounds02/SE05/se050001": [0.2, 0, 1],
+               "Sounds01/BGM_/music008": [80.0, 1, 2]},
+        field_count=3)
+    base.update(over)
+    return SC.SoundMap(**base)
+
+
+def _lore_entries(sm=None, names=None) -> dict:
+    sm = sm or _lore_map()
+    return {s.id if s.kind == "sfx" else s.kind: s
+            for s in SC.sounds(sm, names or {}, index=SC.LoreIndex(sm, JOIN))}
+
+
+def test_each_way_a_field_script_uses_a_sound_gives_it_a_description():
+    from ff9mapkit import catalog
+    mog, chest, zdn = (catalog.resolve_model(n) for n in ("GEO_NPC_F0_MOG", "GEO_ACC_F0_TBX", "GEO_MAIN_F0_ZDN"))
+    sm = _lore_map(contexts={"music": {}, "movie": {}, "stream": {5: _usage(_rec(role="main", tag="routine"))},
+                             "sfx": {
+        1: _usage(*[_rec(role="region", tag="touch", flags=("warp",))] * 3),                  # a door
+        2: _usage(*[_rec(role="object", tag="talk", flags=("item", "text"), model=mog)] * 4),  # a Moogle
+        3: _usage(_rec("sustain", "main", "init"), _rec("stop", "main", "reinit")),            # ambience
+        4: _usage(*[_rec("preload", "player", "init", model=zdn)] * 10, _rec("play", "player", "routine", model=zdn)),
+        5: _usage(*[_rec(role="object", tag="touch", flags=("item",), model=chest)] * 2),      # a chest
+        6: _usage(_rec(role="player", tag="routine")),                                         # the player
+        16: _usage(_rec(role="player", tag="loop", model=zdn)),                                # ...with a model
+        7: _usage(_rec(role="logic", tag="routine", flags=("battle",))),                       # a scene
+        8: _usage(_rec("stop", "main", "loop")),                                               # only stopped
+        13: _usage(_rec(role="main", tag="routine")),                                          # a system cue
+    }})
+    e = _lore_entries(sm)
+    got = {i: (e[i].category, e[i].describe) for i in (1, 2, 3, 4, 5, 6, 7, 8, 13)}
+    assert got[1] == ("door", "Door or exit · Alexandria +1")
+    assert got[2] == ("npc", "Moogle talk · Alexandria"), \
+        "WHO plays it outranks what else the routine does: a Moogle's greeting is not a pickup"
+    assert got[3] == ("ambience", "Ambience loop · Ice Cavern")
+    assert got[4] == ("moveset", "Sound set of Zidane"), \
+        "preloaded ten times for one script play: the engine plays it, so it is the character's set"
+    assert got[5] == ("pickup", "Pickup · Treasure chest · Alexandria"), "a PROP that gives something"
+    assert got[6] == ("character", "Player action · Alexandria")
+    assert (e[16].category, e[16].describe) == ("character", "Zidane · Ice Cavern"), \
+        "a sound the player's own script plays is that character's, like any other's"
+    assert got[7] == ("event", "Scene event · Alexandria")
+    assert got[8] == ("event", "Never started by a script · Ice Cavern")
+    assert got[13][0] == "menu", "the system bank: a cue a scene borrows is still a system cue"
+    assert e["stream"].category == "stream" and e["stream"].describe == "Scene event · Ice Cavern"
+    notes = SC.lore(sm, e[4], SC.LoreIndex(sm, JOIN)).notes
+    assert notes == ("Preloaded 10 times by Zidane; scripts play it only 1 times -- the engine does (footsteps "
+                     "and other animation sounds work this way).",)
+
+
+def test_battle_sounds_are_described_by_their_effect_or_their_monster():
+    e = _lore_entries()
+    assert (e[10].category, e[10].describe) == ("ability", "Fire (single) +1 · sound 1 of 2")
+    assert (e[11].category, e[11].describe) == ("ability", "Fire (single) · sound 2 of 2"), \
+        "two sounds of one effect must not read as the same row"
+    assert (e[15].category, e[15].describe) == ("summon", "Shiva (full)")
+    assert (e[9].category, e[9].describe) == ("monster", "Test Golem +1 death cry")
+    sm = _lore_map()
+    lr = SC.lore(sm, e[9], SC.LoreIndex(sm, JOIN))
+    assert lr.notes == ("Death cry of: Test Golem, Test Imp.", "Cry as the battle opens: Test Golem.")
+    assert "battle" in lr.tags and "monster" in lr.tags
+    assert SC.lore(sm, e[10], SC.LoreIndex(sm, JOIN)).notes == (
+        "Loaded by battle effects: Fire (single) (effect 0), Fire (multi) (effect 70).",)
+
+
+def test_a_sound_nothing_names_falls_back_to_what_its_bank_is():
+    """No description is invented: the row keeps its file stem and only TRAILS what the bank says.
+    An area bank's areas are READ from the sounds in it that scripts do place."""
+    sm = _lore_map(contexts={"sfx": {1: _usage(_rec(role="main", tag="routine")),
+                                     3: _usage(_rec(role="main", tag="routine"))}})
+    e = _lore_entries(sm)
+    assert (e[14].category, e[14].describe, e[14].hint) == ("areaset", "", "area set: Alexandria, Ice Cavern")
+    assert e[14].label == "se050014  ·  id 14  ·  area set: Alexandria, Ice Cavern" and not e[14].described
+    assert e[1].label == "Scene event · Alexandria +1  ·  id 1" and e[1].described, \
+        "a described row is its description and its id -- the stem would only elide to a fragment"
+    assert (e[12].category, e[12].hint) == ("world", "world map")
+    assert (e["movie"].category, e["movie"].hint) == ("movie", "movie audio")
+    assert e["music"].category == "music" and e["music"].describe == "" and "loop" in e["music"].auto_tags
+    index = SC.LoreIndex(sm, JOIN)
+    assert SC.bank_label("SE05", index) == "SE05 · Alexandria, Ice Cavern"
+    assert SC.bank_label("SE00", index) == "SE00 · System & menu"
+    assert SC.bank_label("SE52", index) == "SE52 · Battle effects"
+    assert SC.bank_label("SE09", index) == "SE09 · Area set", "an area bank no script places says only that"
+
+
+def test_length_and_looping_become_search_words():
+    e = _lore_entries()
+    assert e[1].auto_tags[0] == "blip" and (e[1].seconds, e[1].loops) == (0.2, False)
+    assert e[3].auto_tags == ("long", "loop") and e[3].loops
+    assert [s.stem for s in SC.filter_sounds(_lore_entries().values(), "long loop")] == ["music008", "se050003"]
+
+
+def test_a_tag_that_names_a_category_outranks_the_derived_one():
+    names = {"sfx": {"se520010": {"title": "Big whoosh", "tags": ["wind", "door"]},
+                     "se200012": {"title": "", "tags": ["ambience"]}}}
+    e = _lore_entries(names=names)
+    assert e[10].category == "door", "derived: a battle ability. The user's tag files it under doors."
+    assert e[12].category == "ambience"
+    assert e[11].category == "ability", "an untagged neighbour keeps its derived category"
+    assert SC.tag_category(["wind", "loud"]) is None and SC.tag_category(["x", "spell", "door"]) == "ability"
+
+
+def test_categories_are_counted_in_their_own_order_and_only_when_used():
+    counts = SC.category_counts(_lore_entries().values())
+    keys = [k for k, _l, _n in counts]
+    assert keys == [k for k, _l in SC.CATEGORIES if k in keys], "in CATEGORIES order"
+    assert sum(n for _k, _l, n in counts) == len(_lore_entries())
+    assert dict((k, n) for k, _l, n in counts)["ability"] == 2 and "minigame" not in keys
+    assert all(s.category in SC.CATEGORY_LABEL for s in _lore_entries().values())
+
+
+def test_a_description_reshapes_into_a_starting_name():
+    e = _lore_entries()
+    assert SC.suggest_title(e[10]) == "Fire (single), sound 1 of 2"
+    assert SC.suggest_title(e[9]) == "Test Golem death cry"
+    assert SC.suggest_title(e[12]) == "", "a hint is not a description: nothing to start from"
+
+
+def test_audio_facts_read_length_looping_and_channels_from_one_asset():
+    assert SC.audio_facts(_akb2(_ogg(rate=44100, channels=2, samples=88200), loop=(100, 88199))) == [2.0, 1, 2]
+    assert SC.audio_facts(_akb2(_ogg(rate=44100, channels=1, samples=4410))) == [0.1, 0, 1]
+    with pytest.raises(ValueError):
+        SC.audio_facts(b"not audio")
+
+
+def test_the_battle_lane_joins_monster_records_to_their_names(monkeypatch):
+    """The lane's three reads are stubbed (the scene scan, the warm battle map, the scene parser): what
+    is fenced is the JOIN -- a record's two sounds land under the right monster, an unnamed type names
+    nothing, the 0 / 0xFFFF sentinels name no sound, and one unparsable scene costs only itself."""
+    from types import SimpleNamespace as NS
+    from ff9mapkit.battle import locate, scene_codec
+    monkeypatch.setattr(locate, "_scan_raw16", lambda game=None: {7: b"seven", 8: b"eight", 9: b"bad"})
+    monkeypatch.setattr(locate, "cached_map", lambda game=None: NS(names={
+        7: {"names": {"us": ["Test Golem", None]}}, 8: {"names": {"us": ["Test Imp"]}}}))
+
+    def _parse(raw16):
+        if raw16 == b"bad":
+            raise ValueError("truncated")
+        mons = {b"seven": [NS(die_sfx=500, start_sfx=501), NS(die_sfx=502, start_sfx=0xFFFF)],
+                b"eight": [NS(die_sfx=500, start_sfx=0)]}[raw16]
+        return NS(monsters=mons)
+
+    monkeypatch.setattr(scene_codec, "parse_scene", _parse)
+    assert SC._battle_census() == {500: {"die": ["Test Golem", "Test Imp"]}, 501: {"start": ["Test Golem"]}}
+
+
+def test_a_describing_lane_that_fails_costs_only_itself(monkeypatch):
+    calls = []
+    _seam_install(monkeypatch, census_calls=calls)
+
+    def _boom(*a, **k):
+        raise FileNotFoundError("p0data2.bin is missing")
+
+    monkeypatch.setattr(SC, "_battle_census", _boom)
+    stages = []
+    sm = SC.build_map(progress=stages.append)
+    assert [r["id"] for r in sm.rows["music"]] == [0, 9], "the list still loads"
+    assert sm.monsters == {} and sm.gaps == ["battle scenes: p0data2.bin is missing"]
+    assert sm.audio == {"Sounds02/SE00/se000012": [0.4, 0, 1]}, "the other lane is untouched"
+    assert len(stages) == 4 and stages[0].startswith("Reading the sound tables")
+    SC._MEMO.clear()
+    assert SC.build_map(progress=stages.append).gaps == sm.gaps and len(stages) == 4, \
+        "a warm read reports no stages -- there is nothing to wait for"
 
 
 # ------------------------------------------------------------------------------------- the CLI ---

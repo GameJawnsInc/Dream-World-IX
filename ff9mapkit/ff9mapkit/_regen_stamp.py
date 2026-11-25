@@ -21,6 +21,7 @@ import subprocess
 TABLES = {
     "_animdb.py": ("_regen_animdb.py", "Memoria"),
     "_animdb_all.py": ("_regen_animdb_all.py", "Memoria"),
+    "_effectnames.py": ("_regen_effectnames.py", "Memoria"),
     "_fieldtable.py": ("_regen_fieldtable.py", "Memoria"),
     "_fieldtext.py": ("_regen_fieldtext.py", "Memoria"),
     "_modelalias.py": ("_regen_modelalias.py", "Memoria"),
